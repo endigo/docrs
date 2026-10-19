@@ -1,0 +1,6 @@
+/target/
+/.reference/
+/.venv/
+/.agent-native/
+**/.plan-url
+.DS_Store
