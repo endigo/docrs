@@ -4,3 +4,4 @@
 /.agent-native/
 **/.plan-url
 .DS_Store
+.claude/worktrees
