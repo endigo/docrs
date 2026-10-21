@@ -4,8 +4,10 @@
 //! lists. Anything else is reported by tag name and its text is kept.
 
 use super::ast::{
-    Align, Block, CellSpan, Inline, ListItem, RunStyle, Slot, TableLayout, VAlign, place,
+    Align, Block, CellSpan, Inline, ListItem, MAX_NESTING_DEPTH, MAX_TABLE_COLUMNS, RunStyle, Slot,
+    TableLayout, VAlign, place, too_deep,
 };
+use crate::Result;
 
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
@@ -88,11 +90,21 @@ fn tokenize(html: &str) -> Vec<Token> {
             let inner = inner.trim_end_matches('/');
             let name_end = inner.find(char::is_whitespace).unwrap_or(inner.len());
             let name = inner[..name_end].to_ascii_lowercase();
+            // Script, style and title text is not markup: it runs to the
+            // element's end tag.
+            let raw = !self_closing && RAW_TEXT.contains(&name.as_str());
             tokens.push(Token::Open {
                 attrs: attributes(&inner[name_end..]),
-                name,
+                name: name.clone(),
                 self_closing,
             });
+            if raw {
+                let end = find_ignore_case(rest, &format!("</{name}")).unwrap_or(rest.len());
+                if end > 0 {
+                    tokens.push(Token::Text(rest[..end].to_string()));
+                }
+                rest = &rest[end..];
+            }
             continue;
         }
         let end = rest.find('<').filter(|i| *i > 0).unwrap_or(rest.len());
@@ -100,6 +112,17 @@ fn tokenize(html: &str) -> Vec<Token> {
         rest = &rest[end..];
     }
     tokens
+}
+
+/// Elements whose content is text up to their end tag.
+const RAW_TEXT: &[&str] = &["script", "style", "title"];
+
+/// Byte offset of the first ASCII-case-insensitive match of `needle`.
+fn find_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .position(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 fn attributes(text: &str) -> Vec<(String, String)> {
@@ -142,7 +165,27 @@ fn attributes(text: &str) -> Vec<(String, String)> {
 /// children so far.
 type OpenElement = (String, Vec<(String, String)>, Vec<Node>);
 
-const VOID: &[&str] = &["br", "hr", "img", "col", "wbr", "meta", "link", "input"];
+const VOID: &[&str] = &[
+    "br", "hr", "img", "col", "wbr", "meta", "link", "input", "base", "basefont", "param", "area",
+];
+
+/// Whether `tag` is a void element (it has no content or end tag).
+pub(crate) fn is_void(tag: &str) -> bool {
+    VOID.contains(&tag)
+}
+
+/// Elements browsers do not display (the HTML standard's rendering rules
+/// give them `display: none`, and `noscript` with scripting on): they are
+/// dropped with their content.
+const HIDDEN: &[&str] = &[
+    "head", "title", "style", "script", "template", "noscript", "noembed", "noframes", "datalist",
+    "rp", "meta", "link", "base", "basefont", "param", "area",
+];
+
+/// `name` as listed in [`HIDDEN`], when browsers do not display it.
+pub(crate) fn hidden_tag(name: &str) -> Option<&'static str> {
+    HIDDEN.iter().find(|hidden| **hidden == name).copied()
+}
 
 /// A parsed element tree.
 #[derive(Debug, Clone)]
@@ -155,7 +198,9 @@ enum Node {
     Text(String),
 }
 
-fn tree(tokens: Vec<Token>) -> Vec<Node> {
+/// The element tree of `tokens`, nested inside `depth` levels of the
+/// surrounding document; refused past [`MAX_NESTING_DEPTH`].
+fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
     // Stack of open elements; the root collects top-level nodes.
     let mut stack: Vec<OpenElement> = vec![(String::new(), Vec::new(), Vec::new())];
     for token in tokens {
@@ -204,6 +249,10 @@ fn tree(tokens: Vec<Token>) -> Vec<Node> {
                         children: Vec::new(),
                     });
                 } else {
+                    // Every open element but the root is a level.
+                    if depth + stack.len() > MAX_NESTING_DEPTH {
+                        return Err(too_deep(depth + stack.len()));
+                    }
                     stack.push((name, attrs, Vec::new()));
                 }
             }
@@ -221,7 +270,7 @@ fn tree(tokens: Vec<Token>) -> Vec<Node> {
     while stack.len() > 1 {
         close_top(&mut stack);
     }
-    stack.pop().expect("root").2
+    Ok(stack.pop().expect("root").2)
 }
 
 fn close_top(stack: &mut Vec<OpenElement>) {
@@ -240,6 +289,10 @@ struct Converter {
     unknown: Vec<String>,
     /// CSS declarations with no Word equivalent, as `property on <tag>`.
     styles: Vec<String>,
+    /// Elements browsers do not display, dropped with their content.
+    skipped: Vec<String>,
+    /// A table was narrowed to Word's column limit.
+    narrowed_table: bool,
     /// Source line of the HTML (for image warnings).
     line: usize,
 }
@@ -644,6 +697,18 @@ impl Converter {
         }
     }
 
+    /// Whether `name` is an element browsers do not display; it is noted
+    /// as skipped.
+    fn skip(&mut self, name: &str) -> bool {
+        let Some(tag) = hidden_tag(name) else {
+            return false;
+        };
+        if !self.skipped.iter().any(|s| s == tag) {
+            self.skipped.push(tag.to_string());
+        }
+        true
+    }
+
     fn note_style(&mut self, tag: &str, property: &str) {
         let note = format!("{property} on <{tag}>");
         if !self.styles.contains(&note) {
@@ -730,6 +795,7 @@ impl Converter {
                         }
                     }
                 }
+                Node::Element { name, .. } if self.skip(name) => {}
                 Node::Element {
                     name,
                     attrs,
@@ -823,6 +889,9 @@ impl Converter {
             else {
                 continue;
             };
+            if self.skip(name) {
+                continue;
+            }
             let (break_before, break_after) = page_break_sides(attrs);
             if (break_before || break_after) && is_blank(children) {
                 out.push(Block::PageBreak);
@@ -932,6 +1001,7 @@ impl Converter {
             match node {
                 Node::Text(text) => out.push(Inline::Text(text.clone())),
                 Node::Element { name, .. } if name == "br" => out.push(Inline::Text("\n".into())),
+                Node::Element { name, .. } if self.skip(name) => {}
                 Node::Element { children, .. } => out.extend(self.inlines_raw(children)),
             }
         }
@@ -1004,6 +1074,7 @@ impl Converter {
             }
         }
         let header_rows = rows.iter().take_while(|row| row.header).count();
+        self.narrowed_table |= narrow(&mut rows);
         let spans: Vec<Vec<CellSpan>> = rows
             .iter()
             .map(|row| row.cells.iter().map(|cell| cell.span).collect())
@@ -1075,6 +1146,9 @@ impl Converter {
             else {
                 continue;
             };
+            if self.skip(name) {
+                continue;
+            }
             match name.as_str() {
                 "thead" => self.collect_rows(children, true, rows, widths, caption),
                 "tbody" | "tfoot" => self.collect_rows(children, false, rows, widths, caption),
@@ -1090,10 +1164,13 @@ impl Converter {
                             _ => self.note_style("col", &property),
                         }
                     }
+                    // A span widens the table no further than Word's last
+                    // column.
+                    let room = MAX_TABLE_COLUMNS.saturating_sub(widths.len()).max(1);
                     let span = attr(attrs, "span")
                         .and_then(|s| s.trim().parse::<usize>().ok())
                         .unwrap_or(1)
-                        .clamp(1, 1000);
+                        .clamp(1, room);
                     widths.extend(std::iter::repeat_n(width, span));
                 }
                 "tr" => {
@@ -1185,6 +1262,62 @@ impl Converter {
     }
 }
 
+/// Fit a table into Word's 63 columns: spans reaching past the last column
+/// are cut back (as [`place`] places them), and cells that would start past
+/// it move their content into the cell before them in the row, or into the
+/// cell covering that column from a row above. Returns whether anything
+/// changed.
+fn narrow(rows: &mut [HtmlRow]) -> bool {
+    let spans: Vec<Vec<CellSpan>> = rows
+        .iter()
+        .map(|row| row.cells.iter().map(|cell| cell.span).collect())
+        .collect();
+    let (placed, _) = place(&spans);
+    let mut changed = false;
+    // `(row, cell index)` moves into `(row, cell index)`.
+    let mut moves: Vec<((usize, usize), (usize, usize))> = Vec::new();
+    for (row, slots) in placed.iter().enumerate() {
+        let mut target = None;
+        for slot in slots {
+            match *slot {
+                Slot::Cell {
+                    index, col, span, ..
+                } if col < MAX_TABLE_COLUMNS => {
+                    changed |= span.colspan < spans[row][index].colspan;
+                    target = Some((row, index));
+                }
+                Slot::Continue { col, .. } if col < MAX_TABLE_COLUMNS => {
+                    // The cell above that starts this column's span.
+                    target = (0..row).rev().find_map(|above| {
+                        placed[above].iter().find_map(|slot| match *slot {
+                            Slot::Cell { index, col: c, .. } if c == col => Some((above, index)),
+                            _ => None,
+                        })
+                    });
+                }
+                Slot::Cell { index, .. } => {
+                    if let Some(target) = target {
+                        moves.push(((row, index), target));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if moves.is_empty() {
+        return changed;
+    }
+    for &((row, index), (to_row, to_index)) in &moves {
+        let blocks = std::mem::take(&mut rows[row].cells[index].blocks);
+        rows[to_row].cells[to_index].blocks.extend(blocks);
+    }
+    // Remove the emptied cells, last first so the indexes stay valid.
+    for &((row, index), _) in moves.iter().rev() {
+        rows[row].cells.remove(index);
+    }
+    true
+}
+
 /// Leading and trailing whitespace of a paragraph is not content, nor is a
 /// final line break (browsers draw `<p>a<br></p>` as one line).
 fn trim_inlines(mut inlines: Vec<Inline>) -> Vec<Inline> {
@@ -1201,36 +1334,45 @@ fn trim_inlines(mut inlines: Vec<Inline>) -> Vec<Inline> {
     inlines
 }
 
-/// What an HTML conversion could not map: tag names (their text is kept)
-/// and CSS declarations (`property on <tag>`).
+/// What an HTML conversion could not map: tag names (their text is kept),
+/// CSS declarations (`property on <tag>`), elements browsers do not display
+/// (dropped with their content) and whether a table was narrowed to Word's
+/// column limit.
 #[derive(Debug, Default)]
 pub(crate) struct Unmapped {
     pub tags: Vec<String>,
     pub styles: Vec<String>,
+    pub skipped: Vec<String>,
+    pub narrowed_table: bool,
 }
 
-/// Blocks for an HTML fragment starting on source `line`, and what had no
-/// mapping.
-pub(crate) fn convert(html: &str, line: usize) -> (Vec<Block>, Unmapped) {
+/// Blocks for an HTML fragment starting on source `line`, nested inside
+/// `depth` levels of Markdown, and what had no mapping. Refuses elements
+/// nested past [`MAX_NESTING_DEPTH`].
+pub(crate) fn convert(html: &str, line: usize, depth: usize) -> Result<(Vec<Block>, Unmapped)> {
     let mut converter = Converter {
         line,
         ..Converter::default()
     };
-    let nodes = tree(tokenize(html));
+    let nodes = tree(tokenize(html), depth)?;
     let blocks = converter.blocks(&nodes, false);
-    (
+    Ok((
         blocks,
         Unmapped {
             tags: converter.unknown,
             styles: converter.styles,
+            skipped: converter.skipped,
+            narrowed_table: converter.narrowed_table,
         },
-    )
+    ))
 }
 
 /// Whether `html` is one empty paragraph (`<p></p>`, `<p><br></p>`):
 /// an intentional blank line.
 pub(crate) fn is_empty_paragraph(html: &str) -> bool {
-    let nodes = tree(tokenize(html.trim()));
+    let Ok(nodes) = tree(tokenize(html.trim()), 0) else {
+        return false;
+    };
     matches!(nodes.as_slice(), [Node::Element { name, children, .. }]
     if name == "p" && children.iter().all(|c| match c {
         Node::Text(t) => t.trim().is_empty(),
@@ -1241,7 +1383,9 @@ pub(crate) fn is_empty_paragraph(html: &str) -> bool {
 /// Whether `html` is nothing but one empty element asking for a page break
 /// (`<div data-page-break="">`, `<div style="page-break-after: always">`).
 pub(crate) fn is_page_break_element(html: &str) -> bool {
-    let nodes = tree(tokenize(html.trim()));
+    let Ok(nodes) = tree(tokenize(html.trim()), 0) else {
+        return false;
+    };
     matches!(nodes.as_slice(), [Node::Element { attrs, children, .. }]
         if page_break_sides(attrs) != (false, false) && is_blank(children))
 }
@@ -1251,7 +1395,7 @@ mod tests {
     use super::*;
 
     fn read(html: &str) -> (Vec<Block>, Unmapped) {
-        convert(html, 1)
+        convert(html, 1, 0).unwrap()
     }
 
     #[test]

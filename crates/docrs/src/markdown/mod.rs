@@ -36,6 +36,7 @@ mod styles;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+pub use ast::MAX_NESTING_DEPTH;
 pub use inspect::inspect;
 pub use styles::{Role, RoleStyle, StylePolicy};
 
@@ -241,6 +242,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "a font has no metrics; contents page numbers are estimated with a substitute",
     ),
     (
+        "html_element_skipped",
+        "an HTML element browsers do not display (script, style, head, …) was dropped with its content",
+    ),
+    (
         "html_style_dropped",
         "a CSS declaration has no Word equivalent and was ignored",
     ),
@@ -271,6 +276,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "remote_image_skipped",
         "a remote image is not downloaded; its alt text is shown instead",
+    ),
+    (
+        "table_columns_clamped",
+        "a table is wider than Word's 63 columns; it was narrowed to fit",
     ),
     (
         "template_property_cleared",
@@ -380,13 +389,14 @@ fn insert_with(
     let parsed = match format {
         InputFormat::Markdown => ast::parse(markdown, options.smart_punctuation),
         InputFormat::Html => ast::parse_html(markdown),
-    };
+    }?;
     let metadata = parsed
         .metadata
         .as_ref()
         .map(|(kind, text)| frontmatter::metadata(*kind, text))
         .unwrap_or_default();
     let mut report = MarkdownReport::default();
+    report.warnings.extend(parsed.warnings.iter().cloned());
     let staged = {
         let doc: &Document = document;
         let mut txn = Txn::new(doc);
