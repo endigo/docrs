@@ -1,0 +1,50 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.marker-only-move",
+ "upstream": [
+  "tests/paper/test_audit_revision_compounds.py::it_refuses_a_complete_marker_only_move_unit"
+ ],
+ "fixture": "synthetic:p5-marker-only-move",
+ "cases": [
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reject_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

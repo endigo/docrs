@@ -1,0 +1,105 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.behave-having-part",
+ "upstream": [
+  "features/doc-styles.feature",
+  "features/sty-style-props.feature (name, style_id)"
+ ],
+ "fixture": "../../../.reference/paper-docx/features/steps/test_files/sty-having-styles-part.docx",
+ "cases": [
+  {
+   "name": "styles-collection",
+   "steps": [
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Default Paragraph Font"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "DefaultParagraphFont"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "set-name",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal",
+      {
+       "name": "Foobar"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foobar"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-style-id",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal",
+      {
+       "style_id": "Foo42"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foo42"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

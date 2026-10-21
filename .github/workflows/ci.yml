@@ -1,0 +1,67 @@
+name: ci
+on:
+  push:
+    branches: [main]  # pull requests run below; tags are built by release.yml
+  pull_request:
+jobs:
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --no-fail-fast
+        env:
+          DOCRS_PROPTEST_CASES: "400"
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check with the minimum Rust version (Cargo.toml rust-version)
+        run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$msrv" --profile minimal
+          cargo "+$msrv" check --locked -p docrs -p docrs-cli --all-features
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/wasm-pack
+  oracle-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Pinned oracle
+        run: |
+          git clone https://github.com/paper-instruments/paper-docx .reference/paper-docx
+          git -C .reference/paper-docx checkout 3c0f9a56c73105564a6a44661c6d058a0d3fc800
+          python -m venv .venv
+          .venv/bin/pip install ./.reference/paper-docx lxml==6.1.3 typing-extensions==4.16.0
+      - run: cargo run --release -p docrs-compat -- kernel-parity
+      - run: cargo run --release -p docrs-compat -- m2-parity
+      - run: cargo run --release -p docrs-compat -- m3-parity
+      - run: cargo run --release -p docrs-compat -- m6-parity
+      - run: cargo run --release -p docrs-compat -- cases
+      - run: cargo run --release -p docrs-compat -- ops
+  loader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install LibreOffice (must actually start)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libreoffice-writer
+          soffice --version
+      - run: cargo run --release -p docrs-cli -- replace tests/fixtures/upstream/generated/feature-isolated/fragmented-runs.docx --find 'payment terms' --with 'payment schedule' --out out.docx
+      - run: cargo run --release -p docrs-compat -- loader-smoke --require-libreoffice out.docx

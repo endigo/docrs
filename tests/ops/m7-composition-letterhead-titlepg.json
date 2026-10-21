@@ -1,0 +1,34 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.letterhead-titlepg",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeSourceLetterhead",
+  "src/docx/composition.py::_copy_letterhead"
+ ],
+ "fixture": "synthetic:p6-dest-titlepg",
+ "cases": [
+  {
+   "name": "first-page-skipped-and-title-page-cleared",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-firstpage"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

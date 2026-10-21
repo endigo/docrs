@@ -1,0 +1,980 @@
+{
+ "schema_version": 1,
+ "id": "m4.image.characterize",
+ "upstream": [
+  "features/img-characterize-image.feature",
+  "src/docx/image/{image,bmp,gif,jpeg,png,tiff}.py",
+  "features/doc-add-picture.feature (scaled dimensions)"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "synthetic-png_1x1",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-png_150dpi",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-png_phys_unit0",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000040000000408020000002693092900000009704859730000171200000bb800514cecb30000000b49444154789c6360400200000d000130468ffe0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-png_no_ihdr",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-png_truncated",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000002000000020802000000fdd49a730000000b49444154789c636000030000070001b286acf4"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-bmp_red",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b000000000000000000000000ff00"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-bmp_blue",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b00000000000000000000ff000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-bmp_zero_ppm",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "424d4e000000000000003600000028000000020000000300000001001800000000001800000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-bmp_300dpi",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "424d4e0000000000000036000000280000000400000002000000010018000000000018000000232e0000232e00000000000000000000000000000000000000000000000000000000000000000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-bmp_truncated",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "424d0000000000000000000000000000000000000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-gif_5x7",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "47494638396105000700800000000000ffffff2c00000000010001000002024401003b"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-gif_truncated",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "47494638396105"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-jfif_72",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a46494600010101004800480000ffdb00040000ffc0000b080008001001011100ffda0008010100003f001234ff0056ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-jfif_cm",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a464946000101020076003b0000ffdb00040000ffc0000b080014000a01011100ffda0008010100003f001234ff0056ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-jfif_units0",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a46494600010100012c012c0000ffdb00040000ffc0000b080003000301011100ffda0008010100003f001234ff0056ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-jfif_no_sof",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a46494600010101004800480000ffdb00040000ffda0008010100003f001234ff0056ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-jfif_truncated",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a46494600010101004800480000ffdb00040000ffc0000b"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-exif_300",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe1004a4578696600004d4d002a000000080003011a00050000000100000032011b0005000000010000003a012800030000000100020000000000000000012c000000010000012c00000001ffc0000b08000a001401011100ffda0008010100003f00ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-exif_cm",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe1004a4578696600004d4d002a000000080003011a00050000000100000032011b0005000000010000003a0128000300000001000300000000000000000076000000010000003b00000001ffc0000b08000a001401011100ffda0008010100003f00ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_le",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "49492a000800000005000001030001000000800200000101030001000000e00100001a010500010000004a0000001b010500010000005200000028010300010000000200000000000000c800000001000000c800000001000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_be_long",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "4d4d002a00000008000201000004000000010000064001010004000000010000083400000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_unit1",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "49492a000800000004000001030001000000080000000101030001000000080000001a010500010000003e000000280103000100000001000000000000002c01000001000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_zero_den",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "49492a000800000002000001030001000000080000001a0105000100000026000000000000002c01000000000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_ascii_zero",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "49492a000800000002000001030001000000080000000e010200000000002600000000000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_ascii_res",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "49492a000800000003000001030001000000080000000101030001000000080000001a010200030000003200000000000000616200"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiff_no_width",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "49492a000800000001001a010500010000001a000000000000004800000001000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-unknown",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "6e6f7420616e20696d61676520617420616c6c"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-empty",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": ""
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-jfif_header_only",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a46494600010101004800480000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "synthetic-tiny_png",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-test.png",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "test.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-monty-truth.png",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-jfif-300-dpi.jpg",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "jfif-300-dpi.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-lena_std.jpg",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "lena_std.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-lena.tif",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "lena.tif"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-sample.tif",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "sample.tif"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-jpeg420exif.jpg",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "jpeg420exif.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-court-exif.jpg",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "court-exif.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-lena.gif",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "lena.gif"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-lena.bmp",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "lena.bmp"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-mountain.bmp",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "mountain.bmp"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "upstream-python-icon.jpeg",
+   "steps": [
+    {
+     "op": "ext.p4_characterize",
+     "args": [
+      {
+       "$p4_image_file": "python-icon.jpeg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scaled-native",
+   "steps": [
+    {
+     "op": "ext.p4_scaled",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scaled-both",
+   "steps": [
+    {
+     "op": "ext.p4_scaled",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      },
+      1600200,
+      2286000
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scaled-width",
+   "steps": [
+    {
+     "op": "ext.p4_scaled",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      },
+      1371600
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scaled-height",
+   "steps": [
+    {
+     "op": "ext.p4_scaled",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      },
+      null,
+      1371600
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scaled-tiff-no-width",
+   "steps": [
+    {
+     "op": "ext.p4_scaled",
+     "args": [
+      {
+       "$p4_image": "49492a000800000001001a010500010000001a000000000000004800000001000000"
+      },
+      100
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scaled-150dpi",
+   "steps": [
+    {
+     "op": "ext.p4_scaled",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      },
+      null,
+      1000
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,59 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-term",
+ "upstream": [
+  "tests/paper/test_composition.py::it_renames_colliding_bookmarks_and_remaps_refs"
+ ],
+ "fixture": "synthetic:p6-dest-term",
+ "cases": [
+  {
+   "name": "renames-and-remaps-ref",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-term-ref"
+      },
+      "the definition body"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "renames-case-only",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-term-lower"
+      },
+      "source term"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

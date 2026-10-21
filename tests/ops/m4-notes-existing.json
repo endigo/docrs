@@ -1,0 +1,76 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.existing",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "generated/feature-isolated/footnotes-endnotes.docx",
+ "cases": [
+  {
+   "name": "next-ids",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "Opening paragraph"
+      },
+      "second footnote"
+     ]
+    },
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "Opening paragraph"
+      },
+      "second endnote"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/footnotes.xml",
+     "word/endnotes.xml"
+    ]
+   }
+  },
+  {
+   "name": "after-existing-mark",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "This sentence carries a footnote reference."
+      },
+      "stacked"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "endnote-after-existing",
+   "steps": [
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "carries an endnote reference."
+      },
+      "stacked"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,63 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.comment-duplicate-rel",
+ "upstream": [
+  "tests/paper/test_audit_revision_compounds.py::it_refuses_removing_one_of_multiple_comment_references",
+  "tests/paper/test_audit_revision_compounds.py::it_refuses_removing_only_one_comment_range_boundary",
+  "tests/paper/test_audit_revision_compounds.py::it_refuses_duplicate_comment_relationships_before_mutation"
+ ],
+ "fixture": "synthetic:p5-comment-duplicate-rel",
+ "cases": [
+  {
+   "name": "reject_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reject-0-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ]
+  }
+ ]
+}

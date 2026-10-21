@@ -1,0 +1,193 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.shapes",
+ "upstream": [
+  "features/shp-inline-shape-access.feature",
+  "features/shp-inline-shape-size.feature",
+  "src/docx/shape.py"
+ ],
+ "fixture": "synthetic:p7-compact-shp-inline-shape-access",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_inline_shapes"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "size-0-picture",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      0,
+      1828800,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "size-1-linked_picture",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      1,
+      1828800,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "size-2-linked_picture",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      2,
+      1828800,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "size-3-smart_art",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      3,
+      1828800,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream sets wp:extent and then raises AttributeError for a shape without pic:pic (SMART_ART); Rust reports the same class with nothing changed"
+  },
+  {
+   "name": "size-4-chart",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      4,
+      1828800,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream sets wp:extent and then raises AttributeError for a shape without pic:pic (CHART); Rust reports the same class with nothing changed"
+  },
+  {
+   "name": "width-only",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      0,
+      457200
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "negative-width",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      0,
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "too-large",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      0,
+      null,
+      27273042316901
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

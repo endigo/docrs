@@ -1,0 +1,374 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.table",
+ "upstream": [
+  "features/tbl-add-row-or-col.feature",
+  "features/tbl-cell-text.feature",
+  "features/tbl-style.feature",
+  "features/doc-add-table.feature",
+  "src/docx/table.py, oxml/table.py"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "cell-text",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      1,
+      2,
+      "B3"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "cell-text-tabs",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      0,
+      0,
+      "a\tb\nc"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "cell-text-twice",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      0,
+      1,
+      "x"
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      0,
+      1,
+      "y"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-row",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_add_row",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-column",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_add_column",
+     "args": [
+      0,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-column-then-row",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_add_column",
+     "args": [
+      0,
+      457200
+     ]
+    },
+    {
+     "op": "ext.p4_table_add_row",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-style",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-style-remove",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      "Table Grid"
+     ]
+    },
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-style-default",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      "Normal Table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "cell-out-of-range",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      5,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error"
+     }
+    ]
+   },
+   "deviation": "upstream raises IndexError (non_refusal_error); Rust returns invalid_argument(cell_out_of_range)"
+  },
+  {
+   "name": "add-column-negative",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      3
+     ]
+    },
+    {
+     "op": "ext.p4_table_add_column",
+     "args": [
+      0,
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  }
+ ]
+}

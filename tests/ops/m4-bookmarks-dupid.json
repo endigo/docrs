@@ -1,0 +1,58 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.dupid",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "synthetic:p1-bm-dupid",
+ "cases": [
+  {
+   "name": "delete-duplicate-ids",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "target"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-next-id",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "targets"
+      },
+      "Next"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

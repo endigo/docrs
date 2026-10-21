@@ -1,0 +1,121 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.coreprops.behave",
+ "upstream": [
+  "features/doc-coreprops.feature",
+  "features/steps/coreprops.py"
+ ],
+ "fixture": "synthetic:p7-compact-doc-coreprops",
+ "cases": [
+  {
+   "name": "read-known-values",
+   "steps": [
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "assign-new-values",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "author",
+        "Creator"
+       ],
+       [
+        "category",
+        "Category"
+       ],
+       [
+        "comments",
+        "Description"
+       ],
+       [
+        "content_status",
+        "Content Status"
+       ],
+       [
+        "created",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "identifier",
+        "Identifier"
+       ],
+       [
+        "keywords",
+        "key; word; keyword"
+       ],
+       [
+        "language",
+        "Language"
+       ],
+       [
+        "last_modified_by",
+        "Last Modified By"
+       ],
+       [
+        "last_printed",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "modified",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "revision",
+        9
+       ],
+       [
+        "subject",
+        "Subject"
+       ],
+       [
+        "title",
+        "Title"
+       ],
+       [
+        "version",
+        "Version"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  }
+ ]
+}

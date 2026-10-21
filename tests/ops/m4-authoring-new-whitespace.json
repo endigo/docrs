@@ -1,0 +1,32 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.new-whitespace",
+ "upstream": [
+  "src/docx/oxml/parser.py (remove_blank_text)"
+ ],
+ "fixture": "new",
+ "cases": [
+  {
+   "name": "pretty-printed-template",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  }
+ ]
+}

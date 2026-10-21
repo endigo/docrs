@@ -1,0 +1,37 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.numbering-badnum",
+ "upstream": [
+  "tests/paper/test_audit_composition_safety.py::it_refuses_malformed_destination_numbering_before_importing_a_style"
+ ],
+ "fixture": "synthetic:p6-dest-badnum",
+ "cases": [
+  {
+   "name": "malformed-destination-numbering",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styled-numbered"
+      },
+      "Styled numbered source"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,70 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.settings-no-part",
+ "upstream": [
+  "features/doc-settings.feature (no settings part)"
+ ],
+ "fixture": "../../../.reference/paper-docx/features/steps/test_files/set-no-settings-part.docx",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_odd_even"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream `document.settings` adds a default settings part as a side effect of reading; Rust reads `false` without creating a part"
+  },
+  {
+   "name": "set-true-creates-part",
+   "steps": [
+    {
+     "op": "ext.p7_set_odd_even",
+     "args": [
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/settings.xml"
+    ]
+   },
+   "deviation": "upstream re-serializes every part it loads without inter-element whitespace (remove_blank_text), so the pretty-printed core, styles and document parts of this Behave file change semantically; Rust keeps them. m7-inherited-settings-no-part-compact repeats the case on a blank-text-free copy and passes"
+  },
+  {
+   "name": "set-false-creates-part",
+   "steps": [
+    {
+     "op": "ext.p7_set_odd_even",
+     "args": [
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/settings.xml"
+    ]
+   },
+   "deviation": "upstream re-serializes every part it loads without inter-element whitespace (remove_blank_text), so the pretty-printed core, styles and document parts of this Behave file change semantically; Rust keeps them. m7-inherited-settings-no-part-compact repeats the case on a blank-text-free copy and passes"
+  }
+ ]
+}

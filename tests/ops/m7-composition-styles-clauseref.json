@@ -1,0 +1,71 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.styles-clauseref",
+ "upstream": [
+  "tests/paper/test_practical_composition_table_hardening.py::it_quotes_a_renamed_styleref_and_carries_its_numbering_dependency"
+ ],
+ "fixture": "synthetic:p6-dest-clauseref",
+ "cases": [
+  {
+   "name": "quotes-renamed-styleref-and-remaps-style-numbering",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseref"
+      },
+      "Field source"
+     ],
+     "kwargs": {
+      "anchor": "Destination",
+      "styles": "import_renamed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "match-by-name-styleref",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseref"
+      },
+      "Field source"
+     ],
+     "kwargs": {
+      "anchor": "Destination"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

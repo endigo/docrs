@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.malformed",
+  "upstream": [
+    "src/docx/numbering.py::_definitions (raw int() on malformed ids -> ValueError)",
+    "src/docx/numbering.py::restart_numbering (malformed numId refusal)",
+    "tests/paper/test_audit_secondary_safety.py (restart that would drop overrides)"
+  ],
+  "fixture": "synthetic:p2-numbering-malformed",
+  "cases": [
+    {"name": "report-malformed", "steps": [{"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "apply-malformed", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain"}], "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "restart-malformed", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "ensure-malformed", "steps": [{"op": "numbering.ensure_bullet_definition"}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}}
+  ]
+}

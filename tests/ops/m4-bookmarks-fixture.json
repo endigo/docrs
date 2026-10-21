@@ -1,0 +1,228 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.fixture",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "generated/feature-isolated/bookmarks.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-unique-id",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "for definitions"
+      },
+      "SecondMark"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "duplicate-name",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "for definitions"
+      },
+      "DefinedTerm"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "duplicate-name-casefold",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "for definitions"
+      },
+      "definedterm"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-keeps-text",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "DefinedTerm"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "See the Master Agreement for definitions."
+    ]
+   }
+  },
+  {
+   "name": "delete-case-insensitive",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "definedTERM"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-point",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "_GoBack"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-unknown",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Nonexistent"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "create-inside-bookmark",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Master"
+      },
+      "Inner"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-over-markers",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "See the Master Agreement for"
+      },
+      "Outer"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "replace-keeps-bookmark",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Paragraph after"
+      },
+      "After"
+     ]
+    },
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "After"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

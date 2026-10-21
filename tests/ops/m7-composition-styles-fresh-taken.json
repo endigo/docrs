@@ -1,0 +1,34 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.styles-fresh-taken",
+ "upstream": [
+  "src/docx/composition.py::_fresh_style_id"
+ ],
+ "fixture": "synthetic:p6-dest-fresh-taken",
+ "cases": [
+  {
+   "name": "fresh-id-skips-taken-ids",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-fresh"
+      },
+      "Fresh styled clause."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

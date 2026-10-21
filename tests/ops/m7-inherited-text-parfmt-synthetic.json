@@ -1,0 +1,187 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-parfmt-synthetic",
+ "upstream": [
+  "src/docx/oxml/text/parfmt.py::CT_PPr"
+ ],
+ "fixture": "synthetic:p7-text",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exact-keeps-at-least",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": {
+        "exact": 254000
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "first-line-replaces-hanging",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "first_line_indent": 127000
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "rule-only",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "EXACTLY"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "rule-none-keeps-line",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown-ppr-child",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "center",
+       "keep_with_next": true,
+       "space_after": 12700
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "no-ppr-none-values",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      3,
+      {
+       "left_indent": null,
+       "space_before": null,
+       "line_spacing": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

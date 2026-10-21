@@ -1,0 +1,38 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.read.libreoffice",
+ "upstream": [
+  "list_controls read parity"
+ ],
+ "fixture": "libreoffice/feature-isolated/content-control.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  },
+  {
+   "name": "set-first",
+   "steps": [
+    {
+     "op": "ext.p1_control_set_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "index": 0
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 0
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,247 @@
+// Node tests of the built package (crates/docrs-wasm/pkg):
+//   node --test crates/docrs-wasm/js/test.mjs
+// Fixtures are the synthetic templates and sample Markdown in
+// tests/fixtures/markdown/templates.
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, "..", "..", "..");
+const pkg = process.env.DOCRS_WASM_PKG ?? join(here, "..", "pkg");
+const lib = createRequire(import.meta.url)(pkg);
+const templates = join(root, "tests", "fixtures", "markdown", "templates");
+const readBytes = (path) => new Uint8Array(readFileSync(path));
+
+const isZip = (bytes) => bytes[0] === 0x50 && bytes[1] === 0x4b;
+
+test("every synthetic template converts the sample record of advice", () => {
+  const markdown = readFileSync(join(templates, "record-of-advice.md"), "utf8");
+  const names = readdirSync(join(templates, "v2")).filter((n) => n.endsWith(".docx"));
+  assert.equal(names.length, 20);
+  for (const name of names) {
+    const reference = readBytes(join(templates, "v2", name));
+    const { docx, report } = lib.fromMarkdown(markdown, {
+      reference,
+      toc: true,
+      pageNumbers: true,
+    });
+    assert.ok(docx instanceof Uint8Array && isZip(docx), name);
+    assert.deepEqual(report.warnings, [], name);
+    assert.ok(report.counts.tables > 0, name);
+    // The output reads back as a reference document.
+    assert.equal(lib.markdownStyles(docx).length, 40, name);
+  }
+});
+
+test("options are optional and the result is deterministic for a given time", () => {
+  const first = lib.fromMarkdown("# Title\n\nText.\n", { now: 1_700_000_000_000 });
+  const second = lib.fromMarkdown("# Title\n\nText.\n", { now: 1_700_000_000_000 });
+  assert.deepEqual(first.docx, second.docx);
+  assert.ok(isZip(lib.fromMarkdown("plain").docx));
+  // Forwarded optional values may be undefined or null.
+  assert.ok(isZip(lib.fromMarkdown("plain", { toc: undefined, pageNumbers: null, reference: undefined }).docx));
+});
+
+test("images come from memory", () => {
+  const png = Uint8Array.from(
+    Buffer.from(
+      "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082",
+      "hex",
+    ),
+  );
+  const { report } = lib.fromMarkdown("![Chart](./img/chart.png)\n", {
+    images: { "img/chart.png": png },
+  });
+  assert.equal(report.counts.images, 1);
+  assert.deepEqual(report.warnings, []);
+  const byUrl = lib.fromMarkdown("![Chart](https://cdn.example/a/chart.png?v=2)\n", {
+    images: { "https://cdn.example/a/chart.png?v=2": png },
+  }).report;
+  assert.equal(byUrl.counts.images, 1);
+  // A key without an extension still gives the part one (Word refuses
+  // a media part without a content type).
+  const { docx } = lib.fromMarkdown("![Chart](img-123)\n", { images: { "img-123": png } });
+  assert.ok(Buffer.from(docx).includes("word/media/image1.png"));
+  assert.ok(!Buffer.from(docx).includes("word/media/image1.\u0000"));
+  assert.deepEqual(byUrl.warnings, []);
+  const missing = lib.fromMarkdown("![Chart](other.png)\n").report;
+  assert.equal(missing.warnings[0].code, "image_not_found");
+});
+
+test("refusals throw structured errors", () => {
+  assert.throws(
+    () => lib.fromMarkdown("![x](missing.png)\n", { strict: true }),
+    (err) =>
+      err instanceof Error &&
+      err.refusal === true &&
+      err.reason === "markdown_not_faithful" &&
+      err.limit === null &&
+      /missing\.png was not supplied/.test(err.message),
+  );
+  assert.throws(
+    () => lib.fromMarkdown("x", { nonsense: true }),
+    (err) => err.code === "invalid_argument" && err.reason === "invalid_options",
+  );
+  assert.throws(
+    () => lib.fromMarkdown("x", { pagenumbers: true }),
+    (err) => /unknown option "pagenumbers"/.test(err.message),
+  );
+  assert.throws(
+    () => lib.fromMarkdown("x", { styles: { not_a_role: "Normal" } }),
+    (err) => err.code === "invalid_argument",
+  );
+});
+
+test("reference packages Word tolerates are read unless strictPackage", () => {
+  const reference = readBytes(join(templates, "docx-template-missing-pandoc-styles.docx"));
+  const { referenceSetAside } = lib.fromMarkdown("# Advice\n", { reference });
+  assert.equal(referenceSetAside.length, 2);
+  assert.throws(
+    () => lib.fromMarkdown("# Advice\n", { reference, strictPackage: true }),
+    (err) => err.reason === "zip_directory_data",
+  );
+});
+
+test("the starter reference document round-trips", () => {
+  const reference = lib.referenceDocument();
+  assert.ok(isZip(reference));
+  const roles = lib.markdownStyles(reference);
+  assert.ok(roles.every((role) => role.style !== null));
+  const { report } = lib.fromMarkdown("```\ncode\n```\n", { reference });
+  assert.equal(report.styles.code_block.name, "Source Code");
+  assert.match(lib.version(), /^\d+\.\d+\.\d+/);
+});
+
+const PNG = Uint8Array.from(
+  Buffer.from(
+    "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082",
+    "hex",
+  ),
+);
+
+// The editor HTML contract (the shapes a rich-text editor emits), synthetic.
+const EDITOR_HTML =
+  '<h2 style="text-align: center;">Advice</h2>' +
+  '<p><span style="color: #dc2626;">red</span> <span style="font-family: &quot;Courier New&quot;, monospace;">mono</span> ' +
+  '<mark data-color="#bbf7d0" style="background-color: #bbf7d0; color: inherit;">green</mark></p><p></p>' +
+  '<table style="width: 520px;"><colgroup><col style="width: 240px;"><col style="width: 140px;"><col style="width: 140px;"></colgroup><tbody>' +
+  '<tr><th colwidth="240"><p>Product</p></th><th colspan="2" colwidth="140,140"><p>Both</p></th></tr>' +
+  '<tr><td rowspan="2" colwidth="240"><p>Two rows</p></td><td colwidth="140"><p style="text-align: right;">$1</p></td><td colwidth="140"><p>x</p></td></tr>' +
+  '<tr><td colwidth="140"><p>y</p></td><td colwidth="140"><p>z</p></td></tr></tbody></table>' +
+  '<div data-image-align="right" style="text-align: right;"><img src="https://store.example/logo.png?token=t" alt="Logo" width="200" height="80"></div>' +
+  '<div data-page-break="" class="rich-text-page-break not-prose"></div><h2>After</h2>';
+
+const documentXml = (docx) => {
+  // Stored or deflated: find word/document.xml through the package reader.
+  const { inflateRawSync } = createRequire(import.meta.url)("node:zlib");
+  const buf = Buffer.from(docx);
+  let at = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const entries = buf.readUInt16LE(at + 10);
+  let p = buf.readUInt32LE(at + 16);
+  for (let i = 0; i < entries; i++) {
+    const method = buf.readUInt16LE(p + 10);
+    const size = buf.readUInt32LE(p + 20);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extra = buf.readUInt16LE(p + 30);
+    const comment = buf.readUInt16LE(p + 32);
+    const local = buf.readUInt32LE(p + 42);
+    const name = buf.toString("utf8", p + 46, p + 46 + nameLen);
+    if (name === "word/document.xml") {
+      const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+      const data = buf.subarray(start, start + size);
+      return (method === 8 ? inflateRawSync(data) : data).toString("utf8");
+    }
+    p += 46 + nameLen + extra + comment;
+  }
+  throw new Error("no word/document.xml");
+};
+
+test("editor HTML maps colours, alignment, spans, widths, images and page breaks", () => {
+  const { docx, report } = lib.fromHtml(EDITOR_HTML, {
+    images: { "https://store.example/logo.png?token=t": PNG },
+  });
+  assert.deepEqual(report.warnings, []);
+  assert.equal(report.counts.images, 1);
+  const xml = documentXml(docx);
+  for (const needle of [
+    '<w:color w:val="DC2626"/>',
+    'w:ascii="Courier New"',
+    'w:fill="BBF7D0"',
+    '<w:jc w:val="center"/>',
+    '<w:gridSpan w:val="2"/>',
+    '<w:vMerge w:val="restart"/>',
+    '<w:vMerge/>',
+    '<wp:extent cx="1905000" cy="762000"/>',
+    'descr="Logo"',
+    '<w:br w:type="page"/>',
+  ]) {
+    assert.ok(xml.includes(needle), needle);
+  }
+  // No caption paragraph under the picture.
+  assert.ok(!xml.includes(">Logo<"));
+});
+
+test("redact keeps input text out of warnings and errors", () => {
+  const { report } = lib.fromHtml('<p><img src="https://x.example/client-name.png"></p><p style="line-height: 2">t</p>', {
+    redact: true,
+  });
+  const text = JSON.stringify(report.warnings);
+  assert.ok(text.includes("remote_image_skipped") && text.includes("html_style_dropped"), text);
+  assert.ok(!text.includes("client-name") && !text.includes("line-height"), text);
+  assert.throws(
+    () => lib.fromMarkdown("![x](client-secret.png)\n", { strict: true, redact: true }),
+    (err) => err.code === "unsupported_structure" && !err.message.includes("client-secret"),
+  );
+});
+
+test("the serverless preset bounds input and the reference", () => {
+  const big = "x".repeat((384 << 10) + 1);
+  assert.throws(
+    () => lib.fromMarkdown(big, { limits: "serverless" }),
+    (err) => err.code === "resource_limit" && err.limit.limit === "max_source_bytes",
+  );
+  assert.ok(isZip(lib.fromMarkdown(big.slice(0, 1000), { limits: "serverless" }).docx));
+  assert.throws(
+    () => lib.fromMarkdown("a", { limits: "serverless", images: { a: new Uint8Array((12 << 20) + 1) } }),
+    (err) => err.code === "resource_limit" && err.limit.limit === "max_input_bytes",
+  );
+  assert.throws(() => lib.fromMarkdown("a", { limits: "huge" }), (err) => err.code === "invalid_argument");
+});
+
+test("inspectReference reports the section, lifted branding and problems", () => {
+  for (const name of readdirSync(join(templates, "v2")).filter((n) => n.endsWith(".docx"))) {
+    const inspection = lib.inspectReference(readBytes(join(templates, "v2", name)), { pageNumbers: true });
+    assert.equal(inspection.schema_version, 1, name);
+    assert.equal(inspection.section.used, "last", name);
+    assert.ok(inspection.section.text_width > 0, name);
+    assert.ok(Array.isArray(inspection.problems), name);
+  }
+  const multi = lib.inspectReference(readBytes(join(templates, "v2", "multi-section-portrait-then-landscape.docx")));
+  assert.equal(multi.section.page.orientation, "landscape");
+  assert.ok(multi.problems.some((p) => p.code === "multiple_sections"));
+  const legacy = lib.inspectReference(readBytes(join(templates, "v2", "compat-word2003-legacy.docx")));
+  assert.ok(legacy.problems.some((p) => p.code === "old_compatibility_mode"));
+});
+
+test("the contents shows computed page numbers unless tocNumbers is false", () => {
+  const markdown = "# One\n\nText.\n\n\\newpage\n\n# Two\n\n\\newpage\n\n\\newpage\n\n# Three\n";
+  const { docx, report } = lib.fromMarkdown(markdown, { toc: true });
+  const xml = documentXml(docx);
+  // Contents on page 1, One on 2, Two on 3, Three on 5.
+  const numbers = [...xml.matchAll(/ PAGEREF (\w+) \\h <\/w:instrText>.*?<w:t>(\d+)<\/w:t>/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(numbers, [["one", "2"], ["two", "3"], ["three", "5"]]);
+  assert.deepEqual(report.toc, { entries: 3, pages: 5, missing_fonts: [], embedded_fonts: [] });
+  const plain = lib.fromMarkdown(markdown, { toc: true, tocNumbers: false });
+  assert.ok(!documentXml(plain.docx).includes("PAGEREF"));
+  assert.equal(plain.report.toc, null);
+});
+
+test("headings without text get no contents entry", () => {
+  const { docx, report } = lib.fromHtml("<h2>A</h2><p>x</p><h1></h1><h2>B</h2><p>y</p>", { toc: true });
+  assert.equal((documentXml(docx).match(/ PAGEREF /g) ?? []).length, 2);
+  assert.equal(report.toc.entries, 2);
+});

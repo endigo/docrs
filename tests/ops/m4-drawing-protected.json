@@ -1,0 +1,121 @@
+{
+ "schema_version": 1,
+ "id": "m4.drawing.protected",
+ "upstream": [
+  "tests/paper/test_word_protection_matrix.py (picture)"
+ ],
+ "fixture": "synthetic:p4-drawings-readonly",
+ "cases": [
+  {
+   "name": "refuses",
+   "steps": [
+    {
+     "op": "ext.p4_replace_picture",
+     "args": [
+      0,
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "no-picture-first",
+   "steps": [
+    {
+     "op": "ext.p4_replace_picture",
+     "args": [
+      2,
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "linked-first",
+   "steps": [
+    {
+     "op": "ext.p4_replace_picture",
+     "args": [
+      3,
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-image-protected",
+   "steps": [
+    {
+     "op": "ext.p4_replace_picture",
+     "args": [
+      0,
+      {
+       "$p4_image": "6e6f7420616e20696d61676520617420616c6c"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "authoring-not-gated",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "inherited API ignores protection"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

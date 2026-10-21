@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.synthetic",
+  "upstream": [
+    "src/docx/numbering.py (list_numbering, apply_numbering, apply_list_style, ensure_*_definition, restart_numbering)",
+    "tests/paper/test_tableops_numbering.py::DescribeListNumbering / DescribeApplyNumbering / DescribeApplyListStyle",
+    "tests/paper/test_verbs.py::DescribeNumberingAuthoring",
+    "tests/paper/test_practical_composition_table_hardening.py (numbering in cells, controls, AlternateContent)"
+  ],
+  "fixture": "synthetic:p2-numbering",
+  "cases": [
+    {"name": "report", "steps": [{"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": []}},
+    {"name": "apply-existing", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 4, "level": 1}},
+      {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "apply-override-level", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 4, "level": 2}}]},
+    {"name": "apply-default-level", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Second plain"}], "kwargs": {"num_id": 1}}]},
+    {"name": "apply-reuses-numpr", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Bullet two nested"}], "kwargs": {"num_id": 4, "level": 0}},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "apply-styled-paragraph", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Styled bullet"}], "kwargs": {"num_id": 1, "level": 1}}]},
+    {"name": "apply-in-cell", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "cell A"}], "kwargs": {"num_id": 1}},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "apply-in-header", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Header numbered"}], "kwargs": {"num_id": 4, "level": 0}},
+      {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/header1.xml"]}},
+    {"name": "apply-undefined-definition", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 999}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "apply-undefined-level", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 4, "level": 7}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "apply-no-abstract-definition", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 6}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "apply-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}], "changed_parts": ["word/settings.xml"]}},
+    {"name": "apply-protected-acknowledged", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "protection.acknowledge_protection"},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 1}}]},
+    {"name": "list-style-heading", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "Heading 2"]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "list-style-bound", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "List Child"]},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "list-style-replaces-existing", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Styled bullet"}, "Body Text"]}]},
+    {"name": "list-style-default-removes-pstyle", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Styled bullet"}, "Normal"]},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "list-style-zero-binding", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "No Number"]}]},
+    {"name": "list-style-loop", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "Loop B"]}]},
+    {"name": "list-style-undefined", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "No Such List Style"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "list-style-internal-name-not-ui", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "heading 2"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "list-style-unresolved-binding", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "Ghost List"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "list-style-character-type", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "Strong"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "list-style-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "comments"}},
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Plain target"}, "Heading 2"]}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "ensure-bullet-new-past-handedited", "steps": [
+      {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/numbering.xml"]}},
+    {"name": "ensure-decimal-then-bullet", "steps": [
+      {"op": "numbering.ensure_decimal_definition"},
+      {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.ensure_decimal_definition"}]},
+    {"name": "ensure-then-apply", "steps": [
+      {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain target"}], "kwargs": {"num_id": 11, "level": 2}},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "ensure-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "forms"}},
+      {"op": "numbering.ensure_bullet_definition"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "restart-plain", "steps": [
+      {"op": "numbering.restart_numbering", "kwargs": {"num_id": 1}},
+      {"op": "numbering.restart_numbering", "kwargs": {"num_id": 1}},
+      {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/numbering.xml"]}},
+    {"name": "restart-then-apply", "steps": [
+      {"op": "numbering.restart_numbering", "kwargs": {"num_id": 2}},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Second plain"}], "kwargs": {"num_id": 11}}]},
+    {"name": "restart-overrides", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 4}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "restart-comment-child", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 10}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "restart-no-abstract", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 6}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "restart-missing-abstract", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 8}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "restart-unknown", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 999}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "restart-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "numbering.restart_numbering", "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}}
+  ]
+}

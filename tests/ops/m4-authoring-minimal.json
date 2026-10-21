@@ -1,0 +1,145 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.minimal",
+ "upstream": [
+  "src/docx/document.py::_block_width (no sections)",
+  "src/docx/parts/document.py::_styles_part"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "paragraph",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Appended"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "styled-paragraph",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Styled",
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before",
+   "steps": [
+    {
+     "op": "ext.p4_insert_paragraph_before",
+     "args": [
+      0,
+      "Lead",
+      "Title"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "continuous"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-style-creates-nothing",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      1,
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

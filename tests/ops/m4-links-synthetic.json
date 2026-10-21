@@ -1,0 +1,359 @@
+{
+ "schema_version": 1,
+ "id": "m4.links.synthetic",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeHyperlinks"
+ ],
+ "fixture": "synthetic:p1-links",
+ "cases": [
+  {
+   "name": "creates-styles-part",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/styles.xml",
+     "word/_rels/document.xml.rels"
+    ]
+   }
+  },
+  {
+   "name": "intervening-bookmark",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "hello world"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "adjacent-runs",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "fragmented text"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "existing-run-style",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "phrase"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "existing-hyperlink",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "already linked"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "intervening-proof",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "proof checked"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tab-in-run",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "tab\tbed"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "data-bound",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "BoundLink"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "locked",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "LockedLink"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unlocked-control",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "PlainLink"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "plain-text-control",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "PlainTextLink"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "typed-control",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "DropLink"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "crosses-insertion",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "inserted words"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inside-insertion",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "inserted"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "across-deletion",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "keeping"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "field-result",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "June 1, 2026"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "two-links",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly"
+      },
+      "https://example.com/a"
+     ]
+    },
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "ordinary"
+      },
+      "https://example.com/a"
+     ]
+    },
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Second"
+      },
+      "https://example.com/z"
+     ]
+    }
+   ]
+  }
+ ]
+}

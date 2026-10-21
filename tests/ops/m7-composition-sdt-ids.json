@@ -1,0 +1,54 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.sdt-ids",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_keeps_all_content_control_ids_unique_when_appending_after_a_control"
+ ],
+ "fixture": "synthetic:p6-dest-sdt1",
+ "cases": [
+  {
+   "name": "unique-control-ids",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-sdts"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unique-control-ids-new-page",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-sdts"
+      }
+     ],
+     "kwargs": {}
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

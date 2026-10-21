@@ -1,0 +1,31 @@
+{
+ "schema_version": 1,
+ "id": "m4.drawing.tracked",
+ "upstream": [
+  "tests/paper/test_word_protection_matrix.py (picture, trackedChanges permits body content)"
+ ],
+ "fixture": "synthetic:p4-drawings-tracked",
+ "cases": [
+  {
+   "name": "allowed",
+   "steps": [
+    {
+     "op": "ext.p4_replace_picture",
+     "args": [
+      0,
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

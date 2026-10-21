@@ -1,0 +1,824 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.values",
+ "upstream": [
+  "src/docx/shared.py::Length",
+  "src/docx/shared.py::RGBColor.from_string"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "Inches-1",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Inches",
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Inches-0.5",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Inches",
+      0.5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Inches-2.54",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Inches",
+      2.54
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Inches--1.25",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Inches",
+      -1.25
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Inches-0.0001",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Inches",
+      0.0001
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Cm-2.54",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Cm",
+      2.54
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Cm-1",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Cm",
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Cm--0.3",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Cm",
+      -0.3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Cm-10.123456",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Cm",
+      10.123456
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Mm-25.4",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Mm",
+      25.4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Mm-0.1",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Mm",
+      0.1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Mm-3",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Mm",
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Pt-12",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Pt",
+      12
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Pt-10.5",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Pt",
+      10.5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Pt-0.75",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Pt",
+      0.75
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Pt--2",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Pt",
+      -2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Twips-1440",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Twips",
+      1440
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Twips-1",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Twips",
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Twips-0.5",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Twips",
+      0.5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Twips-333",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Twips",
+      333
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Emu-914400",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Emu",
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Emu-1",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Emu",
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Emu-635",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Emu",
+      635
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Emu-0",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Emu",
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Emu--12700",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Emu",
+      -12700
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Length-12345",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Length",
+      12345
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "Length-1270",
+   "steps": [
+    {
+     "op": "ext.p7_length",
+     "args": [
+      "Length",
+      1270
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-3C2F80",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "3C2F80"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-f00ba5",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "f00ba5"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-000000",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "000000"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-FFFFFF",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "FFFFFF"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-a_b_c",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      " a b c"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-+1+2+3",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "+1+2+3"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-12345",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "12345"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-XYZ123",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "XYZ123"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-empty",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-12",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "12"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-FF-100",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "FF-100"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-1234FFF",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "1234FFF"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-0x1234",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "0x1234"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "rgb-bad-1234567",
+   "steps": [
+    {
+     "op": "ext.p7_rgb",
+     "args": [
+      "1234567"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

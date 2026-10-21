@@ -1,0 +1,79 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.exotic-tcpr",
+ "upstream": [
+  "tests/paper/test_resolution.py::DescribeExoticTypesStayRefused",
+  "tests/paper/test_revisions.py::it_refuses_individual_resolution_of_an_exotic_revision"
+ ],
+ "fixture": "synthetic:p5-exotic-tcpr",
+ "cases": [
+  {
+   "name": "enumerate",
+   "steps": [
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ]
+  },
+  {
+   "name": "accept-refused-by-name",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": {
+       "type": "table_property_change"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": {
+       "type": "table_property_change"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

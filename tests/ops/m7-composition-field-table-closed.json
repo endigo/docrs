@@ -1,0 +1,38 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.field-table-closed",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_composes_after_a_field_closed_inside_the_destination_paragraph",
+  "tests/paper/test_composition.py::DescribeAppendDocument::it_appends_after_a_field_closed_inside_the_final_physical_block"
+ ],
+ "fixture": "synthetic:p6-dest-field-table-closed",
+ "cases": [
+  {
+   "name": "closed-field-table",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "added_parts": []
+   }
+  }
+ ]
+}

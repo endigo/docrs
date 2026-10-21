@@ -1,0 +1,46 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.textbox",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "generated/feature-isolated/textbox.docx",
+ "cases": [
+  {
+   "name": "in-text-box",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "living inside the text box"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "body",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "Body text before"
+      },
+      "x"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,58 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.style-objects-runs",
+ "upstream": [
+  "features/run-char-style.feature",
+  "src/docx/text/run.py::Run.style"
+ ],
+ "fixture": "synthetic:p7-compact-run-char-style",
+ "cases": [
+  {
+   "name": "runs",
+   "steps": [
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-then-read",
+   "steps": [
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      0,
+      null
+     ]
+    },
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

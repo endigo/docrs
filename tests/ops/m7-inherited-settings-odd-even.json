@@ -1,0 +1,62 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.settings-odd-even",
+ "upstream": [
+  "features/doc-settings.feature",
+  "src/docx/oxml/settings.py::CT_Settings.evenAndOddHeaders_val"
+ ],
+ "fixture": "synthetic:p7-compact-doc-odd-even-hdrs",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_odd_even"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_odd_even",
+     "args": [
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_odd_even",
+     "args": [
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

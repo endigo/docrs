@@ -1,0 +1,88 @@
+{
+ "schema_version": 1,
+ "id": "m4.styles.behav-props",
+ "fixture": "synthetic:p3-sty-behav-props",
+ "upstream": [
+  "features/sty-style-props.feature (hidden, locked, priority, quick-style, unhide-when-used)",
+  "features/sty-latent-props.feature (defaults)"
+ ],
+ "cases": [
+  {
+   "name": "styles-report",
+   "steps": [
+    {
+     "op": "ext.p3_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "hidden-locked-quick-unhide-priority",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Foo"
+     ]
+    },
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Bar"
+     ]
+    },
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Baz"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-defaults-without-exceptions",
+   "steps": [
+    {
+     "op": "ext.p3_latent"
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,88 @@
+{
+ "schema_version": 1,
+ "id": "m4.formatting.minimal",
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "upstream": [
+  "tests/paper/test_formatting.py::it_declares_what_it_cannot_resolve"
+ ],
+ "cases": [
+  {
+   "name": "second-paragraph-run",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "First body paragraph"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "heading-paragraph",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "Minimal Clean Document"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_blocks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_spans"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

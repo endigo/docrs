@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "id": "m4.protection.settings-part-created",
+  "upstream": ["src/docx/parts/document.py::_settings_part (default part on demand)"],
+  "fixture": "synthetic:synthetic-unicode",
+  "cases": [
+    {"name": "creates-settings", "steps": [{"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}}],
+     "expect": {"steps": [{"outcome": "ok"}], "added_parts": ["word/settings.xml", "word/_rels/document.xml.rels"]}}
+  ]
+}

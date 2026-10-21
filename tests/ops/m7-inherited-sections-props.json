@@ -1,0 +1,651 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.sections-props",
+ "upstream": [
+  "features/sct-section.feature",
+  "src/docx/section.py::Section",
+  "src/docx/oxml/section.py::CT_SectPr"
+ ],
+ "fixture": "synthetic:p7-compact-sct-section-props",
+ "cases": [
+  {
+   "name": "read-all",
+   "steps": [
+    {
+     "op": "ext.p7_sections"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "start-type-0-nextPage",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "start_type",
+        "nextPage"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "start-type-1-oddPage",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      1,
+      [
+       [
+        "start_type",
+        "oddPage"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "start-type-4-None",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      4,
+      [
+       [
+        "start_type",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "start-type-2-continuous",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      2,
+      [
+       [
+        "start_type",
+        "continuous"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "start-type-3-nextColumn",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      3,
+      [
+       [
+        "start_type",
+        "nextColumn"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "page-size",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      -1,
+      [
+       [
+        "page_width",
+        10058400
+       ],
+       [
+        "page_height",
+        7772400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "orientation-1-landscape",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      1,
+      [
+       [
+        "orientation",
+        "landscape"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "orientation-0-portrait",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "orientation",
+        "portrait"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "orientation-0-None",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "orientation",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-left_margin-914400",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "left_margin",
+        914400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-right_margin-1143000",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "right_margin",
+        1143000
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-top_margin-685800",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "top_margin",
+        685800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-bottom_margin-1371600",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "bottom_margin",
+        1371600
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-header_distance-228600",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "header_distance",
+        228600
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-footer_distance-457200",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "footer_distance",
+        457200
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-gutter-228600",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "gutter",
+        228600
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-top_margin--914400",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "top_margin",
+        -914400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-left_margin-None",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "left_margin",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-gutter-None",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "gutter",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "margin-header_distance-1000",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "header_distance",
+        1000
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "batch-in-order",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      2,
+      [
+       [
+        "page_width",
+        4572000
+       ],
+       [
+        "page_width",
+        null
+       ],
+       [
+        "orientation",
+        "landscape"
+       ],
+       [
+        "different_first_page_header_footer",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "negative-left-margin",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "left_margin",
+        -1
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "top-margin-out-of-int-range",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "top_margin",
+        3000000000
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "negative-page-width",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "page_width",
+        -5
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-start-type",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "start_type",
+        "sometimes"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

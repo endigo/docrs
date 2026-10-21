@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.toc-field",
+  "upstream": ["tests/paper/test_regressions_editing.py (multi-paragraph field results refuse block edits)"],
+  "fixture": "generated/feature-isolated/toc-field.docx",
+  "cases": [
+    {"name": "insert-inside-toc", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Chapter One entry"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "insert-before-toc", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Contents heading"], "kwargs": {"heading": "Before toc", "paragraphs": []}}]},
+    {"name": "delete-inside-toc", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Chapter Two entry"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "insert-after-toc-body", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Body paragraph after the TOC field."], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["after"]}}]}}]},
+    {"name": "toc-after-toc-region", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Chapter Two entry"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}}
+  ]
+}

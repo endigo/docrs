@@ -1,0 +1,18 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.read.comments",
+ "upstream": [
+  "list_bookmarks read parity"
+ ],
+ "fixture": "generated/feature-isolated/comments.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

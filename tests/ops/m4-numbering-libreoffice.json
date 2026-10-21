@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.libreoffice-remap",
+  "upstream": ["tests/paper/test_tableops_numbering.py::DescribeListNumbering::it_reads_the_libreoffice_remapped_definition"],
+  "fixture": "libreoffice/feature-isolated/numbering-custom.docx",
+  "cases": [
+    {"name": "report", "steps": [{"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": []}},
+    {"name": "ensure-bullet", "steps": [{"op": "numbering.ensure_bullet_definition"}, {"op": "numbering.list_numbering"}]},
+    {"name": "restart-7", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 7}}]}
+  ]
+}

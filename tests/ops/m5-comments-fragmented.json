@@ -1,0 +1,112 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.fragmented",
+ "upstream": [
+  "src/docx/search.py::Span._isolate_edge_runs"
+ ],
+ "fixture": "generated/feature-isolated/fragmented-runs.docx",
+ "cases": [
+  {
+   "name": "across-runs",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "$75–100/hr"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "mid-run-edges",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "rate: $75"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inside-italic",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "full-"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,1657 @@
+{
+ "schema_version": 1,
+ "id": "m4.tableops.rows",
+ "fixture": "synthetic:p3-rows",
+ "upstream": [
+  "tests/paper/test_tableops_numbering.py::DescribeRowOperations",
+  "tests/paper/test_audit_structural_atomicity.py::DescribeDetachedRowPopulation",
+  "tests/paper/test_audit_structural_atomicity.py::DescribeTrackedRowTemplateRefusal",
+  "tests/paper/test_regressions_core.py::it_copies_run_formatting_into_inserted_rows",
+  "src/docx/tableops.py::insert_row_after",
+  "src/docx/tableops.py::delete_row"
+ ],
+ "cases": [
+  {
+   "name": "inserts-copying-neighbour",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      [
+       "new a",
+       "new b"
+      ]
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 10"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "reopen_contains": [
+     "new a"
+    ]
+   }
+  },
+  {
+   "name": "pads-missing-values",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      [
+       "only one"
+      ]
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 10"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "no-values",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      []
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 10"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copy-format-from-other-row",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "kwargs": {
+      "copy_format_from": 0
+     }
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 10"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "uniform-formatting-outcome",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "uniform template"
+      },
+      0,
+      [
+       "replacement value"
+      ]
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "uniform template"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "too-many-values",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      [
+       "a",
+       "b",
+       "c"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "control-characters-in-values",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "T-only"
+      },
+      0,
+      [
+       "a\tb"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "deletes-a-row",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 11"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "reopen_absent": [
+     "cell 00"
+    ]
+   }
+  },
+  {
+   "name": "refuses-last-row",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0
+     ]
+    },
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "refuses-only-row",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "T-only"
+      },
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "delete-out-of-range",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-negative",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-out-of-range",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      2,
+      [
+       "x"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-negative",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      -1,
+      [
+       "x"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copy-format-out-of-range",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      [
+       "x"
+      ]
+     ],
+     "kwargs": {
+      "copy_format_from": 9
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "conflicting-run-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid conflicting"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "control-wrapped-template",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "plain template"
+      },
+      0,
+      [
+       "first was populated",
+       "replacement"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bold-template-copied",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "bold cell"
+      },
+      0,
+      [
+       "copied"
+      ]
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "bold cell"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "styled-empty-runs-refused",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "styled empty above"
+      },
+      0,
+      [
+       "x"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "styled-empty-row-as-copy-source-refused",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "styled empty above"
+      },
+      1,
+      [
+       "x"
+      ]
+     ],
+     "kwargs": {
+      "copy_format_from": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "empty-template-cell",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "empty neighbour"
+      },
+      0,
+      [
+       "a",
+       "b"
+      ]
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "empty neighbour"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vmerge-template-refused",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "vm head"
+      },
+      0,
+      [
+       "x",
+       "y"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vmerge-split-refused",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "vm head"
+      },
+      0,
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "kwargs": {
+      "copy_format_from": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vmerge-below-ok",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "vm head"
+      },
+      1,
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "kwargs": {
+      "copy_format_from": 2
+     }
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "vm head"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vmerge-delete-refused",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "vm head"
+      },
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vmerge-delete-plain-row",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "vm head"
+      },
+      2
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "vm head"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "protected-insert",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "comments"
+     }
+    },
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      [
+       "x",
+       "y"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "protected-delete",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "readOnly"
+     }
+    },
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nonrectangular-start",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "omitted start a"
+      },
+      0,
+      [
+       "a",
+       "b",
+       "c"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "nonrectangular-end",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "omitted end a"
+      },
+      0,
+      [
+       "a",
+       "b",
+       "c"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "nonrectangular-short-row",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "short row a"
+      },
+      0,
+      [
+       "a"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-then-delete",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      [
+       "mid a",
+       "mid b"
+      ]
+     ]
+    },
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      2
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 00"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "complex-template-multiple-paragraphs",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first multiple-paragraphs"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-simple-field",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first simple-field"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-complex-field",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first complex-field"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-inline-control",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first inline-control"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-block-control",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first block-control"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-revision",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first revision"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-hyperlink",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first hyperlink"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-marker",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first marker"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-drawing",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first drawing"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-nested-table",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first nested-table"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-late-cell-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first late-cell-properties"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-late-paragraph-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first late-paragraph-properties"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "complex-template-unknown-wrapper",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "valid first unknown-wrapper"
+      },
+      0,
+      [
+       "changed",
+       "changed"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-trpr-ins",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template trpr-ins"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-trpr-del",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template trpr-del"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-move-range",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template move-range"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-row-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template row-properties"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-table-property-exceptions",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template table-property-exceptions"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-cell-insertion",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template cell-insertion"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-cell-deletion",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template cell-deletion"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-cell-merge",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template cell-merge"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-cell-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template cell-properties"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-paragraph-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template paragraph-properties"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-run-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template run-properties"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-template-numbering-properties",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "template numbering-properties"
+      },
+      0,
+      [
+       "new row"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

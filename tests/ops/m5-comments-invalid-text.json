@@ -1,0 +1,79 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.invalid-text",
+ "upstream": [
+  "tests/paper/test_audit_text_atomicity.py::it_refuses_invalid_comment_text_before_splitting_runs",
+  "tests/paper/test_audit_text_atomicity.py::it_refuses_invalid_reply_text_before_thread_metadata_changes"
+ ],
+ "fixture": "synthetic:p5-comment-target",
+ "cases": [
+  {
+   "name": "span-comment",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "beta gam"
+      },
+      "text": "invalid\u0000comment",
+      "author": "Reviewer"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "reply",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "invalid\u0000reply",
+      "author": "Second reviewer"
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

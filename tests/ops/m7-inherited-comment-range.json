@@ -1,0 +1,100 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.comment-range",
+ "upstream": [
+  "src/docx/text/run.py::Run.mark_comment_range"
+ ],
+ "fixture": "synthetic:p7-text",
+ "cases": [
+  {
+   "name": "same-paragraph",
+   "steps": [
+    {
+     "op": "ext.p7_mark_comment_range",
+     "args": [
+      2,
+      0,
+      2,
+      1,
+      5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "single-run",
+   "steps": [
+    {
+     "op": "ext.p7_mark_comment_range",
+     "args": [
+      3,
+      0,
+      3,
+      0,
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "across-paragraphs",
+   "steps": [
+    {
+     "op": "ext.p7_mark_comment_range",
+     "args": [
+      0,
+      0,
+      3,
+      0,
+      12
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reversed",
+   "steps": [
+    {
+     "op": "ext.p7_mark_comment_range",
+     "args": [
+      2,
+      1,
+      2,
+      0,
+      5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,487 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.having-styles-part",
+ "upstream": [
+  "features/sty-add-style.feature",
+  "features/sty-delete-style.feature",
+  "features/sty-latent-add-del.feature",
+  "features/doc-styles.feature",
+  "tests/styles/test_styles.py"
+ ],
+ "fixture": "../../../.reference/paper-docx/features/steps/test_files/sty-having-styles-part.docx",
+ "cases": [
+  {
+   "name": "add-heading-1",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Heading 1",
+      "paragraph",
+      true
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "add-inline-code",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Inline Code",
+      "character",
+      false
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Inline Code"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "add-list-bullet",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "List Bullet",
+      "numbering",
+      true
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "List Bullet"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "add-shipments",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Shipments",
+      "table",
+      false
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Shipments"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "add-default-builtin-false",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "My Para",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "MyPara"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-duplicate-refused",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Normal",
+      "paragraph"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "add-duplicate-by-ui-name-refused",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Heading 1",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Heading 1",
+      "character"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-two-and-delete-one",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Caption",
+      "paragraph",
+      true
+     ]
+    },
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Body",
+      "character"
+     ]
+    },
+    {
+     "op": "ext.p7_delete_style",
+     "args": [
+      "Caption"
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-style",
+   "steps": [
+    {
+     "op": "ext.p7_delete_style",
+     "args": [
+      "Foo Bar"
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foo Bar"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-missing",
+   "steps": [
+    {
+     "op": "ext.p7_delete_style",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "style-by-ui-name",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Default Paragraph Font"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "style-by-id",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "DefaultParagraphFont"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "style-missing",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "styles-collection",
+   "steps": [
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style_contains",
+     "args": [
+      "Foo Bar"
+     ]
+    },
+    {
+     "op": "ext.p7_style_contains",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-add-delete",
+   "steps": [
+    {
+     "op": "ext.p7_latent_add",
+     "args": [
+      "Foobar"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Foobar"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_delete",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_styles"
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,45 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.field-empty-control-open",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_refuses_composition_at_every_open_top_level_field_boundary_before_imports"
+ ],
+ "fixture": "synthetic:p6-dest-field-empty-control-open",
+ "cases": [
+  {
+   "name": "open-field-empty-control",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ],
+     "kwargs": {}
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

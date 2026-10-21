@@ -1,0 +1,47 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.badid",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "synthetic:p1-notes-badid",
+ "cases": [
+  {
+   "name": "non-numeric-id",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "endnote-unaffected",
+   "steps": [
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "x"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,24 @@
+{
+ "schema_version": 1,
+ "id": "m4.links.textbox",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeHyperlinks"
+ ],
+ "fixture": "generated/feature-isolated/textbox.docx",
+ "cases": [
+  {
+   "name": "in-text-box",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "living inside"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  }
+ ]
+}

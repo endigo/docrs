@@ -1,0 +1,75 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-grossincome",
+ "upstream": [
+  "tests/paper/test_practical_composition_table_hardening.py::it_remaps_bookmark_identifiers_inside_word_formulas"
+ ],
+ "fixture": "synthetic:p6-dest-grossincome",
+ "cases": [
+  {
+   "name": "remaps-formula-identifier",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-grossincome"
+      },
+      "100"
+     ],
+     "kwargs": {
+      "anchor": "existing"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "remaps-formula-identifier-built",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "100"
+         ]
+        },
+        {
+         "op": "bookmarks.create_bookmark",
+         "args": [
+          {
+           "$span": "100"
+          },
+          "GrossIncome"
+         ]
+        }
+       ]
+      },
+      "100"
+     ],
+     "kwargs": {
+      "anchor": "existing"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

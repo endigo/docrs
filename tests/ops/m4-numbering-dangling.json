@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.dangling",
+  "upstream": ["src/docx/numbering.py::list_numbering (missing definition refusal)", "tests/paper/test_audit_editing.py (numbering audit)"],
+  "fixture": "synthetic:p2-numbering-missing",
+  "cases": [
+    {"name": "report-missing-definition", "steps": [{"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "apply-still-works", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Plain"}], "kwargs": {"num_id": 1}}]}
+  ]
+}

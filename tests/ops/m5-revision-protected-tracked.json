@@ -1,0 +1,31 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.protected-tracked",
+ "upstream": [
+  "src/docx/protection.py::_PROTECTION_MATRIX (trackedChanges permits body edits)"
+ ],
+ "fixture": "generated/feature-isolated/protected-tracked.docx",
+ "cases": [
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_reject_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

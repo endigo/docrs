@@ -1,0 +1,66 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.shapes-synthetic",
+ "upstream": [
+  "src/docx/shape.py::InlineShape"
+ ],
+ "fixture": "synthetic:p4-drawings",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_inline_shapes"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "resize-picture",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      0,
+      914400,
+      457200
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "resize-chart",
+   "steps": [
+    {
+     "op": "ext.p7_set_inline_shape",
+     "args": [
+      1,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream sets wp:extent/@cx and then raises AttributeError (no pic:pic); Rust reports the same class with nothing changed"
+  }
+ ]
+}

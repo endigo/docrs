@@ -1,0 +1,47 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.move-overlap",
+ "upstream": [
+  "src/docx/revision.py::_scan_story_moves (overlapping ranges orphan both)"
+ ],
+ "fixture": "synthetic:p5-move-overlap",
+ "cases": [
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "accept-0-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

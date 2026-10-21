@@ -1,0 +1,31 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.comments-nested-last",
+ "upstream": [
+  "tests/paper/test_audit_revisions.py::it_removes_identity_rows_keyed_on_a_nested_last_paragraph"
+ ],
+ "fixture": "synthetic:p5-comments-nested-last",
+ "cases": [
+  {
+   "name": "reject_all",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,777 @@
+{
+ "schema_version": 1,
+ "id": "m4.styles.known-styles",
+ "fixture": "synthetic:p3-sty-known-styles",
+ "upstream": [
+  "features/sty-style-props.feature (base style, next paragraph style)",
+  "features/sty-access-latent-styles.feature",
+  "features/sty-latent-props.feature (get scenarios)",
+  "features/doc-styles.feature (access by id and UI name)",
+  "src/docx/styles/styles.py",
+  "src/docx/styles/style.py",
+  "src/docx/styles/latent.py",
+  "src/docx/styles/__init__.py"
+ ],
+ "cases": [
+  {
+   "name": "styles-report",
+   "steps": [
+    {
+     "op": "ext.p3_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "base-style-none",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Base"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "base-style-normal",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Sub Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "base-style-base",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Citation"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-style-missing-is-self",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Base"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-style-present",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Citation"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-style-unknown-id-is-self",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Sub Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-style-foo",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Foo"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-style-of-character-style-absent",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Quote Char"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "type-character",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Default Paragraph Font"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "type-numbering",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "No List"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "type-paragraph",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "type-table",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Normal Table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-style-next-and-base",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "numbering-style-has-no-base",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Bullets"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "ui-name-lookup",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "internal-name-lookup",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "deprecated-id-lookup",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "SubNormal"
+     ]
+    },
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Heading1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "missing-lookup",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "contains",
+   "steps": [
+    {
+     "op": "ext.p3_style_contains",
+     "args": [
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p3_style_contains",
+     "args": [
+      "heading 1"
+     ]
+    },
+    {
+     "op": "ext.p3_style_contains",
+     "args": [
+      "SubNormal"
+     ]
+    },
+    {
+     "op": "ext.p3_style_contains",
+     "args": [
+      "Sub Normal"
+     ]
+    },
+    {
+     "op": "ext.p3_style_contains",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "defaults",
+   "steps": [
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "character"
+     ]
+    },
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "table"
+     ]
+    },
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "numbering"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "invalid-style-type",
+   "steps": [
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "list"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "get-by-id",
+   "steps": [
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      "Citation",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      "Citation",
+      "character"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      "Nope",
+      "table"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      null,
+      "numbering"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      "",
+      "character"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      "Quote",
+      "character"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "get-style-id",
+   "steps": [
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Citation",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Second Default",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Normal",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Quote Char",
+      "character"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Heading 1",
+      "paragraph"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "get-style-id-wrong-type",
+   "steps": [
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Citation",
+      "character"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "get-style-id-unknown",
+   "steps": [
+    {
+     "op": "ext.p3_style_get_style_id",
+     "args": [
+      "Nope",
+      "paragraph"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-styles",
+   "steps": [
+    {
+     "op": "ext.p3_latent"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-style-props",
+   "steps": [
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Title"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Subtitle"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "heading 1"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Caption"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "caption"
+     ]
+    },
+    {
+     "op": "ext.p3_latent_style",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "babel-fish",
+   "steps": [
+    {
+     "op": "ext.p3_babel",
+     "args": [
+      [
+       "Heading 1",
+       "heading 1",
+       "Caption",
+       "caption",
+       "Footer",
+       "header",
+       "Body Text",
+       "Heading 10",
+       ""
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

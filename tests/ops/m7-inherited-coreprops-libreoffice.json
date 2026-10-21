@@ -1,0 +1,774 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.coreprops.libreoffice",
+ "upstream": [
+  "features/doc-coreprops.feature",
+  "features/steps/coreprops.py",
+  "tests/opc/test_coreprops.py",
+  "src/docx/opc/coreprops.py",
+  "src/docx/oxml/coreprops.py"
+ ],
+ "fixture": "libreoffice/feature-isolated/comments.docx",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "assign-all-new-values",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "author",
+        "Creator"
+       ],
+       [
+        "category",
+        "Category"
+       ],
+       [
+        "comments",
+        "Description"
+       ],
+       [
+        "content_status",
+        "Content Status"
+       ],
+       [
+        "created",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "identifier",
+        "Identifier"
+       ],
+       [
+        "keywords",
+        "key; word; keyword"
+       ],
+       [
+        "language",
+        "Language"
+       ],
+       [
+        "last_modified_by",
+        "Last Modified By"
+       ],
+       [
+        "last_printed",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "modified",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "revision",
+        9
+       ],
+       [
+        "subject",
+        "Subject"
+       ],
+       [
+        "title",
+        "Title"
+       ],
+       [
+        "version",
+        "Version"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  },
+  {
+   "name": "text-props-one-by-one",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "author",
+        "Creator"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "category",
+        "Category"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "comments",
+        "Description"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "content_status",
+        "Content Status"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "identifier",
+        "Identifier"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "keywords",
+        "key; word; keyword"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "language",
+        "Language"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "last_modified_by",
+        "Last Modified By"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "subject",
+        "Subject"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "title",
+        "Title"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "version",
+        "Version"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dates-each",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "created",
+        {
+         "$date": "2001-02-03T04:05:00Z"
+        }
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "last_printed",
+        {
+         "$date": "2014-06-04T04:00:00Z"
+        }
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "modified",
+        {
+         "$date": "2005-04-03T02:01:00Z"
+        }
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "modified",
+        {
+         "$date": "0999-12-31T23:59:59Z"
+        }
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "platform-dependent upstream: python-docx writes dates with strftime('%Y'), which glibc (Linux) does not zero-pad below year 1000, so the oracle writes modified as '999-12-31T23:59:59Z' and reads it back as None; macOS Python and Rust write '0999-12-31T23:59:59Z' and read it back"
+  },
+  {
+   "name": "revision-42-then-1",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "revision",
+        42
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "revision",
+        1
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "revision-zero-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "revision",
+        0
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "revision-negative-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "revision",
+        -17
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "revision-string-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "revision",
+        "7"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "date-string-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "created",
+        "2001-02-03"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "date-int-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "last_printed",
+        2001
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "text-256-chars-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "subject",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "text-255-chars",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "subject",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "text-255-astral-chars",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "keywords",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "text-256-astral-chars-refused",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "keywords",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "text-int-is-str",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "version",
+        42
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "text-empty",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "author",
+        ""
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "text-whitespace-and-unicode",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "title",
+        "  Ünïcødé ß ﬁ   "
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-then-read",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "created",
+        {
+         "$date": "2024-02-29T23:59:59Z"
+        }
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-char-on-existing-element",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "title",
+        "a\u0001b"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "second-change-invalid",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "title",
+        "First"
+       ],
+       [
+        "revision",
+        0
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream assigns the earlier properties (and creates the default core-properties part when missing) before this ValueError; Rust validates every assignment first and stages nothing on refusal (refusal atomicity); the error category is the same"
+  }
+ ]
+}

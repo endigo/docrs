@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.section-width-measures",
+  "upstream": ["src/docx/blocks.py::_new_table (last section width; ST_TwipsMeasure universal measures)"],
+  "fixture": "synthetic:p2-measure",
+  "cases": [
+    {"name": "universal-measures", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Alpha paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["a", "b", "c"], ["d", "e", "f"]]}}]}}]}
+  ]
+}

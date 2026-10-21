@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.section-width-incomplete",
+  "upstream": ["src/docx/blocks.py::_new_table (missing margins -> TypeError -> 6 inch fallback)"],
+  "fixture": "synthetic:p2-halfsect",
+  "cases": [
+    {"name": "last-section-lacks-margins", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Alpha paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["a", "b"]]}}]}}]}
+  ]
+}

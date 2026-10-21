@@ -1,0 +1,523 @@
+{
+ "schema_version": 1,
+ "id": "m5.paragraph-revision-algebra",
+ "upstream": [
+  "tests/paper/test_resolution.py (paragraph-mark accept/reject)",
+  "tests/paper/test_blocks.py (tracked delete/replace then resolve)"
+ ],
+ "fixture": "generated/feature-isolated/fragmented-runs.docx",
+ "cases": [
+  {
+   "name": "delete-accept_all",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "delete-reject_all",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "delete-accept-first",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "delete-reject-first",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "replace-accept_all",
+   "steps": [
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "replace-reject_all",
+   "steps": [
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "replace-accept-first",
+   "steps": [
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "replace-reject-first",
+   "steps": [
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "insert-section-accept_all",
+   "steps": [
+    {
+     "op": "blocks.insert_section_after",
+     "args": [
+      "payment terms"
+     ],
+     "kwargs": {
+      "heading": "Schedule",
+      "paragraphs": [
+       "One",
+       "Two"
+      ],
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "insert-section-reject_all",
+   "steps": [
+    {
+     "op": "blocks.insert_section_after",
+     "args": [
+      "payment terms"
+     ],
+     "kwargs": {
+      "heading": "Schedule",
+      "paragraphs": [
+       "One",
+       "Two"
+      ],
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "insert-section-accept-first",
+   "steps": [
+    {
+     "op": "blocks.insert_section_after",
+     "args": [
+      "payment terms"
+     ],
+     "kwargs": {
+      "heading": "Schedule",
+      "paragraphs": [
+       "One",
+       "Two"
+      ],
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "insert-section-reject-first",
+   "steps": [
+    {
+     "op": "blocks.insert_section_after",
+     "args": [
+      "payment terms"
+     ],
+     "kwargs": {
+      "heading": "Schedule",
+      "paragraphs": [
+       "One",
+       "Two"
+      ],
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "delete+replace-accept_all",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "delete+replace-reject_all",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "delete+replace-accept-first",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "delete+replace-reject-first",
+   "steps": [
+    {
+     "op": "blocks.tracked_delete_paragraphs",
+     "args": [
+      "Consulting rate"
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "blocks.tracked_replace_paragraphs",
+     "args": [
+      "payment terms",
+      [
+       "Net 45 payment terms apply.",
+       "Late fees accrue monthly."
+      ]
+     ],
+     "kwargs": {
+      "count": 1,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2026-07-07T12:00:00Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  }
+ ]
+}

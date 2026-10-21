@@ -1,0 +1,140 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.merged-table",
+ "upstream": [
+  "features/tbl-cell-access.feature",
+  "src/docx/table.py::Table._cells"
+ ],
+ "fixture": "generated/feature-isolated/table-merged-nested.docx",
+ "cases": [
+  {
+   "name": "merged-span",
+   "steps": [
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      0,
+      1,
+      "spanned"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "merged-vertical",
+   "steps": [
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      2,
+      2,
+      "vmerged"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "merged-plain",
+   "steps": [
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      2,
+      0,
+      "replaces nested"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-row-col",
+   "steps": [
+    {
+     "op": "ext.p4_table_add_row",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p4_table_add_column",
+     "args": [
+      0,
+      1828800
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style",
+   "steps": [
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      "Light Grid Accent 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before-first",
+   "steps": [
+    {
+     "op": "ext.p4_insert_paragraph_before",
+     "args": [
+      0,
+      "lead"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

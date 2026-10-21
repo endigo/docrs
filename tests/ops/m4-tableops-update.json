@@ -1,0 +1,2043 @@
+{
+ "schema_version": 1,
+ "id": "m4.tableops.update_cell",
+ "fixture": "synthetic:p3-tables",
+ "upstream": [
+  "tests/paper/test_tableops_numbering.py::DescribeUpdateCell",
+  "tests/paper/test_practical_composition_table_hardening.py (cell field, typed control, gridBefore)",
+  "tests/paper/test_audit_editing.py::DescribeCellReplacementGuards",
+  "tests/paper/test_regressions_core.py::DescribeTableGuardsAndFormatting",
+  "tests/paper/test_regressions_editing.py::DescribeMiscEdgeCases",
+  "src/docx/tableops.py::update_cell"
+ ],
+ "cases": [
+  {
+   "name": "replaces-through-span-machinery",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      1,
+      "updated value"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "updated value"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "reopen_contains": [
+     "updated value"
+    ]
+   }
+  },
+  {
+   "name": "fills-empty-cell",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      "was empty"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "T-empty"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "was empty"
+    ]
+   }
+  },
+  {
+   "name": "fills-empty-cell-with-empty-text",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      ""
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "T-empty"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fills-empty-cell-tracked",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      "was empty"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fills-empty-cell-tracked-empty-text",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      ""
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-update",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "cell 99"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 11"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "tracked-whole-replacement",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      1,
+      "different"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-pure-insertion",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      0,
+      "cell 10 more"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-pure-deletion",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      0,
+      "cell"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-identical-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      0,
+      "cell 10"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-requires-author",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "x"
+     ],
+     "kwargs": {
+      "tracked": true
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tracked-requires-nonempty-author",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "x"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": ""
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-uniform-runs",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-uniform"
+      },
+      0,
+      1,
+      "cell VALUE"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-mixed-runs",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-mid"
+      },
+      0,
+      1,
+      "alpha BETA gamma"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-mixed-runs-span-all",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-mid"
+      },
+      0,
+      1,
+      "omega"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-two-text-nodes-one-run",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-trailing"
+      },
+      0,
+      1,
+      "headTAIL"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-first-node-of-run",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-trailing"
+      },
+      0,
+      1,
+      "HEADtail"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-trailing-run-content",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-lrpb"
+      },
+      0,
+      1,
+      "page TEXT"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-trailing-run-content-whole",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-lrpb"
+      },
+      0,
+      1,
+      "other"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "untracked-trailing-run-content",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-lrpb"
+      },
+      0,
+      1,
+      "page words"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "comment-in-run-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-comment"
+      },
+      0,
+      1,
+      "x"
+     ]
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-comment"
+      },
+      0,
+      1,
+      "x"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     null,
+     null
+    ]
+   }
+  },
+  {
+   "name": "tracked-inside-hyperlink",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-linkonly"
+      },
+      0,
+      1,
+      "link WORDS"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "untracked-inside-hyperlink",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-linkonly"
+      },
+      0,
+      1,
+      "new link"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "empty-run-cell-filled",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-emptyrun"
+      },
+      0,
+      1,
+      "filled"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "X-emptyrun"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "empty-run-cell-filled-tracked",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "X-emptyrun"
+      },
+      0,
+      1,
+      "filled"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-bookmark",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-bookmark"
+      },
+      0,
+      1,
+      "keep other"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     null
+    ]
+   }
+  },
+  {
+   "name": "tracked-bookmark-inside",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-bookmark"
+      },
+      0,
+      1,
+      "keep marKed"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     null
+    ]
+   }
+  },
+  {
+   "name": "tracked-placeholder-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-placeholder"
+      },
+      0,
+      1,
+      "Filled"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-control-text",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-sdt"
+      },
+      0,
+      1,
+      "control TEXT"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-hyperlink-divided-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-link"
+      },
+      0,
+      1,
+      "updated"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     null
+    ]
+   }
+  },
+  {
+   "name": "tracked-space-edges",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-space"
+      },
+      0,
+      1,
+      " padded "
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-sequence",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "cell 99"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 11"
+      },
+      1,
+      1,
+      "cell 77"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-bad-author-characters",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "x"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "bad\u0001author",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-empty-cell-bad-author",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      "x"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "bad\u0001author",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "out-of-range-row",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      7,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "out-of-range-column",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      9,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "negative-row",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      -1,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "uniform-fragmented-cell",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-uniform"
+      },
+      0,
+      1,
+      "updated"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "mixed-format-start-run",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-mixed"
+      },
+      0,
+      1,
+      "updated"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "marker-divided-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-marker"
+      },
+      0,
+      1,
+      "updated"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "single-node-shading",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-shade"
+      },
+      0,
+      1,
+      "updated"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "ambiguous-affix-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-term"
+      },
+      0,
+      1,
+      "Term"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "character-style-divided",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-charstyle"
+      },
+      0,
+      1,
+      "updated"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hyperlink-divided-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-link"
+      },
+      0,
+      1,
+      "updated"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "tab-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-tab"
+      },
+      0,
+      1,
+      "replacement"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "break-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-break"
+      },
+      0,
+      1,
+      "replacement"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "cross-paragraph-field-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-field"
+      },
+      0,
+      1,
+      "replacement"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "typed-control-empty-cell-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-checkbox"
+      },
+      0,
+      1,
+      "YES"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "grid-before-visible-column",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "visible column one"
+      },
+      0,
+      1,
+      "changed"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "changed"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "grid-before-empty-column",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "visible column one"
+      },
+      0,
+      0,
+      "wrong"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "grid-before-last-column",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "visible column one"
+      },
+      0,
+      2,
+      "third"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested-cell-refused-neighbour-ok",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-host"
+      },
+      0,
+      1,
+      "x"
+     ]
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-host"
+      },
+      0,
+      0,
+      "plain neighbor updates fine"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "plain neighbor"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "multiple-paragraphs-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-multi"
+      },
+      0,
+      1,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "pending-revision-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-rev"
+      },
+      0,
+      1,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-text-replaced",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-sdt"
+      },
+      0,
+      1,
+      "new control text"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "placeholder-whole-prompt",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-placeholder"
+      },
+      0,
+      1,
+      "Filled in"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "second-paragraph-only",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-second"
+      },
+      0,
+      1,
+      "second changed"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "T-second"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "space-edges",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-space"
+      },
+      0,
+      1,
+      "  padded  "
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-characters-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      "a\nb"
+     ]
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "a\tb"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "invalid-xml-characters-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "a\u0002b"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "identical-text-noop",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      0,
+      "cell 10"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "empty-replacement",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      1,
+      0,
+      ""
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 11"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "sequence-of-updates",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "first"
+     ]
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      1,
+      "second"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "cell 10"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bookmark-hollowing-refused",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-bookmark"
+      },
+      0,
+      1,
+      "keep"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     null
+    ]
+   }
+  },
+  {
+   "name": "protected-refused",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "readOnly"
+     }
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": [
+     "word/settings.xml"
+    ]
+   }
+  },
+  {
+   "name": "protected-acknowledged",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "readOnly"
+     }
+    },
+    {
+     "op": "protection.acknowledge_protection"
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-edit-allowed-under-tracked-protection",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "trackedChanges"
+     }
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "cell 10"
+      },
+      0,
+      0,
+      "cell 99"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "forms-protection-refuses",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "forms"
+     }
+    },
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "T-empty"
+      },
+      0,
+      1,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  }
+ ]
+}

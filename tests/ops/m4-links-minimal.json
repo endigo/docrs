@@ -1,0 +1,251 @@
+{
+ "schema_version": 1,
+ "id": "m4.links.minimal",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeHyperlinks"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "wrap",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/_rels/document.xml.rels",
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "nest",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "https://example.com/a"
+     ]
+    },
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "https://example.com/b"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared-relationship",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "https://example.com/a"
+     ]
+    },
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "First body paragraph"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "distinct-relationships",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "https://example.com/a"
+     ]
+    },
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Second body"
+      },
+      "https://example.com/b"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "empty-address",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "cross-paragraph",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "ordinary text.\nSecond"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "whole-run",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Second body paragraph, equally unremarkable."
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "heading",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Minimal Clean Document"
+      },
+      "mailto:someone@example.com"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "stale-span",
+   "steps": [
+    {
+     "op": "ext.p1_link_stale_span",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "changed",
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "relative-address",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Second"
+      },
+      "other.docx#frag"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "historical-view-span",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "perfectly ordinary",
+       "view": "original"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   },
+   "deviation": "Rust refuses live spans captured under view='original'/'all' as mutation anchors (plan: historical targets are inspection-only); upstream accepts them"
+  }
+ ]
+}

@@ -1,0 +1,100 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.inner-drawings",
+ "upstream": [
+  "src/docx/text/run.py::Run.iter_inner_content"
+ ],
+ "fixture": "synthetic:p4-drawings",
+ "cases": [
+  {
+   "name": "p0",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p4",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

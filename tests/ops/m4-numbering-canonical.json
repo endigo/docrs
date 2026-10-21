@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.canonical-reuse",
+  "upstream": ["src/docx/numbering.py::_ensure_definition (exact canonical shape + plain num reference reuse)"],
+  "fixture": "synthetic:p2-numbering-canonical",
+  "cases": [
+    {"name": "reuses-canonical", "steps": [{"op": "numbering.ensure_bullet_definition"}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": []}},
+    {"name": "decimal-is-new", "steps": [{"op": "numbering.ensure_decimal_definition"}, {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/numbering.xml"]}}
+  ]
+}

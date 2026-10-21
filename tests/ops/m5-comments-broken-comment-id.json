@@ -1,0 +1,103 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.broken-comment-id",
+ "upstream": [
+  "tests/paper/test_audit_text_atomicity.py::it_refuses_malformed_existing_comment_ids_before_splitting_runs",
+  "tests/paper/test_audit_text_atomicity.py::it_refuses_malformed_unrelated_comment_ids_before_reply_metadata"
+ ],
+ "fixture": "synthetic:p5-broken-comment-id",
+ "cases": [
+  {
+   "name": "span-comment-refused",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "new target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "add-comment-refused",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "new target"
+      },
+      "text": "x",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "reply-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second reviewer"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "thread-refused",
+   "steps": [
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  }
+ ]
+}

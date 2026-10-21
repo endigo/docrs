@@ -1,0 +1,48 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.field-paragraph-open",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_refuses_composition_at_every_open_top_level_field_boundary_before_imports"
+ ],
+ "fixture": "synthetic:p6-dest-field-paragraph-open",
+ "cases": [
+  {
+   "name": "open-field-paragraph",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

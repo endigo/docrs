@@ -1,0 +1,35 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-target",
+ "upstream": [
+  "tests/paper/test_regressions_pipeline.py::DescribeCompositionRegressions::it_remaps_refs_split_across_instr_text_runs"
+ ],
+ "fixture": "synthetic:p6-dest-target",
+ "cases": [
+  {
+   "name": "remaps-split-ref",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-split-ref"
+      },
+      "the target text"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

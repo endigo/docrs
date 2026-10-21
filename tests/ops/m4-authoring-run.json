@@ -1,0 +1,1663 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.run",
+ "upstream": [
+  "features/run-add-content.feature",
+  "features/run-char-style.feature",
+  "features/run-clear-run.feature",
+  "features/run-access-font.feature, txt-font-props.feature, txt-font-color.feature",
+  "features/txt-add-break.feature",
+  "src/docx/text/{run,font}.py, oxml/text/{run,font}.py, dml/color.py"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "set-text",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_text",
+     "args": [
+      0,
+      1,
+      "new\ttext\nline\rcr"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-text-preserves-rpr",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "bold",
+        true
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_text",
+     "args": [
+      0,
+      1,
+      "kept bold"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-text-spaces",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_text",
+     "args": [
+      0,
+      1,
+      "  padded  "
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-text-plain",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_text",
+     "args": [
+      0,
+      0,
+      "more"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-tab",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_tab",
+     "args": [
+      0,
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "break-line",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_break",
+     "args": [
+      0,
+      1,
+      "line"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "break-page",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_break",
+     "args": [
+      0,
+      1,
+      "page"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "break-column",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_break",
+     "args": [
+      0,
+      1,
+      "column"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "break-line_clear_left",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_break",
+     "args": [
+      0,
+      1,
+      "line_clear_left"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "break-line_clear_right",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_break",
+     "args": [
+      0,
+      1,
+      "line_clear_right"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "break-line_clear_all",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_break",
+     "args": [
+      0,
+      1,
+      "line_clear_all"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "clear",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "italic",
+        true
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_clear",
+     "args": [
+      0,
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      1,
+      "Strong"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-replace-remove",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      1,
+      "Strong"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      1,
+      "Emphasis"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      1,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-default-creates-rpr",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      1,
+      "Default Paragraph Font"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-wrong-type",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      0,
+      1,
+      "Title"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bold-italic-underline",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "italic",
+        false
+       ],
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bold-toggle",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "bold",
+        true
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "underline-styles",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        "double"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "underline-wave",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        "wave"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "name-size",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "name",
+        "Arial"
+       ],
+       [
+        "size",
+        152400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "name-size-remove",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "name",
+        "Arial"
+       ],
+       [
+        "size",
+        127000
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "name",
+        null
+       ],
+       [
+        "size",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "size-odd",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "size",
+        133350
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "color",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        "3C2F80"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        "FF0000"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "color-remove",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        "3C2F80"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "color-none-noop",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "highlight",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "sub-superscript",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "subscript",
+        true
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "superscript",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "subscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "superscript-then-none",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "superscript",
+        true
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "superscript",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "many-flags",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "all_caps",
+        true
+       ],
+       [
+        "small_caps",
+        false
+       ],
+       [
+        "strike",
+        true
+       ],
+       [
+        "double_strike",
+        false
+       ],
+       [
+        "hidden",
+        true
+       ],
+       [
+        "emboss",
+        true
+       ],
+       [
+        "imprint",
+        false
+       ],
+       [
+        "outline",
+        true
+       ],
+       [
+        "shadow",
+        true
+       ],
+       [
+        "no_proof",
+        true
+       ],
+       [
+        "rtl",
+        false
+       ],
+       [
+        "cs_bold",
+        true
+       ],
+       [
+        "cs_italic",
+        true
+       ],
+       [
+        "complex_script",
+        true
+       ],
+       [
+        "snap_to_grid",
+        false
+       ],
+       [
+        "spec_vanish",
+        true
+       ],
+       [
+        "web_hidden",
+        true
+       ],
+       [
+        "math",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "size-negative",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "size",
+        -1
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "underline-invalid",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "second run"
+     ]
+    },
+    {
+     "op": "ext.p4_run_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        "squiggle"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  }
+ ]
+}

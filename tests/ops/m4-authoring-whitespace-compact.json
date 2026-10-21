@@ -1,0 +1,231 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.whitespace-compact",
+ "upstream": [
+  "the m4.authoring.whitespace cases on the same document without blank text, so upstream parity is compared"
+ ],
+ "fixture": "synthetic:p4-whitespace-compact",
+ "cases": [
+  {
+   "name": "clear-keeps-comment-pi",
+   "steps": [
+    {
+     "op": "ext.p4_clear_paragraph",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-text-keeps-ppr",
+   "steps": [
+    {
+     "op": "ext.p4_set_paragraph_text",
+     "args": [
+      0,
+      "new"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "alignment-no-ppr",
+   "steps": [
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      1,
+      "right"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "run-style-default",
+   "steps": [
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      1,
+      0,
+      "Default Paragraph Font"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "table-cells",
+   "steps": [
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      0,
+      1,
+      "span"
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      1,
+      2,
+      "merged"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-row",
+   "steps": [
+    {
+     "op": "ext.p4_table_add_row",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-column",
+   "steps": [
+    {
+     "op": "ext.p4_table_add_column",
+     "args": [
+      0,
+      635000
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-table-universal-width",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-section-clears-rsids",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "evenPage"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-section-new-page",
+   "steps": [
+    {
+     "op": "ext.p4_add_section"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "47494638396105000700800000000000ffffff2c00000000010001000002024401003b"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

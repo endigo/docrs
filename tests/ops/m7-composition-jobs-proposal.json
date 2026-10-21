@@ -1,0 +1,548 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.jobs-proposal",
+ "upstream": [
+  "tests/paper/test_jobs.py::DescribeProposalAssemblyJob (_assemble_proposal)"
+ ],
+ "fixture": "synthetic:p6-blank",
+ "cases": [
+  {
+   "name": "assembles-a-proposal",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Proposal: Document Automation Services",
+      1
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Prepared for the client by Paper Instruments."
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "The sections below are assembled from our libraries."
+     ]
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Standard Terms",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Indemnity: the supplier shall hold harmless."
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Liability is capped at the fees paid."
+         ]
+        }
+       ]
+      },
+      "Standard Terms"
+     ],
+     "kwargs": {
+      "anchor": "assembled from our libraries",
+      "count": 3
+     }
+    },
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Service Levels",
+          2
+         ]
+        },
+        {
+         "op": "numbering.ensure_bullet_definition"
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Response within one business day."
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Response within one business day."
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Escalation on demand."
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Escalation on demand."
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_table",
+         "args": [
+          2,
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          0,
+          "Tier"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          1,
+          "Fee"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          0,
+          "Standard"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          1,
+          "$1,000"
+         ]
+        }
+       ]
+      }
+     ],
+     "kwargs": {}
+    },
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Lead Consultant",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_picture",
+         "args": [
+          {
+           "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+          }
+         ]
+        },
+        {
+         "op": "numbering.ensure_bullet_definition"
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "OOXML surgery"
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "OOXML surgery"
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Redline forensics"
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Redline forensics"
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_table",
+         "args": [
+          2,
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          0,
+          "Years"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          1,
+          "Role"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          0,
+          "2020-2026"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          1,
+          "Document systems lead"
+         ]
+        }
+       ]
+      }
+     ],
+     "kwargs": {}
+    },
+    {
+     "op": "numbering.list_numbering"
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Standard Terms",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Indemnity: the supplier shall hold harmless."
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Liability is capped at the fees paid."
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Service Levels",
+          2
+         ]
+        },
+        {
+         "op": "numbering.ensure_bullet_definition"
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Response within one business day."
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Response within one business day."
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Escalation on demand."
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Escalation on demand."
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_table",
+         "args": [
+          2,
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          0,
+          "Tier"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          1,
+          "Fee"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          0,
+          "Standard"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          1,
+          "$1,000"
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Lead Consultant",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_picture",
+         "args": [
+          {
+           "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+          }
+         ]
+        },
+        {
+         "op": "numbering.ensure_bullet_definition"
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "OOXML surgery"
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "OOXML surgery"
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Redline forensics"
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Redline forensics"
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_table",
+         "args": [
+          2,
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          0,
+          "Years"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          0,
+          1,
+          "Role"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          0,
+          "2020-2026"
+         ]
+        },
+        {
+         "op": "ext.p4_cell_set_text",
+         "args": [
+          0,
+          1,
+          1,
+          "Document systems lead"
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "Standard Terms",
+     "Liability is capped at the fees paid.",
+     "Service Levels",
+     "Response within one business day.",
+     "Lead Consultant",
+     "OOXML surgery"
+    ]
+   }
+  }
+ ]
+}

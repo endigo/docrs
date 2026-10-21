@@ -1,0 +1,475 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.picture",
+ "upstream": [
+  "features/doc-add-picture.feature",
+  "features/run-add-picture.feature",
+  "src/docx/package.py (ImageParts: SHA-1 dedupe, partname allocation)",
+  "src/docx/parts/story.py (new_pic_inline, next_id)",
+  "src/docx/oxml/shape.py (CT_Inline.new_pic_inline)"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "native",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/media/image1.png"
+    ]
+   }
+  },
+  {
+   "name": "both-dims",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      },
+      1600200,
+      2286000
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "width-only",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      },
+      1371600
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "height-only",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "monty-truth.png"
+      },
+      null,
+      1371600
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "same-image-twice",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/media/image1.png"
+    ]
+   }
+  },
+  {
+   "name": "two-images",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "47494638396105000700800000000000ffffff2c00000000010001000002024401003b"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bmp",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b000000000000000000000000ff00"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "jpeg",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "python-icon.jpeg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "jfif",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a464946000101020076003b0000ffdb00040000ffc0000b080014000a01011100ffda0008010100003f001234ff0056ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exif",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe1004a4578696600004d4d002a000000080003011a00050000000100000032011b0005000000010000003a012800030000000100020000000000000000012c000000010000012c00000001ffc0000b08000a001401011100ffda0008010100003f00ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tiff",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "49492a000800000005000001030001000000800200000101030001000000e00100001a010500010000004a0000001b010500010000005200000028010300010000000200000000000000c800000001000000c800000001000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "gif",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "47494638396105000700800000000000ffffff2c00000000010001000002024401003b"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "then-text",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "caption"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "run-picture",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "host"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0,
+      "x"
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_picture",
+     "args": [
+      0,
+      1,
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      },
+      1000
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "negative-width",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      },
+      -5,
+      10
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "zero-dpi-scale",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      },
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unrecognized",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "6e6f7420616e20696d61676520617420616c6c"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream raises a non-PaperRefusal image exception (category non_refusal_error) after add_picture already appended an empty paragraph/run; Rust refuses with invalid_argument and changes nothing (refusal atomicity)"
+  },
+  {
+   "name": "no-ihdr",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream raises a non-PaperRefusal image exception (category non_refusal_error) after add_picture already appended an empty paragraph/run; Rust refuses with invalid_argument and changes nothing (refusal atomicity)"
+  },
+  {
+   "name": "tiff-no-dims",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "49492a000800000001001a010500010000001a000000000000004800000001000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  }
+ ]
+}

@@ -1,0 +1,1417 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.range",
+ "upstream": [
+  "tests/paper/test_composition.py::DescribeInsertBlocksFrom (endpoint inclusion, count)",
+  "tests/paper/test_audit_composition.py",
+  "tests/paper/test_audit_composition_safety.py"
+ ],
+ "fixture": "synthetic:p6-dest",
+ "cases": [
+  {
+   "name": "endpoints-both",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "Block D",
+      "count": 99,
+      "include_start": true,
+      "include_end": true
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "endpoints-exclude-start",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "Block D",
+      "count": 99,
+      "include_start": false,
+      "include_end": true
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "endpoints-exclude-end",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "Block D",
+      "count": 99,
+      "include_start": true,
+      "include_end": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "endpoints-exclude-both",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "Block D",
+      "count": 99,
+      "include_start": false,
+      "include_end": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "count-excluding-start",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2,
+      "include_start": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "include-end-requires-end-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "include_end": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "range-same-exclude-start",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-abc"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 1,
+      "include_start": false,
+      "include_end": true,
+      "end_anchor": "Block A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "range-same-exclude-end",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-abc"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 1,
+      "include_start": true,
+      "include_end": false,
+      "end_anchor": "Block A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "range-adjacent-exclude-both",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-abc"
+      },
+      "Block A"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 1,
+      "include_start": false,
+      "include_end": false,
+      "end_anchor": "Block B"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "range-reversed",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-abc"
+      },
+      "Block B"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 1,
+      "include_start": true,
+      "include_end": true,
+      "end_anchor": "Block A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "range-adjusted-out-of-bounds",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-abc"
+      },
+      "Block C"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 1,
+      "include_start": false,
+      "include_end": true
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "count-past-end",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-abc"
+      },
+      "Block B"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "control-endpoint-included",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-control-end"
+      },
+      "Selected paragraph"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "Control boundary",
+      "include_end": true
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-endpoint-excluded",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-control-end"
+      },
+      "Selected paragraph"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "Control boundary",
+      "include_end": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unsupported-child-inside-adjusted-slice",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-slice"
+      },
+      "Start boundary"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": "End boundary",
+      "include_start": false,
+      "include_end": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unsupported-between-endpoints",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-customxml-between"
+      },
+      "First selected block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "control-as-whole-block-range",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-sdt"
+      },
+      "Controlled source block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-as-whole-block-append",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-sdt"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "data-bound-control",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-bound"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "custom-xml-top-level",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-customxml-top"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "alt-chunk-top-level",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-altchunk-top"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "malformed-ids-before-style-import",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-malformed-id"
+      },
+      "Malformed target"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "destination-string",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "destination-block",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$block": "Destination anchor"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "destination-span",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$span": "Destination anchor"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "historical-destination-block-original",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$block": "Destination anchor",
+       "view": "original"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "historical-destination-span-original",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$span": "Destination anchor",
+       "view": "original"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "historical-source-blocks-original",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      },
+      {
+       "$source_block": "First source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "original"
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": {
+       "$source_block": "Second source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "original"
+      }
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "First source block",
+     "Second source block"
+    ]
+   }
+  },
+  {
+   "name": "historical-source-spans-original",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      },
+      {
+       "$source_span": "First source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "original"
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": {
+       "$source_span": "Second source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "original"
+      }
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "historical-destination-block-all",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$block": "Destination anchor",
+       "view": "all"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "historical-destination-span-all",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$span": "Destination anchor",
+       "view": "all"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "historical-source-blocks-all",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      },
+      {
+       "$source_block": "First source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "all"
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": {
+       "$source_block": "Second source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "all"
+      }
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "First source block",
+     "Second source block"
+    ]
+   }
+  },
+  {
+   "name": "historical-source-spans-all",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      },
+      {
+       "$source_span": "First source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "all"
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "end_anchor": {
+       "$source_span": "Second source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       },
+       "view": "all"
+      }
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "foreign-start-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      {
+       "$span": "Destination anchor"
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "foreign-start-block",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      {
+       "$block": "Destination anchor"
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "foreign-destination-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$source_span": "Source block",
+       "source": {
+        "$source": "synthetic:p6-src-block"
+       }
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "start-anchor-from-another-source",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      {
+       "$source_span": "First source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       }
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "source-span-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      {
+       "$source_span": "Source",
+       "source": {
+        "$source": "synthetic:p6-src-block"
+       }
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "source-block-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      },
+      {
+       "$source_block": "Second source block",
+       "source": {
+        "$source": "synthetic:p6-src-two"
+       }
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-empty-source",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-empty"
+      }
+     ],
+     "kwargs": {}
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "append-invalid-section",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ],
+     "kwargs": {
+      "section": "fancy"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "append-invalid-headers",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ],
+     "kwargs": {
+      "headers": "both"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "append-invalid-styles",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      }
+     ],
+     "kwargs": {
+      "styles": "steal"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "append-new-page",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two"
+      }
+     ],
+     "kwargs": {}
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-tables-pad",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables-only"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-picture-into-blank",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-picture"
+      },
+      "Before the picture."
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-picture-twice-dedups",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-picture"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    },
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two-pictures"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

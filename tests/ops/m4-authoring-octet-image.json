@@ -1,0 +1,80 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.octet-image",
+ "upstream": [
+  "tests/paper/test_word_media_content_types.py"
+ ],
+ "fixture": "synthetic:p4-octet-image",
+ "cases": [
+  {
+   "name": "dedupes-octet-part",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": []
+   },
+   "deviation": "upstream's save rewrites [Content_Types].xml for the application/octet-stream png Default (Default vs Override) even when no content type changes; Rust leaves the item untouched; effective content types are identical"
+  },
+  {
+   "name": "new-png-part",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "image-reads",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream's save rewrites [Content_Types].xml for the application/octet-stream png Default (Default vs Override) even when no content type changes; Rust leaves the item untouched; effective content types are identical"
+  }
+ ]
+}

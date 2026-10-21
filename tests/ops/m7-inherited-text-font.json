@@ -1,0 +1,4787 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-font",
+ "upstream": [
+  "features/txt-font-props.feature",
+  "features/run-access-font.feature",
+  "src/docx/text/font.py",
+  "src/docx/oxml/text/font.py"
+ ],
+ "fixture": "synthetic:p7-compact-txt-font-props",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      10,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      10,
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      10,
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      10,
+      3
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      10,
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-name-Avenir Black",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "name",
+        "Avenir Black"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-name-Calibri",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "name",
+        "Calibri"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-name-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "name",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-size-177800",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "size",
+        177800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-size-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "size",
+        228600
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-size-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "size",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-size-177801",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "size",
+        177801
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-underline-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-underline-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-underline-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-underline-double",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        "double"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-underline-wave",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        "wave"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-underline-dashLongHeavy",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        "dashLongHeavy"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-subscript-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "subscript",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-subscript-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "subscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-subscript-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "subscript",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-superscript-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "superscript",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-superscript-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "superscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-color-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-color-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-theme_color-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-theme_color-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-highlight-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-highlight-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-all_caps",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "all_caps",
+        true
+       ],
+       [
+        "all_caps",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "all_caps",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-bold",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-complex_script",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "complex_script",
+        true
+       ],
+       [
+        "complex_script",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "complex_script",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-cs_bold",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "cs_bold",
+        true
+       ],
+       [
+        "cs_bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "cs_bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-cs_italic",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "cs_italic",
+        true
+       ],
+       [
+        "cs_italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "cs_italic",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-double_strike",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "double_strike",
+        true
+       ],
+       [
+        "double_strike",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "double_strike",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-emboss",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "emboss",
+        true
+       ],
+       [
+        "emboss",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "emboss",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-hidden",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "hidden",
+        true
+       ],
+       [
+        "hidden",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "hidden",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-italic",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "italic",
+        true
+       ],
+       [
+        "italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "italic",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-imprint",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "imprint",
+        true
+       ],
+       [
+        "imprint",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "imprint",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-math",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "math",
+        true
+       ],
+       [
+        "math",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "math",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-no_proof",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "no_proof",
+        true
+       ],
+       [
+        "no_proof",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "no_proof",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-outline",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "outline",
+        true
+       ],
+       [
+        "outline",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "outline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-rtl",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "rtl",
+        true
+       ],
+       [
+        "rtl",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "rtl",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-shadow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "shadow",
+        true
+       ],
+       [
+        "shadow",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "shadow",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-small_caps",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "small_caps",
+        true
+       ],
+       [
+        "small_caps",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "small_caps",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-snap_to_grid",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "snap_to_grid",
+        true
+       ],
+       [
+        "snap_to_grid",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "snap_to_grid",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-spec_vanish",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "spec_vanish",
+        true
+       ],
+       [
+        "spec_vanish",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "spec_vanish",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-strike",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "strike",
+        true
+       ],
+       [
+        "strike",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "strike",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0r0-web_hidden",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "web_hidden",
+        true
+       ],
+       [
+        "web_hidden",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "web_hidden",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-name-Avenir Black",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "name",
+        "Avenir Black"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-name-Calibri",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "name",
+        "Calibri"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-name-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "name",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-size-177800",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "size",
+        177800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-size-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "size",
+        228600
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-size-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "size",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-size-177801",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "size",
+        177801
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-underline-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-underline-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-underline-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-underline-double",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "underline",
+        "double"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-underline-wave",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "underline",
+        "wave"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-underline-dashLongHeavy",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "underline",
+        "dashLongHeavy"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-subscript-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "subscript",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-subscript-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "subscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-subscript-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "subscript",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-superscript-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "superscript",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-superscript-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "superscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-color-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-color-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-theme_color-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-theme_color-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-highlight-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-highlight-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-all_caps",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "all_caps",
+        true
+       ],
+       [
+        "all_caps",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "all_caps",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-bold",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-complex_script",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "complex_script",
+        true
+       ],
+       [
+        "complex_script",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "complex_script",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-cs_bold",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "cs_bold",
+        true
+       ],
+       [
+        "cs_bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "cs_bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-cs_italic",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "cs_italic",
+        true
+       ],
+       [
+        "cs_italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "cs_italic",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-double_strike",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "double_strike",
+        true
+       ],
+       [
+        "double_strike",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "double_strike",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-emboss",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "emboss",
+        true
+       ],
+       [
+        "emboss",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "emboss",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-hidden",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "hidden",
+        true
+       ],
+       [
+        "hidden",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "hidden",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-italic",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "italic",
+        true
+       ],
+       [
+        "italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "italic",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-imprint",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "imprint",
+        true
+       ],
+       [
+        "imprint",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "imprint",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-math",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "math",
+        true
+       ],
+       [
+        "math",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "math",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-no_proof",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "no_proof",
+        true
+       ],
+       [
+        "no_proof",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "no_proof",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-outline",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "outline",
+        true
+       ],
+       [
+        "outline",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "outline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-rtl",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "rtl",
+        true
+       ],
+       [
+        "rtl",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "rtl",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-shadow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "shadow",
+        true
+       ],
+       [
+        "shadow",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "shadow",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-small_caps",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "small_caps",
+        true
+       ],
+       [
+        "small_caps",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "small_caps",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-snap_to_grid",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "snap_to_grid",
+        true
+       ],
+       [
+        "snap_to_grid",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "snap_to_grid",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-spec_vanish",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "spec_vanish",
+        true
+       ],
+       [
+        "spec_vanish",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "spec_vanish",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-strike",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "strike",
+        true
+       ],
+       [
+        "strike",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "strike",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r1-web_hidden",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "web_hidden",
+        true
+       ],
+       [
+        "web_hidden",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "web_hidden",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-name-Avenir Black",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "name",
+        "Avenir Black"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-name-Calibri",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "name",
+        "Calibri"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-name-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "name",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-size-177800",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "size",
+        177800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-size-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "size",
+        228600
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-size-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "size",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-size-177801",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "size",
+        177801
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-underline-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-underline-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-underline-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-underline-double",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "underline",
+        "double"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-underline-wave",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "underline",
+        "wave"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-underline-dashLongHeavy",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "underline",
+        "dashLongHeavy"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-subscript-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "subscript",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-subscript-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "subscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-subscript-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "subscript",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-superscript-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "superscript",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-superscript-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "superscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-color-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-color-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-theme_color-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-theme_color-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-highlight-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-highlight-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-all_caps",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "all_caps",
+        true
+       ],
+       [
+        "all_caps",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "all_caps",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-bold",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-complex_script",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "complex_script",
+        true
+       ],
+       [
+        "complex_script",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "complex_script",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-cs_bold",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "cs_bold",
+        true
+       ],
+       [
+        "cs_bold",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "cs_bold",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-cs_italic",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "cs_italic",
+        true
+       ],
+       [
+        "cs_italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "cs_italic",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-double_strike",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "double_strike",
+        true
+       ],
+       [
+        "double_strike",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "double_strike",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-emboss",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "emboss",
+        true
+       ],
+       [
+        "emboss",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "emboss",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-hidden",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "hidden",
+        true
+       ],
+       [
+        "hidden",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "hidden",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-italic",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "italic",
+        true
+       ],
+       [
+        "italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "italic",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-imprint",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "imprint",
+        true
+       ],
+       [
+        "imprint",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "imprint",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-math",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "math",
+        true
+       ],
+       [
+        "math",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "math",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-no_proof",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "no_proof",
+        true
+       ],
+       [
+        "no_proof",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "no_proof",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-outline",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "outline",
+        true
+       ],
+       [
+        "outline",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "outline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-rtl",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "rtl",
+        true
+       ],
+       [
+        "rtl",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "rtl",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-shadow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "shadow",
+        true
+       ],
+       [
+        "shadow",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "shadow",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-small_caps",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "small_caps",
+        true
+       ],
+       [
+        "small_caps",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "small_caps",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-snap_to_grid",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "snap_to_grid",
+        true
+       ],
+       [
+        "snap_to_grid",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "snap_to_grid",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-spec_vanish",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "spec_vanish",
+        true
+       ],
+       [
+        "spec_vanish",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "spec_vanish",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-strike",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "strike",
+        true
+       ],
+       [
+        "strike",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "strike",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p10r3-web_hidden",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "web_hidden",
+        true
+       ],
+       [
+        "web_hidden",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      3,
+      [
+       [
+        "web_hidden",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "sub-then-super",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      1,
+      [
+       [
+        "subscript",
+        true
+       ],
+       [
+        "superscript",
+        false
+       ],
+       [
+        "superscript",
+        true
+       ],
+       [
+        "subscript",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bad-underline",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        "squiggle"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-highlight",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        "chartreuse"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-theme",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "accent9"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-rgb",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "color",
+        "XYZ123"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "negative-size",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      10,
+      0,
+      [
+       [
+        "size",
+        -1
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream adds w:rPr (and w:sz) before the ValueError on a run without w:rPr; Rust raises the same category with nothing changed"
+  },
+  {
+   "name": "batch-stops-on-error",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "underline",
+        "squiggle"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream applies `bold` before the ValueError of the second assignment; Rust validates the whole batch and changes nothing"
+  }
+ ]
+}

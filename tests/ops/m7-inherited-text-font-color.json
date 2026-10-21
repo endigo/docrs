@@ -1,0 +1,960 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-font-color",
+ "upstream": [
+  "features/txt-font-color.feature",
+  "src/docx/dml/color.py"
+ ],
+ "fixture": "synthetic:p7-compact-fnt-color",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-rgb-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-rgb-2468AC",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "color",
+        "2468AC"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-rgb-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-theme-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-theme-dark1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "dark1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-theme-text1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "text1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-theme-light2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "light2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-theme-followedHyperlink",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        "followedHyperlink"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-theme-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-rgb-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-rgb-2468AC",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        "2468AC"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-rgb-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-theme-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-theme-dark1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "theme_color",
+        "dark1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-theme-text1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "theme_color",
+        "text1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-theme-light2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "theme_color",
+        "light2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-theme-followedHyperlink",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "theme_color",
+        "followedHyperlink"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-theme-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-rgb-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-rgb-2468AC",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "color",
+        "2468AC"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-rgb-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-theme-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-theme-dark1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "theme_color",
+        "dark1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-theme-text1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "theme_color",
+        "text1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-theme-light2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "theme_color",
+        "light2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-theme-followedHyperlink",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "theme_color",
+        "followedHyperlink"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-theme-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-rgb-F00BA5",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "color",
+        "F00BA5"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-rgb-2468AC",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "color",
+        "2468AC"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-rgb-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-theme-accent2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "theme_color",
+        "accent2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-theme-dark1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "theme_color",
+        "dark1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-theme-text1",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "theme_color",
+        "text1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-theme-light2",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "theme_color",
+        "light2"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-theme-followedHyperlink",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "theme_color",
+        "followedHyperlink"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-theme-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

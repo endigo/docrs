@@ -1,0 +1,459 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-font-enum",
+ "upstream": [
+  "features/run-enum-props.feature"
+ ],
+ "fixture": "synthetic:p7-compact-run-enumerated-props",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r0-dotted",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "underline",
+        "dotted"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r1-dotted",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      1,
+      [
+       [
+        "underline",
+        "dotted"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r2-dotted",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      2,
+      [
+       [
+        "underline",
+        "dotted"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "underline",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "underline",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "underline",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "r3-dotted",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      3,
+      [
+       [
+        "underline",
+        "dotted"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

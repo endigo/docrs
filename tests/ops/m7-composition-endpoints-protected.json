@@ -1,0 +1,185 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.endpoints-protected",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_preflights_every_composition_endpoint_before_destination_protection"
+ ],
+ "fixture": "synthetic:p6-dest-two",
+ "cases": [
+  {
+   "name": "cross-paragraph-source-start",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-cross"
+      },
+      {
+       "$source_span": "source alpha end\nsource beta start",
+       "source": {
+        "$source": "synthetic:p6-src-cross"
+       }
+      }
+     ],
+     "kwargs": {
+      "anchor": "Destination before"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "cross-paragraph-source-end",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-cross"
+      },
+      "Source before"
+     ],
+     "kwargs": {
+      "anchor": "Destination before",
+      "end_anchor": {
+       "$source_span": "source alpha end\nsource beta start",
+       "source": {
+        "$source": "synthetic:p6-src-cross"
+       }
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "cross-paragraph-destination",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-cross"
+      },
+      "Source before"
+     ],
+     "kwargs": {
+      "anchor": {
+       "$span": "destination alpha end\ndestination beta start"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "boundary_violation"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "protected-after-valid-endpoints",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-cross"
+      },
+      "Source before"
+     ],
+     "kwargs": {
+      "anchor": "Destination before"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "protected-append",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-cross"
+      }
+     ],
+     "kwargs": {}
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "acknowledged-protection-allows",
+   "steps": [
+    {
+     "op": "protection.acknowledge_protection"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-cross"
+      },
+      "Source before"
+     ],
+     "kwargs": {
+      "anchor": "Destination before"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

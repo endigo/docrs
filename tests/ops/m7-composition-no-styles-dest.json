@@ -1,0 +1,88 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.no-styles-dest",
+ "upstream": [
+  "src/docx/composition.py::_reconcile_styles (document.styles creates the styles part)"
+ ],
+ "fixture": "synthetic:p6-dest-no-styles",
+ "cases": [
+  {
+   "name": "creates-styles-part-on-compose",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "imports-into-created-styles-part",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseterm"
+      },
+      "specially styled"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "refusal-creates-nothing",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-object"
+      },
+      "Embedded thing"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

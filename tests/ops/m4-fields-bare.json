@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.settings-created",
+  "upstream": ["src/docx/fields.py::_set_update_fields_on_open (document.settings creates the default settings part)"],
+  "fixture": "synthetic:p2-bare",
+  "cases": [
+    {"name": "page-creates-settings", "steps": [
+      {"op": "fields.add_page_number_field", "args": [{"$paragraph": "Alpha paragraph"}]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "[Content_Types].xml"],
+                "added_parts": ["word/settings.xml", "word/_rels/document.xml.rels"]}},
+    {"name": "toc-creates-settings", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Beta paragraph"]}]},
+    {"name": "caption-without-styles", "steps": [
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Beta paragraph"}], "kwargs": {"label": "Figure", "description": "x"}}]},
+    {"name": "reference-no-bookmarks", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Beta paragraph"}], "kwargs": {"bookmark": "Any"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": [], "added_parts": []}}
+  ]
+}

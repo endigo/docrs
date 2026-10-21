@@ -1,0 +1,65 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.sections-inner-content",
+ "upstream": [
+  "features/sct-section.feature (iter_inner_content)",
+  "src/docx/oxml/section.py::_SectBlockElementIterator"
+ ],
+ "fixture": "synthetic:p7-compact-sct-inner-content",
+ "cases": [
+  {
+   "name": "section-0",
+   "steps": [
+    {
+     "op": "ext.p7_section_content",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-1",
+   "steps": [
+    {
+     "op": "ext.p7_section_content",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-2",
+   "steps": [
+    {
+     "op": "ext.p7_section_content",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

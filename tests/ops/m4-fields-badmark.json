@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.malformed-bookmark-id",
+  "upstream": ["src/docx/bookmarks.py::list_bookmarks (raw int() of w:id) as used by fields.add_reference_field"],
+  "fixture": "synthetic:p2-fields-badmark",
+  "cases": [
+    {"name": "reference-malformed-bookmark-id", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "DefinedTerm"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "page-field-unaffected", "steps": [
+      {"op": "fields.add_page_number_field", "args": [{"$paragraph": "Reference: "}]}]}
+  ]
+}

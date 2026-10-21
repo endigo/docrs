@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "m3.protection-gate",
+  "upstream": ["tests/paper/test_word_protection_matrix.py"],
+  "fixture": "synthetic:m3-protected-readonly",
+  "cases": [
+    {"needle": "body", "with": "BODY", "expect": {"outcome": "error", "category": "document_protected"}},
+    {"needle": "body", "with": "BODY", "all": true, "expect": {"outcome": "error", "category": "document_protected"}},
+    {"needle": "body", "with": "BODY", "acknowledge": true, "expect": {"outcome": "ok", "changed_parts": ["word/document.xml"], "reopen_contains": ["Protected BODY text"]}}
+  ]
+}

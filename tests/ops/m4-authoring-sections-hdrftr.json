@@ -1,0 +1,142 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.sections-hdrftr",
+ "upstream": [
+  "features/doc-add-section.feature",
+  "features/sct-section.feature",
+  "src/docx/oxml/document.py::CT_Body.add_section_break"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "add-section-drops-references",
+   "steps": [
+    {
+     "op": "ext.p4_add_section"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-section-even",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "evenPage"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "after"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-table-block-width",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-styles",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Styled",
+      "Heading 2"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      -1,
+      " run",
+      "Strong"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-text-existing",
+   "steps": [
+    {
+     "op": "ext.p4_set_paragraph_text",
+     "args": [
+      0,
+      "Rewritten section one"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "ffd8ffe000104a46494600010101004800480000ffdb00040000ffc0000b080008001001011100ffda0008010100003f001234ff0056ffd9"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

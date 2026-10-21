@@ -1,0 +1,240 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.tables-cell-content",
+ "upstream": [
+  "features/tbl-cell-add-table.feature",
+  "features/tbl-cell-text.feature",
+  "src/docx/table.py::_Cell.add_table"
+ ],
+ "fixture": "synthetic:p7-compact-blk-containing-table",
+ "cases": [
+  {
+   "name": "add-table",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_table",
+     "args": [
+      {
+       "cell": [
+        0,
+        0,
+        0
+       ]
+      },
+      2,
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "cell": [
+        0,
+        0,
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      {
+       "in": {
+        "cell": [
+         0,
+         0,
+         0
+        ]
+       },
+       "index": 0
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      {
+       "in": {
+        "cell": [
+         0,
+         0,
+         0
+        ]
+       },
+       "index": 0
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-paragraphs",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_paragraph",
+     "args": [
+      {
+       "cell": [
+        0,
+        1,
+        0
+       ]
+      },
+      "second",
+      null
+     ]
+    },
+    {
+     "op": "ext.p7_container_add_paragraph",
+     "args": [
+      {
+       "cell": [
+        0,
+        1,
+        0
+       ]
+      },
+      "",
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "cell": [
+        0,
+        1,
+        0
+       ]
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested-cell-text",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_table",
+     "args": [
+      {
+       "cell": [
+        0,
+        0,
+        0
+       ]
+      },
+      2,
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_paragraph_set_text",
+     "args": [
+      {
+       "in": {
+        "cell": [
+         {
+          "in": {
+           "cell": [
+            0,
+            0,
+            0
+           ]
+          },
+          "index": 0
+         },
+         1,
+         1
+        ]
+       },
+       "index": 0
+      },
+      "deep"
+     ]
+    },
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-cell-text",
+   "steps": [
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      1,
+      1,
+      "replaced\ttext"
+     ]
+    },
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

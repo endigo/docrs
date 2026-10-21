@@ -1,0 +1,555 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-tabs",
+ "upstream": [
+  "features/tab-access-tabs.feature",
+  "features/tab-tabstop-props.feature",
+  "src/docx/text/tabstops.py"
+ ],
+ "fixture": "synthetic:p7-compact-tab-stops",
+ "cases": [
+  {
+   "name": "read-1",
+   "steps": [
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "read-2",
+   "steps": [
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "read-0",
+   "steps": [
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream `paragraph_format.tab_stops` adds w:pPr to a paragraph without one even when only reading; Rust reads without creating it"
+  },
+  {
+   "name": "add-to-empty",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      0,
+      914400,
+      "center",
+      "dot"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-middle",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      1371600
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-first",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      -914400,
+      "right",
+      "hyphen"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-last",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      5486400,
+      "decimal",
+      "heavy"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-equal-position",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      0,
+      "bar",
+      "middleDot"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-bad-alignment",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      914400,
+      "middle"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "add-bad-leader",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      914400,
+      "left",
+      "stars"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "clear-1",
+   "steps": [
+    {
+     "op": "ext.p7_clear_tab_stops",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "clear-0",
+   "steps": [
+    {
+     "op": "ext.p7_clear_tab_stops",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-1",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-last-negative",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-all",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-out-of-range",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "delete-no-tabs",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      0,
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream reports IndexError after `tab_stops` added w:pPr to the paragraph; Rust reports the same error with nothing changed"
+  },
+  {
+   "name": "position-in",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      1,
+      0,
+      "position",
+      228600
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "position-out",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      1,
+      0,
+      "position",
+      -914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "position-past-others",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      1,
+      0,
+      "position",
+      7315200
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "alignment",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      1,
+      1,
+      "alignment",
+      "left"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "leader-dots",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      1,
+      2,
+      "leader",
+      "dot"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "leader-spaces",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      2,
+      0,
+      "leader",
+      "none"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "leader-none",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      2,
+      0,
+      "leader",
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "read-after-edits",
+   "steps": [
+    {
+     "op": "ext.p7_set_tab_stop",
+     "args": [
+      2,
+      0,
+      "alignment",
+      "center"
+     ]
+    },
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      2,
+      100
+     ]
+    },
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

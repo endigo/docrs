@@ -1,0 +1,35 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-aaaa",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_authors_a_legal_fresh_bookmark_and_rewrites_a_split_lowercase_ref"
+ ],
+ "fixture": "synthetic:p6-dest-aaaa",
+ "cases": [
+  {
+   "name": "legal-fresh-name-and-split-lowercase-ref",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-aaaa"
+      },
+      "Source bookmark target"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

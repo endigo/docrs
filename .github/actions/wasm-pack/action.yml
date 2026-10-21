@@ -1,0 +1,21 @@
+name: wasm-pack
+description: Build and test the npm package (crates/docrs-wasm/pkg).
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: wasm-bindgen-cli at the version Cargo.lock pins (prebuilt)
+      shell: bash
+      run: |
+        v=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"/\1/p;}' Cargo.lock)
+        curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$v/wasm-bindgen-$v-x86_64-unknown-linux-musl.tar.gz" \
+          | tar xz --strip-components=1 -C "$HOME/.cargo/bin" "wasm-bindgen-$v-x86_64-unknown-linux-musl/wasm-bindgen"
+    - shell: bash
+      run: crates/docrs-wasm/build.sh --pack
+    - shell: bash
+      run: node --test crates/docrs-wasm/js/test.mjs

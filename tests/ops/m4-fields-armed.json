@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.update-fields-existing",
+  "upstream": ["src/docx/fields.py::_set_update_fields_on_open (existing w:updateFields set to true)"],
+  "fixture": "synthetic:p2-fields-armed",
+  "cases": [
+    {"name": "rearms-existing-flag", "steps": [
+      {"op": "fields.add_page_number_field", "args": [{"$paragraph": "Reference: "}]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/settings.xml"]}},
+    {"name": "toc-rearms", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Closing para"], "kwargs": {"levels": [1, 1]}}]}
+  ]
+}

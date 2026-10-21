@@ -1,0 +1,71 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.header",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "header-story",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Header for section one",
+       "story": "word/header1.xml"
+      },
+      "HeaderMark"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/header1.xml"
+    ]
+   }
+  },
+  {
+   "name": "body-then-header-ids",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Section one"
+      },
+      "BodyMark"
+     ]
+    },
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Header for section one",
+       "story": "word/header1.xml"
+      },
+      "HeaderMark"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

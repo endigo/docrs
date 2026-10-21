@@ -1,0 +1,30 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.textbox",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "generated/feature-isolated/textbox.docx",
+ "cases": [
+  {
+   "name": "in-text-box",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "living inside"
+      },
+      "Boxed"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

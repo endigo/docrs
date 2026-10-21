@@ -1,0 +1,109 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.comment-mode",
+ "upstream": [
+  "src/docx/protection.py::_PROTECTION_MATRIX (comments mode permits comment operations)"
+ ],
+ "fixture": "synthetic:p5-comments-commentmode",
+ "cases": [
+  {
+   "name": "comment-operations-allowed",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "ok",
+      "author": "A",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "r",
+      "author": "B",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "more"
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "body-edit-refused",
+   "steps": [
+    {
+     "op": "ext.p5_replace",
+     "kwargs": {
+      "span": {
+       "$span": "commented"
+      },
+      "text": "changed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "revision-resolution-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  }
+ ]
+}

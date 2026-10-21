@@ -1,0 +1,86 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.behave-no-part",
+ "upstream": [
+  "features/doc-styles.feature",
+  "src/docx/parts/document.py::DocumentPart._styles_part"
+ ],
+ "fixture": "synthetic:p7-compact-sty-having-no-styles-part",
+ "cases": [
+  {
+   "name": "add-style-creates-default-part",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Custom",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/styles.xml"
+    ],
+    "changed_parts": [
+     "word/_rels/document.xml.rels"
+    ]
+   },
+   "deviation": "upstream's save regenerates [Content_Types].xml from the parts it holds, dropping the unrelated stale Override for the missing /word/stylesWithEffects.xml; Rust replaces only the stale /word/styles.xml Override and leaves the rest untouched (narrow save; every member's effective content type is identical)"
+  },
+  {
+   "name": "latent-add-creates-default-part",
+   "steps": [
+    {
+     "op": "ext.p7_latent_add",
+     "args": [
+      "Foobar"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/styles.xml"
+    ],
+    "changed_parts": [
+     "word/_rels/document.xml.rels"
+    ]
+   },
+   "deviation": "upstream's save regenerates [Content_Types].xml from the parts it holds, dropping the unrelated stale Override for the missing /word/stylesWithEffects.xml; Rust replaces only the stale /word/styles.xml Override and leaves the rest untouched (narrow save; every member's effective content type is identical)"
+  },
+  {
+   "name": "read-creates-default-part-upstream",
+   "steps": [
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream `document.styles` adds the default styles part as a side effect of reading; Rust reads the bundled default without editing the package"
+  }
+ ]
+}
