@@ -483,10 +483,15 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     )
                 })?
             };
+            // The library reads no image file without a directory; the
+            // command reads them beside the Markdown (standard input: the
+            // current directory).
             let resource_dir = resource_path.clone().or_else(|| {
-                (input.as_os_str() != "-")
-                    .then(|| input.parent().map(Path::to_path_buf))
-                    .flatten()
+                Some(if input.as_os_str() == "-" {
+                    std::path::PathBuf::from(".")
+                } else {
+                    input.parent().map(Path::to_path_buf).unwrap_or_default()
+                })
             });
             let options = MarkdownOptions {
                 placement: match (placeholder, append) {

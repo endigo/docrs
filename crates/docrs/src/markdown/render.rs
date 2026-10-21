@@ -4,6 +4,7 @@
 //! Blocks are built as detached elements scoped to their final parent and
 //! attached at the end, so the body is only touched once everything built.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -1182,8 +1183,19 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The bytes `text` decodes to (what [`base64_decode`] returns when it is
+/// valid), counted without decoding.
+fn base64_len(text: &str) -> u64 {
+    let digits = text
+        .bytes()
+        .take_while(|c| *c != b'=')
+        .filter(|c| !c.is_ascii_whitespace())
+        .count() as u64;
+    digits * 6 / 8
+}
+
 fn base64_decode(text: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(text.len() / 4 * 3 + 3);
     let mut buffer = 0u32;
     let mut bits = 0;
     for c in text.bytes() {
@@ -2421,30 +2433,52 @@ impl<'p> Renderer<'_, '_, 'p> {
 
     // ----------------------------------------------------------- pictures
 
-    fn load_image(&mut self, url: &str, line: usize) -> Option<(Vec<u8>, Option<String>)> {
+    /// The picture bytes a reference names, and the file name its media
+    /// part may take. Bytes supplied in `images` come first, then a `data:`
+    /// URI, then a file, read only when a `resource_dir` is set and only
+    /// from inside it (see [`resolve_in`]). Remote URLs are never fetched,
+    /// and nothing larger than the package's `max_part_bytes` is taken.
+    /// Warnings quote the reference as written, never a resolved path or an
+    /// operating system error.
+    fn load_image(&mut self, url: &str, line: usize) -> Option<(Cow<'p, [u8]>, Option<String>)> {
+        let options: &'p MarkdownOptions = self.options;
+        let limit = self.txn.document().package().limits().max_part_bytes;
         // Supplied bytes first, keyed by the reference as written (a path,
-        // an id or a URL, which is never fetched).
-        let unescaped = percent_decode(url);
-        let supplied = self
-            .options
-            .images
-            .get(url)
-            .or_else(|| self.options.images.get(&unescaped))
-            .or_else(|| self.options.images.get(unescaped.trim_start_matches("./")));
+        // an id or a URL, which is never fetched); `./a.png` and `a%20b.png`
+        // find `a.png` and `a b.png`, and the other way round.
+        let key = image_key(url);
+        let supplied = options.images.get(url).or_else(|| {
+            options
+                .images
+                .iter()
+                .find(|(name, _)| image_key(name) == key)
+                .map(|(_, bytes)| bytes)
+        });
         if let Some(bytes) = supplied {
-            let name = unescaped
+            if bytes.len() as u64 > limit {
+                self.image_too_large(&image_name(url), limit, line);
+                return None;
+            }
+            let name = key
                 .split(['?', '#'])
                 .next()
                 .and_then(|path| path.rsplit('/').next())
                 .filter(|name| !name.is_empty())
                 .map(str::to_string);
-            return Some((bytes.clone(), name));
+            return Some((Cow::Borrowed(bytes.as_slice()), name));
         }
         if let Some(rest) = url.strip_prefix("data:") {
-            let decoded = rest
+            let data = rest
                 .split_once(',')
                 .filter(|(meta, _)| meta.ends_with(";base64"))
-                .and_then(|(_, data)| base64_decode(data));
+                .map(|(_, data)| data);
+            if let Some(data) = data
+                && base64_len(data) > limit
+            {
+                self.image_too_large("a data: image", limit, line);
+                return None;
+            }
+            let decoded = data.and_then(base64_decode);
             if decoded.is_none() {
                 self.warn(
                     "image_unreadable",
@@ -2452,7 +2486,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     Some(line),
                 );
             }
-            return decoded.map(|bytes| (bytes, None));
+            return decoded.map(|bytes| (Cow::Owned(bytes), None));
         }
         if url.contains("://") && !url.starts_with("file://") {
             self.warn(
@@ -2462,46 +2496,63 @@ impl<'p> Renderer<'_, '_, 'p> {
             );
             return None;
         }
-        let decoded = percent_decode(url.strip_prefix("file://").unwrap_or(url));
-        if cfg!(all(target_family = "wasm", target_os = "unknown")) {
+        let dir = match &options.resource_dir {
             // No file system: only images supplied in `images` exist.
-            self.warn(
-                "image_not_found",
-                format!("image {decoded} was not supplied; its alt text is shown instead"),
-                Some(line),
-            );
-            return None;
-        }
-        let path = PathBuf::from(&decoded);
-        let full = if path.is_absolute() {
-            path
-        } else {
-            self.options
-                .resource_dir
-                .clone()
-                .unwrap_or_default()
-                .join(path)
-        };
-        match std::fs::read(&full) {
-            Ok(bytes) => {
-                let name = full
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(str::to_string);
-                Some((bytes, name))
-            }
-            Err(err) => {
+            Some(dir) if !cfg!(all(target_family = "wasm", target_os = "unknown")) => dir,
+            _ => {
                 self.warn(
                     "image_not_found",
                     format!(
-                        "image {} could not be read ({err}); its alt text is shown instead",
-                        display_path(&full)
+                        "image {url} was not supplied and no resource directory is set to read it from; its alt text is shown instead"
+                    ),
+                    Some(line),
+                );
+                return None;
+            }
+        };
+        let decoded = percent_decode(url);
+        match resolve_in(dir, &decoded).and_then(|path| read_within(&path, limit)) {
+            Ok(bytes) => {
+                let name = decoded
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string);
+                Some((Cow::Owned(bytes), name))
+            }
+            Err(Unread::Outside) => {
+                self.warn(
+                    "image_outside_resource_dir",
+                    format!(
+                        "image {url} is not inside the resource directory and was not read; its alt text is shown instead"
                     ),
                     Some(line),
                 );
                 None
             }
+            Err(Unread::Missing) => {
+                self.warn(
+                    "image_not_found",
+                    format!("image {url} could not be read; its alt text is shown instead"),
+                    Some(line),
+                );
+                None
+            }
+            Err(Unread::TooLarge) => {
+                self.image_too_large(url, limit, line);
+                None
+            }
         }
+    }
+
+    fn image_too_large(&mut self, shown: &str, limit: u64, line: usize) {
+        self.warn(
+            "image_too_large",
+            format!(
+                "image {shown} is larger than the {limit}-byte part limit; its alt text is shown instead"
+            ),
+            Some(line),
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2519,14 +2570,19 @@ impl<'p> Renderer<'_, '_, 'p> {
         let Some((bytes, filename)) = self.load_image(url, line) else {
             return Ok(false);
         };
-        let image = match Image::from_blob(&bytes) {
+        let shown = image_name(url);
+        let image = match Image::from_vec(bytes.into_owned()) {
             Ok(image) => image,
-            Err(_) => {
+            Err(err) if err.reason() == "unrecognized_image" => {
                 self.warn(
                     "image_unsupported",
-                    format!("image {url} is not a BMP, GIF, JPEG, PNG or TIFF file; its alt text is shown instead"),
+                    format!("image {shown} is not a BMP, GIF, JPEG, PNG or TIFF file; its alt text is shown instead"),
                     Some(line),
                 );
+                return Ok(false);
+            }
+            Err(_) => {
+                self.image_unreadable(&shown, line);
                 return Ok(false);
             }
         };
@@ -2546,13 +2602,21 @@ impl<'p> Renderer<'_, '_, 'p> {
         // The editor's size (CSS pixels, 96 per inch), else the image's
         // own; never wider than the text.
         let px = |value: f64| (value * EMU_PER_PX).round() as i64;
-        let (mut width, mut height) = match (width_px, height_px) {
-            (None, None) => (image.width()?, image.height()?),
-            (width, height) => image.scaled_dimensions(width.map(px), height.map(px))?,
+        let Ok((mut width, mut height)) =
+            image.layout_dimensions(width_px.map(px), height_px.map(px))
+        else {
+            self.image_unreadable(&shown, line);
+            return Ok(false);
         };
         if width > max_width && width > 0 {
             height = (height as f64 * max_width as f64 / width as f64).round() as i64;
             width = max_width;
+        }
+        // A size no drawing can hold (a damaged header, or an absurd
+        // editor size) is not laid out.
+        if !(0..=MAX_EXTENT).contains(&height) || !(0..=MAX_EXTENT).contains(&width) {
+            self.image_unreadable(&shown, line);
+            return Ok(false);
         }
         let r = {
             let tree = self.txn.tree_mut(part)?;
@@ -2564,7 +2628,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             self.txn,
             part,
             r,
-            &bytes,
+            image.blob(),
             filename.as_deref(),
             Some(width.max(1)),
             Some(height.max(1)),
@@ -2583,6 +2647,16 @@ impl<'p> Renderer<'_, '_, 'p> {
         }
         self.pictures.push((part.to_string(), doc_pr));
         Ok(true)
+    }
+
+    fn image_unreadable(&mut self, shown: &str, line: usize) {
+        self.warn(
+            "image_unreadable",
+            format!(
+                "image {shown} has a damaged or truncated header and cannot be sized; its alt text is shown instead"
+            ),
+            Some(line),
+        );
     }
 
     /// Pictures were built detached, so each took the same next free id;
@@ -3634,8 +3708,94 @@ impl<'p> Renderer<'_, '_, 'p> {
     }
 }
 
-fn display_path(path: &Path) -> String {
-    path.display().to_string()
+/// The largest extent a drawing may have (`ST_PositiveCoordinate`).
+const MAX_EXTENT: i64 = 27_273_042_316_900;
+
+/// An image reference as the `images` map is matched: percent-decoded once,
+/// without a leading `./`.
+fn image_key(reference: &str) -> String {
+    percent_decode(reference)
+        .trim_start_matches("./")
+        .to_string()
+}
+
+/// An image reference as a warning quotes it (a `data:` URI is not quoted).
+fn image_name(url: &str) -> String {
+    if url.starts_with("data:") {
+        "(a data: image)".into()
+    } else {
+        url.to_string()
+    }
+}
+
+/// Why a local image was not read.
+#[derive(Debug, PartialEq, Eq)]
+enum Unread {
+    /// Not a relative path that stays inside the resource directory.
+    Outside,
+    /// No such file, not a file, or unreadable.
+    Missing,
+    /// Larger than `max_part_bytes`.
+    TooLarge,
+}
+
+/// The file `reference` (percent-decoded) names inside `dir`. Absolute
+/// paths, drive and UNC prefixes (`C:`, `\\server`, `//server`) and
+/// `file:` URLs are refused, as is a `..` that climbs above `dir`, all
+/// before the file system is touched, so nothing outside answers whether
+/// it exists. What is left is joined onto `dir` and both are canonicalised:
+/// the file must lie inside `dir` with symbolic links resolved.
+fn resolve_in(dir: &Path, reference: &str) -> std::result::Result<PathBuf, Unread> {
+    use std::path::Component;
+    let lower = reference.get(..5).map(str::to_ascii_lowercase);
+    if reference.starts_with("//")
+        || reference.starts_with("\\\\")
+        || lower.as_deref() == Some("file:")
+    {
+        return Err(Unread::Outside);
+    }
+    let relative = Path::new(reference);
+    let mut depth = 0usize;
+    for component in relative.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => return Err(Unread::Outside),
+            Component::ParentDir => depth = depth.checked_sub(1).ok_or(Unread::Outside)?,
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+        }
+    }
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    let root = std::fs::canonicalize(dir).map_err(|_| Unread::Missing)?;
+    let path = std::fs::canonicalize(root.join(relative)).map_err(|_| Unread::Missing)?;
+    if !path.starts_with(&root) {
+        return Err(Unread::Outside);
+    }
+    Ok(path)
+}
+
+/// A regular file's bytes, at most `limit` of them.
+fn read_within(path: &Path, limit: u64) -> std::result::Result<Vec<u8>, Unread> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|_| Unread::Missing)?;
+    let metadata = file.metadata().map_err(|_| Unread::Missing)?;
+    if !metadata.is_file() {
+        return Err(Unread::Missing);
+    }
+    if metadata.len() > limit {
+        return Err(Unread::TooLarge);
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| Unread::Missing)?;
+    if bytes.len() as u64 > limit {
+        return Err(Unread::TooLarge);
+    }
+    Ok(bytes)
 }
 
 /// Column widths in twips filling `total`: the editor's widths in

@@ -536,6 +536,243 @@ fn images_embed_scale_caption_and_fall_back() {
 }
 
 #[test]
+fn local_images_stay_inside_the_resource_directory() {
+    let outer = tempfile::tempdir().unwrap();
+    let dir = outer.path().join("docs");
+    std::fs::create_dir_all(dir.join("img")).unwrap();
+    std::fs::write(dir.join("img/dot.png"), png_bytes()).unwrap();
+    let secret = outer.path().join("secret.png");
+    std::fs::write(&secret, png_bytes()).unwrap();
+    let mut markdown = format!(
+        "![in](img/dot.png)\n\n![dotted](./img/../img/dot.png)\n\n\
+         ![up](../secret.png)\n\n![up missing](../nope.png)\n\n\
+         ![encoded](%2e%2e%2fsecret.png)\n\n![absolute](<{abs}>)\n\n\
+         ![file](<file://{abs}>)\n\n![host](file://server/share/x.png)\n\n\
+         ![unc](//server/share/x.png)\n\n![unc2](\\\\\\\\server\\\\share\\\\x.png)\n",
+        abs = secret.display()
+    );
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&secret, dir.join("img/link.png")).unwrap();
+        markdown.push_str("\n![link](img/link.png)\n");
+    }
+    let options = MarkdownOptions {
+        resource_dir: Some(dir.clone()),
+        ..MarkdownOptions::default()
+    };
+    let out = export_with("15-images-confined", &markdown, None, &options);
+    assert_eq!(out.report.counts.images, 2);
+    let outside = out
+        .warning_codes()
+        .iter()
+        .filter(|code| **code == "image_outside_resource_dir")
+        .count();
+    // `../nope.png` is refused before the file system is asked, so a
+    // missing file outside reads the same as an existing one.
+    assert_eq!(
+        outside,
+        if cfg!(unix) { 9 } else { 8 },
+        "{:?}",
+        out.report.warnings
+    );
+    assert_eq!(out.warning_codes().len(), outside);
+    // Warnings quote the reference as written: no resolved path, no
+    // operating system error.
+    let outer_path = std::fs::canonicalize(outer.path()).unwrap();
+    for warning in &out.report.warnings {
+        assert!(
+            !warning.message.contains(&*outer_path.to_string_lossy())
+                || warning.message.contains(&*secret.to_string_lossy()),
+            "{}",
+            warning.message
+        );
+        assert!(!warning.message.contains("os error"), "{}", warning.message);
+    }
+    assert!(out.report.warnings[0].message.contains("../secret.png"));
+    let mut report = out.report.clone();
+    report.redact();
+    assert!(
+        report
+            .warnings
+            .iter()
+            .all(|w| !w.message.contains("secret"))
+    );
+
+    // Editor HTML pictures go through the same check.
+    let html = export_html(
+        "15-images-confined-html",
+        "<p><img src=\"../secret.png\" alt=\"up\"><img src=\"img/dot.png\" alt=\"in\"></p>",
+        &options,
+    );
+    assert_eq!(html.report.counts.images, 1);
+    assert_eq!(html.warning_codes(), ["image_outside_resource_dir"]);
+    // Strict refuses.
+    let strict = MarkdownOptions {
+        strict: true,
+        ..options
+    };
+    let err = convert("![up](../secret.png)\n", None, &strict).unwrap_err();
+    assert_eq!(err.reason(), "markdown_not_faithful");
+}
+
+#[test]
+fn without_a_resource_directory_no_file_is_read() {
+    let chart = repo().join("examples/markdown/images/chart.png");
+    assert!(chart.exists());
+    let markdown = format!(
+        "![abs](<{}>)\n\n![rel](examples/markdown/images/chart.png)\n\n![given](./given.png)\n\n![inline](data:image/png;base64,{})\n",
+        chart.display(),
+        base64(&png_bytes())
+    );
+    let options = MarkdownOptions {
+        images: [("given.png".to_string(), png_bytes())].into(),
+        ..MarkdownOptions::default()
+    };
+    let out = export_with("15-images-no-dir", &markdown, None, &options);
+    // The supplied picture and the data: URI; nothing from disk.
+    assert_eq!(out.report.counts.images, 2);
+    assert_eq!(out.warning_codes(), ["image_not_found", "image_not_found"]);
+    assert!(
+        out.report.warnings[0]
+            .message
+            .contains("no resource directory")
+    );
+}
+
+#[test]
+fn supplied_image_keys_match_with_or_without_dot_slash_and_escapes() {
+    let options = MarkdownOptions {
+        images: [
+            ("a.png".to_string(), png_bytes()),
+            ("./b.png".to_string(), png_bytes()),
+            ("c d.png".to_string(), png_bytes()),
+            ("e%20f.png".to_string(), png_bytes()),
+        ]
+        .into(),
+        ..MarkdownOptions::default()
+    };
+    let out = export_with(
+        "15-images-keys",
+        "![a](./a.png) ![b](b.png) ![c](c%20d.png) ![e](<./e f.png>)\n",
+        None,
+        &options,
+    );
+    assert_eq!(out.report.counts.images, 4, "{:?}", out.report.warnings);
+    assert!(out.report.warnings.is_empty());
+}
+
+/// A PNG of `size` bytes or more (a padding chunk after the header).
+fn padded_png(size: usize) -> Vec<u8> {
+    let png = png_bytes();
+    let mut out = png[..33].to_vec();
+    out.extend_from_slice(&(size as u32).to_be_bytes());
+    out.extend_from_slice(b"zPAD");
+    out.extend(std::iter::repeat_n(0u8, size));
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&png[33..]);
+    out
+}
+
+#[test]
+fn images_larger_than_the_part_limit_are_left_out() {
+    let limits = Limits {
+        max_part_bytes: 600 << 10,
+        ..Limits::default()
+    };
+    let template = || {
+        let (bytes, _) = Document::new().patch_bytes().unwrap();
+        Document::open_bytes(&bytes, &limits).unwrap()
+    };
+    let big = padded_png(700 << 10);
+    // Still a picture within the default limits.
+    docrs::image::Image::from_blob(&big).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("big.png"), &big).unwrap();
+    let options = MarkdownOptions {
+        resource_dir: Some(dir.path().to_path_buf()),
+        images: [("given.png".to_string(), big.clone())].into(),
+        ..MarkdownOptions::default()
+    };
+    let markdown = format!(
+        "![data](data:image/png;base64,{})\n\n![given](given.png)\n\n![file](big.png)\n\n![small](data:image/png;base64,{})\n",
+        base64(&big),
+        base64(&png_bytes())
+    );
+    let (_, report) = convert(&markdown, Some(template()), &options).unwrap();
+    assert_eq!(report.counts.images, 1);
+    let codes: Vec<&str> = report.warnings.iter().map(|w| w.code).collect();
+    assert_eq!(codes, ["image_too_large"; 3]);
+    // The data: URI is not quoted.
+    assert!(report.warnings[0].message.len() < 200);
+    let strict = MarkdownOptions {
+        strict: true,
+        ..options
+    };
+    let mut doc = template();
+    let before = doc.patch_bytes().unwrap().0;
+    let err = docrs::markdown::insert_markdown(&mut doc, &markdown, &strict).unwrap_err();
+    assert_eq!(err.reason(), "markdown_not_faithful");
+    assert_eq!(doc.patch_bytes().unwrap().0, before);
+}
+
+/// A JFIF JPEG header, 3 × 2 pixels, whose density is zero dots per inch.
+fn zero_dpi_jpeg() -> Vec<u8> {
+    let mut out = vec![0xFF, 0xD8];
+    // APP0: JFIF 1.1, units 1 (dpi), density 0 × 0, no thumbnail.
+    out.extend_from_slice(&[0xFF, 0xE0, 0x00, 0x10]);
+    out.extend_from_slice(b"JFIF\0");
+    out.extend_from_slice(&[1, 1, 1, 0, 0, 0, 0, 0, 0]);
+    // SOF0: 8 bits, height 2, width 3, one component.
+    out.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x0B, 8, 0, 2, 0, 3, 1, 1, 0x11, 0]);
+    out.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x08, 1, 1, 0, 0, 0x3F, 0, 0xFF, 0xD9]);
+    out
+}
+
+#[test]
+fn malformed_images_become_warnings_and_zero_dpi_counts_as_96() {
+    let jpeg = zero_dpi_jpeg();
+    let image = docrs::image::Image::from_blob(&jpeg).unwrap();
+    // Upstream's own sizing divides by the zero resolution.
+    assert_eq!(image.width().unwrap_err().reason(), "zero_division");
+    let mut zero_width = png_bytes();
+    zero_width[16..20].copy_from_slice(&[0; 4]);
+    let options = MarkdownOptions {
+        images: [
+            ("zero-dpi.jpg".to_string(), jpeg),
+            ("truncated.png".to_string(), png_bytes()[..20].to_vec()),
+            ("zero-width.png".to_string(), zero_width),
+            ("dot.png".to_string(), png_bytes()),
+        ]
+        .into(),
+        ..MarkdownOptions::default()
+    };
+    let out = export_with(
+        "15-images-malformed",
+        "![z](zero-dpi.jpg)\n\n![t](truncated.png)\n\n![ok](dot.png)\n",
+        None,
+        &options,
+    );
+    assert_eq!(out.report.counts.images, 2);
+    assert_eq!(out.warning_codes(), ["image_unreadable"]);
+    // 3 × 2 pixels at 96 dpi.
+    assert!(
+        out.body()
+            .contains("<wp:extent cx=\"28575\" cy=\"19050\"/>"),
+        "{}",
+        out.body()
+    );
+    assert!(out.paragraphs().iter().any(|(_, t)| t == "[t]"));
+    // A width asked of a picture with no pixel width cannot be scaled.
+    let html = export_html(
+        "15-images-malformed-html",
+        "<p><img src=\"zero-width.png\" width=\"50\" alt=\"w\"></p>",
+        &options,
+    );
+    assert_eq!(html.report.counts.images, 0);
+    assert_eq!(html.warning_codes(), ["image_unreadable"]);
+}
+
+#[test]
 fn links_keep_only_web_mail_phone_and_relative_targets() {
     let out = export_with(
         "05-links-schemes",

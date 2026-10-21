@@ -18,6 +18,16 @@
 //! math commands outside the supported subset stay as text; both are
 //! reported as warnings.
 //!
+//! Untrusted input: the source decides which images and links the output
+//! carries, so the conversion confines both. Local images are read only
+//! from [`MarkdownOptions::resource_dir`] (by default nothing is read from
+//! disk), and no picture larger than the document's
+//! [`Limits::max_part_bytes`](crate::Limits) is taken. Links keep their
+//! target only for `http`, `https`, `mailto`, `tel`, `#fragment` and
+//! relative references; any other scheme (`javascript:`, `file:`, …) keeps
+//! the text without the link (`link_scheme_skipped`). Warnings quote the
+//! source as written, never a resolved path or an operating system error.
+//!
 //! Editor HTML is a second source format ([`insert_html`]): the HTML subset
 //! rich-text editors emit, including text and highlight colours, fonts,
 //! paragraph and cell alignment, `colgroup` widths, `colspan`/`rowspan`,
@@ -66,8 +76,13 @@ pub struct MarkdownOptions {
     pub style_policy: StylePolicy,
     /// Explicit role → style-name assignments (the style must exist).
     pub style_map: BTreeMap<Role, String>,
-    /// Directory relative image paths resolve against (default: the
-    /// current directory).
+    /// The one directory local images are read from; `None` (the default)
+    /// reads nothing from the file system, so only `images` and `data:`
+    /// URIs supply pictures. With a directory, a reference must be a
+    /// relative path that stays inside it once `..` and symbolic links are
+    /// resolved; absolute paths, `C:`/UNC prefixes and `file:` URLs are
+    /// refused (`image_outside_resource_dir`). Point it only at a directory
+    /// whose every picture the output may contain.
     pub resource_dir: Option<PathBuf>,
     /// Typographic quotes, dashes and ellipses.
     pub smart_punctuation: bool,
@@ -250,8 +265,16 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "an image was not supplied or could not be read; its alt text is shown instead",
     ),
     (
+        "image_outside_resource_dir",
+        "an image path leads outside the resource directory and was not read; its alt text is shown instead",
+    ),
+    (
+        "image_too_large",
+        "an image is larger than the part size limit; its alt text is shown instead",
+    ),
+    (
         "image_unreadable",
-        "a data: image is not base64-encoded; its alt text is shown instead",
+        "an image is not valid base64 or has a damaged header; its alt text is shown instead",
     ),
     (
         "image_unsupported",
