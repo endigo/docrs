@@ -2734,7 +2734,7 @@ impl Renderer<'_, '_, '_> {
                     });
                     // Numbered headings are not lists.
                     let heading =
-                        w_child(main, ppr, "outlineLvl").is_some() || style.is_some_and(&outlined);
+                        w_child(main, ppr, "outlineLvl").is_some() || style.is_some_and(outlined);
                     if heading {
                         continue;
                     }

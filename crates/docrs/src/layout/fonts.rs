@@ -296,8 +296,10 @@ fn names(table: &[u8]) -> (Option<String>, Option<String>) {
         let slot = usize::from(id - 1);
         if platform == 3 && (language == 0x409 || language == 0) && out[slot].is_none() {
             let units: Vec<u16> = raw
-                .chunks_exact(2)
-                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes(*c))
                 .collect();
             out[slot] = Some(String::from_utf16_lossy(&units));
         } else if platform == 1 && language == 0 && mac[slot].is_none() {
