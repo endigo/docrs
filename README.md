@@ -14,7 +14,7 @@ editor HTML convert to Word through a reference template.
 | -- | -- | -- |
 | Rust library | [`docrs`](crates/docrs/README.md) | `cargo add docrs` (add `--features markdown` for Markdown/HTML to Word) |
 | Command line (`docrs`) | [`docrs-cli`](crates/docrs-cli/README.md) | `cargo install docrs-cli --locked`, or a prebuilt binary from the release page |
-| Node.js / Next.js | [`docrs`](crates/docrs-wasm/js/README.md) on npm (WebAssembly) | `npm install docrs` |
+| Node.js / Next.js | [`docrs-wasm`](crates/docrs-wasm/js/README.md) on npm (WebAssembly) | `npm install docrs-wasm` |
 
 Rust 1.88 or newer. Node.js 18 or newer.
 
@@ -129,7 +129,7 @@ node --test crates/docrs-wasm/js/test.mjs
 ```
 
 ```ts
-import { fromMarkdown } from "docrs";
+import { fromMarkdown } from "docrs-wasm";
 
 const { docx, report, referenceSetAside } = fromMarkdown(markdown, {
   reference: templateBytes,            // optional .docx template
@@ -143,7 +143,7 @@ Options mirror the CLI flags in camelCase (unknown names are refused);
 errors are `Error`s with `code`, `reason`, `refusal` and `limit`. Also
 exported: `markdownStyles`, `referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add
-`serverExternalPackages: ["docrs"]` to `next.config.js`; the
+`serverExternalPackages: ["docrs-wasm"]` to `next.config.js`; the
 package README has a complete route.
 
 ## Library

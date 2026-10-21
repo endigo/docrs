@@ -5,7 +5,7 @@
 The first release. Three packages:
 - `docrs`, the library;
 - `docrs-cli`, the `docrs` command;
-- `docrs` on npm, WebAssembly for Node.js.
+- `docrs-wasm` on npm, WebAssembly for Node.js.
 
 ### Library
 
