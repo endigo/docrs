@@ -1,0 +1,58 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.append-headers-fixture",
+ "upstream": [
+  "tests/paper/test_composition.py::DescribeAppendDocument::it_keeps_destination_headers"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "keeps-destination-headers",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      }
+     ],
+     "kwargs": {}
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "keeps-destination-headers-continuous",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

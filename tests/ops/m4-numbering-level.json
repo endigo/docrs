@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.undefined-level",
+  "upstream": ["src/docx/numbering.py::list_numbering (undefined level refusal)"],
+  "fixture": "synthetic:p2-numbering-level",
+  "cases": [
+    {"name": "report-undefined-level", "steps": [{"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}}
+  ]
+}

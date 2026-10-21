@@ -1,0 +1,104 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.pad-table-last",
+ "upstream": [
+  "src/docx/composition.py::_pad_adjacent_tables"
+ ],
+ "fixture": "synthetic:p6-dest-table-last",
+ "cases": [
+  {
+   "name": "table-followed-by-table-pads",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables"
+      },
+      "Tables follow"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2,
+      "include_start": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-last-no-pad",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables"
+      },
+      "Tables follow"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-after-table",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables-only"
+      }
+     ],
+     "kwargs": {
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-after-table-new-page",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables-only"
+      }
+     ],
+     "kwargs": {}
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

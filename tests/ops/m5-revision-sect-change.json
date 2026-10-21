@@ -1,0 +1,93 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.sect-change",
+ "upstream": [
+  "tests/paper/test_revisions.py::it_keeps_story_level_section_changes_as_inert_evidence"
+ ],
+ "fixture": "synthetic:p5-sect-change",
+ "cases": [
+  {
+   "name": "enumerate",
+   "steps": [
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ]
+  },
+  {
+   "name": "accept-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": {
+       "type": "section_property_change"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reject-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_reject_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

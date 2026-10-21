@@ -1,0 +1,21 @@
+[package]
+name = "docrs-compat"
+description = "Test-only compatibility harness: shared cases, oracle comparison, loader smoke."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+docrs.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+flate2.workspace = true
+crc32fast.workspace = true
+
+[lints]
+workspace = true

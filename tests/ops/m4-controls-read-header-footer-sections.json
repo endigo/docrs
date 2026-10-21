@@ -1,0 +1,18 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.read.header.footer.sections",
+ "upstream": [
+  "list_controls read parity"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  }
+ ]
+}

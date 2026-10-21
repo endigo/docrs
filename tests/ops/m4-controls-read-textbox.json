@@ -1,0 +1,18 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.read.textbox",
+ "upstream": [
+  "list_controls read parity"
+ ],
+ "fixture": "generated/feature-isolated/textbox.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  }
+ ]
+}

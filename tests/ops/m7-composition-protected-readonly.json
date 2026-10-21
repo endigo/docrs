@@ -1,0 +1,37 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.protected-readonly",
+ "upstream": [
+  "tests/paper/test_composition.py::it_refuses_a_protected_destination"
+ ],
+ "fixture": "generated/feature-isolated/protected-readonly.docx",
+ "cases": [
+  {
+   "name": "protected-destination",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "Payment Terms"
+     ],
+     "kwargs": {
+      "anchor": "locked"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

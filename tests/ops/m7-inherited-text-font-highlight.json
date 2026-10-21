@@ -1,0 +1,559 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-font-highlight",
+ "upstream": [
+  "features/txt-font-props.feature (highlight_color)"
+ ],
+ "fixture": "synthetic:p7-compact-txt-font-highlight-color",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_font",
+     "args": [
+      0,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      1,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      2,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      3,
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-green",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        "green"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-darkBlue",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        "darkBlue"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-default",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        "default"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-green",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "highlight",
+        "green"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-darkBlue",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "highlight",
+        "darkBlue"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-default",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "highlight",
+        "default"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-green",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "highlight",
+        "green"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-darkBlue",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "highlight",
+        "darkBlue"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-default",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "highlight",
+        "default"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-yellow",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "highlight",
+        "yellow"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-green",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "highlight",
+        "green"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-darkBlue",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "highlight",
+        "darkBlue"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-default",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "highlight",
+        "default"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "highlight",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

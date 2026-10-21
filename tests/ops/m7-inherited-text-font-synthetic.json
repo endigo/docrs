@@ -1,0 +1,181 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-font-synthetic",
+ "upstream": [
+  "src/docx/oxml/text/font.py::CT_RPr"
+ ],
+ "fixture": "synthetic:p7-text",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_font",
+     "args": [
+      2,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_font",
+     "args": [
+      2,
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "rgb-replaces-theme",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      1,
+      [
+       [
+        "color",
+        "112233"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "theme-on-auto",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "theme_color",
+        "accent1"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "theme-none",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      1,
+      [
+       [
+        "theme_color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "theme-none-no-rpr",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "theme_color",
+        null
+       ],
+       [
+        "color",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "flags-around-unknown",
+   "steps": [
+    {
+     "op": "ext.p7_set_font",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "italic",
+        true
+       ],
+       [
+        "web_hidden",
+        false
+       ],
+       [
+        "size",
+        304800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

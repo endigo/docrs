@@ -1,0 +1,144 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.no-sections",
+ "upstream": [
+  "src/docx/document.py::_block_width (no sections)",
+  "src/docx/parts/document.py::_styles_part",
+  "src/docx/oxml/document.py::CT_Body.add_section_break"
+ ],
+ "fixture": "synthetic:synthetic-unicode",
+ "cases": [
+  {
+   "name": "table-no-sections",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream raises IndexError (non_refusal_error) when no w:sectPr exists; Rust refuses with unsupported_structure(no_section_properties)"
+  },
+  {
+   "name": "section-creates-sentinel",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "evenPage"
+     ]
+    },
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "styled-paragraph-creates-styles",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Styled",
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/styles.xml",
+     "word/_rels/document.xml.rels"
+    ]
+   }
+  },
+  {
+   "name": "template-lacks-heading",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Styled",
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream raises KeyError (category non_refusal_error) for an unknown style name, after the paragraph/run was already added; Rust returns invalid_argument(unknown_style) and changes nothing"
+  },
+  {
+   "name": "style-none-creates-styles",
+   "steps": [
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before-first",
+   "steps": [
+    {
+     "op": "ext.p4_insert_paragraph_before",
+     "args": [
+      0,
+      "Lead"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

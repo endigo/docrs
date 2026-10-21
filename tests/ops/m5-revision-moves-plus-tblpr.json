@@ -1,0 +1,94 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.moves-plus-tblpr",
+ "upstream": [
+  "tests/paper/test_revisions.py::it_reports_a_census_of_unsupported_revisions"
+ ],
+ "fixture": "synthetic:p5-moves-plus-tblpr",
+ "cases": [
+  {
+   "name": "census",
+   "steps": [
+    {
+     "op": "ext.p5_remaining_unsupported"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "move-pair-alone",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": {
+       "type": "move_from"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "author-filter",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "Alice Editor"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

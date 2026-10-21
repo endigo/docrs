@@ -1,0 +1,147 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.google",
+ "upstream": [
+  "features/sty-latent-add-del.feature",
+  "src/docx/styles/styles.py"
+ ],
+ "fixture": "google/minimal-clean/google-docs-export.docx",
+ "cases": [
+  {
+   "name": "latent-read-creates-upstream",
+   "steps": [
+    {
+     "op": "ext.p7_latent_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream `styles.latent_styles` adds an empty w:latentStyles as a side effect of reading; Rust reading never edits the styles part"
+  },
+  {
+   "name": "latent-add-creates-element",
+   "steps": [
+    {
+     "op": "ext.p7_latent_add",
+     "args": [
+      "Foobar"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Foobar"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "latent-set-creates-element",
+   "steps": [
+    {
+     "op": "ext.p7_latent_set",
+     "args": [
+      {
+       "default_to_hidden": true,
+       "load_count": 3
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "lowercase-normal",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "add-style",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Normal",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/styles.xml"
+    ]
+   }
+  }
+ ]
+}

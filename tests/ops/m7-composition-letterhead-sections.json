@@ -1,0 +1,60 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.letterhead-sections",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeSourceLetterhead",
+  "src/docx/composition.py::_copy_letterhead"
+ ],
+ "fixture": "synthetic:p6-dest-sections2",
+ "cases": [
+  {
+   "name": "even-odd-refused-with-several-destination-sections",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-even"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "same-setting-allowed-with-several-sections",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

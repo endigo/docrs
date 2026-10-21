@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "m3.plan-example.fragmented-runs",
+  "upstream": [
+    "tests/paper/test_search_replace.py (split-run exact replacement)",
+    "tests/paper/harness/contract.py (save_and_reopen, assert_changed_parts, assert_refusal_atomic)"
+  ],
+  "fixture": "generated/feature-isolated/fragmented-runs.docx",
+  "cases": [
+    {"needle": "payment terms", "with": "payment schedule",
+     "expect": {"outcome": "ok", "changed_parts": ["word/document.xml"],
+                "reopen_contains": ["payment schedule"], "reopen_absent": ["payment terms"]}},
+    {"needle": "hr", "with": "hour",
+     "expect": {"outcome": "error", "category": "ambiguous_target"}},
+    {"needle": "hr", "with": "hour", "nth": 2,
+     "expect": {"outcome": "ok", "changed_parts": ["word/document.xml"]}},
+    {"needle": "hr", "with": "hour", "all": true,
+     "expect": {"outcome": "ok", "reopen_absent": ["/hr"]}},
+    {"needle": "PAYMENT TERMS", "match": "normalized", "with": "payment schedule",
+     "expect": {"outcome": "ok", "reopen_contains": ["payment schedule"]}},
+    {"needle": "late surcharge", "with": "late surcharge", "again": "late fee",
+     "expect": {"outcome": "ok", "changed_parts": ["word/document.xml"], "reopen_contains": ["late fee"]}},
+    {"needle": "late surcharge", "with": "late fee", "again": "later fee",
+     "expect": {"outcome": "ok", "reopen_contains": ["late fee"], "reopen_absent": ["later fee"]}},
+    {"needle": "nowhere to be found", "with": "x",
+     "expect": {"outcome": "error", "category": "target_not_found"}},
+    {"needle": "payment", "with": "pay\nment",
+     "expect": {"outcome": "error", "category": "invalid_argument"}}
+  ]
+}

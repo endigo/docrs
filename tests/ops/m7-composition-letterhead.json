@@ -1,0 +1,594 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.letterhead",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeSourceLetterhead",
+  "src/docx/composition.py::_copy_letterhead"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "copies-source-headers",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/_rels/document.xml.rels",
+     "[Content_Types].xml"
+    ],
+    "added_parts": [
+     "word/header1.xml"
+    ],
+    "reopen_contains": [
+     "Source letterhead"
+    ]
+   }
+  },
+  {
+   "name": "copies-header-and-footer",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-ftr"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copies-header-images",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-image"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copies-header-hyperlinks",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-link"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "even-page-headers",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-even"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "multi-section-source-refused-by-body-preflight",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-even-inherited"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "inherited-even-header-via-copy-letterhead",
+   "steps": [
+    {
+     "op": "ext.p6_copy_letterhead",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-even-inherited"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copy-letterhead-hook-default",
+   "steps": [
+    {
+     "op": "ext.p6_copy_letterhead",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "even-odd-only-source-sections",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-even-unreferenced"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "imports-header-style",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-style"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "remaps-header-numbering",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-numbered"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reuses-body-numbering-in-header",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-body-numbered"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    },
+    {
+     "op": "numbering.list_numbering"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "refuses-note-mark-in-letterhead",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-footnote"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-top-level-bookmark-in-letterhead",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-top-bookmark"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "malformed-letterhead-id-fails-source-bookmark-listing",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-malformed-id"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "first-page-letterhead-skipped",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-firstpage"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "arms-letterhead-fields",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-field"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/_rels/document.xml.rels",
+     "[Content_Types].xml",
+     "word/settings.xml"
+    ],
+    "added_parts": [
+     "word/header1.xml"
+    ]
+   }
+  },
+  {
+   "name": "letterhead-controls",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-sdt"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "letterhead-continuous",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr"
+      }
+     ],
+     "kwargs": {
+      "headers": "source",
+      "section": "continuous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "letterhead-from-source-without-letterhead",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "letterhead-built-source",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Clause Library",
+          1
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Indemnity: the supplier shall hold harmless."
+         ]
+        },
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Payment Terms",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Payment falls due after thirty days."
+         ]
+        }
+       ]
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "letterhead-source-without-section",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-no-sect"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream raises IndexError (non_refusal_error) from source.sections[-1] after composing the body (rolled back); Rust refuses unsupported_structure(no_section_properties) with the package unchanged"
+  }
+ ]
+}

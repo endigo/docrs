@@ -1,0 +1,1526 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.insert",
+ "upstream": [
+  "tests/paper/test_composition.py::DescribeInsertBlocksFrom",
+  "tests/paper/test_regressions_pipeline.py::DescribeCompositionRegressions",
+  "src/docx/composition.py::insert_blocks_from / _compose"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "styled-range-adopts-house-look",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Clause Library",
+          1
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Indemnity: the supplier shall hold harmless."
+         ]
+        },
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Payment Terms",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Payment falls due after thirty days."
+         ]
+        }
+       ]
+      },
+      "Payment Terms"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    },
+    {
+     "op": "ext.p6_source_unchanged",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Clause Library",
+          1
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Indemnity: the supplier shall hold harmless."
+         ]
+        },
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Payment Terms",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Payment falls due after thirty days."
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "added_parts": [],
+    "reopen_contains": [
+     "Payment Terms",
+     "Payment falls due after thirty days."
+    ]
+   }
+  },
+  {
+   "name": "styled-range-synthetic-source",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "Payment Terms"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "start-and-end-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Clause Library",
+          1
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Indemnity: the supplier shall hold harmless."
+         ]
+        },
+        {
+         "op": "ext.p4_add_heading",
+         "args": [
+          "Payment Terms",
+          2
+         ]
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Payment falls due after thirty days."
+         ]
+        }
+       ]
+      },
+      "Clause Library"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "end_anchor": "Payment falls due after thirty days."
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "imports-missing-style",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseterm"
+      },
+      "specially styled"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/styles.xml"
+    ],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "imports-style-chain",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-chain"
+      },
+      "Chained clause."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "renames-style-collision-only-on-request-match",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-houseterm"
+      },
+      "Large-type clause."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "remaps-numbering",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "numbering.ensure_decimal_definition"
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "First imported item"
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "First imported item"
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        },
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Second imported item"
+         ]
+        },
+        {
+         "op": "numbering.apply_numbering",
+         "args": [
+          {
+           "$paragraph": "Second imported item"
+          }
+         ],
+         "kwargs": {
+          "num_id": 10
+         }
+        }
+       ]
+      },
+      "First imported item"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    },
+    {
+     "op": "numbering.list_numbering"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "remaps-numbering-synthetic",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-numbered"
+      },
+      "First imported item"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "remaps-two-lists",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-numbered-two-lists"
+      },
+      "Decimal item"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "numbering-referenced-only-by-imported-style",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-numbered-style-only"
+      },
+      "clause body text"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copies-image-built",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Before the picture."
+         ]
+        },
+        {
+         "op": "ext.p4_add_picture",
+         "args": [
+          {
+           "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+          }
+         ]
+        }
+       ]
+      },
+      "Before the picture."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/_rels/document.xml.rels",
+     "[Content_Types].xml"
+    ],
+    "added_parts": [
+     "word/media/image1.png"
+    ]
+   }
+  },
+  {
+   "name": "copies-image-synthetic",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-picture"
+      },
+      "Before the picture."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copies-two-images-dedup",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-two-pictures"
+      },
+      "Before the pictures."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "recreates-external-hyperlink-built",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-blank",
+       "steps": [
+        {
+         "op": "ext.p4_add_paragraph",
+         "args": [
+          "Visit the terms page"
+         ]
+        },
+        {
+         "op": "links.add_hyperlink",
+         "args": [
+          {
+           "$span": "the terms page"
+          },
+          "https://paper.example/terms"
+         ]
+        }
+       ]
+      },
+      "the terms page"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/_rels/document.xml.rels",
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "recreates-external-hyperlink",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hyperlink"
+      },
+      "the terms page"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bookmark-without-collision",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-term-ref"
+      },
+      "the definition body"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "goback-dropped",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-gone"
+      },
+      "cursor noise"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "half-bookmark-end-dropped-with-finding",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-wide"
+      },
+      "copied tail"
+     ],
+     "kwargs": {
+      "anchor": "First body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "half-bookmark-start-dropped-with-finding",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-wide"
+      },
+      "range starts here"
+     ],
+     "kwargs": {
+      "anchor": "First body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "never-duplicates-style-ids",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-x-ximported"
+      },
+      "styled one"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "arms-copied-fields",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-page-field"
+      },
+      "Field source"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/settings.xml"
+    ]
+   }
+  },
+  {
+   "name": "copies-tables",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables"
+      },
+      "Tables follow"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copies-tables-excluding-start",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables"
+      },
+      "Tables follow"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2,
+      "include_start": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "copies-section-break-paragraph",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-sections"
+      },
+      "Section one"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "anchor-on-heading",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "Clause Library"
+     ],
+     "kwargs": {
+      "anchor": "Minimal Clean Document",
+      "count": 4
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "composes-twice-reusing-nothing",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseterm"
+      },
+      "specially styled"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseterm"
+      },
+      "specially styled"
+     ],
+     "kwargs": {
+      "anchor": "First body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "refuses-pending-revisions",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tracked"
+      },
+      "Tracked"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-tracked-fixture",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "generated/feature-isolated/tracked-ins-del.docx"
+      },
+      "Paragraph before any tracked edits."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-comment-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "generated/feature-isolated/comments.docx"
+      },
+      "carries the first comment"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-footnote-reference",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "generated/feature-isolated/footnotes-endnotes.docx"
+      },
+      "carries a footnote reference"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-embedded-object",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-object"
+      },
+      "Embedded thing"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-unloadable-image",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-bad-image"
+      },
+      "before image"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-linked-image",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-linked-picture"
+      },
+      "before linked"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-chart-relationship",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-chart"
+      },
+      "Source chart"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-linked-numbering-style",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-linked-numbering"
+      },
+      "Linked numbering"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-picture-bullet",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-picture-bullet"
+      },
+      "Picture bullet item"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream's picture-bullet guard is dead code: `any(source_abstract.iter(w:lvlPicBulletId))` tests lxml element truthiness, which is False for childless elements, so upstream copies the abstract with a w:lvlPicBulletId that dangles (or binds an unrelated destination w:numPicBullet); Rust performs the documented refusal (unsupported_structure/picture_bullet) with the package unchanged"
+  },
+  {
+   "name": "refuses-missing-abstract",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-missing-abstract"
+      },
+      "Source numbered paragraph"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-ref-outside-range",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-ref-outside"
+      },
+      "Reference block"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-hyperlink-anchor-outside-range",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-link-outside"
+      },
+      "Link block"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-case-ambiguous-source-bookmarks",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-ambiguous"
+      },
+      "first term"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-invalid-styles-mode",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "Payment Terms"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "styles": "steal"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-count-zero",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "Payment Terms"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-start-not-found",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "no such text"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-destination-not-found",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-styles"
+      },
+      "Payment Terms"
+     ],
+     "kwargs": {
+      "anchor": "no such destination"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-ambiguous-start",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-blocks"
+      },
+      "Block"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "ambiguous_target"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-source-table-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-table-p"
+      },
+      "Lead table"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-source-table-block-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-table-p"
+      },
+      {
+       "$source_block": "Lead table",
+       "source": {
+        "$source": "synthetic:p6-src-table-p"
+       }
+      }
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-source-header-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr"
+      },
+      "Source letterhead"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "refuses-comment-between-blocks",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-comment-top"
+      },
+      "Before comment"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream crashes with AttributeError (non_refusal_error) on a comment node in the physical slice (comment.tag has no rsplit); Rust refuses unsupported_structure(unsupported_content) with the package unchanged"
+  }
+ ]
+}

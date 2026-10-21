@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.minimal",
+  "upstream": [
+    "tests/paper/test_blocks.py::DescribeInsertSectionAfter",
+    "tests/paper/test_blocks.py::DescribeTrackedDeleteParagraphs (paragraph-mark stamp, end-anchor range, count past last)",
+    "tests/paper/test_blocks.py::DescribeTrackedReplaceParagraphs (delete + insert, changed-part budget)",
+    "tests/paper/test_verbs.py::DescribeRichBlockInsertion (paragraph + list + table, changed parts)"
+  ],
+  "fixture": "generated/minimal-clean/minimal.docx",
+  "cases": [
+    {"name": "section-string-anchor", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["First body paragraph"], "kwargs": {"heading": "New Section", "paragraphs": ["Alpha body.", "Beta body."]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"], "reopen_contains": ["New Section", "Beta body."]}},
+    {"name": "section-live-block", "steps": [
+      {"op": "blocks.insert_section_after", "args": [{"$block": "First body paragraph with perfectly ordinary text."}], "kwargs": {"heading": "Anchored Section", "paragraphs": ["Body."]}}]},
+    {"name": "section-undefined-style", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["First body paragraph"], "kwargs": {"heading": "X", "paragraphs": ["Y"], "heading_style": "NoSuchStyle99"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "section-tracked-needs-author", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["First body paragraph"], "kwargs": {"heading": "X", "paragraphs": [], "tracked": true}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "section-tracked", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["First body paragraph"], "kwargs": {"heading": "Tracked Section", "paragraphs": ["Tracked body."], "tracked": true, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "delete-mark-stamped", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["First body paragraph"], "kwargs": {"count": 1, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "delete-range-end-anchor", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["First body paragraph"], "kwargs": {"end_anchor": "Second body paragraph", "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "delete-count-past-last", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Second body paragraph"], "kwargs": {"count": 10, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "replace-two", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["Second body paragraph", ["Replacement one.", "Replacement two."]], "kwargs": {"author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"], "reopen_contains": ["Replacement one.", "Replacement two."]}},
+    {"name": "rich-blocks-budget", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["First body paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "Key findings", "bold": true}}, {"$new": "blocks.TextRun", "fields": {"text": " (draft)", "italic": true}}]}},
+        {"$new": "blocks.ListBlock", "fields": {"items": ["Alpha", "Beta"], "kind": "decimal"}},
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["Metric", "Value"], ["Uptime", "99.9%"]]}}]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/numbering.xml"], "added_parts": []}},
+    {"name": "rich-blocks-tracked", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["First body paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "Tracked lead", "bold": true}}]}},
+        {"$new": "blocks.ListBlock", "fields": {"items": ["one"]}}], "tracked": true, "author": "Carol QA", "date": {"$date": "2026-07-08T09:00:00Z"}}}]},
+    {"name": "rich-table-last-before-sectpr", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Second body paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["a", "b", "c"]]}}]}}]},
+    {"name": "toc-then-section-inside", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Minimal Clean Document"]},
+      {"op": "blocks.insert_section_after", "args": ["Table of contents placeholder"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}]}}
+  ]
+}

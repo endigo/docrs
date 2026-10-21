@@ -5,3 +5,9 @@
 **/.plan-url
 .DS_Store
 .claude/worktrees
+__pycache__/
+*.pyc
+/target/*/
+
+# Built WebAssembly package (crates/docrs-wasm/build.sh)
+/crates/docrs-wasm/pkg/

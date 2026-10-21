@@ -1,0 +1,114 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.comments-thread-deleted",
+ "upstream": [
+  "tests/paper/test_audit_revisions.py::it_removes_an_entire_discarded_comment_thread"
+ ],
+ "fixture": "synthetic:p5-comments-thread-deleted",
+ "cases": [
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reject_all",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "accept-0",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-0",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "accept-1",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 1
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-1",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 1
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  }
+ ]
+}

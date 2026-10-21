@@ -1,0 +1,28 @@
+{
+ "schema_version": 1,
+ "id": "m4.styles.no-styles-part",
+ "fixture": "synthetic:p3-no-styles",
+ "upstream": [
+  "features/doc-styles.feature (document having no styles part)"
+ ],
+ "cases": [
+  {
+   "name": "styles-report-default-part",
+   "steps": [
+    {
+     "op": "ext.p3_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream document.styles adds the default styles part to the package when it is missing (a read with a write side effect); the Rust snapshot reads the bundled default styles without changing the package. The reported styles agree (crates/paper-docx/tests/styles.rs::no_styles_part_reads_the_bundled_default)."
+  }
+ ]
+}

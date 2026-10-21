@@ -1,0 +1,1544 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.paragraph",
+ "upstream": [
+  "features/par-add-run.feature",
+  "features/par-insert-paragraph.feature",
+  "features/par-set-text.feature",
+  "features/par-clear-paragraph.feature",
+  "features/par-style-prop.feature",
+  "features/par-alignment-prop.feature",
+  "features/par-access-parfmt.feature, txt-parfmt-props.feature",
+  "src/docx/text/{paragraph,parfmt}.py, oxml/text/parfmt.py"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "add-run-text",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      1,
+      " more"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-run-empty",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-run-style",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      1,
+      "emph",
+      "Emphasis"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-run-style-default",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      1,
+      "plain",
+      "Default Paragraph Font"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-run-style-wrong-type",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      1,
+      "x",
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "add-run-tabs",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      "Third",
+      "a\tb\nc"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_insert_paragraph_before",
+     "args": [
+      1,
+      "Inserted",
+      "Heading 2"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before-empty",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_insert_paragraph_before",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before-style-only",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_insert_paragraph_before",
+     "args": [
+      2,
+      null,
+      "Title"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-text",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      1,
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_text",
+     "args": [
+      1,
+      "Replaced\ttext"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-text-empty",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_text",
+     "args": [
+      0,
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "clear",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      1,
+      "center"
+     ]
+    },
+    {
+     "op": "ext.p4_clear_paragraph",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-set-and-remove",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      "Quote"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-replace",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      "Quote"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      "Heading 3"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-normal",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "alignment-values",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      0,
+      "center"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      1,
+      "both"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      2,
+      "right"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "alignment-remove",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      0,
+      "center"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      0,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "alignment-none-creates-ppr",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      0,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "alignment-invalid",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      0,
+      "middle"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-indents",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "left_indent": 457200,
+       "right_indent": 228600,
+       "first_line_indent": -114300
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-first-line",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "first_line_indent": 342900
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "first_line_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-spacing",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      1,
+      {
+       "space_before": 152400,
+       "space_after": 76200
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-spacing-none-noop",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      1,
+      {
+       "space_before": null,
+       "left_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-line-multiple",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "multiple": 1.5
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-line-exact",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "exact": 228600
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-line-none",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "multiple": 2.0
+       }
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      2,
+      {
+       "line_spacing": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-flags",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "keep_together": true,
+       "keep_with_next": false,
+       "page_break_before": true,
+       "widow_control": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "keep_together": null,
+       "page_break_before": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-alignment",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "alignment": "distribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "format-negative-space",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_paragraph_format",
+     "args": [
+      0,
+      {
+       "space_after": -10
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "by-text-locator",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "First"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Second"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Third"
+     ]
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      "Second",
+      "!"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

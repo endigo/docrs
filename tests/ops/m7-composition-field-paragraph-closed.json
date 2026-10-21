@@ -1,0 +1,39 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.field-paragraph-closed",
+ "upstream": [
+  "tests/paper/test_audit_composition.py::it_composes_after_a_field_closed_inside_the_destination_paragraph",
+  "tests/paper/test_composition.py::DescribeAppendDocument::it_appends_after_a_field_closed_inside_the_final_physical_block"
+ ],
+ "fixture": "synthetic:p6-dest-field-paragraph-closed",
+ "cases": [
+  {
+   "name": "closed-field-paragraph",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "added_parts": []
+   }
+  }
+ ]
+}

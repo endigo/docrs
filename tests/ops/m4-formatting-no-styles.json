@@ -1,0 +1,56 @@
+{
+ "schema_version": 1,
+ "id": "m4.formatting.no-styles-part",
+ "fixture": "synthetic:p3-no-styles",
+ "upstream": [
+  "src/docx/formatting.py::_styles_index (document.styles creates the default styles part)"
+ ],
+ "cases": [
+  {
+   "name": "run-without-styles-part",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "no styles part here"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream reads document.styles, which adds a default word/styles.xml part (and its relationship and content type) as a side effect of a read; the Rust resolver reads the same bundled default styles without mutating the package. Resolved values agree (see crates/paper-docx/tests/formatting.rs::no_styles_part_reads_bundled_defaults)."
+  },
+  {
+   "name": "paragraph-without-styles-part",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "unstyled heading"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "same read-side mutation as run-without-styles-part"
+  }
+ ]
+}

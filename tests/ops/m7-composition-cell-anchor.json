@@ -1,0 +1,63 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.cell-anchor",
+ "upstream": [
+  "src/docx/composition.py::_compose (_refuse_cell_anchor)"
+ ],
+ "fixture": "synthetic:p6-dest-cell",
+ "cases": [
+  {
+   "name": "destination-in-table-cell",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": "Cell anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "destination-after-table",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-tables"
+      },
+      "Tables follow"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2,
+      "include_start": false
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

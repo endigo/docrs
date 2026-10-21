@@ -1,0 +1,248 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.behave-props",
+ "upstream": [
+  "features/sty-style-props.feature"
+ ],
+ "fixture": "synthetic:p7-compact-sty-behav-props",
+ "cases": [
+  {
+   "name": "read-foo-bar-baz",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foo"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Bar"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Baz"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "hidden",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Baz",
+      {
+       "hidden": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foo",
+      {
+       "hidden": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "locked",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Baz",
+      {
+       "locked": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foo",
+      {
+       "locked": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "priority",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Baz",
+      {
+       "priority": 42
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foo",
+      {
+       "priority": 24
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Bar",
+      {
+       "priority": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "quick-style",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Baz",
+      {
+       "quick_style": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foo",
+      {
+       "quick_style": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Bar",
+      {
+       "quick_style": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unhide-when-used",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Baz",
+      {
+       "unhide_when_used": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foo",
+      {
+       "unhide_when_used": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Bar",
+      {
+       "unhide_when_used": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

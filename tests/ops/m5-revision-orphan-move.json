@@ -1,0 +1,70 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.orphan-move",
+ "upstream": [
+  "tests/paper/test_resolution.py::it_refuses_an_orphaned_move_atomically"
+ ],
+ "fixture": "synthetic:p5-orphan-move",
+ "cases": [
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reject_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "individual-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,113 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.join-other-author",
+ "upstream": [
+  "tests/paper/test_audit_revision_compounds.py::DescribeFilteredDestructiveClosure"
+ ],
+ "fixture": "synthetic:p5-join-other-author",
+ "cases": [
+  {
+   "name": "filtered-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "Alice"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "unfiltered",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "accept-0",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-0",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "accept-1",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 1
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-1",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 1
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  }
+ ]
+}

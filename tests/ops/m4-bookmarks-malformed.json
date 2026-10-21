@@ -1,0 +1,94 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.malformed",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "synthetic:p1-bm-malformed",
+ "cases": [
+  {
+   "name": "delete-non-numeric",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Target"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "list-non-numeric",
+   "steps": [
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "create-non-numeric",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "another"
+      },
+      "New"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "create-illegal-name-first",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "another"
+      },
+      "1bad"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  }
+ ]
+}

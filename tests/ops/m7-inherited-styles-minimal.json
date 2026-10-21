@@ -1,0 +1,1220 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.minimal",
+ "upstream": [
+  "features/sty-style-props.feature",
+  "features/sty-access-font.feature",
+  "features/sty-access-parfmt.feature",
+  "features/sty-latent-props.feature",
+  "features/sty-access-latent-styles.feature",
+  "tests/styles/test_style.py",
+  "tests/styles/test_latent.py",
+  "tests/oxml/test_styles.py"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "summary-heading-1",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "summary-numbering",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "No List"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "summary-table",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Normal Table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "summary-character",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Strong"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "base-style-cycle",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "base_style": "Title"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "base_style": null
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "No Spacing",
+      {
+       "base_style": "Normal"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "base-style-character",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Strong",
+      {
+       "base_style": "Emphasis"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "base-style-on-numbering",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "No List",
+      {
+       "base_style": "Normal"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream style proxies have no __slots__, so assigning base_style to a numbering style silently creates a Python attribute and changes nothing; Rust refuses with invalid_argument(style_attribute_unsupported) and changes nothing"
+  },
+  {
+   "name": "flags-on-and-off",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "hidden": true,
+       "locked": true,
+       "quick_style": false,
+       "unhide_when_used": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "hidden": false,
+       "locked": false,
+       "quick_style": true,
+       "unhide_when_used": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Default Paragraph Font",
+      {
+       "hidden": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal Table",
+      {
+       "hidden": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "priority",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "priority": 42
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "priority": null
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal",
+      {
+       "priority": 7
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "priority-out-of-range-no-element",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal",
+      {
+       "priority": 2147483648
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream adds the new w:uiPriority element before the value fails XsdInt validation (ValueError, no rollback); Rust validates first and changes nothing"
+  },
+  {
+   "name": "priority-out-of-range-replaces",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "priority": 2147483648
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream's setter removes the existing element before this ValueError (no rollback); Rust validates first and changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "name-and-id",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal",
+      {
+       "name": "Foobar"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foobar"
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foobar",
+      {
+       "style_id": "Foo42"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foo42"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "name-heading-raw",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Title",
+      {
+       "name": "Heading 1"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "name-none",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Quote",
+      {
+       "name": null
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Quote"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-id-none",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Quote",
+      {
+       "style_id": null
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-paragraph-style",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "next_paragraph_style": "Title"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 1",
+      {
+       "next_paragraph_style": "Heading 1"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Title",
+      {
+       "next_paragraph_style": null
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Normal Table",
+      {
+       "next_paragraph_style": "Normal"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-to-character-style-reads-self",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Heading 2",
+      {
+       "next_paragraph_style": "Strong"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-on-character-style",
+   "steps": [
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Strong",
+      {
+       "next_paragraph_style": "Normal"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream style proxies have no __slots__, so assigning next_paragraph_style to a character style silently creates a Python attribute and changes nothing; Rust refuses with invalid_argument(style_attribute_unsupported) and changes nothing"
+  },
+  {
+   "name": "font-read",
+   "steps": [
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "Strong"
+     ]
+    },
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "Normal Table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "font-on-numbering",
+   "steps": [
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "No List"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "font-set",
+   "steps": [
+    {
+     "op": "ext.p7_style_set_font",
+     "args": [
+      "Normal",
+      [
+       [
+        "bold",
+        true
+       ],
+       [
+        "size",
+        177800
+       ],
+       [
+        "name",
+        "Avenir Black"
+       ],
+       [
+        "color",
+        "3C2F80"
+       ],
+       [
+        "italic",
+        false
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_font",
+     "args": [
+      "Heading 1",
+      [
+       [
+        "theme_color",
+        "accent2"
+       ],
+       [
+        "highlight",
+        "yellow"
+       ],
+       [
+        "underline",
+        "double"
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_font",
+     "args": [
+      "Strong",
+      [
+       [
+        "bold",
+        null
+       ],
+       [
+        "superscript",
+        true
+       ],
+       [
+        "all_caps",
+        true
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_font",
+     "args": [
+      "Normal Table",
+      [
+       [
+        "size",
+        null
+       ],
+       [
+        "strike",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "font-set-numbering",
+   "steps": [
+    {
+     "op": "ext.p7_style_set_font",
+     "args": [
+      "No List",
+      [
+       [
+        "bold",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "parfmt-read",
+   "steps": [
+    {
+     "op": "ext.p7_style_parfmt",
+     "args": [
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p7_style_parfmt",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style_parfmt",
+     "args": [
+      "Normal Table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "parfmt-on-character",
+   "steps": [
+    {
+     "op": "ext.p7_style_parfmt",
+     "args": [
+      "Strong"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "parfmt-set",
+   "steps": [
+    {
+     "op": "ext.p7_style_set_parfmt",
+     "args": [
+      "Normal",
+      {
+       "alignment": "center",
+       "space_before": 152400,
+       "line_spacing": {
+        "multiple": 1.5
+       },
+       "keep_with_next": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_parfmt",
+     "args": [
+      "Heading 1",
+      {
+       "left_indent": 457200,
+       "first_line_indent": -228600,
+       "space_after": null,
+       "widow_control": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_parfmt",
+     "args": [
+      "Normal Table",
+      {
+       "line_spacing": {
+        "exact": 177800
+       },
+       "page_break_before": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "parfmt-set-character",
+   "steps": [
+    {
+     "op": "ext.p7_style_set_parfmt",
+     "args": [
+      "Strong",
+      {
+       "alignment": "center"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-defaults-read",
+   "steps": [
+    {
+     "op": "ext.p7_latent_styles"
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Subtitle"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Colorful Shading"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-defaults-set",
+   "steps": [
+    {
+     "op": "ext.p7_latent_set",
+     "args": [
+      {
+       "default_priority": 42,
+       "load_count": 240,
+       "default_to_hidden": false,
+       "default_to_locked": true,
+       "default_to_quick_style": true,
+       "default_to_unhide_when_used": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_set",
+     "args": [
+      {
+       "default_priority": null,
+       "load_count": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-defaults-out-of-range",
+   "steps": [
+    {
+     "op": "ext.p7_latent_set",
+     "args": [
+      {
+       "default_priority": -2147483649
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-style-props",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Subtitle",
+      {
+       "priority": 42,
+       "hidden": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Normal",
+      {
+       "priority": 24,
+       "locked": false,
+       "quick_style": null
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Normal",
+      {
+       "priority": null,
+       "unhide_when_used": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Title",
+      {
+       "hidden": null,
+       "locked": true,
+       "quick_style": false,
+       "unhide_when_used": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-style-priority-out-of-range",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Normal",
+      {
+       "priority": 2147483648
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-style-missing",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Nope"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_delete",
+     "args": [
+      "Nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-add-ui-name",
+   "steps": [
+    {
+     "op": "ext.p7_latent_add",
+     "args": [
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_styles"
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-then-edit-new-style",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Code Block",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Code Block",
+      {
+       "base_style": "Normal",
+       "next_paragraph_style": "Normal",
+       "priority": 3,
+       "quick_style": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_font",
+     "args": [
+      "Code Block",
+      [
+       [
+        "name",
+        "Courier New"
+       ],
+       [
+        "size",
+        127000
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_style_set_parfmt",
+     "args": [
+      "Code Block",
+      {
+       "space_after": 0
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "Code Block"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,35 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.unicode-bookmarks",
+ "upstream": [
+  "src/docx/composition.py::_reconcile_bookmarks / _fresh_bookmark_name (casefold, str.isalnum)"
+ ],
+ "fixture": "synthetic:p6-dest-unicode-mark",
+ "cases": [
+  {
+   "name": "casefold-collisions-and-legal-names",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-unicode-mark"
+      },
+      "unicode target"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 3
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

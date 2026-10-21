@@ -1,0 +1,246 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.minimal",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "footnote-and-endnote",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "A footnote."
+     ]
+    },
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "An endnote."
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/footnotes.xml",
+     "word/endnotes.xml"
+    ]
+   }
+  },
+  {
+   "name": "ampersands",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "A & B <C>"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "A & B <C>"
+    ]
+   }
+  },
+  {
+   "name": "empty-text",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "control-chars",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "a\nb"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "stacked-same-span",
+   "steps": [
+    {
+     "op": "ext.p1_stacked_notes",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      [
+       [
+        "footnote",
+        "First"
+       ],
+       [
+        "footnote",
+        "Second"
+       ],
+       [
+        "endnote",
+        "Third"
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "stacked-fresh-spans",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "First"
+     ]
+    },
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "Second"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "mid-run",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "body"
+      },
+      "mid"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cross-paragraph",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "ordinary text.\nSecond"
+      },
+      "across"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "whole-paragraph",
+   "steps": [
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "Second body paragraph, equally unremarkable."
+      },
+      "end"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "leading-space-text",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "Second"
+      },
+      " spaced "
+     ]
+    }
+   ]
+  },
+  {
+   "name": "historical-view-span",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary",
+       "view": "all"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   },
+   "deviation": "Rust refuses live spans captured under view='original'/'all' as mutation anchors (plan: historical targets are inspection-only); upstream accepts them"
+  }
+ ]
+}

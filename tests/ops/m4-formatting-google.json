@@ -1,0 +1,176 @@
+{
+ "schema_version": 1,
+ "id": "m4.formatting.google-export",
+ "fixture": "google/minimal-clean/google-docs-export.docx",
+ "upstream": [
+  "tests/paper/test_google_export.py::it_sees_google_direct_formatting"
+ ],
+ "cases": [
+  {
+   "name": "bold",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "Bold"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "italic",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "Italic"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "underlined",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "Underlined"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "blue-text",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "Blue text"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "title-paragraph",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "Title"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "heading-1",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "Heading 1"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_blocks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_spans"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

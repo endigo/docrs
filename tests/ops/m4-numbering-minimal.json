@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.minimal",
+  "upstream": [
+    "tests/paper/test_verbs.py::DescribeNumberingAuthoring (idempotent, restart with fresh definition, restart missing)",
+    "tests/paper/test_tableops_numbering.py::DescribeApplyListStyle"
+  ],
+  "fixture": "generated/minimal-clean/minimal.docx",
+  "cases": [
+    {"name": "idempotent", "steps": [
+      {"op": "numbering.ensure_bullet_definition"}, {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.ensure_decimal_definition"}, {"op": "numbering.ensure_bullet_definition"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/numbering.xml"]}},
+    {"name": "restart-fresh", "steps": [
+      {"op": "numbering.ensure_decimal_definition"},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "First body paragraph"}], "kwargs": {"num_id": 1}},
+      {"op": "numbering.restart_numbering", "kwargs": {"num_id": 1}},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Second body paragraph"}], "kwargs": {"num_id": 2}},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "restart-missing", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 999}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "list-style-heading-2", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Second body paragraph"}, "Heading 2"]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "list-style-undefined", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Second body paragraph"}, "No Such List Style"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "list-style-list-number", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Second body paragraph"}, "List Number"]},
+      {"op": "numbering.list_numbering"}]}
+  ]
+}

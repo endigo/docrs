@@ -1,0 +1,111 @@
+{
+ "schema_version": 1,
+ "id": "m4.styles.report.libreoffice-table-merged-nested",
+ "fixture": "libreoffice/feature-isolated/table-merged-nested.docx",
+ "upstream": [
+  "python-docx Styles read API over a real styles part"
+ ],
+ "cases": [
+  {
+   "name": "styles-report",
+   "steps": [
+    {
+     "op": "ext.p3_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "lookups",
+   "steps": [
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Title"
+     ]
+    },
+    {
+     "op": "ext.p3_style",
+     "args": [
+      "Default Paragraph Font"
+     ]
+    },
+    {
+     "op": "ext.p3_style_contains",
+     "args": [
+      "Heading 2"
+     ]
+    },
+    {
+     "op": "ext.p3_style_get_by_id",
+     "args": [
+      "Heading1",
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "paragraph"
+     ]
+    },
+    {
+     "op": "ext.p3_style_default",
+     "args": [
+      "table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,306 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.hyperlink-address",
+ "upstream": [
+  "src/docx/text/hyperlink.py::Hyperlink.address",
+  "src/docx/opc/part.py::Part.drop_rel"
+ ],
+ "fixture": "synthetic:p7-hyperlinks",
+ "cases": [
+  {
+   "name": "internal-to-external",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      0,
+      0,
+      "http://new.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared-relationship-kept",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      1,
+      0,
+      "http://new.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared-second-link",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      1,
+      1,
+      "http://new.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "both-shared-retargeted",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      1,
+      0,
+      "http://new.example/"
+     ]
+    },
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      1,
+      1,
+      "http://new.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "same-target-reused",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      1,
+      0,
+      "http://a.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fragment-cleared-existing-target",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      0,
+      "http://c.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "plain-to-new-target",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      1,
+      "http://d.example/#x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "chained-retargets",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      1,
+      "http://d.example/"
+     ]
+    },
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      1,
+      "http://e.example/"
+     ]
+    },
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      0,
+      0,
+      "http://d.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "empty-address",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      1,
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "protected-readonly",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "readOnly"
+     }
+    },
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      1,
+      "http://d.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "protected-before-empty-check",
+   "steps": [
+    {
+     "op": "protection.set_protection",
+     "kwargs": {
+      "edit": "readOnly"
+     }
+    },
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      2,
+      1,
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dangling-relationship",
+   "steps": [
+    {
+     "op": "ext.p7_set_hyperlink_address",
+     "args": [
+      3,
+      0,
+      "http://d.example/"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error"
+     }
+    ]
+   },
+   "deviation": "upstream relates the new target, then `drop_rel` raises KeyError for the r:id that names no relationship (non_refusal_error, rolled back); Rust refuses before staging with invalid_argument(missing_key), the same typed error the address getter reports"
+  }
+ ]
+}

@@ -1,0 +1,34 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-term-case",
+ "upstream": [
+  "tests/paper/test_practical_composition_table_hardening.py::it_renames_bookmarks_that_collide_only_by_case"
+ ],
+ "fixture": "synthetic:p6-dest-capital-term",
+ "cases": [
+  {
+   "name": "renames-case-only-collision",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-term-lower"
+      },
+      "source term"
+     ],
+     "kwargs": {
+      "anchor": "destination term"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

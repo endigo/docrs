@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.numbering-custom",
+  "upstream": [
+    "tests/paper/test_tableops_numbering.py::DescribeListNumbering (definitions with levels, numbered paragraphs, deterministic serialization)",
+    "tests/paper/test_tableops_numbering.py::DescribeApplyNumbering (existing definition, undefined numId, undefined level)"
+  ],
+  "fixture": "generated/feature-isolated/numbering-custom.docx",
+  "cases": [
+    {"name": "report", "steps": [{"op": "numbering.list_numbering"}, {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": []}},
+    {"name": "apply-42-level-1", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Introduction to the hand-numbered list."}], "kwargs": {"num_id": 42, "level": 1}},
+      {"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "apply-999", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Introduction"}], "kwargs": {"num_id": 999}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "apply-level-7", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Introduction"}], "kwargs": {"num_id": 42, "level": 7}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "restart-42", "steps": [
+      {"op": "numbering.restart_numbering", "kwargs": {"num_id": 42}},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "ensure-both", "steps": [
+      {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.ensure_decimal_definition"},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "list-style-heading", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Introduction"}, "Heading 2"]}]},
+    {"name": "list-style-list-bullet", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Introduction"}, "List Bullet"]}]}
+  ]
+}

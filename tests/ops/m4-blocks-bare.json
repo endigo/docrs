@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.bare",
+  "upstream": [
+    "src/docx/blocks.py::_new_table (no sections -> 6 inch width)",
+    "src/docx/blocks.py::_new_list_paragraphs (numbering part created on demand)",
+    "src/docx/blocks.py::_validated_style_id (document.styles creates the default styles part)"
+  ],
+  "fixture": "synthetic:p2-bare",
+  "cases": [
+    {"name": "table-default-width-and-pad", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Beta paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["a", "b", "c", "d", "e", "f", "g"]]}}]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "list-creates-numbering", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Alpha paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["x", "y"], "kind": "decimal", "level": 1}},
+        {"$new": "blocks.ListBlock", "fields": {"items": ["z"]}}]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "added_parts": ["word/numbering.xml", "word/_rels/document.xml.rels"]}},
+    {"name": "section-no-styles-at-all", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Alpha paragraph"], "kwargs": {"heading": "H", "paragraphs": ["b"], "heading_style": null}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"], "added_parts": []}},
+    {"name": "section-normal-creates-styles", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Alpha paragraph"], "kwargs": {"heading": "H", "paragraphs": [], "heading_style": "Normal"}}],
+     "expect": {"steps": [{"outcome": "ok"}], "added_parts": ["word/styles.xml", "word/_rels/document.xml.rels"]}},
+    {"name": "replace-styled-creates-styles", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["Alpha paragraph", ["r"]], "kwargs": {"body_style": "Normal", "author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "rich-styled-creates-styles", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Alpha paragraph"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "x"}}], "style": "Normal"}}]}}]},
+    {"name": "section-default-heading-style-missing", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Alpha paragraph"], "kwargs": {"heading": "H", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": [], "added_parts": []},
+     "deviation": "refusal atomicity: upstream creates the default styles part while validating heading_style, then refuses with that part left behind; Rust refuses with the package unchanged"}
+  ]
+}

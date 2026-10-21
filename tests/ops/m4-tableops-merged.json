@@ -1,0 +1,459 @@
+{
+ "schema_version": 1,
+ "id": "m4.tableops.merged-nested",
+ "fixture": "generated/feature-isolated/table-merged-nested.docx",
+ "upstream": [
+  "tests/paper/test_tableops_numbering.py::DescribeUpdateCell (merged, plain cells)",
+  "tests/paper/test_tableops_numbering.py::DescribeRowOperations (vertical merge, gridSpan)"
+ ],
+ "cases": [
+  {
+   "name": "merged-restart-cell-text",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "R2C2"
+     }
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "R2C2"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested-cells-not-searched",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "N00"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "cell-with-two-paragraphs",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "R0C0\nR0C1"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "refuses-gridspan-cell",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      0,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "refuses-vmerge-cell",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      1,
+      2,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "refuses-vmerge-continuation",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      2,
+      2,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "refuses-nested-cell",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      2,
+      0,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "refuses-spanned-grid-column",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      0,
+      1,
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "updates-plain-cell",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      1,
+      0,
+      "updated plain cell"
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "updated plain cell"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "reopen_contains": [
+     "updated plain cell"
+    ]
+   }
+  },
+  {
+   "name": "updates-plain-cell-tracked",
+   "steps": [
+    {
+     "op": "tableops.update_cell",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      1,
+      1,
+      "R1C1 revised"
+     ],
+     "kwargs": {
+      "tracked": true,
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "insert-refuses-vmerge-template",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      1,
+      [
+       "x"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "delete-refuses-vmerge-row",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "insert-refuses-split",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      1,
+      [
+       "x"
+      ]
+     ],
+     "kwargs": {
+      "copy_format_from": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-refuses-gridspan-template",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      0,
+      [
+       "a",
+       "b",
+       "c"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-gridspan-row",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      0
+     ]
+    },
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "R1C0"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "insert-refuses-nested-template",
+   "steps": [
+    {
+     "op": "tableops.insert_row_after",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      2,
+      [
+       "x"
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-nested-row-refused",
+   "steps": [
+    {
+     "op": "tableops.delete_row",
+     "args": [
+      {
+       "$table": "R1C0"
+      },
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  }
+ ]
+}

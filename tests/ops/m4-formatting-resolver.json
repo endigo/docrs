@@ -1,0 +1,854 @@
+{
+ "schema_version": 1,
+ "id": "m4.formatting.format_of",
+ "fixture": "synthetic:p3-formatting",
+ "upstream": [
+  "tests/paper/test_formatting.py",
+  "tests/paper/test_regressions_pipeline.py::DescribeFormattingRegressions",
+  "tests/paper/test_audit_editing.py::DescribeFormattingDisclosure",
+  "src/docx/formatting.py"
+ ],
+ "cases": [
+  {
+   "name": "direct-run-formatting",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "bolded direct"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unspecified-toggles-and-doc-defaults",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "plain run text"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-style-chain",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "chained text"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "nearer-layer-wins",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "near wins"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "character-style-above-paragraph-style",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "char styled"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "based-on-cycle",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "cyclic text"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "toggle-xor-cancels",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "double bold cancels"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "single-layer-toggle",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "single layer"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "direct-overrides-toggle",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "explicitly unbold"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-alignment",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "centered"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-mixed",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "bold half plain half"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unsupported-target",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      "just a string"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "run-inside-hyperlink",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "linked text",
+       "nth": 1
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-of-hyperlink-run",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "only linked text here"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "agreeing-layers",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "direct half styled half"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "declared-unresolved",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "formatted shading"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-with-spacing",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "formatted shading"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "character-style-chain-toggles",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "toggle stack"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-style-properties",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "toggle stack"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "builtin-heading-style",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "heading paragraph"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "heading-run",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "heading paragraph"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unknown-style-reference",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "unknown style ref"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unknown-style-run",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "unknown style ref"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "invalid-size",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "bad size value"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "empty-size-falls-through",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "empty size value"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "empty-style-id-paragraph",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "empty style id"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "empty-style-id-run",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "empty style id"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-across-tab",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "tab left\ttab right"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-inside-insertion",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "inserted run base run"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "theme-tokens-and-on-off-spellings",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$run": "theme run"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "table-cell-paragraph",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$paragraph": "cell paragraph text"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "table-cell-span",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "cell paragraph text"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-across-paragraphs",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "plain run text\nbolded direct"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "partial-run-span",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "half pla"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "normalized-span",
+   "steps": [
+    {
+     "op": "formatting.format_of",
+     "args": [
+      {
+       "$span": "BOLD HALF",
+       "match": "normalized"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "value-of",
+   "steps": [
+    {
+     "op": "ext.p3_format_value",
+     "args": [
+      {
+       "$run": "char styled"
+      },
+      "size_pt"
+     ]
+    },
+    {
+     "op": "ext.p3_format_value",
+     "args": [
+      {
+       "$paragraph": "centered"
+      },
+      "alignment"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "paragraph-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_blocks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_spans"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

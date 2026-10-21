@@ -1,0 +1,49 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.bad-commentRangeStart-missing",
+ "upstream": [
+  "tests/paper/test_audit_commentops.py::it_refuses_invalid_anchor_marker_ids_atomically"
+ ],
+ "fixture": "synthetic:p5-bad-commentRangeStart-missing",
+ "cases": [
+  {
+   "name": "reply-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second Reviewer"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "thread",
+   "steps": [
+    {
+     "op": "commentops.comment_thread"
+    }
+   ]
+  },
+  {
+   "name": "resolution",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-existing",
+ "upstream": [
+  "tests/paper/test_regressions_pipeline.py::DescribeCompositionRegressions::it_drops_half_bookmarks_at_range_edges_with_a_finding"
+ ],
+ "fixture": "synthetic:p6-dest-existing",
+ "cases": [
+  {
+   "name": "dangling-end-does-not-truncate-existing",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-wide"
+      },
+      "copied tail"
+     ],
+     "kwargs": {
+      "anchor": "First body paragraph"
+     }
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

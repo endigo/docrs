@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.fragmented",
+  "upstream": ["tests/paper/test_blocks.py::DescribeTrackedDeleteParagraphs::it_preserves_each_runs_formatting_inside_the_deletion"],
+  "fixture": "generated/feature-isolated/fragmented-runs.docx",
+  "cases": [
+    {"name": "delete-keeps-run-formatting", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Consulting rate"], "kwargs": {"count": 1, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "replace-both", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["Consulting rate", ["One.", "Two."]], "kwargs": {"count": 2, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "section-after", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Net 30"], "kwargs": {"heading": "Terms", "paragraphs": ["Body"]}}]}
+  ]
+}

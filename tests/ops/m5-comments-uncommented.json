@@ -1,0 +1,33 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.uncommented",
+ "upstream": [
+  "tests/paper/test_audit_commentops.py::it_does_not_create_a_comments_part_for_an_uncommented_document"
+ ],
+ "fixture": "synthetic:p5-comment-target",
+ "cases": [
+  {
+   "name": "thread-creates-nothing",
+   "steps": [
+    {
+     "op": "commentops.comment_thread"
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

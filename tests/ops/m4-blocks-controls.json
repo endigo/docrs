@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.controls",
+  "upstream": ["tests/paper/test_blocks.py::DescribeTrackedDeleteParagraphs::it_refuses_paragraphs_with_inline_controls"],
+  "fixture": "generated/feature-isolated/content-control.docx",
+  "cases": [
+    {"name": "inline-control-refused", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Inline control follows"], "kwargs": {"count": 1, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "block-control-paragraph", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Text inside a block-level"], "kwargs": {"author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "insert-inside-block-control", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Text inside a block-level"], "kwargs": {"heading": "In control", "paragraphs": []}}]},
+    {"name": "cross-control-range", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Paragraph before the content controls."], "kwargs": {"end_anchor": "Paragraph after the content controls.", "author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]}
+  ]
+}

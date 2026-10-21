@@ -1,0 +1,227 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.protection.readonly",
+ "upstream": [
+  "tests/paper/test_word_protection_matrix.py (form-field, note and body cells)"
+ ],
+ "fixture": "synthetic:p1-readonly",
+ "cases": [
+  {
+   "name": "form-field",
+   "steps": [
+    {
+     "op": "ext.p1_control_set_value",
+     "args": [
+      "typed in"
+     ],
+     "kwargs": {
+      "index": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "form-field-by-tag",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "typed in"
+     ],
+     "kwargs": {
+      "tag": "field-1"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "acknowledged",
+   "steps": [
+    {
+     "op": "protection.acknowledge_protection"
+    },
+    {
+     "op": "ext.p1_control_set_value",
+     "args": [
+      "typed in"
+     ],
+     "kwargs": {
+      "index": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "footnote",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "an ordinary sentence of body text"
+      },
+      "n"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "endnote",
+   "steps": [
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "an ordinary sentence of body text"
+      },
+      "n"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hyperlink",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "ordinary"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bookmark",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "ordinary"
+      },
+      "Mark"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-bookmark-protection-first",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Missing"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ]
+   }
+  },
+  {
+   "name": "acknowledged-body",
+   "steps": [
+    {
+     "op": "protection.acknowledge_protection"
+    },
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "an ordinary sentence of body text"
+      },
+      "n"
+     ]
+    },
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "ordinary"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

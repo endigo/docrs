@@ -1,0 +1,2511 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.tables-props",
+ "upstream": [
+  "features/tbl-props.feature",
+  "features/tbl-row-props.feature",
+  "features/tbl-cell-props.feature",
+  "src/docx/table.py"
+ ],
+ "fixture": "synthetic:p7-compact-tbl-props",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_table",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      3
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      4
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      5
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      6
+     ]
+    },
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      7
+     ]
+    },
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      8
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-alignment-left",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      3,
+      [
+       [
+        "alignment",
+        "left"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      3,
+      [
+       [
+        "alignment",
+        "right"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      3,
+      [
+       [
+        "alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      3,
+      [
+       [
+        "alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-alignment-left",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      4,
+      [
+       [
+        "alignment",
+        "left"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      4,
+      [
+       [
+        "alignment",
+        "right"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      4,
+      [
+       [
+        "alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      4,
+      [
+       [
+        "alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t5-alignment-left",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      5,
+      [
+       [
+        "alignment",
+        "left"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t5-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      5,
+      [
+       [
+        "alignment",
+        "right"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t5-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      5,
+      [
+       [
+        "alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t5-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      5,
+      [
+       [
+        "alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t6-alignment-left",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      6,
+      [
+       [
+        "alignment",
+        "left"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t6-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      6,
+      [
+       [
+        "alignment",
+        "right"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t6-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      6,
+      [
+       [
+        "alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t6-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      6,
+      [
+       [
+        "alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-autofit-True",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      0,
+      [
+       [
+        "autofit",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-autofit-False",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      0,
+      [
+       [
+        "autofit",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-autofit-True",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      1,
+      [
+       [
+        "autofit",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-autofit-False",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      1,
+      [
+       [
+        "autofit",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-autofit-True",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      2,
+      [
+       [
+        "autofit",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-autofit-False",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      2,
+      [
+       [
+        "autofit",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-2743200",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height",
+        2743200
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-rule-auto",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height_rule",
+        "auto"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-rule-atLeast",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height_rule",
+        "atLeast"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-rule-exact",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height_rule",
+        "exact"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-height-rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      0,
+      0,
+      [
+       [
+        "height_rule",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-2743200",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height",
+        2743200
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-rule-auto",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height_rule",
+        "auto"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-rule-atLeast",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height_rule",
+        "atLeast"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-rule-exact",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height_rule",
+        "exact"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-height-rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      1,
+      0,
+      [
+       [
+        "height_rule",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-2743200",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height",
+        2743200
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-rule-auto",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height_rule",
+        "auto"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-rule-atLeast",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height_rule",
+        "atLeast"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-rule-exact",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height_rule",
+        "exact"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-height-rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      2,
+      0,
+      [
+       [
+        "height_rule",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-2743200",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height",
+        2743200
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-rule-auto",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height_rule",
+        "auto"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-rule-atLeast",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height_rule",
+        "atLeast"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-rule-exact",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height_rule",
+        "exact"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-height-rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height_rule",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-2743200",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height",
+        2743200
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-rule-auto",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height_rule",
+        "auto"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-rule-atLeast",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height_rule",
+        "atLeast"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-rule-exact",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height_rule",
+        "exact"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t4-height-rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      4,
+      0,
+      [
+       [
+        "height_rule",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-valign-bottom",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "bottom"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-valign-center",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-valign-top",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "top"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-valign-both",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "both"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-valign-None",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-valign-bottom",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "bottom"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-valign-center",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-valign-top",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "top"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-valign-both",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "both"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-valign-None",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-valign-bottom",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "bottom"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-valign-center",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-valign-top",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "top"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-valign-both",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "both"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-valign-None",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-valign-bottom",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      3,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "bottom"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-valign-center",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      3,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "center"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-valign-top",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      3,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "top"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-valign-both",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      3,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "both"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t3-valign-None",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      3,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-cell-width-914400",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "width",
+        914400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-cell-width-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "width",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-cell-width-0",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "width",
+        0
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-cell-width-914400",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "width",
+        914400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-cell-width-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "width",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-cell-width-0",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "width",
+        0
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-cell-width-914400",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "width",
+        914400
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-cell-width-1828800",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "width",
+        1828800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-cell-width-0",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      2,
+      0,
+      0,
+      [
+       [
+        "width",
+        0
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bad-alignment",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      3,
+      [
+       [
+        "alignment",
+        "justify"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-valign",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      1,
+      0,
+      0,
+      [
+       [
+        "vertical_alignment",
+        "middle"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-height-rule",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height_rule",
+        "fixed"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "negative-height-existing",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      0,
+      [
+       [
+        "height",
+        -1
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "negative-height-no-trpr",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      3,
+      1,
+      [
+       [
+        "height",
+        -1
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream adds w:trPr and w:trHeight before the ValueError; Rust raises the same category with nothing changed"
+  },
+  {
+   "name": "cell-width-too-wide",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      0,
+      0,
+      [
+       [
+        "width",
+        3000000000000
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream sets w:tcW/@w:type='dxa' (adding w:tcW) before XsdInt rejects the twips value; Rust raises the same category with nothing changed"
+  },
+  {
+   "name": "none-height-no-trpr",
+   "steps": [
+    {
+     "op": "ext.p7_row_set",
+     "args": [
+      5,
+      0,
+      [
+       [
+        "height",
+        null
+       ],
+       [
+        "height_rule",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "missing-tblpr",
+   "steps": [
+    {
+     "op": "ext.p7_table",
+     "args": [
+      7
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream raises InvalidXmlError (non-refusal) for a w:tbl without w:tblPr; Rust refuses unsupported_structure(missing_table_properties)"
+  },
+  {
+   "name": "rows-cells-before-after",
+   "steps": [
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      7
+     ]
+    },
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      8
+     ]
+    },
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      8
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

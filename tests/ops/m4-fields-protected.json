@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.protected-fixture",
+  "upstream": ["tests/paper/test_fields_bookmarks.py::DescribeFieldAuthoring::it_refuses_field_authoring_on_protected_documents"],
+  "fixture": "generated/feature-isolated/protected-readonly.docx",
+  "cases": [
+    {"name": "page-refused", "steps": [{"op": "fields.add_page_number_field", "args": [{"$paragraph": "This"}]}],
+     "expect": {"steps": [{"outcome": "error", "category": "document_protected"}], "changed_parts": []}},
+    {"name": "numbering-refused", "steps": [{"op": "numbering.ensure_bullet_definition"}],
+     "expect": {"steps": [{"outcome": "error", "category": "document_protected"}], "changed_parts": []}},
+    {"name": "acknowledged", "steps": [
+      {"op": "protection.acknowledge_protection"},
+      {"op": "fields.add_page_count_field", "args": [{"$paragraph": "This"}]}]}
+  ]
+}

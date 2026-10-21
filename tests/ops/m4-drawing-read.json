@@ -1,0 +1,233 @@
+{
+ "schema_version": 1,
+ "id": "m4.drawing.read",
+ "upstream": [
+  "src/docx/drawing/__init__.py (has_picture, image)",
+  "features/shp-inline-shape-access.feature"
+ ],
+ "fixture": "synthetic:p4-drawings",
+ "cases": [
+  {
+   "name": "has-picture-0",
+   "steps": [
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "image-0",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "has-picture-1",
+   "steps": [
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "image-1",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "has-picture-2",
+   "steps": [
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "image-2",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "has-picture-3",
+   "steps": [
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "image-3",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "has-picture-4",
+   "steps": [
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "image-4",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "header-has-picture",
+   "steps": [
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      {
+       "part": "word/header1.xml",
+       "index": 0
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "header-image",
+   "steps": [
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      {
+       "part": "word/header1.xml",
+       "index": 0
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

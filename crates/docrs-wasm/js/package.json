@@ -1,0 +1,22 @@
+{
+  "name": "docrs",
+  "description": "Markdown or editor HTML to Word (.docx) with a reference document: styles, lists, tables, headers and footers come from your template. WebAssembly, no native dependencies.",
+  "license": "MIT",
+  "author": "endigo",
+  "private": true,
+  "main": "docrs.js",
+  "types": "docrs.d.ts",
+  "files": [
+    "docrs.js",
+    "docrs.d.ts",
+    "docrs_bg.wasm",
+    "docrs_bg.wasm.d.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false
+}

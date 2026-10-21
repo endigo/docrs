@@ -1,0 +1,629 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.hdrftr",
+ "upstream": [
+  "features/hdr-header-footer.feature",
+  "src/docx/section.py::_BaseHeaderFooter",
+  "src/docx/parts/hdrftr.py"
+ ],
+ "fixture": "synthetic:p7-compact-hdr-header-footer",
+ "cases": [
+  {
+   "name": "linked-0",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "footer"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "first_page_header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "first_page_footer"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "even_page_header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "even_page_footer"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "linked-1",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "footer"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "first_page_header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "first_page_footer"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "even_page_header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "even_page_footer"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-linked-0-header-True",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      0,
+      "header",
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream drops the now-unreachable header part on save (so [Content_Types].xml changes too); Rust drops the reference and relationship and keeps the unreachable member (project-wide kernel deviation: unreachable members are preserved)"
+  },
+  {
+   "name": "set-linked-0-header-False",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      0,
+      "header",
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-linked-0-footer-True",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      0,
+      "footer",
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream drops the now-unreachable footer part on save (so [Content_Types].xml changes too); Rust drops the reference and relationship and keeps the unreachable member (project-wide kernel deviation: unreachable members are preserved)"
+  },
+  {
+   "name": "set-linked-0-footer-False",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      0,
+      "footer",
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-linked-1-header-True",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "header",
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-linked-1-header-False",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "header",
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-linked-1-footer-True",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "footer",
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-linked-1-footer-False",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "footer",
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inherits-content",
+   "steps": [
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 0,
+       "part": "header"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 1,
+       "part": "header"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "header"
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 1,
+       "part": "footer"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-normal-header",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_set_style",
+     "args": [
+      {
+       "in": {
+        "section": 0,
+        "part": "header"
+       },
+       "index": 0
+      },
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture-header",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_add_picture",
+     "args": [
+      {
+       "in": {
+        "section": 0,
+        "part": "header"
+       },
+       "index": 0
+      },
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-paragraph-header",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_paragraph",
+     "args": [
+      {
+       "section": 1,
+       "part": "header"
+      },
+      "added text",
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-table-header",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_table",
+     "args": [
+      {
+       "section": 0,
+       "part": "header"
+      },
+      2,
+      3,
+      2743200
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-normal-footer",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_set_style",
+     "args": [
+      {
+       "in": {
+        "section": 0,
+        "part": "footer"
+       },
+       "index": 0
+      },
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture-footer",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_add_picture",
+     "args": [
+      {
+       "in": {
+        "section": 0,
+        "part": "footer"
+       },
+       "index": 0
+      },
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-paragraph-footer",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_paragraph",
+     "args": [
+      {
+       "section": 1,
+       "part": "footer"
+      },
+      "added text",
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-table-footer",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_table",
+     "args": [
+      {
+       "section": 0,
+       "part": "footer"
+      },
+      2,
+      3,
+      2743200
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unlink-new-definition-first_page_header",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "first_page_header",
+      false
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 1,
+       "part": "first_page_header"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unlink-new-definition-even_page_footer",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "even_page_footer",
+      false
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 1,
+       "part": "even_page_footer"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

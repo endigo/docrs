@@ -1,0 +1,26 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.duplicate-rel",
+ "upstream": [
+  "tests/paper/test_audit_commentops.py::it_refuses_multiple_comments_relationships_atomically"
+ ],
+ "fixture": "synthetic:p5-comment-duplicate-rel",
+ "cases": [
+  {
+   "name": "thread-refused",
+   "steps": [
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  }
+ ]
+}

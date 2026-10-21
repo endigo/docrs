@@ -1,0 +1,484 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.minimal",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "create",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "KeyPhrase"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ],
+    "reopen_contains": [
+     "First body paragraph with perfectly ordinary text."
+    ]
+   }
+  },
+  {
+   "name": "illegal-name-0",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "1starts-with-digit"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "illegal-name-1",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "has space"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "illegal-name-2",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      ""
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "illegal-name-3",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "illegal-name-4",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "_hidden"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "illegal-name-5",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "dash-ed"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "illegal-name-6",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "a\n\n"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "forty-chars",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "trailing-newline-name",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "Name\n"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "unicode-name",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "Straße"
+     ]
+    },
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Second body"
+      },
+      "STRASSE"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "case-insensitive",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "First"
+      },
+      "DefinedTerm"
+     ]
+    },
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Second"
+      },
+      "definedterm"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "whole-run",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Second body paragraph, equally unremarkable."
+      },
+      "Whole"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "run-prefix",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Second body"
+      },
+      "Prefix"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "run-suffix",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "equally unremarkable."
+      },
+      "Suffix"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "cross-paragraph",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "ordinary text.\nSecond body"
+      },
+      "Across"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "two-bookmarks-ids",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "First"
+      },
+      "One"
+     ]
+    },
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Second"
+      },
+      "Two"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-created",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "Temp"
+     ]
+    },
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Temp"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-unknown",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Nonexistent"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bookmark-then-footnote-same-span",
+   "steps": [
+    {
+     "op": "ext.p1_bookmark_then_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "KeyPhrase",
+      "A note."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "historical-view-span",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "perfectly ordinary",
+       "view": "all"
+      },
+      "Hist"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   },
+   "deviation": "Rust refuses live spans captured under view='original'/'all' as mutation anchors (plan: historical targets are inspection-only); upstream accepts them"
+  }
+ ]
+}

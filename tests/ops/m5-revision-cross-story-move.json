@@ -1,0 +1,79 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.cross-story-move",
+ "upstream": [
+  "tests/paper/test_resolution.py::it_refuses_a_cross_story_move"
+ ],
+ "fixture": "synthetic:p5-cross-story-move",
+ "cases": [
+  {
+   "name": "enumerate",
+   "steps": [
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "accept-from-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": {
+       "type": "move_from"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reject-to-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": {
+       "type": "move_to"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

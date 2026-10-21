@@ -1,0 +1,35 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.bookmarks-term-anchor",
+ "upstream": [
+  "src/docx/composition.py::_remap_field_refs (hyperlink anchors)"
+ ],
+ "fixture": "synthetic:p6-dest-term",
+ "cases": [
+  {
+   "name": "renamed-bookmark-hyperlink-anchor",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-anchor-link"
+      },
+      "the definition body"
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

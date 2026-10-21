@@ -1,0 +1,43 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.sections-access",
+ "upstream": [
+  "features/doc-access-sections.feature"
+ ],
+ "fixture": "synthetic:p7-compact-doc-access-sections",
+ "cases": [
+  {
+   "name": "three-sections",
+   "steps": [
+    {
+     "op": "ext.p7_sections"
+    },
+    {
+     "op": "ext.p7_section_content",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_section_content",
+     "args": [
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

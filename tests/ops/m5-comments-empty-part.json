@@ -1,0 +1,261 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.empty-part",
+ "upstream": [
+  "features/cmt-mutations.feature",
+  "features/cmt-props.feature",
+  "src/docx/comments.py::Comments.add_comment"
+ ],
+ "fixture": "synthetic:p5-empty-comments",
+ "cases": [
+  {
+   "name": "add-defaults",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-author-initials",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "author": "John Doe",
+      "initials": "JD",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-paragraph",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "para text"
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-empty-paragraph",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "update-author-initials",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "author": "A",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comment_set_author",
+     "kwargs": {
+      "comment_id": 0,
+      "author": "Jane Smith"
+     }
+    },
+    {
+     "op": "ext.p5_comment_set_initials",
+     "kwargs": {
+      "comment_id": 0,
+      "initials": "JS"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "invalid-text-rolls-back",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "invalid \u0000 text",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "invalid-author-rolls-back",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "ok",
+      "author": "bad \b"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "next-id-after-several",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "a",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "b",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

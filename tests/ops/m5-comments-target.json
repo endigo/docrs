@@ -1,0 +1,1101 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.target",
+ "upstream": [
+  "features/doc-add-comment.feature",
+  "src/docx/document.py::Document.add_comment",
+  "src/docx/search.py::Span.comment",
+  "tests/paper/test_audit_commentops.py::DescribeCommentContentMutation",
+  "tests/paper/test_audit_commentops.py::it_retains_conformant_parent_and_reply_anchors_after_round_trip",
+  "src/docx/commentops.py (reply, resolve, is_resolved, parent_of, anchored_text, comment_thread, delete_comment)"
+ ],
+ "fixture": "synthetic:p5-comment-target",
+ "cases": [
+  {
+   "name": "add-comment-runs",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Review",
+      "author": "Reviewer",
+      "initials": "RV",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/comments.xml",
+     "word/commentsIds.xml",
+     "word/commentsExtensible.xml",
+     "word/_rels/document.xml.rels"
+    ],
+    "changed_parts": [
+     "[Content_Types].xml",
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "add-comment-multiline",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "line one\nline two\twith tab\rend",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-comment-empty-text",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-comment-null-initials",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "second target"
+      },
+      "text": "x",
+      "author": "A",
+      "initials": null,
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-comment-whole-runs",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "beta gam"
+      },
+      "text": "Runs",
+      "author": "R",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-comment-multi-run",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "Alpha beta gamma delta"
+      },
+      "text": "Runs",
+      "author": "R",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "span-comment-splits-one-run",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "beta gam"
+      },
+      "text": "Note",
+      "author": "Reviewer",
+      "initials": "RV",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "span-comment-splits-edges",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "pha beta gamma del"
+      },
+      "text": "Note",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "span-comment-whole-run",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "second target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "span-comment-author-required",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "x",
+      "author": ""
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-comment-invalid-text",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "bad \u0001",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-comment-invalid-initials",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "ok",
+      "author": "A",
+      "initials": "\u0002"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unanchored-add",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "floating",
+      "author": "A",
+      "initials": "AA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reply-thread",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second Reviewer",
+      "date": {
+       "$date": "2024-02-03T04:05:06Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_parent_of",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_parent_of",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reply-author-required",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": ""
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "resolve-toggle",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 0,
+      "resolved": false
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-preserves-thread-state",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second Reviewer",
+      "date": {
+       "$date": "2024-02-03T04:05:06Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Additional context"
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_parent_of",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-table-preserves-reply-link",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second Reviewer",
+      "date": {
+       "$date": "2024-02-03T04:05:06Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comment_add_table",
+     "kwargs": {
+      "comment_id": 1,
+      "rows": 1,
+      "cols": 1,
+      "width_emu": 914400
+     }
+    },
+    {
+     "op": "ext.p5_parent_of",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "append-before-identity",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "first",
+      "author": "A",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 0,
+      "text": ""
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-parent-takes-thread",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second Reviewer",
+      "date": {
+       "$date": "2024-02-03T04:05:06Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_delete_comment",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-reply-only",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Reply",
+      "author": "Second Reviewer",
+      "date": {
+       "$date": "2024-02-03T04:05:06Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_delete_comment",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-author-and-initials",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comment_set_author",
+     "kwargs": {
+      "comment_id": 0,
+      "author": "Jane Smith"
+     }
+    },
+    {
+     "op": "ext.p5_comment_set_initials",
+     "kwargs": {
+      "comment_id": 0,
+      "initials": "JS"
+     }
+    },
+    {
+     "op": "ext.p5_comment_set_initials",
+     "kwargs": {
+      "comment_id": 0,
+      "initials": null
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "two-comments",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "second target"
+      },
+      "text": "Second",
+      "author": "Other",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tracked-delete-then-accept-takes-comment",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_tracked_replace",
+     "kwargs": {
+      "span": {
+       "$span": "comment target"
+      },
+      "text": "",
+      "author": "Carol",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ]
+  }
+ ]
+}

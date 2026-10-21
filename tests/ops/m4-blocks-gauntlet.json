@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.gauntlet",
+  "upstream": ["tests/paper/test_blocks.py::DescribeTrackedDeleteParagraphs::it_refuses_cross_story_ranges"],
+  "fixture": "generated/gauntlet/gauntlet.docx",
+  "cases": [
+    {"name": "cross-story", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Gauntlet section two body"], "kwargs": {"end_anchor": "Gauntlet header, section one", "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "error", "category": "boundary_violation"}], "changed_parts": []}},
+    {"name": "revision-ids-above-existing", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Gauntlet Document"], "kwargs": {"heading": "Tracked", "paragraphs": ["t"], "tracked": true, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "header-section", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Gauntlet header, section one"], "kwargs": {"heading": "In header", "paragraphs": []}}]},
+    {"name": "tracked-pending-insert-refused", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["This whole sentence was inserted"], "kwargs": {"author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]}
+  ]
+}

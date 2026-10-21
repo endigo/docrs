@@ -1,0 +1,104 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.tables-cell-props",
+ "upstream": [
+  "features/tbl-cell-props.feature (grid_span)",
+  "src/docx/table.py::_Row.cells"
+ ],
+ "fixture": "synthetic:p7-compact-tbl-cell-props",
+ "cases": [
+  {
+   "name": "cells",
+   "steps": [
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "width-on-span",
+   "steps": [
+    {
+     "op": "ext.p7_cell_set",
+     "args": [
+      0,
+      3,
+      0,
+      [
+       [
+        "width",
+        914400
+       ]
+      ]
+     ]
+    },
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "merge-across-span",
+   "steps": [
+    {
+     "op": "ext.p7_merge",
+     "args": [
+      0,
+      1,
+      0,
+      2,
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_cells",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

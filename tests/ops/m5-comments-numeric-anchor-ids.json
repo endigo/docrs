@@ -1,0 +1,57 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.numeric-anchor-ids",
+ "upstream": [
+  "tests/paper/test_audit_commentops.py::it_compares_anchor_marker_ids_numerically"
+ ],
+ "fixture": "synthetic:p5-numeric-anchor-ids",
+ "cases": [
+  {
+   "name": "numeric",
+   "steps": [
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 1,
+      "text": "Reply",
+      "author": "Second Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_parent_of",
+     "kwargs": {
+      "comment_id": 2
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

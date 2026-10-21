@@ -1,0 +1,60 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.discard-rels",
+ "upstream": [
+  "tests/paper/test_audit_revisions.py::it_drops_unreferenced_relationships_and_payloads_but_keeps_shared_ones"
+ ],
+ "fixture": "synthetic:p5-discard-rels",
+ "cases": [
+  {
+   "name": "reject_all",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/_rels/document.xml.rels"
+    ]
+   },
+   "deviation": "upstream drops the now-unreachable OLE/image payload parts on save (and their [Content_Types].xml overrides); Rust drops the relationships but preserves unreachable members, the project-wide documented kernel deviation (docs/compatibility.md)"
+  },
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  }
+ ]
+}

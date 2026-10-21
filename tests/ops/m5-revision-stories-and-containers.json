@@ -1,0 +1,133 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.stories-and-containers",
+ "upstream": [
+  "src/docx/revision.py::_enumerate_revisions (headers, content controls)"
+ ],
+ "fixture": "synthetic:p5-stories-and-containers",
+ "cases": [
+  {
+   "name": "enumerate",
+   "steps": [
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ]
+  },
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "reject_all",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "accept-0",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-0",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "accept-1",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 1
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-1",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 1
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "accept-2",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 2
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-2",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 2
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  }
+ ]
+}

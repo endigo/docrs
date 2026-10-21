@@ -1,0 +1,58 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.comments-ext-cleanup",
+ "upstream": [
+  "tests/paper/test_audit_revisions.py::it_removes_only_matching_comments_extended_entries"
+ ],
+ "fixture": "synthetic:p5-comments-ext-cleanup",
+ "cases": [
+  {
+   "name": "reject_all",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

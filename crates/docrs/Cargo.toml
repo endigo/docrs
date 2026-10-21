@@ -1,0 +1,44 @@
+[package]
+name = "docrs"
+description = "Preservation-first DOCX editing: find, replace, tracked changes and comparison that keep everything else byte for byte; Markdown and HTML to Word with a reference template."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories = ["text-processing", "parser-implementations", "encoding"]
+readme = "README.md"
+# The test suite needs the fixture corpus at the repository root.
+exclude = ["tests/"]
+
+[package.metadata.docs.rs]
+features = ["markdown"]
+
+[features]
+# Enables deterministic failure-injection points used by the test suite.
+fault-injection = []
+# Test-only escape hatches (raw package mutation). Never enable in releases.
+test-support = ["fault-injection"]
+# Markdown → DOCX conversion (`docrs::markdown`).
+markdown = ["dep:pulldown-cmark"]
+
+[dependencies]
+flate2.workspace = true
+crc32fast.workspace = true
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+pulldown-cmark = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
+docrs = { path = ".", features = ["test-support", "markdown"] }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "markdown_reference"
+required-features = ["markdown"]

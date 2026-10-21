@@ -1,0 +1,236 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.hdrftr-shared",
+ "upstream": [
+  "src/docx/section.py::_Header._drop_definition",
+  "src/docx/opc/part.py::Part.drop_rel"
+ ],
+ "fixture": "synthetic:p7-shared-header",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_sections"
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      0,
+      "header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      1,
+      "header"
+     ]
+    },
+    {
+     "op": "ext.p7_hdrftr_linked",
+     "args": [
+      2,
+      "header"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "drop-shared-reference",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      1,
+      "header",
+      true
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 0,
+       "part": "header"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream drop_rel deletes rId7 although section one still references it (ref count 1 < 2), leaving a dangling r:id; Rust keeps a relationship that is still referenced"
+  },
+  {
+   "name": "drop-unshared-footer",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      0,
+      "footer",
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream omits the unreachable footer part on save; Rust keeps the member (unreachable members are preserved)"
+  },
+  {
+   "name": "drop-one-of-two-references",
+   "steps": [
+    {
+     "op": "ext.p7_hdrftr_set_linked",
+     "args": [
+      2,
+      "even_page_header",
+      true
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "the default and even headers of section three share rId9: upstream drop_rel deletes it while the default reference remains (dangling r:id, header2 unreachable); Rust keeps the still-referenced relationship"
+  },
+  {
+   "name": "set-margins-universal",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "right_margin",
+        914400
+       ],
+       [
+        "top_margin",
+        null
+       ],
+       [
+        "page_height",
+        100
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "titlepg-off-to-on",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "different_first_page_header_footer",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown-markup-survives",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      2,
+      [
+       [
+        "start_type",
+        "oddPage"
+       ],
+       [
+        "page_width",
+        6400800
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inherited-footer-content",
+   "steps": [
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      {
+       "section": 2,
+       "part": "footer"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

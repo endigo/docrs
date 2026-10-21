@@ -1,0 +1,216 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.readonly",
+ "upstream": [
+  "tests/paper/test_practical_review_hardening.py::it_applies_document_protection_to_inherited_comment_mutators",
+  "src/docx/protection.py (comment operation class)"
+ ],
+ "fixture": "synthetic:p5-comments-readonly",
+ "cases": [
+  {
+   "name": "add-refused",
+   "steps": [
+    {
+     "op": "ext.p5_comments_add",
+     "kwargs": {
+      "text": "blocked",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "span-comment-refused",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "commented"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "add-comment-refused",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "commented"
+      },
+      "text": "x",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reply-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "x",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "resolve-refused",
+   "steps": [
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "delete-refused",
+   "steps": [
+    {
+     "op": "ext.p5_delete_comment",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "edit-refused",
+   "steps": [
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "x"
+     }
+    },
+    {
+     "op": "ext.p5_comment_set_author",
+     "kwargs": {
+      "comment_id": 0,
+      "author": "B"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     },
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reads-allowed",
+   "steps": [
+    {
+     "op": "commentops.comment_thread"
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

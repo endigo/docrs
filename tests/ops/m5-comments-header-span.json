@@ -1,0 +1,69 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.header-span",
+ "upstream": [
+  "src/docx/search.py::Span.comment (main story only)"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "header-refused",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "Header for section one"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "body-allowed",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "Section two body paragraph."
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

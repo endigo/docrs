@@ -1,0 +1,58 @@
+{
+ "schema_version": 1,
+ "id": "m4.links.w.only",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeHyperlinks"
+ ],
+ "fixture": "synthetic:p1-w-only",
+ "cases": [
+  {
+   "name": "declares-relationship-prefix",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "words"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "whole-run",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "plain words to link"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "checkbox-declares-w14-state",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "box"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "box"
+     }
+    }
+   ]
+  }
+ ]
+}

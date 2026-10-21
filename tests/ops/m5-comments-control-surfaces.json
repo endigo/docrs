@@ -1,0 +1,125 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.control-surfaces",
+ "upstream": [
+  "src/docx/commentops.py::_preflight_comment_range (controls and simple fields)"
+ ],
+ "fixture": "synthetic:p5-control-surfaces",
+ "cases": [
+  {
+   "name": "locked",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "locked value"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "bound",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "bound value"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "simple-field",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "simple field"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "plain",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "plain text"
+      },
+      "text": "Parent",
+      "author": "Reviewer",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

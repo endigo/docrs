@@ -1,0 +1,695 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.document",
+ "upstream": [
+  "features/doc-add-paragraph.feature",
+  "features/doc-add-heading.feature",
+  "features/doc-add-page-break.feature",
+  "features/doc-add-table.feature",
+  "features/doc-add-section.feature",
+  "src/docx/document.py, blkcntnr.py, styles/styles.py (get_style_id)"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "empty-paragraph",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "paragraph-text",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Hello world"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-tabs-newlines",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "a\tb\nc\rd  "
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-style-ui-name",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Head",
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-style-name",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Bullet",
+      "List Bullet"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-style-id",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "By id",
+      "ListBullet"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-style-default",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "Plain",
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-style-wrong-type",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "x",
+      "Emphasis"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "paragraph-style-table-type",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "x",
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "paragraph-style-unknown",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "x",
+      "No Such Style"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream raises KeyError (category non_refusal_error) for an unknown style name, after the paragraph/run was already added; Rust returns invalid_argument(unknown_style) and changes nothing"
+  },
+  {
+   "name": "two-paragraphs",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "one"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "two"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-0",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Heading text",
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-1",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Heading text",
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-2",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Heading text",
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-5",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Heading text",
+      5
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-9",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Heading text",
+      9
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-default-level",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "Only text"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-empty",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "heading-level-10",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "x",
+      10
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "heading-level-negative",
+   "steps": [
+    {
+     "op": "ext.p4_add_heading",
+     "args": [
+      "x",
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "page-break",
+   "steps": [
+    {
+     "op": "ext.p4_add_page_break"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-2x2",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-style",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      2,
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-style-accent",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      3,
+      "Light Shading Accent 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-style-default",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      1,
+      "Normal Table"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-zero-rows",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      0,
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-zero-cols",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      2,
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "table-style-wrong-type",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      1,
+      "Heading 1"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream's inherited API mutates the document before this validation error (no rollback); Rust validates and stages first, so the refused step changes nothing (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "table-then-paragraph",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      1
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "after"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-default",
+   "steps": [
+    {
+     "op": "ext.p4_add_section"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-even-page",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "evenPage"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-continuous",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "continuous"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-odd-new-column",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "oddPage"
+     ]
+    },
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "nextColumn"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "section-then-paragraph",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "continuous"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "next"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

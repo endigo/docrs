@@ -1,0 +1,31 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.clear-body-synthetic",
+ "upstream": [
+  "src/docx/document.py::_Body.clear_content"
+ ],
+ "fixture": "synthetic:p7-text",
+ "cases": [
+  {
+   "name": "clear-keeps-sectpr",
+   "steps": [
+    {
+     "op": "ext.p7_clear_body"
+    },
+    {
+     "op": "ext.p7_sections"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

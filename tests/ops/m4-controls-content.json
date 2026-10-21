@@ -1,0 +1,84 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.content",
+ "upstream": [
+  "tests/paper/test_verbs.py (block and inline controls)"
+ ],
+ "fixture": "generated/feature-isolated/content-control.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  },
+  {
+   "name": "block",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "New clause text"
+     ],
+     "kwargs": {
+      "tag": "clause-block-1"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "clause-block-1"
+     }
+    }
+   ]
+  },
+  {
+   "name": "inline",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "typed"
+     ],
+     "kwargs": {
+      "alias": "InlineField"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "inline-field-1"
+     }
+    }
+   ]
+  },
+  {
+   "name": "both",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "A"
+     ],
+     "kwargs": {
+      "tag": "clause-block-1"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "B"
+     ],
+     "kwargs": {
+      "tag": "inline-field-1"
+     }
+    },
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  }
+ ]
+}

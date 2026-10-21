@@ -1,0 +1,57 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.letterhead-sharedmark",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeSourceLetterhead",
+  "src/docx/composition.py::_copy_letterhead"
+ ],
+ "fixture": "synthetic:p6-dest-sharedmark",
+ "cases": [
+  {
+   "name": "renames-header-bookmark",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-bookmark"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "remaps-header-refs-to-body-renames",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-refs"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

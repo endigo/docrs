@@ -1,0 +1,60 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.letterhead-fixture-dest",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeSourceLetterhead",
+  "src/docx/composition.py::_copy_letterhead"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "multi-section-destination",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "multi-section-destination-even-odd",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-hdr-even"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

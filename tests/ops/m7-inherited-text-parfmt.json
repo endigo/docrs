@@ -1,0 +1,2815 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-parfmt",
+ "upstream": [
+  "features/txt-parfmt-props.feature",
+  "features/par-access-parfmt.feature",
+  "src/docx/text/parfmt.py",
+  "src/docx/oxml/text/parfmt.py"
+ ],
+ "fixture": "synthetic:p7-compact-sty-known-styles",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": "center"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": "right"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-alignment-both",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": "both"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-space_before-152400",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "space_before": 152400
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-space_before-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "space_before": 228600
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-space_before-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "space_before": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-space_after-152400",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "space_after": 152400
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-space_after-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "space_after": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing-{'exact': 177800}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": {
+        "exact": 177800
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing-{'multiple': 2}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": {
+        "multiple": 2
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing-{'multiple': 1.75}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": {
+        "multiple": 1.75
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing-{'multiple': 1.0}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": {
+        "multiple": 1.0
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing-{'multiple': 1.5}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": {
+        "multiple": 1.5
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-SINGLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": "SINGLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-ONE_POINT_FIVE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": "ONE_POINT_FIVE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-DOUBLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": "DOUBLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-AT_LEAST",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": "AT_LEAST"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-EXACTLY",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": "EXACTLY"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-MULTIPLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": "MULTIPLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-line_spacing_rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "line_spacing_rule": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-left_indent-219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "left_indent": 219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-left_indent--219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "left_indent": -219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-left_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "left_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-right_indent-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "right_indent": 228600
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-right_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "right_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-first_line_indent--219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "first_line_indent": -219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-first_line_indent-585470",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "first_line_indent": 585470
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-first_line_indent-0",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "first_line_indent": 0
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-first_line_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "first_line_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-keep_together-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "keep_together": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-keep_together-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "keep_together": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-keep_together-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "keep_together": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-keep_with_next-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "keep_with_next": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-keep_with_next-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "keep_with_next": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-page_break_before-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "page_break_before": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-page_break_before-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "page_break_before": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-widow_control-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "widow_control": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-widow_control-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "widow_control": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-widow_control-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "widow_control": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "center"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "right"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-alignment-both",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "both"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-space_before-152400",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "space_before": 152400
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-space_before-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "space_before": 228600
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-space_before-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "space_before": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-space_after-152400",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "space_after": 152400
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-space_after-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "space_after": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing-{'exact': 177800}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing": {
+        "exact": 177800
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing-{'multiple': 2}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing": {
+        "multiple": 2
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing-{'multiple': 1.75}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing": {
+        "multiple": 1.75
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing-{'multiple': 1.0}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing": {
+        "multiple": 1.0
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing-{'multiple': 1.5}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing": {
+        "multiple": 1.5
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-SINGLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "SINGLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-ONE_POINT_FIVE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "ONE_POINT_FIVE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-DOUBLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "DOUBLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-AT_LEAST",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "AT_LEAST"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-EXACTLY",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "EXACTLY"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-MULTIPLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "MULTIPLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-line_spacing_rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-left_indent-219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "left_indent": 219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-left_indent--219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "left_indent": -219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-left_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "left_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-right_indent-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "right_indent": 228600
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-right_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "right_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-first_line_indent--219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "first_line_indent": -219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-first_line_indent-585470",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "first_line_indent": 585470
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-first_line_indent-0",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "first_line_indent": 0
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-first_line_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "first_line_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-keep_together-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "keep_together": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-keep_together-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "keep_together": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-keep_together-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "keep_together": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-keep_with_next-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "keep_with_next": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-keep_with_next-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "keep_with_next": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-page_break_before-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "page_break_before": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-page_break_before-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "page_break_before": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-widow_control-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "widow_control": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-widow_control-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "widow_control": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-widow_control-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "widow_control": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-alignment-center",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "center"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-alignment-right",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "right"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-alignment-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-alignment-both",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "both"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-space_before-152400",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "space_before": 152400
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-space_before-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "space_before": 228600
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-space_before-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "space_before": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-space_after-152400",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "space_after": 152400
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-space_after-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "space_after": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing-{'exact': 177800}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "exact": 177800
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing-{'multiple': 2}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "multiple": 2
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing-{'multiple': 1.75}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "multiple": 1.75
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing-{'multiple': 1.0}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "multiple": 1.0
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing-{'multiple': 1.5}",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing": {
+        "multiple": 1.5
+       }
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-SINGLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": "SINGLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-ONE_POINT_FIVE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": "ONE_POINT_FIVE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-DOUBLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": "DOUBLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-AT_LEAST",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": "AT_LEAST"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-EXACTLY",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": "EXACTLY"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-MULTIPLE",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": "MULTIPLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-line_spacing_rule-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "line_spacing_rule": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-left_indent-219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "left_indent": 219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-left_indent--219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "left_indent": -219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-left_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "left_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-right_indent-228600",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "right_indent": 228600
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-right_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "right_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-first_line_indent--219710",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "first_line_indent": -219710
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-first_line_indent-585470",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "first_line_indent": 585470
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-first_line_indent-0",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "first_line_indent": 0
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-first_line_indent-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "first_line_indent": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-keep_together-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "keep_together": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-keep_together-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "keep_together": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-keep_together-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "keep_together": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-keep_with_next-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "keep_with_next": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-keep_with_next-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "keep_with_next": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-page_break_before-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "page_break_before": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-page_break_before-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "page_break_before": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-widow_control-True",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "widow_control": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-widow_control-False",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "widow_control": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-widow_control-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "widow_control": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "batch-all",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "center",
+       "left_indent": 914400,
+       "right_indent": 457200,
+       "first_line_indent": -228600,
+       "space_before": 76200,
+       "space_after": 38100,
+       "line_spacing": {
+        "multiple": 1.15
+       },
+       "line_spacing_rule": "AT_LEAST",
+       "keep_together": true,
+       "keep_with_next": false,
+       "page_break_before": null,
+       "widow_control": true
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bad-alignment",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "middle"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-rule-name",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "line_spacing_rule": "TRIPLE"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream `WD_LINE_SPACING['TRIPLE']` raises KeyError inside the helper (non_refusal_error); Rust rejects the unknown member name as invalid_argument"
+  },
+  {
+   "name": "negative-space-existing",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "space_before": -12700
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream adds w:pPr (and the w:spacing/w:ind child) before the ValueError; Rust raises the same category with nothing changed (refusal atomicity)"
+  },
+  {
+   "name": "negative-space-no-ppr",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "space_after": -12700
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream adds w:pPr (and the w:spacing/w:ind child) before the ValueError; Rust raises the same category with nothing changed (refusal atomicity)"
+  },
+  {
+   "name": "hanging-too-large",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "left_indent": 3000000000
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream adds w:pPr (and the w:spacing/w:ind child) before the ValueError; Rust raises the same category with nothing changed (refusal atomicity)"
+  }
+ ]
+}

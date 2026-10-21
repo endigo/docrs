@@ -1,0 +1,1965 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.synthetic",
+ "upstream": [
+  "tests/paper/test_verbs.py (content controls)",
+  "tests/paper/test_audit_editing.py::DescribeControlSetterHardening",
+  "tests/paper/test_regressions_editing.py::DescribeControlEdgeCases",
+  "tests/paper/test_audit_structural_atomicity.py::DescribeEmptyContentControls",
+  "tests/paper/test_practical_review_hardening.py (locked text control)"
+ ],
+ "fixture": "synthetic:p1-controls",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  },
+  {
+   "name": "get-control",
+   "steps": [
+    {
+     "op": "controls.get_control",
+     "kwargs": {
+      "tag": "state"
+     }
+    },
+    {
+     "op": "controls.get_control",
+     "kwargs": {
+      "alias": "ClientName"
+     }
+    }
+   ]
+  },
+  {
+   "name": "get-missing",
+   "steps": [
+    {
+     "op": "controls.get_control",
+     "kwargs": {
+      "tag": "nope"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "get-without-selector",
+   "steps": [
+    {
+     "op": "controls.get_control"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "get-ambiguous",
+   "steps": [
+    {
+     "op": "controls.get_control",
+     "kwargs": {
+      "tag": "dup"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "ambiguous_target"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-ambiguous",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "dup"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "ambiguous_target"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "by-alias",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "aliased now"
+     ],
+     "kwargs": {
+      "alias": "OnlyAlias"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "alias": "OnlyAlias"
+     }
+    }
+   ]
+  },
+  {
+   "name": "tag-and-alias",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "both now"
+     ],
+     "kwargs": {
+      "tag": "both",
+      "alias": "Both"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "both",
+      "alias": "Wrong"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "placeholder-cleared",
+   "steps": [
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Paper Instruments LLC"
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "checkbox-default-glyph",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "agree"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "agree"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "yes"
+     ],
+     "kwargs": {
+      "tag": "agree"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "checkbox-uncheck",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      false
+     ],
+     "kwargs": {
+      "tag": "agree"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "agree"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-declared-glyph",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "choice"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "choice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-declared-unchecked",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      false
+     ],
+     "kwargs": {
+      "tag": "choice"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "choice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-adds-checked-state",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "nochecked"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "nochecked"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-invalid-glyph",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "badglyph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "checkbox-fallback-unchecked",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      false
+     ],
+     "kwargs": {
+      "tag": "badglyph"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "badglyph"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-control-glyph",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      false
+     ],
+     "kwargs": {
+      "tag": "ctrlglyph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "checkbox-hex-prefix-glyph",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      false
+     ],
+     "kwargs": {
+      "tag": "hexglyph"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "hexglyph"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-table-content",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "complex"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "checkbox-keeps-run-format",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "box-formatted"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "box-formatted"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-font-over-existing-fonts",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "box-font"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "box-font"
+     }
+    }
+   ]
+  },
+  {
+   "name": "checkbox-number-like-text",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "1"
+     ],
+     "kwargs": {
+      "tag": "agree"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dropdown-choice",
+   "steps": [
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "state"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "New York"
+     ],
+     "kwargs": {
+      "tag": "state"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "state"
+     }
+    }
+   ]
+  },
+  {
+   "name": "dropdown-outside-choices",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Texas"
+     ],
+     "kwargs": {
+      "tag": "state"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "dropdown-value-is-not-display",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "CA"
+     ],
+     "kwargs": {
+      "tag": "state"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dropdown-value-only",
+   "steps": [
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "vo"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "OnlyValue"
+     ],
+     "kwargs": {
+      "tag": "vo"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "vo"
+     }
+    }
+   ]
+  },
+  {
+   "name": "dropdown-empty-choice",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      ""
+     ],
+     "kwargs": {
+      "tag": "vo"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "vo"
+     }
+    }
+   ]
+  },
+  {
+   "name": "dropdown-bool",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "state"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "combo-free-text",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Anything goes"
+     ],
+     "kwargs": {
+      "tag": "combo"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "combo"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-iso",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-08"
+      }
+     ],
+     "kwargs": {
+      "tag": "signed"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "signed"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-instant",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$date": "2026-07-10T23:59:59-05:00"
+      }
+     ],
+     "kwargs": {
+      "tag": "signed"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "signed"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-aware-utc",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$date": "2026-07-10T01:30:00+02:00"
+      }
+     ],
+     "kwargs": {
+      "tag": "signed-long"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "signed-long"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-without-format",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "unformatted"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "date-display-string-drops-full-date",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "next Tuesday"
+     ],
+     "kwargs": {
+      "tag": "unformatted"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "unformatted"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-text-without-full-date",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "whenever"
+     ],
+     "kwargs": {
+      "tag": "signed"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "signed"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-names-without-locale",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "unlocalized"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "date-unsupported-token",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "quarter"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-unsupported-calendar",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "hijri"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-gregorian-calendar",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-01-05"
+      }
+     ],
+     "kwargs": {
+      "tag": "gregorian"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "gregorian"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-all-tokens-morning",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     ],
+     "kwargs": {
+      "tag": "times"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "times"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-all-tokens-evening",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$date": "2024-12-29T23:00:09Z"
+      }
+     ],
+     "kwargs": {
+      "tag": "times"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "times"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-all-tokens-noon",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$date": "2000-02-29T12:30:00Z"
+      }
+     ],
+     "kwargs": {
+      "tag": "times"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "times"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-literals-and-escapes",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-03-04"
+      }
+     ],
+     "kwargs": {
+      "tag": "literal"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "literal"
+     }
+    }
+   ]
+  },
+  {
+   "name": "date-french-locale",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "frlocale"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-unterminated-literal",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "unterminated"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-trailing-escape",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "trailing"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-empty-format",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "emptyformat"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-bool",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "signed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "date-value-on-text-control",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      {
+       "$day": "2026-07-10"
+      }
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested-controls",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "flat"
+     ],
+     "kwargs": {
+      "tag": "outer"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "inner-control",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "inner set"
+     ],
+     "kwargs": {
+      "tag": "inner"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "inner"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "outer"
+     }
+    }
+   ]
+  },
+  {
+   "name": "picture",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "pic"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture-bool",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "pic"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "group",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "grp"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "building-block",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "bb"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "content-locked",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "changed"
+     ],
+     "kwargs": {
+      "tag": "locked"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "content-locked-generic-replace",
+   "steps": [
+    {
+     "op": "ext.p1_control_set_value",
+     "args": [
+      "changed"
+     ],
+     "kwargs": {
+      "tag": "locked"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "sdt-content-locked",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "changed"
+     ],
+     "kwargs": {
+      "tag": "sdtlocked"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "sdt-locked-only",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "changed"
+     ],
+     "kwargs": {
+      "tag": "sdtonly"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "sdtonly"
+     }
+    }
+   ]
+  },
+  {
+   "name": "multiple-locks",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "changed"
+     ],
+     "kwargs": {
+      "tag": "multilock"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bound-without-store",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bound-bool",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "block-empty-content",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "replacement"
+     ],
+     "kwargs": {
+      "tag": "block"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "block"
+     }
+    }
+   ]
+  },
+  {
+   "name": "block-no-content",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "replacement"
+     ],
+     "kwargs": {
+      "tag": "block-nocontent"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "block-nocontent"
+     }
+    }
+   ]
+  },
+  {
+   "name": "inline-empty-content",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "replacement"
+     ],
+     "kwargs": {
+      "tag": "inline-empty"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "inline-empty"
+     }
+    }
+   ]
+  },
+  {
+   "name": "inline-no-content",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "replacement"
+     ],
+     "kwargs": {
+      "tag": "inline-nocontent"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "inline-nocontent"
+     }
+    }
+   ]
+  },
+  {
+   "name": "ambiguous-parent",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "replacement"
+     ],
+     "kwargs": {
+      "tag": "ambiguous"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "multi-paragraph-block",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "single"
+     ],
+     "kwargs": {
+      "tag": "multi-para"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "multi-para"
+     }
+    }
+   ]
+  },
+  {
+   "name": "mixed-shape",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "mixed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "markers-only",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "markers-only"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shape-mismatch",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "shape-mismatch"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "keeps-first-run-format",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "now bold"
+     ],
+     "kwargs": {
+      "tag": "rich-bold"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "rich-bold"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cell-control",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "in a cell"
+     ],
+     "kwargs": {
+      "tag": "in-cell"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "in-cell"
+     }
+    }
+   ]
+  },
+  {
+   "name": "alternate-content-choice",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "chosen!"
+     ],
+     "kwargs": {
+      "tag": "in-choice"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "in-choice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "alternate-content-fallback",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "x"
+     ],
+     "kwargs": {
+      "tag": "in-fallback"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-characters",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "a\tb"
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "xml-invalid-characters",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "bad\u0001"
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "leading-space",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "  padded  "
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ]
+  },
+  {
+   "name": "unicode",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Ünïcødé 😀 ᠮᠣᠩᠭᠣᠯ"
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ]
+  },
+  {
+   "name": "set-by-index",
+   "steps": [
+    {
+     "op": "ext.p1_control_set_value",
+     "args": [
+      "first!"
+     ],
+     "kwargs": {
+      "index": 0
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "handle-survives-commit",
+   "steps": [
+    {
+     "op": "ext.p1_control_set_twice",
+     "args": [
+      true,
+      false
+     ],
+     "kwargs": {
+      "tag": "agree"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "agree"
+     }
+    }
+   ]
+  },
+  {
+   "name": "handle-survives-text-commit",
+   "steps": [
+    {
+     "op": "ext.p1_control_set_twice",
+     "args": [
+      "one",
+      "two"
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "client-name"
+     }
+    }
+   ]
+  },
+  {
+   "name": "states-by-index",
+   "steps": [
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 0
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 3
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 6
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 9
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 12
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 15
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 18
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 21
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 24
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 27
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 30
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 33
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 36
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 39
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 42
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 45
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "index": 48
+     }
+    }
+   ]
+  },
+  {
+   "name": "list-after-edits",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "agree"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "California"
+     ],
+     "kwargs": {
+      "tag": "state"
+     }
+    },
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  }
+ ]
+}

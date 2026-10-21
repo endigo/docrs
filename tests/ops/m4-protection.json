@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "m4.protection.set_protection",
+  "upstream": ["tests/paper/test_word_protection_matrix.py", "tests/paper/test_regressions_editing.py (set_protection)"],
+  "fixture": "generated/minimal-clean/minimal.docx",
+  "cases": [
+    {"name": "read-only", "steps": [{"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}}, {"op": "protection.protection_status"}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/settings.xml"]}},
+    {"name": "then-refuse-edit", "steps": [{"op": "protection.set_protection", "kwargs": {"edit": "comments"}}, {"op": "protection.acknowledge_protection"}, {"op": "protection.protection_status"}]},
+    {"name": "invalid-mode", "steps": [{"op": "protection.set_protection", "kwargs": {"edit": "none"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "twice", "steps": [{"op": "protection.set_protection", "kwargs": {"edit": "forms"}}, {"op": "protection.set_protection", "kwargs": {"edit": "trackedChanges"}}]}
+  ]
+}

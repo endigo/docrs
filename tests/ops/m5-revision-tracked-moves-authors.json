@@ -1,0 +1,123 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.tracked-moves-authors",
+ "upstream": [
+  "tests/paper/test_audit_revisions.py::it_deduplicates_a_valid_author_filtered_move_unit",
+  "tests/paper/test_resolution.py::it_resolves_a_move_pair_from_the_source_site",
+  "tests/paper/test_resolution.py::it_rejects_a_move_pair_from_the_destination_site",
+  "tests/paper/test_revisions.py::it_resolves_an_author_filtered_clean_subset_alongside_moves"
+ ],
+ "fixture": "generated/feature-isolated/tracked-moves.docx",
+ "cases": [
+  {
+   "name": "dedup-unit",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "Alice Editor"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "other-author-noop",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "Nobody"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "filtered-subset-alongside-moves",
+   "steps": [
+    {
+     "op": "ext.p5_tracked_replace",
+     "kwargs": {
+      "span": {
+       "$span": "Paragraph before the tracked move."
+      },
+      "text": "Paragraph ahead of the tracked move.",
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "Carol QA"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "Paragraph ahead of the tracked move."
+    ]
+   }
+  }
+ ]
+}

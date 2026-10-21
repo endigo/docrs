@@ -1,0 +1,159 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.exotic-mix",
+ "upstream": [
+  "src/docx/revision.py::_REVISION_TYPES (every exotic type enumerated, counted, refused)"
+ ],
+ "fixture": "synthetic:p5-exotic-mix",
+ "cases": [
+  {
+   "name": "enumerate",
+   "steps": [
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ]
+  },
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_reject_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "author-filter-resolvable",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "A"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "author-filter-exotic",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all",
+     "kwargs": {
+      "author": "B"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "individual-insertion",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": {
+       "type": "insertion"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exotic-1",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "exotic-2",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 2
+     }
+    }
+   ]
+  },
+  {
+   "name": "exotic-3",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 3
+     }
+    }
+   ]
+  },
+  {
+   "name": "exotic-4",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 4
+     }
+    }
+   ]
+  }
+ ]
+}

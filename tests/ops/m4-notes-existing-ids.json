@@ -1,0 +1,33 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.existing.ids",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "synthetic:p1-notes-existing",
+ "cases": [
+  {
+   "name": "max-plus-one",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "four"
+     ]
+    },
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "perfectly ordinary"
+      },
+      "five"
+     ]
+    }
+   ]
+  }
+ ]
+}

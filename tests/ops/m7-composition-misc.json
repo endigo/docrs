@@ -1,0 +1,193 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.misc",
+ "upstream": [
+  "src/docx/composition.py"
+ ],
+ "fixture": "synthetic:p6-dest",
+ "cases": [
+  {
+   "name": "hyperlink-anchor-inside-range",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-anchor-link"
+      },
+      "the definition body"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vml-image-data-copied",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-vml-image"
+      },
+      "before vml"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vml-office-relid-refused",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-vml-relid"
+      },
+      "before vml"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor",
+      "count": 2
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "source-numbering-part-missing",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-numbered-no-part"
+      },
+      "Numbered without part"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "num-id-zero-needs-no-definition",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-num-zero"
+      },
+      "Numbering removed"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "malformed-source-num-id",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-num-malformed"
+      },
+      "Malformed numbering"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "undefined-source-num-id",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-num-undefined"
+      },
+      "Undefined numbering"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,125 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.media-gaps",
+ "upstream": [
+  "src/docx/package.py::ImageParts._next_image_partname"
+ ],
+ "fixture": "synthetic:p4-media-gaps",
+ "cases": [
+  {
+   "name": "fills-first-gap",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b000000000000000000000000ff00"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/media/image1.bmp"
+    ]
+   }
+  },
+  {
+   "name": "then-second",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b000000000000000000000000ff00"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b00000000000000000000ff000000"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dedupes-existing",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "dedupes-gif",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "47494638396105000700800000000000ffffff2c00000000010001000002024401003b"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "block-width-a4",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

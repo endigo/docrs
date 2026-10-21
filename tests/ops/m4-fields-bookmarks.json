@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.bookmarks-fixture",
+  "upstream": ["tests/paper/test_fields_bookmarks.py::DescribeFieldAuthoring::it_authors_cross_references_in_three_kinds / it_validates_the_reference_kind"],
+  "fixture": "generated/feature-isolated/bookmarks.docx",
+  "cases": [
+    {"name": "three-kinds", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Paragraph after the bookmarks."}], "kwargs": {"bookmark": "DefinedTerm", "kind": "text"}},
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Paragraph after the bookmarks."}], "kwargs": {"bookmark": "DefinedTerm", "kind": "page"}},
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Paragraph after the bookmarks."}], "kwargs": {"bookmark": "DefinedTerm", "kind": "number"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}]}},
+    {"name": "bad-kind", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Paragraph after the bookmarks."}], "kwargs": {"bookmark": "DefinedTerm", "kind": "chapter"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}}
+  ]
+}

@@ -1,0 +1,88 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.tracked-ins-del-authors",
+ "upstream": [
+  "tests/paper/test_revisions.py::it_filters_by_author",
+  "tests/paper/test_revisions.py::it_resolves_individual_revisions"
+ ],
+ "fixture": "generated/feature-isolated/tracked-ins-del.docx",
+ "cases": [
+  {
+   "name": "accept-alice",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all",
+     "kwargs": {
+      "author": "Alice Editor"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reject-bob",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all",
+     "kwargs": {
+      "author": "Bob Reviewer"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reject-deletion",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": {
+       "type": "deletion"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "forty-two"
+    ]
+   }
+  }
+ ]
+}

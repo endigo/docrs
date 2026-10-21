@@ -1,0 +1,77 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.trprchange",
+ "upstream": [
+  "src/docx/revision.py::_revision_type_of (w:trPr children are row markers; parity quirk)"
+ ],
+ "fixture": "synthetic:p5-trprchange",
+ "cases": [
+  {
+   "name": "enumerate",
+   "steps": [
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_unsupported"
+    }
+   ]
+  },
+  {
+   "name": "accept_all",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "reject_all",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ]
+  },
+  {
+   "name": "accept-0",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  },
+  {
+   "name": "reject-0",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": 0
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ]
+  }
+ ]
+}

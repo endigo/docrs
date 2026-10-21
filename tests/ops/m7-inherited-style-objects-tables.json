@@ -1,0 +1,149 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.style-objects-tables",
+ "upstream": [
+  "features/tbl-style.feature",
+  "src/docx/table.py::Table.style"
+ ],
+ "fixture": "synthetic:p7-compact-tbl-having-applied-style",
+ "cases": [
+  {
+   "name": "t0",
+   "steps": [
+    {
+     "op": "ext.p7_table_style_name",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1",
+   "steps": [
+    {
+     "op": "ext.p7_table_style_name",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2",
+   "steps": [
+    {
+     "op": "ext.p7_table_style_name",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-Table Grid",
+   "steps": [
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      "Table Grid"
+     ]
+    },
+    {
+     "op": "ext.p7_table_style_name",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-Normal Table",
+   "steps": [
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      "Normal Table"
+     ]
+    },
+    {
+     "op": "ext.p7_table_style_name",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-None",
+   "steps": [
+    {
+     "op": "ext.p4_table_set_style",
+     "args": [
+      0,
+      null
+     ]
+    },
+    {
+     "op": "ext.p7_table_style_name",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

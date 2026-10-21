@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.tables",
+  "upstream": [
+    "tests/paper/test_blocks.py::DescribeTrackedDeleteParagraphs::it_refuses_ranges_that_do_not_share_one_parent",
+    "tests/paper/test_blocks.py::DescribeTrackedDeleteParagraphs::it_counts_ranges_among_siblings_so_tables_are_bracketed_not_selected"
+  ],
+  "fixture": "generated/feature-isolated/table-merged-nested.docx",
+  "cases": [
+    {"name": "cross-parent-nested-cell", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Paragraph before the merged"], "kwargs": {"end_anchor": "N11", "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "error", "category": "boundary_violation"}], "changed_parts": []}},
+    {"name": "siblings-bracket-table", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Paragraph before the merged"], "kwargs": {"count": 2, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "cell-anchor-insert", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["R0C0"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "table-before-table", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Paragraph before the merged"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["new"]]}}]}}]}
+  ]
+}

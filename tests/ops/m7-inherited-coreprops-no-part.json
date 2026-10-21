@@ -1,0 +1,315 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.coreprops.no-part",
+ "upstream": [
+  "features/doc-coreprops.feature (default part added)",
+  "src/docx/opc/package.py::OpcPackage._core_properties_part",
+  "src/docx/opc/parts/coreprops.py::CorePropertiesPart.default"
+ ],
+ "fixture": "google/minimal-clean/google-docs-export.docx",
+ "cases": [
+  {
+   "name": "read-creates-default-upstream",
+   "steps": [
+    {
+     "op": "ext.p7_core_properties",
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream creates a default docProps/core.xml (relationship + content type) as a side effect of reading document.core_properties; Rust reading never creates a part and reports the default values with modified=None"
+  },
+  {
+   "name": "default-part-added-on-write",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      []
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "[Content_Types].xml",
+     "_rels/.rels"
+    ],
+    "added_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  },
+  {
+   "name": "default-part-then-title",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "title",
+        "Custom"
+       ],
+       [
+        "author",
+        "Me"
+       ]
+      ]
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "[Content_Types].xml",
+     "_rels/.rels"
+    ],
+    "added_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  },
+  {
+   "name": "default-part-then-all",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "author",
+        "Creator"
+       ],
+       [
+        "category",
+        "Category"
+       ],
+       [
+        "comments",
+        "Description"
+       ],
+       [
+        "content_status",
+        "Content Status"
+       ],
+       [
+        "created",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "identifier",
+        "Identifier"
+       ],
+       [
+        "keywords",
+        "key; word; keyword"
+       ],
+       [
+        "language",
+        "Language"
+       ],
+       [
+        "last_modified_by",
+        "Last Modified By"
+       ],
+       [
+        "last_printed",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "modified",
+        {
+         "$date": "2013-06-15T12:34:56Z"
+        }
+       ],
+       [
+        "revision",
+        9
+       ],
+       [
+        "subject",
+        "Subject"
+       ],
+       [
+        "title",
+        "Title"
+       ],
+       [
+        "version",
+        "Version"
+       ]
+      ]
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "[Content_Types].xml",
+     "_rels/.rels"
+    ],
+    "added_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  },
+  {
+   "name": "default-part-created-modified-overwritten",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "modified",
+        {
+         "$date": "2020-05-06T07:08:09Z"
+        }
+       ],
+       [
+        "created",
+        {
+         "$date": "2019-01-01T00:00:00Z"
+        }
+       ]
+      ]
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  },
+  {
+   "name": "revision-zero-after-part-creation",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "revision",
+        0
+       ]
+      ]
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream assigns the earlier properties (and creates the default core-properties part when missing) before this ValueError; Rust validates every assignment first and stages nothing on refusal (refusal atomicity); the error category is the same"
+  },
+  {
+   "name": "too-long-after-part-creation",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      [
+       [
+        "title",
+        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+       ]
+      ]
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   },
+   "deviation": "upstream assigns the earlier properties (and creates the default core-properties part when missing) before this ValueError; Rust validates every assignment first and stages nothing on refusal (refusal atomicity); the error category is the same"
+  }
+ ]
+}

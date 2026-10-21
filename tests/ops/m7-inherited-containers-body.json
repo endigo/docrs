@@ -1,0 +1,90 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.containers-body",
+ "upstream": [
+  "features/blk-iter-inner-content.feature",
+  "src/docx/blkcntnr.py::BlockItemContainer"
+ ],
+ "fixture": "synthetic:p7-compact-blk-paras-and-tables",
+ "cases": [
+  {
+   "name": "inner-content",
+   "steps": [
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      "body"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-table-width",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_table",
+     "args": [
+      "body",
+      2,
+      2,
+      1828800
+     ]
+    },
+    {
+     "op": "ext.p7_container_content",
+     "args": [
+      "body"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-paragraph",
+   "steps": [
+    {
+     "op": "ext.p7_container_add_paragraph",
+     "args": [
+      "body",
+      "",
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_container_add_paragraph",
+     "args": [
+      "body",
+      "tail",
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

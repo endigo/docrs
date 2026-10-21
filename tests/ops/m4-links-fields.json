@@ -1,0 +1,68 @@
+{
+ "schema_version": 1,
+ "id": "m4.links.fields",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeHyperlinks"
+ ],
+ "fixture": "generated/feature-isolated/fields.docx",
+ "cases": [
+  {
+   "name": "simple-field-result",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "June 1, 2026"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "complex-field-result",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "14"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "plain",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Dated"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,28 @@
+[package]
+name = "docrs-wasm"
+description = "WebAssembly bindings of docrs for Node.js (Markdown to DOCX with a reference document)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+docrs = { workspace = true, features = ["markdown"] }
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-wasm-bindgen.workspace = true
+serde_bytes.workspace = true
+
+# Not `[lints] workspace = true`: the workspace forbids unsafe code, and the
+# `#[wasm_bindgen]` glue is generated unsafe code. This crate writes none.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

@@ -1,0 +1,49 @@
+{
+ "schema_version": 1,
+ "id": "m4.links.header",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeHyperlinks"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "header-part-relationship",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Header for section one",
+       "story": "word/header1.xml"
+      },
+      "https://example.com/header"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/_rels/header1.xml.rels"
+    ]
+   }
+  },
+  {
+   "name": "body",
+   "steps": [
+    {
+     "op": "links.add_hyperlink",
+     "args": [
+      {
+       "$span": "Section two"
+      },
+      "https://example.com/a"
+     ]
+    }
+   ]
+  }
+ ]
+}

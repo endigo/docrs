@@ -1,0 +1,169 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.fixture",
+ "upstream": [
+  "features/cmt-props.feature",
+  "src/docx/commentops.py"
+ ],
+ "fixture": "generated/feature-isolated/comments.docx",
+ "cases": [
+  {
+   "name": "properties",
+   "steps": [
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "anchored",
+   "steps": [
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "resolve",
+   "steps": [
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 1
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ]
+  },
+  {
+   "name": "reply",
+   "steps": [
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "Answer",
+      "author": "Carol",
+      "initials": "CQ",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_parent_of",
+     "kwargs": {
+      "comment_id": 2
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ]
+  },
+  {
+   "name": "delete",
+   "steps": [
+    {
+     "op": "ext.p5_delete_comment",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ]
+  },
+  {
+   "name": "add-paragraph",
+   "steps": [
+    {
+     "op": "ext.p5_comment_add_paragraph",
+     "kwargs": {
+      "comment_id": 1,
+      "text": "More"
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ]
+  },
+  {
+   "name": "span-comment",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "second paragraph"
+      },
+      "text": "New",
+      "author": "Dan",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ]
+  },
+  {
+   "name": "accept_all-noop",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

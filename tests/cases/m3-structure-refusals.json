@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "m3.structure-refusals",
+  "upstream": [
+    "tests/paper/test_audit_text_atomicity.py",
+    "tests/paper/test_search_replace.py (boundary, field, control, revision refusals)"
+  ],
+  "fixture": "synthetic:m3-rules",
+  "cases": [
+    {"needle": "Visit our site", "with": "Visit their site", "expect": {"outcome": "error", "category": "boundary_violation"}},
+    {"needle": "our site", "with": "the site", "expect": {"outcome": "ok", "reopen_contains": ["the site"]}},
+    {"needle": "pending words", "with": "pending text", "expect": {"outcome": "error", "category": "unsupported_structure"}},
+    {"needle": "locked value", "with": "new value", "expect": {"outcome": "error", "category": "unsupported_structure"}},
+    {"needle": "bound value", "with": "new value", "expect": {"outcome": "error", "category": "unsupported_structure"}},
+    {"needle": "choice value", "with": "new value", "expect": {"outcome": "error", "category": "unsupported_structure"}},
+    {"needle": "plain value", "with": "new value", "expect": {"outcome": "ok", "reopen_contains": ["new value"]}},
+    {"needle": "Click here", "with": "Tap here",
+     "note": "UPSTREAM GAP (recorded in docs/compatibility.md): block-level placeholder controls are not detected, so a partial-prompt edit is allowed and showingPlcHdr is kept; parity preserved pending a decision",
+     "expect": {"outcome": "ok", "reopen_contains": ["Tap here to enter text."]}},
+    {"needle": "Click here to enter text.", "with": "Acme Corp", "expect": {"outcome": "ok", "reopen_contains": ["Acme Corp"]}},
+    {"needle": "Section 3.\tTermination", "with": "Section 4. Termination", "expect": {"outcome": "ok", "reopen_contains": ["Section 4.\tTermination"]}},
+    {"needle": "Teh speling eror", "with": "The spelling error", "expect": {"outcome": "error", "category": "unsupported_structure"}},
+    {"needle": "e clause h", "with": "e article h", "expect": {"outcome": "ok", "reopen_contains": ["See article here"]}},
+    {"needle": "point", "with": "dot", "view": "original",
+     "deviation": "port plan: original/all-view targets are inspection-only",
+     "expect": {"outcome": "error", "category": "unsupported_structure"}}
+  ]
+}

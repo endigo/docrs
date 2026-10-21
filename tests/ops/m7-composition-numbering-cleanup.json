@@ -1,0 +1,40 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.numbering-cleanup",
+ "upstream": [
+  "tests/paper/test_practical_composition_table_hardening.py::it_inserts_composed_numbering_before_the_cleanup_marker"
+ ],
+ "fixture": "synthetic:p6-dest-cleanup",
+ "cases": [
+  {
+   "name": "before-cleanup-marker",
+   "steps": [
+    {
+     "op": "numbering.ensure_decimal_definition"
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-numbered"
+      },
+      "First imported item"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

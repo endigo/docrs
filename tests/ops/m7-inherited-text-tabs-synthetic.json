@@ -1,0 +1,133 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-tabs-synthetic",
+ "upstream": [
+  "src/docx/text/tabstops.py::TabStops.__delitem__"
+ ],
+ "fixture": "synthetic:p7-text",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-comment-child",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-around-comment",
+   "steps": [
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_delete_tab_stop",
+     "args": [
+      1,
+      -1
+     ]
+    },
+    {
+     "op": "ext.p7_tab_stops",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insert-before-negative",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      1,
+      -1828800
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "add-to-ppr-without-tabs",
+   "steps": [
+    {
+     "op": "ext.p7_add_tab_stop",
+     "args": [
+      0,
+      457200,
+      "end"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

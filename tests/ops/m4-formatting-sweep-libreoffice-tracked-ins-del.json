@@ -1,0 +1,44 @@
+{
+ "schema_version": 1,
+ "id": "m4.formatting.sweep.libreoffice-tracked-ins-del",
+ "fixture": "libreoffice/feature-isolated/tracked-ins-del.docx",
+ "upstream": [
+  "src/docx/formatting.py::format_of (Paragraph and Span targets over every story)"
+ ],
+ "cases": [
+  {
+   "name": "paragraph-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_blocks"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-sweep",
+   "steps": [
+    {
+     "op": "ext.p3_format_spans"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

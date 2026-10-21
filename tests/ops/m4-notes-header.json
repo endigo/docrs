@@ -1,0 +1,47 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.header",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "generated/feature-isolated/header-footer-sections.docx",
+ "cases": [
+  {
+   "name": "outside-body",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "Header for section one",
+       "story": "word/header1.xml"
+      },
+      "nope"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "body",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "Section one"
+      },
+      "ok"
+     ]
+    }
+   ]
+  }
+ ]
+}

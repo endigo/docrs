@@ -1,0 +1,484 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.text-parfmt-alignment",
+ "upstream": [
+  "features/par-alignment-prop.feature"
+ ],
+ "fixture": "synthetic:p7-compact-par-alignment",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      2
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      3
+     ]
+    },
+    {
+     "op": "ext.p7_parfmt",
+     "args": [
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-left",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": "left"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-distribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": "distribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-thaiDistribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": "thaiDistribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p0-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      0,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-left",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "left"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-distribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "distribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-thaiDistribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": "thaiDistribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      1,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-left",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "left"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-distribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "distribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-thaiDistribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": "thaiDistribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      2,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-left",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      3,
+      {
+       "alignment": "left"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-distribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      3,
+      {
+       "alignment": "distribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-thaiDistribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      3,
+      {
+       "alignment": "thaiDistribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      3,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p4-left",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      4,
+      {
+       "alignment": "left"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p4-distribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      4,
+      {
+       "alignment": "distribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p4-thaiDistribute",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      4,
+      {
+       "alignment": "thaiDistribute"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p4-None",
+   "steps": [
+    {
+     "op": "ext.p7_set_parfmt",
+     "args": [
+      4,
+      {
+       "alignment": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

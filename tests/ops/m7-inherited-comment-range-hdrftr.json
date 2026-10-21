@@ -1,0 +1,64 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.comment-range-hdrftr",
+ "upstream": [
+  "src/docx/text/run.py::Run.mark_comment_range (different roots)"
+ ],
+ "fixture": "synthetic:p7-compact-hdr-header-footer",
+ "cases": [
+  {
+   "name": "cross-story",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_add_run",
+     "args": [
+      {
+       "in": {
+        "section": 0,
+        "part": "header"
+       },
+       "index": 0
+      },
+      "hdr"
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "body"
+     ]
+    },
+    {
+     "op": "ext.p7_mark_comment_range",
+     "args": [
+      {
+       "in": {
+        "section": 0,
+        "part": "header"
+       },
+       "index": 0
+      },
+      -1,
+      -1,
+      0,
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  }
+ ]
+}

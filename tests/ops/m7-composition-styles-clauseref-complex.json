@@ -1,0 +1,36 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.styles-clauseref-complex",
+ "upstream": [
+  "tests/paper/test_practical_composition_table_hardening.py::it_quotes_a_renamed_styleref_and_carries_its_numbering_dependency",
+  "src/docx/composition.py::_remap_styleref_fields"
+ ],
+ "fixture": "synthetic:p6-dest-clauseref",
+ "cases": [
+  {
+   "name": "split-styleref-renamed",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-clauseref-complex"
+      },
+      "Complex field source"
+     ],
+     "kwargs": {
+      "anchor": "Destination",
+      "styles": "import_renamed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

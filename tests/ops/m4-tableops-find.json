@@ -1,0 +1,422 @@
+{
+ "schema_version": 1,
+ "id": "m4.tableops.find_table",
+ "fixture": "synthetic:p3-tables",
+ "upstream": [
+  "tests/paper/test_tableops_numbering.py::DescribeFindTable",
+  "src/docx/tableops.py::find_table"
+ ],
+ "cases": [
+  {
+   "name": "empty-exact",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": ""
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "whitespace-normalized",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "   \t",
+      "match": "normalized"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exact-default",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "cell 10"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exact-case-sensitive",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "RÉSUMÉ – TOTAL"
+     }
+    },
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "Résumé - Total"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     },
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "normalized-folds",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "RÉSUMÉ - TOTAL",
+      "match": "normalized"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exact-not-across-cells",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "cell 00\ncell 01"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "normalized-not-across-cells",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "Account Balance",
+      "match": "normalized"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "paragraph-boundary-in-cell",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "Acct line\nBal line"
+     }
+    },
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "ACCT LINE   BAL LINE",
+      "match": "normalized"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "merged-cell-once",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "merged marker"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "several-cells-one-table",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "multi marker",
+      "match": "exact"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "no-table-normalized",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "NOTHING LIKE THIS",
+      "match": "normalized"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "ambiguous",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "dup marker"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "ambiguous_target"
+     }
+    ]
+   }
+  },
+  {
+   "name": "invalid-policy",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "cell 10",
+      "match": "prefix"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested-table-text-not-searched",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "inner cell"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-text-not-paragraph-text",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "control text"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "insertion-text-not-paragraph-text",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "inserted text"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fragmented-texts-match-several-tables",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "cell value"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "ambiguous_target"
+     }
+    ]
+   }
+  },
+  {
+   "name": "tab-maps-to-tab",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "left\tright"
+     }
+    },
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "left\nright"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "body-paragraph-is-not-a-table",
+   "steps": [
+    {
+     "op": "tableops.find_table",
+     "kwargs": {
+      "near_text": "Paragraph before the tables."
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "grid-of-gridbefore-row",
+   "steps": [
+    {
+     "op": "ext.p3_table_grid",
+     "args": [
+      {
+       "$table": "visible column one"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

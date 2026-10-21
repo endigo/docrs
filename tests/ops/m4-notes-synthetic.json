@@ -1,0 +1,155 @@
+{
+ "schema_version": 1,
+ "id": "m4.notes.synthetic",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeNotes"
+ ],
+ "fixture": "synthetic:p1-notes",
+ "cases": [
+  {
+   "name": "data-bound",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "BoundNote"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "locked",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "LockedNote"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "rich-control",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "RichNote"
+      },
+      "ok"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "plain-text-control",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "PlainTextNote"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "formatted-mid-run",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "note anchor"
+      },
+      "styled"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "before-existing-mark",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "marked"
+      },
+      "skips the existing mark"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "field-result",
+   "steps": [
+    {
+     "op": "notes.add_footnote",
+     "args": [
+      {
+       "$span": "June 1, 2026"
+      },
+      "x"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "escaped-anchor",
+   "steps": [
+    {
+     "op": "notes.add_endnote",
+     "args": [
+      {
+       "$span": "A & B <C>"
+      },
+      "escaped"
+     ]
+    }
+   ]
+  }
+ ]
+}

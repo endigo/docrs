@@ -1,0 +1,271 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.image-from-file",
+ "upstream": [
+  "src/docx/image/image.py::Image.from_file"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "from-file-court-exif.jpg",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "court-exif.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-jfif-300-dpi.jpg",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "jfif-300-dpi.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-jpeg420exif.jpg",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "jpeg420exif.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-lena_std.jpg",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "lena_std.jpg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-lena.bmp",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "lena.bmp"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-lena.gif",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "lena.gif"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-lena.tif",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "lena.tif"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-monty-truth.png",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "monty-truth.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-mountain.bmp",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "mountain.bmp"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-python-icon.jpeg",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "python-icon.jpeg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-sample.tif",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "sample.tif"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-test.png",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "test.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "from-file-missing-file.png",
+   "steps": [
+    {
+     "op": "ext.p7_image_from_file",
+     "args": [
+      {
+       "$p7_test_file": "missing-file.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error"
+     }
+    ]
+   },
+   "deviation": "upstream raises a raw FileNotFoundError (non_refusal_error); Rust returns the typed io error (read_image)"
+  }
+ ]
+}

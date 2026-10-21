@@ -1,0 +1,67 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.field-boundary",
+ "upstream": [
+  "tests/paper/test_practical_review_hardening.py::it_applies_comment_range_preflight_to_document_add_comment",
+  "tests/paper/test_practical_review_hardening.py::it_refuses_a_comment_range_that_contains_a_field_boundary"
+ ],
+ "fixture": "synthetic:p5-field-boundary",
+ "cases": [
+  {
+   "name": "add-comment-refused",
+   "steps": [
+    {
+     "op": "ext.p5_add_comment",
+     "kwargs": {
+      "span": {
+       "$span": "field result"
+      },
+      "text": "review",
+      "author": "A"
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "span-comment-refused",
+   "steps": [
+    {
+     "op": "ext.p5_span_comment",
+     "kwargs": {
+      "span": {
+       "$span": "target"
+      },
+      "text": "review",
+      "author": "A"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

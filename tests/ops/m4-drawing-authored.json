@@ -1,0 +1,147 @@
+{
+ "schema_version": 1,
+ "id": "m4.drawing.authored",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribePictureReplace::it_swaps_bytes_without_sharing_the_part"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "swap-without-sharing",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph"
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_picture",
+     "args": [
+      0,
+      0,
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b000000000000000000000000ff00"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_add_paragraph"
+    },
+    {
+     "op": "ext.p4_add_run",
+     "args": [
+      1
+     ]
+    },
+    {
+     "op": "ext.p4_run_add_picture",
+     "args": [
+      1,
+      0,
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b000000000000000000000000ff00"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_replace_picture",
+     "args": [
+      0,
+      {
+       "$p4_image": "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b00000000000000000000ff000000"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "added_parts": [
+     "word/media/image1.bmp",
+     "word/media/image2.bmp"
+    ]
+   }
+  },
+  {
+   "name": "added-has-picture",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_has_picture",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p4_drawing_image",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

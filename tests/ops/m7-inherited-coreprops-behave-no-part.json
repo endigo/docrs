@@ -1,0 +1,67 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.coreprops.behave-no-part",
+ "upstream": [
+  "features/doc-coreprops.feature (default part added)"
+ ],
+ "fixture": "synthetic:p7-compact-doc-no-coreprops",
+ "cases": [
+  {
+   "name": "default-part-added",
+   "steps": [
+    {
+     "op": "ext.p7_set_core_properties",
+     "args": [
+      []
+     ],
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p7_core_properties"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "_rels/.rels"
+    ],
+    "added_parts": [
+     "docProps/core.xml"
+    ]
+   }
+  },
+  {
+   "name": "read-creates-default-upstream",
+   "steps": [
+    {
+     "op": "ext.p7_core_properties",
+     "kwargs": {
+      "now": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream creates a default docProps/core.xml (relationship + content type) as a side effect of reading document.core_properties; Rust reading never creates a part and reports the default values with modified=None"
+  }
+ ]
+}

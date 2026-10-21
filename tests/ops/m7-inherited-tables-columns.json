@@ -1,0 +1,171 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.tables-columns",
+ "upstream": [
+  "features/tbl-col-props.feature",
+  "features/tbl-item-access.feature"
+ ],
+ "fixture": "synthetic:p7-compact-tbl-col-props",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_rows",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "col0-None",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      0,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "col0-914400",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      0,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "col0-424497",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      0,
+      424497
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "col1-None",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      1,
+      null
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "col1-914400",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      1,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "col1-424497",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      1,
+      424497
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "negative",
+   "steps": [
+    {
+     "op": "ext.p7_column_set_width",
+     "args": [
+      0,
+      1,
+      -1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ],
+    "changed_parts": []
+   }
+  }
+ ]
+}

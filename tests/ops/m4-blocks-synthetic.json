@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "id": "m4.blocks.synthetic",
+  "upstream": [
+    "src/docx/blocks.py (insert_section_after, insert_blocks_after, tracked_delete_paragraphs, tracked_replace_paragraphs)",
+    "tests/paper/test_blocks.py (one-paragraph targets, live block targets, projection authority, insert section, tracked delete/replace)",
+    "tests/paper/test_verbs.py::DescribeRichBlockInsertion",
+    "tests/paper/test_regressions_editing.py (table padding, revision ids above existing ids, multi-paragraph field results)"
+  ],
+  "fixture": "synthetic:p2-blocks",
+  "cases": [
+    {"name": "section-basic", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "New Section", "paragraphs": ["Alpha body.", " Beta body. "]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"], "reopen_contains": ["New Section", "Alpha body."]}},
+    {"name": "section-body-style", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "Styled", "paragraphs": ["Body"], "heading_style": "Heading1", "body_style": "BodyText"}}]},
+    {"name": "section-no-heading-style", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "Plain heading", "paragraphs": [], "heading_style": null}}]},
+    {"name": "section-live-span", "steps": [
+      {"op": "blocks.insert_section_after", "args": [{"$span": "alpha"}], "kwargs": {"heading": "inserted", "paragraphs": []}}]},
+    {"name": "section-live-block", "steps": [
+      {"op": "blocks.insert_section_after", "args": [{"$block": "beta start"}], "kwargs": {"heading": "after block", "paragraphs": ["x"]}}]},
+    {"name": "section-tracked", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "Tracked Section", "paragraphs": ["Tracked body."], "tracked": true, "author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "section-tracked-offset-date", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["last para"], "kwargs": {"heading": "Zoned", "paragraphs": [], "tracked": true, "author": "Zed", "date": {"$date": "2024-01-02T03:04:05+05:30"}}}]},
+    {"name": "section-tracked-needs-author", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": [], "tracked": true}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "section-tracked-bad-author", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": [], "tracked": true, "author": "bad\u0001author", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "section-control-chars", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": ["line\nbreak"]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "section-bad-heading-text", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "tab\there", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "section-undefined-style", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": ["Y"], "heading_style": "NoSuchStyle99"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "section-undefined-body-style", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": ["Y"], "body_style": "Body Text"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "section-cross-paragraph-string", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["alpha end\nbeta start"], "kwargs": {"heading": "wrong", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "boundary_violation"}], "changed_parts": []}},
+    {"name": "section-cross-paragraph-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "blocks.insert_section_after", "args": [{"$span": "alpha end\nbeta start"}], "kwargs": {"heading": "wrong", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "boundary_violation"}]}},
+    {"name": "section-missing-anchor", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["no such text"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "section-ambiguous-anchor", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["para"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "ambiguous_target"}]}},
+    {"name": "section-table-block", "steps": [
+      {"op": "blocks.insert_section_after", "args": [{"$block": "Cell para one\nCell para twoCell para three"}], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "section-historical-span", "steps": [
+      {"op": "blocks.insert_section_after", "args": [{"$span": "beta start", "view": "original"}], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "section-historical-block", "steps": [
+      {"op": "blocks.insert_section_after", "args": [{"$block": "beta start", "view": "all"}], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "section-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "comments"}},
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "section-tracked-changes-protection-allows", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "trackedChanges"}},
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "X", "paragraphs": []}}]},
+    {"name": "section-cell-anchor", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Cell para two"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "section-inside-toc", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Toc entry one"], "kwargs": {"heading": "X", "paragraphs": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "section-after-toc-end", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Toc entry three"], "kwargs": {"heading": "After toc", "paragraphs": []}}]},
+    {"name": "section-in-sdt", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["In sdt para"], "kwargs": {"heading": "In control", "paragraphs": []}}]},
+    {"name": "section-in-header", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["Header para"], "kwargs": {"heading": "Header section", "paragraphs": ["hb"]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/header1.xml"]}},
+    {"name": "section-twice-live-span-stale", "steps": [
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "one", "paragraphs": []}},
+      {"op": "blocks.insert_section_after", "args": ["before"], "kwargs": {"heading": "two", "paragraphs": []}}]},
+    {"name": "delete-one", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["alpha end"], "kwargs": {"author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "delete-transparent-markup", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Bold start"], "kwargs": {"author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "delete-proof-before-content", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Proof lead"], "kwargs": {"author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "delete-range-end-anchor", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"end_anchor": "beta start", "author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "delete-range-count", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Intro heading"], "kwargs": {"count": 3, "author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "delete-count-zero", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"count": 0, "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "delete-needs-author", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"author": ""}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "delete-count-past-end", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Cell para two"], "kwargs": {"count": 3, "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "delete-in-cell", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Cell para two"], "kwargs": {"count": 2, "author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "delete-end-before-start", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["beta start"], "kwargs": {"end_anchor": "before", "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "delete-cross-parent", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Symbol para"], "kwargs": {"end_anchor": "Cell para one", "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "boundary_violation"}]}},
+    {"name": "delete-cross-story", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"end_anchor": "Header para", "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "boundary_violation"}]}},
+    {"name": "delete-named-bookmark", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Named mark paragraph"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "delete-hyperlink", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Linked para"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "delete-symbol-run", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Symbol para"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "delete-existing-revision", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Existing insert"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "delete-inside-toc", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Toc entry two"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "delete-toc-closing-paragraph", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["Toc entry three"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "delete-protected-after-endpoints", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"end_anchor": {"$span": "alpha end\nbeta start"}, "author": "Reviewer"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "boundary_violation"}]}},
+    {"name": "delete-historical-end-before-protection", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "blocks.tracked_delete_paragraphs", "args": [{"$span": "before"}], "kwargs": {"end_anchor": {"$span": "beta start", "view": "original"}, "author": "A"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "delete-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "delete-then-delete-again", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}},
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["beta start"], "kwargs": {"author": "B", "date": {"$date": "2026-07-08T12:00:00Z"}}}]},
+    {"name": "replace-basic", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["beta start", ["Replacement one.", "Replacement two."]], "kwargs": {"author": "Carol QA", "date": {"$date": "2026-07-07T12:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml"]}},
+    {"name": "replace-range-styled", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["before", ["R."]], "kwargs": {"end_anchor": "beta start", "body_style": "BodyText", "author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "replace-empty-replacement", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["before", []], "kwargs": {"author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}}]},
+    {"name": "replace-bad-text", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["before", ["ok", "bad\u000bvt"]], "kwargs": {"author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "replace-undefined-style", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": ["before", ["x"]], "kwargs": {"body_style": "Nope", "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "replace-historical-start", "steps": [
+      {"op": "blocks.tracked_replace_paragraphs", "args": [{"$block": "before", "view": "original"}, ["x"]], "kwargs": {"end_anchor": {"$block": "beta start"}, "author": "A"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "blocks-rich-list-table", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "Key findings", "bold": true}}, {"$new": "blocks.TextRun", "fields": {"text": " (draft)", "italic": true}}, {"$new": "blocks.TextRun", "fields": {"text": "both", "bold": true, "italic": true}}]}},
+        {"$new": "blocks.ListBlock", "fields": {"items": ["Alpha", "Beta"], "kind": "decimal"}},
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["Metric", "Value"], ["Uptime", ""]]}}]}}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/numbering.xml"]}},
+    {"name": "blocks-styled-paragraph", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "Styled rich"}}], "style": "Heading2"}}]}}]},
+    {"name": "blocks-two-bullet-lists-share", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["one"], "level": 2}},
+        {"$new": "blocks.ListBlock", "fields": {"items": ["two", "three"]}}]}},
+      {"op": "numbering.list_numbering"}]},
+    {"name": "blocks-adjacent-tables-padded", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["a"]]}},
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["b", "c", "d"]]}}]}}]},
+    {"name": "blocks-table-before-table-padded", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Symbol para"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["x"]]}}]}}]},
+    {"name": "blocks-table-at-story-end", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Header para"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["h"]]}}]}}]},
+    {"name": "blocks-tracked-paragraphs-lists", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "Tracked lead", "bold": true}}]}},
+        {"$new": "blocks.ListBlock", "fields": {"items": ["one"]}}], "tracked": true, "author": "Carol QA", "date": {"$date": "2026-07-08T09:00:00Z"}}}]},
+    {"name": "blocks-tracked-table-refused", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["x"]]}}], "tracked": true, "author": "Carol QA", "date": {"$date": "2026-07-08T09:00:00Z"}}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "blocks-tracked-needs-author", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["x"]}}], "tracked": true}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-empty", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": []}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-non-rectangular", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["a", "b"], ["c"]]}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-empty-row", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [[]]}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-bad-kind", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["x"], "kind": "fancy"}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-bad-level", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["x"], "level": 3}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-empty-list", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": []}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-empty-runs", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": []}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-undefined-style", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "x"}}], "style": "Ghost"}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "blocks-bad-cell-text", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.TableBlock", "fields": {"rows": [["ok", "bad\rcell"]]}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "blocks-cross-paragraph-span", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": [{"$span": "alpha end\nbeta start"}], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "wrong"}}]}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "boundary_violation"}]}},
+    {"name": "blocks-cell-anchor", "steps": [
+      {"op": "blocks.insert_blocks_after", "args": ["Cell para one"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["x"]}}]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "blocks-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "blocks.insert_blocks_after", "args": ["before"], "kwargs": {"blocks": [
+        {"$new": "blocks.ListBlock", "fields": {"items": ["x"]}}]}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "blocks-revision-ids-continue", "steps": [
+      {"op": "blocks.tracked_delete_paragraphs", "args": ["before"], "kwargs": {"author": "A", "date": {"$date": "2026-07-07T12:00:00Z"}}},
+      {"op": "blocks.insert_blocks_after", "args": ["alpha end"], "kwargs": {"blocks": [
+        {"$new": "blocks.RichParagraph", "fields": {"runs": [{"$new": "blocks.TextRun", "fields": {"text": "after delete"}}]}}], "tracked": true, "author": "B", "date": {"$date": "2026-07-07T12:00:00Z"}}}]}
+  ]
+}

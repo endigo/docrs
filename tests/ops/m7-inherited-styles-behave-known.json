@@ -1,0 +1,584 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.styles.behave-known",
+ "upstream": [
+  "features/sty-style-props.feature",
+  "features/sty-latent-props.feature",
+  "features/sty-latent-add-del.feature",
+  "features/sty-add-style.feature",
+  "features/sty-delete-style.feature",
+  "features/sty-access-latent-styles.feature",
+  "features/sty-access-font.feature",
+  "features/sty-access-parfmt.feature"
+ ],
+ "fixture": "synthetic:p7-compact-sty-known-styles",
+ "cases": [
+  {
+   "name": "latent-collection",
+   "steps": [
+    {
+     "op": "ext.p7_latent_styles"
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Colorful Shading"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-known-name",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-priority-read",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Subtitle"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "latent-priority-set",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Subtitle",
+      {
+       "priority": 42
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Normal",
+      {
+       "priority": 24
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Title",
+      {
+       "priority": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-on-off-set",
+   "steps": [
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Subtitle",
+      {
+       "hidden": true,
+       "locked": true,
+       "quick_style": true,
+       "unhide_when_used": true
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style_set",
+     "args": [
+      "Normal",
+      {
+       "hidden": false,
+       "locked": null,
+       "quick_style": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-defaults",
+   "steps": [
+    {
+     "op": "ext.p7_latent_set",
+     "args": [
+      {
+       "default_priority": 42,
+       "load_count": 240,
+       "default_to_hidden": false
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_latent_set",
+     "args": [
+      {
+       "default_to_locked": true,
+       "default_to_quick_style": true,
+       "default_to_unhide_when_used": false
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-add",
+   "steps": [
+    {
+     "op": "ext.p7_latent_add",
+     "args": [
+      "Foobar"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_styles"
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Foobar"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "latent-delete",
+   "steps": [
+    {
+     "op": "ext.p7_latent_delete",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_latent_style",
+     "args": [
+      "Normal"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "base-style",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Base"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Sub Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Base",
+      {
+       "base_style": "Normal"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Sub Normal",
+      {
+       "base_style": "Base"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Citation",
+      {
+       "base_style": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "next-paragraph-style",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Citation"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Sub Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Foo"
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Foo",
+      {
+       "next_paragraph_style": "Sub Normal"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Citation",
+      {
+       "next_paragraph_style": "Citation"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_style_set",
+     "args": [
+      "Sub Normal",
+      {
+       "next_paragraph_style": null
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "style-types",
+   "steps": [
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Default Paragraph Font"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "No List"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "style-font-and-parfmt",
+   "steps": [
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "Default Paragraph Font"
+     ]
+    },
+    {
+     "op": "ext.p7_style_font",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style_parfmt",
+     "args": [
+      "Normal"
+     ]
+    },
+    {
+     "op": "ext.p7_style_parfmt",
+     "args": [
+      "Table Grid"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "add-styles",
+   "steps": [
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Heading 1",
+      "paragraph",
+      true
+     ]
+    },
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Inline Code",
+      "character"
+     ]
+    },
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "List Bullet",
+      "numbering",
+      true
+     ]
+    },
+    {
+     "op": "ext.p7_add_style",
+     "args": [
+      "Shipments",
+      "table"
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-no-list",
+   "steps": [
+    {
+     "op": "ext.p7_delete_style",
+     "args": [
+      "No List"
+     ]
+    },
+    {
+     "op": "ext.p7_styles"
+    },
+    {
+     "op": "ext.p7_style",
+     "args": [
+      "No List"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

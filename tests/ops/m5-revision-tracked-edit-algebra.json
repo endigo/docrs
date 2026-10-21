@@ -1,0 +1,129 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.tracked-edit-algebra",
+ "upstream": [
+  "tests/paper/test_revisions.py::DescribeTrackedEditAlgebra (span replace)"
+ ],
+ "fixture": "generated/feature-isolated/fragmented-runs.docx",
+ "cases": [
+  {
+   "name": "accept-tracked-equals-plain",
+   "steps": [
+    {
+     "op": "ext.p5_tracked_replace",
+     "kwargs": {
+      "span": {
+       "$span": "$75–100/hr"
+      },
+      "text": "$85–110/hr",
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_accept_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    },
+    {
+     "op": "ext.p5_remaining_markup"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "$85–110/hr"
+    ],
+    "reopen_absent": [
+     "$75–100/hr"
+    ]
+   }
+  },
+  {
+   "name": "plain-replace-reference",
+   "steps": [
+    {
+     "op": "ext.p5_replace",
+     "kwargs": {
+      "span": {
+       "$span": "$75–100/hr"
+      },
+      "text": "$85–110/hr"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reject-tracked-equals-original",
+   "steps": [
+    {
+     "op": "ext.p5_tracked_replace",
+     "kwargs": {
+      "span": {
+       "$span": "$75–100/hr"
+      },
+      "text": "$85–110/hr",
+      "author": "Carol QA",
+      "date": {
+       "$date": "2024-01-02T03:04:05Z"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_reject_all"
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "reopen_contains": [
+     "$75–100/hr"
+    ],
+    "reopen_absent": [
+     "$85–110/hr"
+    ]
+   }
+  }
+ ]
+}

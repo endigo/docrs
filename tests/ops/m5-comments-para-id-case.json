@@ -1,0 +1,53 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.para-id-case",
+ "upstream": [
+  "tests/paper/test_practical_review_hardening.py::it_matches_comment_para_ids_case_insensitively"
+ ],
+ "fixture": "synthetic:p5-para-id-case",
+ "cases": [
+  {
+   "name": "toggle",
+   "steps": [
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_resolve",
+     "kwargs": {
+      "comment_id": 0,
+      "resolved": false
+     }
+    },
+    {
+     "op": "ext.p5_is_resolved",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "commentops.comment_thread"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

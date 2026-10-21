@@ -1,0 +1,76 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.duplicate-anchor",
+ "upstream": [
+  "tests/paper/test_practical_review_hardening.py::it_refuses_an_ambiguous_duplicate_comment_anchor"
+ ],
+ "fixture": "synthetic:p5-duplicate-anchor",
+ "cases": [
+  {
+   "name": "reply-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "late",
+      "author": "B"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "anchored-refused",
+   "steps": [
+    {
+     "op": "ext.p5_anchored_text",
+     "kwargs": {
+      "comment_id": 0
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-allowed",
+   "steps": [
+    {
+     "op": "ext.p5_delete_comment",
+     "kwargs": {
+      "comment_id": 0
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

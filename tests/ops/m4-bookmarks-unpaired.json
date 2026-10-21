@@ -1,0 +1,59 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.unpaired",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "synthetic:p1-bm-unpaired",
+ "cases": [
+  {
+   "name": "delete-closed",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Closed"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-open",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Open"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

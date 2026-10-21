@@ -1,0 +1,61 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.placeholder",
+ "upstream": [
+  "tests/paper/test_verbs.py::it_enumerates_controls_with_identity_and_state",
+  "::it_sets_text_values_clearing_placeholder_state"
+ ],
+ "fixture": "generated/feature-isolated/placeholder-control.docx",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  },
+  {
+   "name": "set",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Paper Instruments LLC"
+     ],
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "client-name"
+     }
+    },
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  },
+  {
+   "name": "missing",
+   "steps": [
+    {
+     "op": "controls.get_control",
+     "kwargs": {
+      "tag": "nope"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  }
+ ]
+}

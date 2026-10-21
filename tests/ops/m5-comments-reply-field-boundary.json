@@ -1,0 +1,39 @@
+{
+ "schema_version": 1,
+ "id": "m5.comments.reply-field-boundary",
+ "upstream": [
+  "tests/paper/test_practical_review_hardening.py::it_revalidates_an_existing_comment_range_before_replying"
+ ],
+ "fixture": "synthetic:p5-reply-field-boundary",
+ "cases": [
+  {
+   "name": "reply-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reply",
+     "kwargs": {
+      "comment_id": 0,
+      "text": "late",
+      "author": "B"
+     }
+    },
+    {
+     "op": "ext.p5_comments"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

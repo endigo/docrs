@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "m4.numbering.part-creation",
+  "upstream": [
+    "tests/paper/test_verbs.py::DescribeNumberingAuthoring::it_creates_a_bullet_definition_in_a_definitionless_document",
+    "tests/paper/test_tableops_numbering.py::DescribeApplyNumbering::it_refuses_when_no_numbering_part_exists",
+    "src/docx/numbering.py::_get_or_create_numbering_root"
+  ],
+  "fixture": "synthetic:p2-bare",
+  "cases": [
+    {"name": "creates-numbering-part", "steps": [
+      {"op": "numbering.ensure_bullet_definition"},
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Alpha paragraph"}], "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}],
+                "changed_parts": ["word/document.xml", "[Content_Types].xml"],
+                "added_parts": ["word/numbering.xml", "word/_rels/document.xml.rels"]}},
+    {"name": "decimal-then-bullet", "steps": [
+      {"op": "numbering.ensure_decimal_definition"}, {"op": "numbering.ensure_bullet_definition"}]},
+    {"name": "apply-without-part", "steps": [
+      {"op": "numbering.apply_numbering", "args": [{"$paragraph": "Alpha paragraph"}], "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": [], "added_parts": []}},
+    {"name": "restart-without-part", "steps": [{"op": "numbering.restart_numbering", "kwargs": {"num_id": 1}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": [], "added_parts": []}},
+    {"name": "list-style-normal-creates-styles", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Beta paragraph"}, "Normal"]}],
+     "expect": {"steps": [{"outcome": "ok"}], "added_parts": ["word/styles.xml", "word/_rels/document.xml.rels"]}},
+    {"name": "report-without-styles", "steps": [{"op": "numbering.list_numbering"}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": [], "added_parts": []},
+     "deviation": "read-only in Rust: upstream's list_numbering reads document.styles, which creates and relates a default styles part (a mutation from a read); Rust reads the same default template without changing the package"},
+    {"name": "list-style-undefined-no-styles", "steps": [
+      {"op": "numbering.apply_list_style", "args": [{"$paragraph": "Beta paragraph"}, "Heading 1"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": [], "added_parts": []},
+     "deviation": "refusal atomicity: upstream creates the default styles part while checking the style name, then refuses with that part left behind; Rust refuses with the package unchanged"}
+  ]
+}

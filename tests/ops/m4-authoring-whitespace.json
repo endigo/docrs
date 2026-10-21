@@ -1,0 +1,199 @@
+{
+ "schema_version": 1,
+ "id": "m4.authoring.whitespace",
+ "upstream": [
+  "lxml tail semantics of remove()/insert(0)",
+  "src/docx/document.py::_block_width (universal measure)"
+ ],
+ "fixture": "synthetic:p4-whitespace",
+ "cases": [
+  {
+   "name": "clear-keeps-comment-pi",
+   "steps": [
+    {
+     "op": "ext.p4_clear_paragraph",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "set-text-keeps-ppr",
+   "steps": [
+    {
+     "op": "ext.p4_set_paragraph_text",
+     "args": [
+      0,
+      "new"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "alignment-no-ppr",
+   "steps": [
+    {
+     "op": "ext.p4_set_alignment",
+     "args": [
+      1,
+      "right"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "run-style",
+   "steps": [
+    {
+     "op": "ext.p4_set_run_style",
+     "args": [
+      1,
+      0,
+      "Strong"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error"
+     }
+    ]
+   },
+   "deviation": "the document has no styles part: upstream creates it before failing to find the style (KeyError); Rust creates the default part, finds no 'Strong' style and leaves the document unchanged"
+  },
+  {
+   "name": "table-cells",
+   "steps": [
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      0,
+      1,
+      "span"
+     ]
+    },
+    {
+     "op": "ext.p4_cell_set_text",
+     "args": [
+      0,
+      1,
+      2,
+      "merged"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "add-row",
+   "steps": [
+    {
+     "op": "ext.p4_table_add_row",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "add-table-universal-width",
+   "steps": [
+    {
+     "op": "ext.p4_add_table",
+     "args": [
+      1,
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "add-section-clears-rsids",
+   "steps": [
+    {
+     "op": "ext.p4_add_section",
+     "args": [
+      "evenPage"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  },
+  {
+   "name": "add-section-new-page",
+   "steps": [
+    {
+     "op": "ext.p4_add_section"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "whitespace preservation (release requirement): upstream parses parts with remove_blank_text and drops inter-element whitespace from any part it edits; Rust keeps it, so the edited part differs only in that whitespace"
+  }
+ ]
+}

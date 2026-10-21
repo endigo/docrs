@@ -1,0 +1,50 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.inner-known-paragraphs",
+ "upstream": [
+  "features/par-access-inner-content.feature",
+  "src/docx/text/paragraph.py",
+  "src/docx/text/run.py",
+  "src/docx/text/hyperlink.py",
+  "src/docx/text/pagebreak.py"
+ ],
+ "fixture": "synthetic:p7-compact-par-known-paragraphs",
+ "cases": [
+  {
+   "name": "p0",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1",
+   "steps": [
+    {
+     "op": "ext.p7_paragraph_content",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

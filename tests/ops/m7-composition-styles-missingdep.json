@@ -1,0 +1,91 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.styles-missingdep",
+ "upstream": [
+  "tests/paper/test_audit_composition_safety.py::it_refuses_undefined_source_style_chain_dependencies_atomically"
+ ],
+ "fixture": "synthetic:p6-dest-missingdep",
+ "cases": [
+  {
+   "name": "undefined-chain-basedOn",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-chain-basedOn"
+      },
+      "Source with a broken style chain"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "undefined-chain-link",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-chain-link"
+      },
+      "Source with a broken style chain"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "undefined-chain-next",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-chain-next"
+      },
+      "Source with a broken style chain"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,93 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.fields",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "generated/feature-isolated/fields.docx",
+ "cases": [
+  {
+   "name": "in-field-result",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "June 1, 2026"
+      },
+      "DoomedMark"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "in-complex-field-result",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "14"
+      },
+      "Page"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "outside-fields",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "Paragraph before"
+      },
+      "Before"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-pageref-target-missing",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "_RefAnchor"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  }
+ ]
+}

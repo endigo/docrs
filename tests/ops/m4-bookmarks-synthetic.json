@@ -1,0 +1,426 @@
+{
+ "schema_version": 1,
+ "id": "m4.bookmarks.synthetic",
+ "upstream": [
+  "tests/paper/test_fields_bookmarks.py::DescribeBookmarks",
+  "tests/paper/test_regressions_pipeline.py (bookmark pins)",
+  "tests/paper/test_audit_secondary_safety.py",
+  "tests/paper/test_audit_composition.py (bookmark refs)"
+ ],
+ "fixture": "synthetic:p1-bookmarks",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-referenced",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Referenced"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "delete-implicit-reference",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Implicit"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-quote-literal",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Quoted"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-embed-name",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "EMBED"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "delete-split-instruction",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Split"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-hyperlink-anchor",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Anchor"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-case-insensitive-split-pageref",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "KeyPhrase"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-formula-reference",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Formula"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-toc-switch",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "TocMark"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-plain",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Plain"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-duplicates",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Dup"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-case-ambiguous",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "case"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "delete-cross-paragraph",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "Across"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "delete-rich",
+   "steps": [
+    {
+     "op": "bookmarks.delete_bookmark",
+     "args": [
+      "RichAnchor"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "create-across-move",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "AC"
+      },
+      "Unstable"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "create-across-deletion",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "XZ"
+      },
+      "UnstableRange"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "create-across-insertion-scope",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "pending settled"
+      },
+      "Pending"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "create-in-insertion",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "pending"
+      },
+      "InIns"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-in-field",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "June 1, 2026"
+      },
+      "DoomedMark"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "create-mid-run",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "second"
+      },
+      "Middle"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-formatted-edges",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "edges"
+      },
+      "Edges"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-in-hyperlink",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "jump"
+      },
+      "Jumped"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  },
+  {
+   "name": "create-ids-past-max",
+   "steps": [
+    {
+     "op": "bookmarks.create_bookmark",
+     "args": [
+      {
+       "$span": "third"
+      },
+      "Third"
+     ]
+    },
+    {
+     "op": "bookmarks.list_bookmarks"
+    }
+   ]
+  }
+ ]
+}

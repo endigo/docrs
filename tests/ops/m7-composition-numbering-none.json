@@ -1,0 +1,61 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.numbering-none",
+ "upstream": [
+  "src/docx/composition.py::_preflight_numbering"
+ ],
+ "fixture": "synthetic:p6-dest-no-numbering",
+ "cases": [
+  {
+   "name": "destination-without-numbering-part",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-numbered"
+      },
+      "First imported item"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "unnumbered-content-needs-no-numbering",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-block"
+      },
+      "Source block"
+     ],
+     "kwargs": {
+      "anchor": "Destination anchor"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

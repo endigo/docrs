@@ -1,0 +1,112 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.row-revisions-closure",
+ "upstream": [
+  "tests/paper/test_audit_revision_compounds.py::it_refuses_a_row_change_that_would_consume_nested_markup",
+  "tests/paper/test_resolution.py::it_refuses_a_single_row_insertion_that_would_consume_cell_revisions",
+  "tests/paper/test_resolution.py::it_accepts_a_single_row_insertion_removing_only_the_marker"
+ ],
+ "fixture": "generated/feature-isolated/row-revisions.docx",
+ "cases": [
+  {
+   "name": "reject-row-insertion-refused",
+   "steps": [
+    {
+     "op": "ext.p5_reject",
+     "kwargs": {
+      "select": {
+       "type": "row_insertion"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "accept-row-deletion-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": {
+       "type": "row_deletion"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "reject-alice-then-pending",
+   "steps": [
+    {
+     "op": "ext.p5_reject_all",
+     "kwargs": {
+      "author": "Alice Editor"
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "accept-row-insertion",
+   "steps": [
+    {
+     "op": "ext.p5_accept",
+     "kwargs": {
+      "select": {
+       "type": "row_insertion"
+      }
+     }
+    },
+    {
+     "op": "ext.p5_revisions"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

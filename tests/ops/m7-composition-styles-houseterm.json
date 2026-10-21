@@ -1,0 +1,107 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.styles-houseterm",
+ "upstream": [
+  "tests/paper/test_composition.py::it_renames_colliding_but_different_styles_on_request"
+ ],
+ "fixture": "synthetic:p6-dest-houseterm",
+ "cases": [
+  {
+   "name": "import-renamed",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-houseterm"
+      },
+      "Large-type clause."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "styles": "import_renamed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "word/styles.xml"
+    ]
+   }
+  },
+  {
+   "name": "match-by-name",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-houseterm"
+      },
+      "Large-type clause."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml"
+    ]
+   }
+  },
+  {
+   "name": "import-renamed-twice",
+   "steps": [
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-houseterm"
+      },
+      "Large-type clause."
+     ],
+     "kwargs": {
+      "anchor": "Second body paragraph",
+      "styles": "import_renamed"
+     }
+    },
+    {
+     "op": "composition.insert_blocks_from",
+     "args": [
+      {
+       "$source": "synthetic:p6-src-houseterm"
+      },
+      "Large-type clause."
+     ],
+     "kwargs": {
+      "anchor": "First body paragraph",
+      "styles": "import_renamed"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

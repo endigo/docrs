@@ -1,0 +1,262 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.tables-direction",
+ "upstream": [
+  "features/tbl-props.feature (table_direction)"
+ ],
+ "fixture": "synthetic:p7-compact-tbl-on-off-props",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_table",
+     "args": [
+      0
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      1
+     ]
+    },
+    {
+     "op": "ext.p7_table",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-direction-RTL",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      0,
+      [
+       [
+        "direction",
+        "RTL"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-direction-LTR",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      0,
+      [
+       [
+        "direction",
+        "LTR"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t0-direction-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      0,
+      [
+       [
+        "direction",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-direction-RTL",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      1,
+      [
+       [
+        "direction",
+        "RTL"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-direction-LTR",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      1,
+      [
+       [
+        "direction",
+        "LTR"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t1-direction-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      1,
+      [
+       [
+        "direction",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-direction-RTL",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      2,
+      [
+       [
+        "direction",
+        "RTL"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-direction-LTR",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      2,
+      [
+       [
+        "direction",
+        "LTR"
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "t2-direction-None",
+   "steps": [
+    {
+     "op": "ext.p7_table_set",
+     "args": [
+      2,
+      [
+       [
+        "direction",
+        null
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

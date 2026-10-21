@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.fieldcode",
+  "upstream": [
+    "src/docx/_fieldcode.py (tokens, command_operand, bookmark_operands, formula operands, rewrites)",
+    "tests/paper/test_fields_bookmarks.py (implicit references, quote literals, EMBED is not a reference)"
+  ],
+  "fixture": "generated/minimal-clean/minimal.docx",
+  "cases": [
+    {"name": "operands", "steps": [
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " REF Clause1 \\h "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " ref \"My Mark\" \\h "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " PAGEREF \\h "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " NOTEREF _Ref1 \\f "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " GOTOBUTTON Target Click "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " HYPERLINK \\l \"Sec 2\" \\o tip "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " HYPERLINK \"http://x\" \\L Tail "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " TOC \\o \"1-3\" \\b Part1 \\b \\h "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " DefinedTerm \\* MERGEFORMAT ", ["definedterm"]]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " EMBED Excel.Sheet ", ["EMBED", "Excel"]]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " \"Quoted\" ", ["Quoted"]]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " = Total * 2 + SUM(Total) + \"Total\" ", ["total"]]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", "=Ünit_1/Ünit_1 ( 2", ["ünit_1"]]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", ""]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " REF \"esc \\\"q\\\" mark\" "]},
+      {"op": "ext.p2_fieldcode", "args": ["bookmark_operands", " REF \"unterminated "]}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "command-operand", "steps": [
+      {"op": "ext.p2_fieldcode", "args": ["command_operand", " STYLEREF \"Heading 1\" \\n ", "styleref"]},
+      {"op": "ext.p2_fieldcode", "args": ["command_operand", " STYLEREF \\l ", "STYLEREF"]},
+      {"op": "ext.p2_fieldcode", "args": ["command_operand", " SEQ Figure ", "REF"]},
+      {"op": "ext.p2_fieldcode", "args": ["command_operand", " REF ", "REF"]}]},
+    {"name": "rewrites", "steps": [
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_bookmark_operands", " REF Old \\h ", [["old", "New Name"]]]},
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_bookmark_operands", " =Old+old2+OLD ", [["Old", "N1"], ["old2", "N2"]]]},
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_bookmark_operands", " HYPERLINK \\l \"Old\" ", [["OLD", "Ne\"w"]]]},
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_bookmark_operands", " Old ", [["old", "x"], ["OLD", "y"]]]},
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_bookmark_operands", " PAGE ", [["PAGE", "x"]]]},
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_command_operand", " STYLEREF Old \\h ", "STYLEREF", [["old", "Renamed Style"]]]},
+      {"op": "ext.p2_fieldcode", "args": ["rewrite_command_operand", " STYLEREF Other ", "STYLEREF", [["old", "x"]]]}]}
+  ]
+}

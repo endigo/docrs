@@ -1,0 +1,129 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.style-objects",
+ "upstream": [
+  "features/par-style-prop.feature",
+  "src/docx/text/paragraph.py::Paragraph.style"
+ ],
+ "fixture": "synthetic:p7-compact-par-known-styles",
+ "cases": [
+  {
+   "name": "p0",
+   "steps": [
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p1",
+   "steps": [
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      1
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p2",
+   "steps": [
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      2
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p3",
+   "steps": [
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "p4",
+   "steps": [
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      4
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "set-then-read",
+   "steps": [
+    {
+     "op": "ext.p4_set_paragraph_style",
+     "args": [
+      0,
+      "Heading 1"
+     ]
+    },
+    {
+     "op": "ext.p7_style_names",
+     "args": [
+      0
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

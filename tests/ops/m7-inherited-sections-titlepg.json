@@ -1,0 +1,121 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.sections-titlepg",
+ "upstream": [
+  "features/sct-section.feature (different_first_page_header_footer)"
+ ],
+ "fixture": "synthetic:p7-compact-sct-first-page-hdrftr",
+ "cases": [
+  {
+   "name": "read",
+   "steps": [
+    {
+     "op": "ext.p7_sections"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "titlepg-0-True",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "different_first_page_header_footer",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "titlepg-0-False",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      0,
+      [
+       [
+        "different_first_page_header_footer",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "titlepg-1-True",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      1,
+      [
+       [
+        "different_first_page_header_footer",
+        true
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "titlepg-1-False",
+   "steps": [
+    {
+     "op": "ext.p7_section_set",
+     "args": [
+      1,
+      [
+       [
+        "different_first_page_header_footer",
+        false
+       ]
+      ]
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

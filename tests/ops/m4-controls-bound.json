@@ -1,0 +1,620 @@
+{
+ "schema_version": 1,
+ "id": "m4.controls.bound",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeDataBoundControls"
+ ],
+ "fixture": "synthetic:p1-bound",
+ "cases": [
+  {
+   "name": "list",
+   "steps": [
+    {
+     "op": "controls.list_controls"
+    }
+   ]
+  },
+  {
+   "name": "writes-store",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "bound"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "customXml/item2.xml"
+    ]
+   }
+  },
+  {
+   "name": "locked",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-locked"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "bound-locked"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "checkbox",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "true"
+     ],
+     "kwargs": {
+      "tag": "bound-box"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "bound-box"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "picture",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-pic"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "plain-text-control",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-text"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "bound-text"
+     }
+    }
+   ]
+  },
+  {
+   "name": "bool",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      true
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "control-chars",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "a\nb"
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "invalid_argument"
+     }
+    ]
+   }
+  },
+  {
+   "name": "attribute",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-attr"
+     }
+    }
+   ]
+  },
+  {
+   "name": "item-namespaces",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-nomap"
+     }
+    }
+   ]
+  },
+  {
+   "name": "clears-xsi-nil",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "filled"
+     ],
+     "kwargs": {
+      "tag": "bound-nil"
+     }
+    }
+   ]
+  },
+  {
+   "name": "predicate",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Bee"
+     ],
+     "kwargs": {
+      "tag": "bound-predicate"
+     }
+    }
+   ]
+  },
+  {
+   "name": "positional-last",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "Last"
+     ],
+     "kwargs": {
+      "tag": "bound-positional"
+     }
+    }
+   ]
+  },
+  {
+   "name": "descendant",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "First"
+     ],
+     "kwargs": {
+      "tag": "bound-descendant"
+     }
+    }
+   ]
+  },
+  {
+   "name": "bad-syntax",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bad-syntax"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "bad-syntax"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "bad-function",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bad-function"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "count",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bad-count"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "string",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bad-string"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "boolean",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bad-boolean"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "undefined-prefix",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bad-prefix"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "no-match",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "no-match"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "text-node-target",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "text-target"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "wrong-store",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "wrong-store"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "target_not_found"
+     }
+    ]
+   }
+  },
+  {
+   "name": "empty-xpath",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "no-xpath"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "default-namespace",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-default"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ],
+    "changed_parts": [
+     "word/document.xml",
+     "customXml/item3.xml"
+    ]
+   }
+  },
+  {
+   "name": "default-namespace-mapping",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-default-map"
+     }
+    }
+   ]
+  },
+  {
+   "name": "default-namespace-text-step",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-default-text"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested-refusal-rolls-back-store",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "new"
+     ],
+     "kwargs": {
+      "tag": "bound-nested"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "twice",
+   "steps": [
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "one"
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    },
+    {
+     "op": "controls.set_control_value",
+     "args": [
+      "two"
+     ],
+     "kwargs": {
+      "tag": "bound"
+     }
+    },
+    {
+     "op": "ext.p1_control_state",
+     "kwargs": {
+      "tag": "bound"
+     }
+    }
+   ]
+  }
+ ]
+}

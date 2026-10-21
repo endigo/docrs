@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "id": "m4.fields.synthetic",
+  "upstream": [
+    "src/docx/fields.py (simple fields, references, captions, TOC, w:updateFields placement)",
+    "tests/paper/test_fields_bookmarks.py::DescribeFieldAuthoring",
+    "tests/paper/test_fields_bookmarks.py::DescribeFieldSelfConsistency"
+  ],
+  "fixture": "synthetic:p2-fields",
+  "cases": [
+    {"name": "page-and-count", "steps": [
+      {"op": "fields.add_page_number_field", "args": [{"$paragraph": "Header field para"}]},
+      {"op": "fields.add_page_count_field", "args": [{"$paragraph": "Header field para"}]}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/header1.xml", "word/settings.xml"]}},
+    {"name": "date-plain", "steps": [
+      {"op": "fields.add_date_field", "args": [{"$paragraph": "Reference: "}]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/settings.xml"], "reopen_contains": ["(date)"]}},
+    {"name": "date-format-quotes-stripped", "steps": [
+      {"op": "fields.add_date_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"date_format": "MMMM \"d\", yyyy"}}]},
+    {"name": "date-empty-format", "steps": [
+      {"op": "fields.add_date_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"date_format": ""}}]},
+    {"name": "reference-three-kinds", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "DefinedTerm", "kind": "text"}},
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "DefinedTerm", "kind": "page"}},
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "DefinedTerm", "kind": "number"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "ok"}, {"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/settings.xml"]}},
+    {"name": "reference-default-kind", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "DefinedTerm"}}]},
+    {"name": "reference-unknown-bookmark", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "Ghost"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "reference-case-sensitive-name", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "definedterm"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}]}},
+    {"name": "reference-bad-kind", "steps": [
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "DefinedTerm", "kind": "chapter"}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "reference-bad-kind-before-protection", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "Ghost", "kind": "chapter"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "reference-protection-before-bookmark", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "fields.add_reference_field", "args": [{"$paragraph": "Reference: "}], "kwargs": {"bookmark": "Ghost"}}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "caption-figure", "steps": [
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Figure placeholder"}]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/settings.xml"]}},
+    {"name": "caption-label-description", "steps": [
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Styled caption target"}], "kwargs": {"label": "Table 2-b", "description": "Quarterly totals"}}]},
+    {"name": "caption-nonalnum-label", "steps": [
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Figure placeholder"}], "kwargs": {"label": "--", "description": ""}}]},
+    {"name": "caption-unicode-label", "steps": [
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Figure placeholder"}], "kwargs": {"label": "Зураг №1"}}]},
+    {"name": "caption-empty-label", "steps": [
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Figure placeholder"}], "kwargs": {"label": ""}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "caption-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Figure placeholder"}]}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "toc-default", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Fields heading"]}],
+     "expect": {"steps": [{"outcome": "ok"}], "changed_parts": ["word/document.xml", "word/settings.xml"]}},
+    {"name": "toc-levels", "steps": [
+      {"op": "fields.insert_toc_after", "args": [{"$block": "Closing para"}], "kwargs": {"levels": [2, 9]}}]},
+    {"name": "toc-bad-levels", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Fields heading"], "kwargs": {"levels": [3, 1]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}], "changed_parts": []}},
+    {"name": "toc-zero-level", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Fields heading"], "kwargs": {"levels": [0, 3]}}],
+     "expect": {"steps": [{"outcome": "error", "category": "invalid_argument"}]}},
+    {"name": "toc-in-header", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Header field para"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "target_not_found"}], "changed_parts": []}},
+    {"name": "toc-inside-open-field", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Open toc one"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "toc-after-open-field-end", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["Open toc two"]}]},
+    {"name": "toc-historical-span", "steps": [
+      {"op": "fields.insert_toc_after", "args": [{"$span": "Fields heading", "view": "original"}]}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}], "changed_parts": []}},
+    {"name": "toc-historical-block", "steps": [
+      {"op": "fields.insert_toc_after", "args": [{"$block": "Fields heading", "view": "all"}]}],
+     "expect": {"steps": [{"outcome": "error", "category": "unsupported_structure"}]}},
+    {"name": "toc-ambiguous", "steps": [
+      {"op": "fields.insert_toc_after", "args": ["toc"]}],
+     "expect": {"steps": [{"outcome": "error", "category": "ambiguous_target"}]}},
+    {"name": "toc-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "readOnly"}},
+      {"op": "fields.insert_toc_after", "args": ["Fields heading"]}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "page-protected", "steps": [
+      {"op": "protection.set_protection", "kwargs": {"edit": "forms"}},
+      {"op": "fields.add_page_number_field", "args": [{"$paragraph": "Reference: "}]}],
+     "expect": {"steps": [{"outcome": "ok"}, {"outcome": "error", "category": "document_protected"}]}},
+    {"name": "many-fields-one-flag", "steps": [
+      {"op": "fields.add_page_number_field", "args": [{"$paragraph": "Reference: "}]},
+      {"op": "fields.add_caption", "args": [{"$paragraph": "Figure placeholder"}], "kwargs": {"label": "Table"}},
+      {"op": "fields.insert_toc_after", "args": ["Closing para"]}]}
+  ]
+}

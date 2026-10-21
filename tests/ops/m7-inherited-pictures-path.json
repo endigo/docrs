@@ -1,0 +1,175 @@
+{
+ "schema_version": 1,
+ "id": "m7.inherited.pictures-path",
+ "upstream": [
+  "features/doc-add-picture.feature",
+  "features/run-add-picture.feature",
+  "src/docx/image/image.py::Image.from_file"
+ ],
+ "fixture": "synthetic:p4-blank",
+ "cases": [
+  {
+   "name": "document-path",
+   "steps": [
+    {
+     "op": "ext.p7_add_picture_path",
+     "args": [
+      {
+       "$p7_test_file": "python-icon.jpeg"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "document-path-scaled",
+   "steps": [
+    {
+     "op": "ext.p7_add_picture_path",
+     "args": [
+      {
+       "$p7_test_file": "monty-truth.png"
+      },
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "run-path",
+   "steps": [
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "x"
+     ]
+    },
+    {
+     "op": "ext.p7_run_add_picture_path",
+     "args": [
+      -1,
+      0,
+      {
+       "$p7_test_file": "sample.tif"
+      },
+      null,
+      914400
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dedupe-path-and-bytes",
+   "steps": [
+    {
+     "op": "ext.p7_add_picture_path",
+     "args": [
+      {
+       "$p7_test_file": "test.png"
+      }
+     ]
+    },
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "test.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   },
+   "deviation": "upstream names the second (deduplicated) picture after the cached Image object of the part created earlier in the same session ('test.png'); Rust derives the name from the package ('image.png', what upstream also writes once the document is reopened). Only pic:cNvPr/@name differs"
+  },
+  {
+   "name": "dedupe-bytes-then-path",
+   "steps": [
+    {
+     "op": "ext.p4_add_picture",
+     "args": [
+      {
+       "$p4_image_file": "test.png"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_add_picture_path",
+     "args": [
+      {
+       "$p7_test_file": "test.png"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inline-shapes-after",
+   "steps": [
+    {
+     "op": "ext.p7_add_picture_path",
+     "args": [
+      {
+       "$p7_test_file": "lena.gif"
+      }
+     ]
+    },
+    {
+     "op": "ext.p7_inline_shapes"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,48 @@
+{
+ "schema_version": 1,
+ "id": "m5.revision.protected-readonly",
+ "upstream": [
+  "src/docx/revision.py::Revisions._resolve_all (protection gate)"
+ ],
+ "fixture": "generated/feature-isolated/protected-readonly.docx",
+ "cases": [
+  {
+   "name": "accept_all-refused",
+   "steps": [
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   }
+  },
+  {
+   "name": "acknowledged",
+   "steps": [
+    {
+     "op": "protection.acknowledge_protection"
+    },
+    {
+     "op": "ext.p5_accept_all"
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}

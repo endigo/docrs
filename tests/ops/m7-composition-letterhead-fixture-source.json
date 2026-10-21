@@ -1,0 +1,57 @@
+{
+ "schema_version": 1,
+ "id": "m7.composition.letterhead-fixture-source",
+ "upstream": [
+  "tests/paper/test_missing_apis.py::DescribeSourceLetterhead",
+  "src/docx/composition.py::_copy_letterhead"
+ ],
+ "fixture": "generated/minimal-clean/minimal.docx",
+ "cases": [
+  {
+   "name": "multi-section-fixture-source",
+   "steps": [
+    {
+     "op": "composition.append_document",
+     "args": [
+      {
+       "$source": "generated/feature-isolated/header-footer-sections.docx"
+      }
+     ],
+     "kwargs": {
+      "headers": "source"
+     }
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "unsupported_structure"
+     }
+    ],
+    "changed_parts": [],
+    "added_parts": []
+   }
+  },
+  {
+   "name": "multi-section-fixture-source-copy-letterhead",
+   "steps": [
+    {
+     "op": "ext.p6_copy_letterhead",
+     "args": [
+      {
+       "$source": "generated/feature-isolated/header-footer-sections.docx"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "ok"
+     }
+    ]
+   }
+  }
+ ]
+}
