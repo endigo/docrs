@@ -1,12 +1,12 @@
-# Local definition of the plan's CI gates. Not connected to any remote.
 name: ci
 on:
   push:
-    branches: ["**"]  # tags are built by release.yml
+    branches: [main]  # pull requests run below; tags are built by release.yml
   pull_request:
 jobs:
   rust:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -17,7 +17,7 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
         env:
           DOCRS_PROPTEST_CASES: "400"
   msrv:

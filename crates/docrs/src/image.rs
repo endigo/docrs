@@ -149,7 +149,10 @@ impl Image {
             )
         })?;
         let mut image = Image::from_blob(&blob)?;
-        image.filename = Some(py_basename(&path.to_string_lossy()).to_string());
+        // The platform's base name, as `os.path.basename` (`ntpath` on Windows).
+        image.filename = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
         Ok(image)
     }
 
@@ -265,11 +268,6 @@ impl Image {
             "sha1": self.sha1,
         })
     }
-}
-
-/// `os.path.basename` (POSIX).
-fn py_basename(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// `os.path.splitext(filename)[1][1:]` (leading dots do not start an
