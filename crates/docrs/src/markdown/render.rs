@@ -1227,7 +1227,25 @@ fn link_target(url: &str) -> String {
     out
 }
 
-impl Renderer<'_, '_, '_> {
+/// Whether a hyperlink may point at `target` (as [`link_target`] wrote
+/// it): an `http`, `https`, `mailto` or `tel` URL, or a relative reference.
+/// A colon before the first `/`, `?` or `#` starts some other scheme
+/// (`javascript:`, `file:`, `C:`), and a leading `//` or `\\` names a
+/// network host; neither is linked.
+fn safe_link_target(target: &str) -> bool {
+    if target.starts_with("//") || target.starts_with("\\\\") {
+        return false;
+    }
+    let head = target.split(['/', '?', '#']).next().unwrap_or("");
+    match head.split_once(':') {
+        None => true,
+        Some((scheme, _)) => ["http", "https", "mailto", "tel"]
+            .iter()
+            .any(|allowed| scheme.eq_ignore_ascii_case(allowed)),
+    }
+}
+
+impl<'p> Renderer<'_, '_, 'p> {
     fn warn(&mut self, code: &'static str, message: String, line: Option<usize>) {
         self.report.warnings.push(MarkdownWarning {
             code,
@@ -2268,6 +2286,16 @@ impl Renderer<'_, '_, '_> {
             }
         } else {
             let target = link_target(url);
+            if !safe_link_target(&target) {
+                self.warn(
+                    "link_scheme_skipped",
+                    format!(
+                        "link target {url} uses a scheme other than http, https, mailto or tel; the text is kept without a link"
+                    ),
+                    None,
+                );
+                return self.emit(part, parent, &unlinked(pieces), ctx);
+            }
             let r_id = self
                 .txn
                 .relate_to(part, rt::HYPERLINK, RelTarget::External(&target))?;

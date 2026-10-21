@@ -258,6 +258,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "an image is not a BMP, GIF, JPEG, PNG or TIFF file; its alt text is shown instead",
     ),
     (
+        "link_scheme_skipped",
+        "a link uses a scheme other than http, https, mailto or tel; its text is kept without a link",
+    ),
+    (
         "math_unknown_command",
         "a math command outside the supported subset is kept as text",
     ),

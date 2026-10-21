@@ -187,3 +187,25 @@ fn foreign_and_stale_spans_are_refused() {
     );
     assert_eq!(snapshot(&doc), before);
 }
+
+#[test]
+fn script_addresses_and_control_characters_are_refused() {
+    let mut doc = open_fixture("generated/minimal-clean/minimal.docx");
+    let before = snapshot(&doc);
+    let span = find(&doc, "perfectly ordinary");
+    for (address, reason) in [
+        ("javascript:alert(1)", "script_address"),
+        (" JavaScript:alert(1)", "script_address"),
+        ("VBScript:msgbox", "script_address"),
+        ("java\tscript:alert(1)", "address_control_character"),
+        ("https://example.com/\u{0}", "address_control_character"),
+    ] {
+        let err = doc.add_hyperlink(&span, address).unwrap_err();
+        assert_eq!(err.kind(), docrs::ErrorKind::InvalidArgument, "{address}");
+        assert_eq!(err.reason(), reason, "{address}");
+    }
+    assert_eq!(snapshot(&doc), before);
+    // Other schemes are the caller's to vet.
+    doc.add_hyperlink(&span, "file:///shared/terms.pdf")
+        .unwrap();
+}

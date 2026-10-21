@@ -536,6 +536,43 @@ fn images_embed_scale_caption_and_fall_back() {
 }
 
 #[test]
+fn links_keep_only_web_mail_phone_and_relative_targets() {
+    let out = export_with(
+        "05-links-schemes",
+        "[a](javascript:alert(1)) [b](JavaScript:alert(2)) [c](vbscript:x) \
+         [d](file:///etc/passwd) [e](data:text/html,x) [f](//host/share) \
+         [g](https://ok.example) [h](HTTP://ok.example/up) [i](mailto:me@example.com) \
+         [j](tel:+15551234) [k](docs/a.html) [l](a/b:c)\n",
+        None,
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(out.report.counts.links, 6);
+    assert_eq!(out.warning_codes(), ["link_scheme_skipped"; 6]);
+    let rels = out.part("word/_rels/document.xml.rels");
+    for gone in [
+        "javascript",
+        "JavaScript",
+        "vbscript",
+        "file:",
+        "data:",
+        "//host",
+    ] {
+        assert!(!rels.contains(gone), "{gone}: {rels}");
+    }
+    // The text stays.
+    let text = &out.paragraphs()[0].1;
+    for label in ["a", "b", "c", "d", "e", "f"] {
+        assert!(text.contains(label));
+    }
+    let strict = MarkdownOptions {
+        strict: true,
+        ..MarkdownOptions::default()
+    };
+    let err = convert("[a](javascript:alert(1))\n", None, &strict).unwrap_err();
+    assert_eq!(err.reason(), "markdown_not_faithful");
+}
+
+#[test]
 fn definition_lists_use_term_and_definition_styles() {
     let out = export(
         "16-definitions",
