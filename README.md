@@ -65,7 +65,7 @@ docrs roundtrip input.docx --out copy.docx
 unsupported structure, boundary, relationship policy, malformed package),
 4 resource limit, 5 I/O, 70 internal error. `--out` may equal the input;
 outputs are written atomically. `--acknowledge-protection` (on `replace`,
-`resolve`, `append`, `insert-from` and `from-markdown`) proceeds through
+`resolve`, `compare`, `append`, `insert-from` and `from-markdown`) proceeds through
 Restrict Editing without removing it. `--trusted` uses the trusted-input
 resource profile instead of the default budgets.
 

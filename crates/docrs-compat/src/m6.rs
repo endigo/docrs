@@ -378,6 +378,9 @@ pub fn run_compare(python: &Path) -> Result<bool, String> {
                         Some("reject") => Some(docrs::compare::Materialize::Reject),
                         _ => None,
                     },
+                    // Upstream redlines protected originals unasked (and
+                    // reports `document_protection_present`).
+                    acknowledge_protection: true,
                 };
                 let revised_bytes = std::fs::read(&revised_path).map_err(|e| e.to_string())?;
                 let rust = match compare(&bytes, &revised_bytes, &options, &Limits::default()) {

@@ -24,6 +24,7 @@ fn main() -> docrs::Result<()> {
         date: None,
         granularity: Granularity::Word,
         materialize: None,
+        acknowledge_protection: false,
     };
     let result = compare(
         &read(original)?,

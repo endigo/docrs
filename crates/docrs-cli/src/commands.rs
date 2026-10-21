@@ -280,6 +280,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             date,
             block,
             materialize,
+            acknowledge_protection,
             out,
         } => {
             let options = docrs::compare::CompareOptions {
@@ -304,6 +305,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         ));
                     }
                 },
+                acknowledge_protection: *acknowledge_protection,
             };
             let result =
                 docrs::compare::compare(&read(original)?, &read(revised)?, &options, limits)?;
