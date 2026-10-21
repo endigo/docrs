@@ -532,8 +532,9 @@ const COMMENT_RELATIONSHIPS: &[&str] = &[
 /// its pictures, embedded files and comments are that client's data. Drop
 /// the main part's content relationships the new body does not reference,
 /// the comment parts when no comment is referenced, custom XML when no
-/// content control is bound to it, and then every part no relationship
-/// chain from the package reaches. Headers, footers, styles, numbering,
+/// content control is bound to it, the package thumbnail (a rendering of
+/// the template's first page), and then every part no relationship chain
+/// from the package reaches. Headers, footers, styles, numbering,
 /// theme, settings and everything they reference stay.
 fn drop_unreferenced_parts(txn: &mut Txn<'_>, main: &str) -> Result<()> {
     let (referenced, comments_used) = {
@@ -581,6 +582,16 @@ fn drop_unreferenced_parts(txn: &mut Txn<'_>, main: &str) -> Result<()> {
         .collect();
     for r_id in doomed {
         crate::revision::drop_rel(txn, main, &r_id)?;
+    }
+    // The package thumbnail is a picture of the template's first page.
+    let thumbnails: Vec<String> = txn
+        .relationships("/")?
+        .into_iter()
+        .filter(|rel| rel.rel_type.ends_with("/metadata/thumbnail"))
+        .map(|rel| rel.id)
+        .collect();
+    for r_id in thumbnails {
+        crate::revision::drop_rel(txn, "/", &r_id)?;
     }
     // Every part a relationship chain from the package reaches stays.
     let mut reachable: HashSet<String> = HashSet::new();

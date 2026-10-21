@@ -1439,12 +1439,14 @@ fn reference_styles_and_layout_are_used_unchanged() {
         .map(String::as_str)
         .collect();
     // Body, its relationships, the footnotes part losing the sample
-    // body's footnote, the content types losing the removed parts, and the
-    // template's document properties cleared.
+    // body's footnote, the content types losing the removed parts, the
+    // package relationships losing the thumbnail, and the template's
+    // document properties cleared.
     assert_eq!(
         changed,
         [
             "[Content_Types].xml",
+            "_rels/.rels",
             "docProps/app.xml",
             "docProps/core.xml",
             "word/_rels/document.xml.rels",
@@ -1452,24 +1454,24 @@ fn reference_styles_and_layout_are_used_unchanged() {
             "word/footnotes.xml"
         ]
     );
-    // The sample body's picture and the custom XML no content control is
-    // bound to leave the package; the header, footer and their parts stay.
+    // The sample body's picture, the custom XML no content control is
+    // bound to and the thumbnail of the template's first page leave the
+    // package; the header, footer and their parts stay.
     assert_eq!(
         out.report.removed_parts,
         [
             "customXml/_rels/item1.xml.rels",
             "customXml/item1.xml",
             "customXml/itemProps1.xml",
+            "docProps/thumbnail.jpeg",
             "word/media/image1.png"
         ]
     );
-    for kept in [
-        "word/header1.xml",
-        "word/footer1.xml",
-        "docProps/thumbnail.jpeg",
-    ] {
+    for kept in ["word/header1.xml", "word/footer1.xml"] {
         assert!(out.doc.package().part(kept).is_some(), "{kept}");
     }
+    assert!(out.doc.package().part("docProps/thumbnail.jpeg").is_none());
+    assert!(!out.part("_rels/.rels").contains("thumbnail"));
     assert!(!out.part("[Content_Types].xml").contains("itemProps1"));
     assert!(
         !out.part("word/_rels/document.xml.rels")

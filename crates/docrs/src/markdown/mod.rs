@@ -195,7 +195,8 @@ pub struct MarkdownReport {
     /// Package parts written.
     pub changed_parts: Vec<String>,
     /// Template parts left out of the output: sample-body pictures,
-    /// embedded files, comments and anything else nothing kept refers to.
+    /// embedded files, comments, the package thumbnail (a picture of the
+    /// template's first page) and anything else nothing kept refers to.
     pub removed_parts: Vec<String>,
     /// Template document properties left out of the output (`core:creator`,
     /// `app:Pages`, `custom:<name>`, ...): the template's people, statistics
