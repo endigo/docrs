@@ -1385,7 +1385,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 } => {
                     let inner_ctx = Ctx {
                         paragraph_role: Some(Role::BlockQuote),
-                        quote_depth: ctx.quote_depth + 1,
+                        quote_depth: ctx.quote_depth.saturating_add(1),
                         top_level: false,
                         ..ctx
                     };

@@ -573,6 +573,18 @@ fn links_keep_only_web_mail_phone_and_relative_targets() {
 }
 
 #[test]
+fn deeply_nested_quotes_convert() {
+    let markdown = format!("{} deep\n", ">".repeat(300));
+    let out = export_with(
+        "06-deep-quotes",
+        &markdown,
+        None,
+        &MarkdownOptions::default(),
+    );
+    assert!(out.paragraphs().iter().any(|(_, t)| t == "deep"));
+}
+
+#[test]
 fn definition_lists_use_term_and_definition_styles() {
     let out = export(
         "16-definitions",
