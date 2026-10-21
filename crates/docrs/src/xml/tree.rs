@@ -628,7 +628,7 @@ impl XmlTree {
     /// Deep-copy `id` into new detached nodes with fresh IDs.
     pub fn deep_clone(&mut self, id: NodeId) -> NodeId {
         let origin = self.parent(id);
-        let copy = self.clone_rec(id, None);
+        let copy = self.clone_subtree(id);
         if let Some(origin) = origin {
             self.origin_scope.insert(copy, origin);
         }
@@ -636,17 +636,21 @@ impl XmlTree {
         copy
     }
 
-    fn clone_rec(&mut self, id: NodeId, parent: Option<NodeId>) -> NodeId {
-        let mut data = self.slots[id.0 as usize].data.clone();
-        let children = match &mut data {
-            NodeData::Element(element) => std::mem::take(&mut element.children),
-            _ => Vec::new(),
-        };
-        let copy = self.push(data, parent);
-        for child in children {
-            self.clone_rec(child, Some(copy));
+    /// Copy the subtree at `id` in pre-order (copies get IDs in document
+    /// order) with an explicit stack, so depth costs no call stack.
+    fn clone_subtree(&mut self, id: NodeId) -> NodeId {
+        let top = NodeId(self.slots.len() as u32);
+        let mut stack: Vec<(NodeId, Option<NodeId>)> = vec![(id, None)];
+        while let Some((node, parent)) = stack.pop() {
+            let mut data = self.slots[node.0 as usize].data.clone();
+            let children = match &mut data {
+                NodeData::Element(element) => std::mem::take(&mut element.children),
+                _ => Vec::new(),
+            };
+            let copy = self.push(data, parent);
+            stack.extend(children.into_iter().rev().map(|child| (child, Some(copy))));
         }
-        copy
+        top
     }
 
     /// Insert detached `child` into `parent` at `index`.
@@ -810,13 +814,37 @@ impl XmlTree {
         node: NodeId,
         scope: NodeId,
     ) -> Result<NodeId> {
-        let copy = self.import_rec(source, node, None);
-        // Free prefixes: used in the subtree but bound outside it.
+        let copy = self.import_nodes(source, node);
+        // Free prefixes: used in the subtree but bound outside it, in
+        // document order of first use. One pre-order pass keeps count of the
+        // declarations on the path from `node` to the visited element.
+        enum Step {
+            Enter(NodeId),
+            Leave(NodeId),
+        }
         let mut needed: Vec<(Option<Box<str>>, Option<NsId>)> = Vec::new();
-        for item in source.descendants(node) {
+        let mut declared_on_path: HashMap<Option<&str>, usize> = HashMap::new();
+        let mut stack = vec![Step::Enter(node)];
+        while let Some(step) = stack.pop() {
+            let item = match step {
+                Step::Enter(item) => item,
+                Step::Leave(item) => {
+                    for decl in source.element(item).map_or(&[][..], |e| &e.ns_decls) {
+                        if let Some(count) = declared_on_path.get_mut(&decl.prefix.as_deref()) {
+                            *count -= 1;
+                        }
+                    }
+                    continue;
+                }
+            };
             let Some(element) = source.element(item) else {
                 continue;
             };
+            for decl in &element.ns_decls {
+                *declared_on_path.entry(decl.prefix.as_deref()).or_default() += 1;
+            }
+            stack.push(Step::Leave(item));
+            stack.extend(source.children(item).iter().rev().map(|c| Step::Enter(*c)));
             let mut uses: Vec<Option<&str>> = vec![element.name.prefix.as_deref()];
             uses.extend(
                 element
@@ -826,31 +854,15 @@ impl XmlTree {
                     .map(|a| a.name.prefix.as_deref()),
             );
             for prefix in uses {
-                if prefix == Some("xml") {
-                    continue;
-                }
-                let mut declared_inside = false;
-                let mut current = Some(item);
-                while let Some(ancestor) = current {
-                    if source
-                        .element(ancestor)
-                        .is_some_and(|e| e.ns_decls.iter().any(|d| d.prefix.as_deref() == prefix))
-                    {
-                        declared_inside = true;
-                        break;
-                    }
-                    if ancestor == node {
-                        break;
-                    }
-                    current = source.parent(ancestor);
-                }
-                if declared_inside {
+                if prefix == Some("xml")
+                    || declared_on_path
+                        .get(&prefix)
+                        .is_some_and(|count| *count > 0)
+                    || needed.iter().any(|(p, _)| p.as_deref() == prefix)
+                {
                     continue;
                 }
                 let bound = source.lookup_prefix(node, prefix).flatten();
-                if needed.iter().any(|(p, _)| p.as_deref() == prefix) {
-                    continue;
-                }
                 needed.push((prefix.map(Into::into), bound));
             }
         }
@@ -875,7 +887,20 @@ impl XmlTree {
         Ok(copy)
     }
 
-    fn import_rec(&mut self, source: &XmlTree, node: NodeId, parent: Option<NodeId>) -> NodeId {
+    /// Copy the subtree at `node` of `source` into this arena in pre-order
+    /// (namespaces re-interned here) with an explicit stack.
+    fn import_nodes(&mut self, source: &XmlTree, node: NodeId) -> NodeId {
+        let top = NodeId(self.slots.len() as u32);
+        let mut stack: Vec<(NodeId, Option<NodeId>)> = vec![(node, None)];
+        while let Some((item, parent)) = stack.pop() {
+            let copy = self.import_node(source, item, parent);
+            let children = source.children(item);
+            stack.extend(children.iter().rev().map(|child| (*child, Some(copy))));
+        }
+        top
+    }
+
+    fn import_node(&mut self, source: &XmlTree, node: NodeId, parent: Option<NodeId>) -> NodeId {
         let data = match source.data(node) {
             NodeData::Element(element) => {
                 let ns = element.ns.map(|ns| self.intern(source.uri(ns)));
@@ -906,11 +931,7 @@ impl XmlTree {
             }
             other => other.clone(),
         };
-        let copy = self.push(data, parent);
-        for child in source.children(node).to_vec() {
-            self.import_rec(source, child, Some(copy));
-        }
-        copy
+        self.push(data, parent)
     }
 
     /// Mark the tree changed without structural edits (used by callers that

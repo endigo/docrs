@@ -447,47 +447,54 @@ pub(crate) fn canonical(tree: &XmlTree, node: NodeId) -> String {
     out
 }
 
+/// Pre-order with an explicit stack (`None` closes an element), so subtree
+/// depth costs no call stack.
 fn canonical_rec(tree: &XmlTree, node: NodeId, out: &mut String) {
-    match tree.data(node) {
-        NodeData::Text(text) => out.push_str(&format!("T{text:?}")),
-        NodeData::Comment(_) => {}
-        NodeData::Pi { target, data } => out.push_str(&format!("P{target:?}{data:?}")),
-        NodeData::Element(element) => {
-            let mut attrs: Vec<(String, String, String)> = element
-                .attrs
-                .iter()
-                .map(|attr| {
-                    (
-                        attr.ns
-                            .map(|ns| tree.uri(ns).to_string())
-                            .unwrap_or_default(),
-                        attr.name.lexical(),
-                        attr.value.clone(),
-                    )
-                })
-                .collect();
-            attrs.sort();
-            let mut decls: Vec<(Option<String>, Option<String>)> = element
-                .ns_decls
-                .iter()
-                .filter(|decl| {
-                    tree.parent(node).is_none_or(|parent| {
-                        tree.lookup_prefix(parent, decl.prefix.as_deref()) != Some(decl.uri)
-                    })
-                })
-                .map(|decl| {
-                    (
-                        decl.prefix.as_deref().map(str::to_string),
-                        decl.uri.map(|u| tree.uri(u).to_string()),
-                    )
-                })
-                .collect();
-            decls.sort();
-            out.push_str(&format!("<{}{decls:?}{attrs:?}>", element.name.lexical()));
-            for child in tree.children(node) {
-                canonical_rec(tree, *child, out);
-            }
+    let mut stack = vec![Some(node)];
+    while let Some(step) = stack.pop() {
+        let Some(node) = step else {
             out.push_str("</>");
+            continue;
+        };
+        match tree.data(node) {
+            NodeData::Text(text) => out.push_str(&format!("T{text:?}")),
+            NodeData::Comment(_) => {}
+            NodeData::Pi { target, data } => out.push_str(&format!("P{target:?}{data:?}")),
+            NodeData::Element(element) => {
+                let mut attrs: Vec<(String, String, String)> = element
+                    .attrs
+                    .iter()
+                    .map(|attr| {
+                        (
+                            attr.ns
+                                .map(|ns| tree.uri(ns).to_string())
+                                .unwrap_or_default(),
+                            attr.name.lexical(),
+                            attr.value.clone(),
+                        )
+                    })
+                    .collect();
+                attrs.sort();
+                let mut decls: Vec<(Option<String>, Option<String>)> = element
+                    .ns_decls
+                    .iter()
+                    .filter(|decl| {
+                        tree.parent(node).is_none_or(|parent| {
+                            tree.lookup_prefix(parent, decl.prefix.as_deref()) != Some(decl.uri)
+                        })
+                    })
+                    .map(|decl| {
+                        (
+                            decl.prefix.as_deref().map(str::to_string),
+                            decl.uri.map(|u| tree.uri(u).to_string()),
+                        )
+                    })
+                    .collect();
+                decls.sort();
+                out.push_str(&format!("<{}{decls:?}{attrs:?}>", element.name.lexical()));
+                stack.push(None);
+                stack.extend(tree.children(node).iter().rev().map(|child| Some(*child)));
+            }
         }
     }
 }
