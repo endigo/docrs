@@ -430,7 +430,7 @@ impl Package {
         }
 
         // Depth-first walk mirroring `_walk_phys_parts`.
-        let mut visited: Vec<String> = Vec::new();
+        let mut visited: HashSet<String> = HashSet::new();
         let mut reached: Vec<(usize, String)> = Vec::new();
         let mut stack: Vec<(String, Vec<Relationship>, usize)> =
             vec![("/".to_string(), package_rels.clone(), 0)];
@@ -463,11 +463,9 @@ impl Package {
                 )
             })?;
             validate_target_content_type(&rel.rel_type, content_type, &part_name)?;
-            let folded = casefold(&part_name);
-            if visited.contains(&folded) {
+            if !visited.insert(casefold(&part_name)) {
                 continue;
             }
-            visited.push(folded);
             reached.push((member, content_type.to_string()));
             let child_rels = self.relationships_at(&part_name)?;
             stack.push((part_name, child_rels, 0));

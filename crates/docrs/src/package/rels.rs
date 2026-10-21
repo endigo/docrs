@@ -1,6 +1,8 @@
 //! Relationship parts (upstream `pkgreader._validate_relationship_records`,
 //! `_SerializedRelationships`, `_rels.py`, `PackURI`).
 
+use std::collections::HashMap;
+
 use crate::xml::chars::is_ncname;
 use crate::xml::{self, NodeData};
 
@@ -206,6 +208,8 @@ pub fn relationships_from_tree(tree: &xml::XmlTree, base: &str) -> Result<Vec<Re
         ));
     }
     let mut out: Vec<Relationship> = Vec::new();
+    // Id → position in `out`.
+    let mut ids: HashMap<&str, usize> = HashMap::new();
     for child in tree.children(root) {
         let NodeData::Element(_) = tree.data(*child) else {
             continue;
@@ -227,7 +231,7 @@ pub fn relationships_from_tree(tree: &xml::XmlTree, base: &str) -> Result<Vec<Re
             ));
         };
         let target = tree.attr(*child, None, "Target");
-        if let Some(first) = out.iter().find(|rel| rel.id == id) {
+        if let Some(first) = ids.get(id).map(|position| &out[*position]) {
             let second = target.unwrap_or("");
             let message = if first.target == second {
                 format!(
@@ -265,6 +269,7 @@ pub fn relationships_from_tree(tree: &xml::XmlTree, base: &str) -> Result<Vec<Re
                 ));
             }
         };
+        ids.insert(id, out.len());
         out.push(Relationship {
             id: id.to_string(),
             rel_type: rel_type.to_string(),
