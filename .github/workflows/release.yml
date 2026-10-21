@@ -57,7 +57,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
-          path: docrs-*.*
+          # Archives only; the staging folder docrs-VERSION-TARGET also matches docrs-*.*
+          path: |
+            docrs-*.tar.gz
+            docrs-*.zip
   npm:
     needs: version
     runs-on: ubuntu-latest
