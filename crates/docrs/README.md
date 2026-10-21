@@ -50,6 +50,8 @@ println!("{} warnings", report.warnings.len());
 
 **Inputs:** CommonMark with GitHub tables, task lists, footnotes and alerts; definition lists, front matter and LaTeX math (as Word equations). `docrs::markdown::insert_html(&mut document, html, &options)` renders editor HTML into a document instead.
 
+**Untrusted input:** by default nothing is read from disk; pictures come from `MarkdownOptions::images` and `data:` URIs. Set `resource_dir` to read local images, which must then stay inside that directory (no absolute, UNC or `file:` paths, no `..` or symbolic link out of it). Pictures over the document's `Limits::max_part_bytes` and damaged pictures are left out with a warning, and links keep their target only for `http`, `https`, `mailto`, `tel`, `#fragment` and relative references. Warnings quote the source, never a resolved path.
+
 **Table of contents:** it is written out with page numbers computed by estimating Word for Mac's layout from bundled font metrics, so the document opens without an update prompt. Against Word's own update, 95.8% of 1,344 entries on 84 test documents match exactly, and none is more than one page off.
 
 ## License
