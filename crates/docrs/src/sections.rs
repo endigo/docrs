@@ -28,6 +28,7 @@ use crate::authoring::{
 use crate::oxml::{append, get_or_add};
 use crate::package::ct;
 use crate::package::rels::{base_uri, rels_member_for, rt};
+use crate::protection::{OperationClass, refuse_if_protected};
 use crate::txn::{RelTarget, Txn};
 use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
@@ -490,6 +491,11 @@ impl Document {
     /// Upstream `Settings.odd_and_even_pages_header_footer = value`
     /// (creating the settings part from the default template if missing).
     pub fn set_odd_and_even_pages_header_footer(&mut self, value: bool) -> Result<()> {
+        refuse_if_protected(
+            self,
+            "change header and footer settings",
+            OperationClass::BodyContent,
+        )?;
         let mut txn = Txn::new(self);
         let part = crate::parts::ensure_settings_part(&mut txn)?;
         let tree = txn.tree_mut(&part)?;
@@ -603,6 +609,7 @@ impl Section {
         for change in changes {
             validate_change(change)?;
         }
+        refuse_if_protected(doc, "change a section's setup", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         for change in changes {
@@ -753,6 +760,11 @@ impl HeaderFooter {
         }
         let sect = self.section.h.element;
         let main = main_part(doc);
+        refuse_if_protected(
+            doc,
+            "link or unlink a header or footer",
+            OperationClass::BodyContent,
+        )?;
         let mut txn = Txn::new(doc);
         if value {
             let tree = txn.tree_mut(&main)?;
@@ -822,6 +834,7 @@ impl HeaderFooter {
         while let Some(prior) = preceding_sect_pr(tree, first) {
             first = prior;
         }
+        refuse_if_protected(doc, "add a header or footer", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let part = add_definition(&mut txn, first, self.role, self.kind)?;
         let staged = txn.finish()?;

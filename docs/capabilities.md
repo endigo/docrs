@@ -29,7 +29,7 @@ Unsupported operations never report success as a no-op.
 | Opaque span handles with local freshness evidence | `Span` | shipped (M2/M3) | `tests/replace.rs` freshness/alias/foreign tests |
 | Formatting inspection (`format_of`, style resolution) | `formatting::format_of` | shipped (M4) | ops `m4-formatting-*`: 110 pass, 2 deviation |
 | Styles read API (names, ids, defaults, latent styles) | `styles::Styles` | shipped (M4) | ops `m4-styles-*`: 56 pass, 1 deviation |
-| Protection status / acknowledgment / gate | `Document::{protection_status, acknowledge_protection}` | shipped (M3) | `tests/replace.rs::protection_gate_follows_the_matrix`, `tests/cases/m3-protection.json` |
+| Protection status / acknowledgment / gate | `Document::{protection_status, acknowledge_protection}`; every writer, inherited authoring, sections, styles and core properties included | shipped (M3; inherited writers gated after 0.1.0) | `tests/replace.rs::protection_gate_follows_the_matrix`, `tests/protection_gate.rs`, `tests/cases/m3-protection.json` |
 | Safe untracked replacement (same owner, affix-localized, narrowing across breaks) | `Document::replace`, CLI `replace` | shipped (M3) | `m3-parity`: 2,565 cases identical + 1 deviation; `tests/replace.rs`; CLI tests |
 | replace_all (atomic batch, per-match refusals) | `Document::replace_all`, CLI `replace --all` | shipped (M3) | `m3-parity`, `tests/replace.rs::replace_all_reports_refusals_and_commits_the_rest_atomically` |
 | `preserve_revision` editing of insertions | `ReplaceOptions::preserve_revision` | implemented, not yet covered (no case or test sets it) | — |

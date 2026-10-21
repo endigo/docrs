@@ -100,12 +100,36 @@
    }
   },
   {
-   "name": "authoring-not-gated",
+   "name": "authoring-gated",
    "steps": [
     {
      "op": "ext.p4_add_paragraph",
      "args": [
-      "inherited API ignores protection"
+      "inherited API honours protection"
+     ]
+    }
+   ],
+   "expect": {
+    "steps": [
+     {
+      "outcome": "error",
+      "category": "document_protected"
+     }
+    ],
+    "changed_parts": []
+   },
+   "deviation": "upstream inherits python-docx authoring, which ignores w:documentProtection; Rust gates every writer (authoring, sections, styles, core properties) on the protection matrix, so a readOnly document refuses until protection is acknowledged"
+  },
+  {
+   "name": "authoring-acknowledged",
+   "steps": [
+    {
+     "op": "protection.acknowledge_protection"
+    },
+    {
+     "op": "ext.p4_add_paragraph",
+     "args": [
+      "inherited API after acknowledgement"
      ]
     }
    ],
@@ -113,7 +137,13 @@
     "steps": [
      {
       "outcome": "ok"
+     },
+     {
+      "outcome": "ok"
      }
+    ],
+    "changed_parts": [
+     "word/document.xml"
     ]
    }
   }

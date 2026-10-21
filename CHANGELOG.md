@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Library
+
+- **Protection:** every inherited writer now honours Restrict Editing: authoring (paragraphs, runs, tables, cells, pictures, tab stops, `clear_body_content`), sections, headers and footers, styles and latent styles, and core properties. A forbidden edit refuses `document_protected` and changes nothing; `Document::acknowledge_protection` lets it through. `Run::mark_comment_range` counts as a comment edit. `Document::ensure_styles_part` refuses only when it would create the part.
+
 ## 0.1.0 (2026-10-21)
 
 The first release. Three packages:

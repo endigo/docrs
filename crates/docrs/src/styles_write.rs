@@ -21,6 +21,7 @@ use crate::authoring::{
     apply_font, apply_format, read_font, read_format, set_on_off,
 };
 use crate::oxml::{get_or_add, insert_before_successors, successors};
+use crate::protection::{OperationClass, refuse_if_protected};
 use crate::styles::{
     LatentStyle, Style, StyleType, read_styles, style_element_by_id, style_element_by_name,
     style_elements, style_id_from_name, styles_part, ui_to_internal,
@@ -272,6 +273,7 @@ impl StyleRef {
     /// using it is left alone). The handle is stale afterwards.
     pub fn delete(&self, doc: &mut Document) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "delete a style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         remove(txn.tree_mut(&self.h.part)?, self.h.element)?;
         commit!(doc, txn)
@@ -297,6 +299,7 @@ impl StyleRef {
                 _ => {}
             }
         }
+        refuse_if_protected(doc, "modify a style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let style = self.h.element;
@@ -324,6 +327,7 @@ impl StyleRef {
     /// `font` setters, applied in order and atomically.
     pub fn set_font(&self, doc: &mut Document, changes: &[FontChange]) -> Result<()> {
         self.require(doc, FONT_TYPES, "font")?;
+        refuse_if_protected(doc, "modify a style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         for change in changes {
@@ -341,6 +345,7 @@ impl StyleRef {
     /// `paragraph_format` setters, applied atomically.
     pub fn set_paragraph_format(&self, doc: &mut Document, format: &ParagraphFormat) -> Result<()> {
         self.require(doc, PARFMT_TYPES, "paragraph_format")?;
+        refuse_if_protected(doc, "modify a style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         apply_format(
             txn.tree_mut(&self.h.part)?,
@@ -444,6 +449,10 @@ impl Document {
     /// (what upstream does on any access to `document.styles`). Returns its
     /// member name.
     pub fn ensure_styles_part(&mut self) -> Result<String> {
+        if let Some(part) = styles_part(self)? {
+            return Ok(part);
+        }
+        refuse_if_protected(self, "add a styles part", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let part = txn_styles_part(&mut txn)?;
         commit!(self, txn)?;
@@ -487,6 +496,7 @@ impl Document {
         style_type: StyleType,
         builtin: bool,
     ) -> Result<StyleRef> {
+        refuse_if_protected(self, "add a style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let part = txn_styles_part(&mut txn)?;
         let internal = ui_to_internal(name).to_string();
@@ -540,6 +550,7 @@ impl Document {
     /// Upstream `LatentStyles.add_latent_style(name)`: a new
     /// `w:lsdException` appended with the internal form of `name`.
     pub fn add_latent_style(&mut self, name: &str) -> Result<LatentStyleRef> {
+        refuse_if_protected(self, "add a latent style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let part = txn_styles_part(&mut txn)?;
         let tree = txn.tree_mut(&part)?;
@@ -563,6 +574,7 @@ impl Document {
                 decimal_number(*value, "latent styles")?;
             }
         }
+        refuse_if_protected(self, "modify latent styles", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let part = txn_styles_part(&mut txn)?;
         let tree = txn.tree_mut(&part)?;
@@ -669,6 +681,7 @@ impl LatentStyleRef {
     /// Upstream `_LatentStyle.delete()`. The handle is stale afterwards.
     pub fn delete(&self, doc: &mut Document) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "delete a latent style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         remove(txn.tree_mut(&self.h.part)?, self.h.element)?;
         commit!(doc, txn)
@@ -693,6 +706,7 @@ impl LatentStyleRef {
             };
             rendered.push((local, value));
         }
+        refuse_if_protected(doc, "modify a latent style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         for (local, value) in rendered {
