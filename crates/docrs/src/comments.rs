@@ -13,6 +13,7 @@
 
 use serde::Serialize;
 
+use crate::anchor::{BlockTarget, require_current_view};
 use crate::clock::Timestamp;
 use crate::commentops::{
     self, comment_element, ensure_comment_identity, mark_comment_range, migrate_comment_extension,
@@ -519,6 +520,7 @@ pub fn add_comment(
             "comment range runs do not belong to this document; nothing was changed",
         ));
     }
+    require_current_view(BlockTarget::Span(runs))?;
     let tree = document.package().xml(&main)?;
     crate::replace::validate_fresh(document, tree, runs, None)?;
     let selected = span_runs(runs);
@@ -802,6 +804,7 @@ impl Span {
             ));
         }
         refuse_if_protected(document, "anchor a comment", OperationClass::Comment)?;
+        require_current_view(BlockTarget::Span(self))?;
         let main_story_name = main_story(document).unwrap_or_default();
         if self.story != main_story_name {
             return Err(unsupported(

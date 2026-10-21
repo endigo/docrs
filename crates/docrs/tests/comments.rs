@@ -6,9 +6,9 @@ mod support;
 
 use docrs::clock::Timestamp;
 use docrs::commentops::{anchored_text, delete_comment, is_resolved, parent_of, reply, resolve};
-use docrs::comments::{add_comment_paragraph, add_unanchored_comment};
+use docrs::comments::{add_comment, add_comment_paragraph, add_unanchored_comment};
 use docrs::xml::serialize;
-use docrs::{Document, ErrorKind, FindOptions, Limits, RefusalKind};
+use docrs::{Document, ErrorKind, FindOptions, Limits, RefusalKind, View};
 use support::*;
 
 const W_DECLS: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships""#;
@@ -312,4 +312,40 @@ fn multiple_comment_relationships_refuse_resolution_atomically() {
         "{err}"
     );
     assert_eq!(doc.patch_bytes().unwrap().0, before);
+}
+
+#[test]
+fn historical_view_spans_cannot_anchor_comments() {
+    // "old " is deleted text: visible under view=original, not in the
+    // current body.
+    let bytes = minimal_package_with(&format!(
+        r#"<w:document {W_DECLS}><w:body><w:p><w:r><w:t xml:space="preserve">keep </w:t></w:r><w:del w:id="1" w:author="A" w:date="2024-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">old </w:delText></w:r></w:del><w:ins w:id="2" w:author="A" w:date="2024-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">new </w:t></w:r></w:ins><w:r><w:t>words</w:t></w:r></w:p></w:body></w:document>"#
+    ));
+    let mut doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    for (needle, view) in [
+        ("old words", View::Original),
+        ("keep", View::Original),
+        ("new words", View::All),
+    ] {
+        let span = doc
+            .find_one(
+                needle,
+                &FindOptions {
+                    view,
+                    ..FindOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("{needle:?} under {view:?}: {err}"));
+        let err = span
+            .comment(&mut doc, "note", "Reviewer", None, date())
+            .unwrap_err();
+        assert_eq!(refusal(&err), RefusalKind::UnsupportedStructure);
+        assert_eq!(err.reason(), "historical_view_target", "{needle:?}");
+        let err = add_comment(&mut doc, &span, "note", "Reviewer", None, date()).unwrap_err();
+        assert_eq!(err.reason(), "historical_view_target", "{needle:?}");
+        assert_eq!(doc.patch_bytes().unwrap().0, bytes, "{needle:?}");
+    }
+    // The same text found under the current view anchors.
+    let span = find(&doc, "keep");
+    add_comment(&mut doc, &span, "note", "Reviewer", None, date()).unwrap();
 }
