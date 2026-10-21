@@ -11,7 +11,7 @@ The first release. Three packages:
 
 - **Behaviour:** checked operation by operation against the Python implementation it adapts, used as a test oracle; the differences are documented in `docs/compatibility.md`.
 - **Package and XML:**
-  - Guarded package reading: ZIP central-directory validation and resource limits (`Limits`). Irregularities that Word tolerates are reported as `Tolerance`.
+  - Guarded package reading: ZIP central-directory validation and resource limits (`Limits`). Irregularities Word tolerates (Office `[trash]` members, data in ZIP directory entries) are refused by default; an opt-in `Tolerance` sets them aside and reports what it set aside.
   - A lossless, namespace-preserving XML arena.
   - Patch saves that rewrite only changed parts. A no-op save is byte-identical.
 - **Editing:**
@@ -39,4 +39,4 @@ The first release. Three packages:
 
 ### Node.js
 
-- `fromMarkdown`, `fromHtml`, `inspectReference`, `markdownStyles`, `referenceDocument` and `version`, compiled to WebAssembly with TypeScript definitions. No native code, file system or network.
+- `fromMarkdown`, `fromHtml`, `inspectReference`, `markdownStyles`, `referenceDocument` and `version`, compiled to WebAssembly with TypeScript definitions. No native code; conversions use no file system or network (the module reads only its own `.wasm` when loaded).

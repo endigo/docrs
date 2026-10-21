@@ -33,7 +33,7 @@ const { docx, report } = fromHtml(editorHtml, {
 It keeps the editor's text colours, highlight colours, fonts, paragraph and
 cell alignment, column widths, merged cells (`colspan`/`rowspan`), picture
 sizes and alignment, and page breaks. CSS it cannot map is reported
-(`html_style_dropped`), never dropped silently.
+(`html_style_dropped`).
 
 Also exported: `inspectReference(reference, options?)` (what a conversion
 will take from a template: role styles, lifted branding, the section kept,
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   const reference =
     template instanceof File ? new Uint8Array(await template.arrayBuffer()) : undefined;
   const { docx } = fromMarkdown(markdown, { reference });
-  return new Response(docx, {
+  return new Response(docx.slice(), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

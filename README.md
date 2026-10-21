@@ -50,18 +50,24 @@ docrs insert-from base.docx source.docx --start 'Clause 4' --end 'Clause 6' --an
 docrs text-diff a.docx b.docx
 docrs pending input.docx
 docrs from-markdown notes.md --reference template.docx --out notes.docx
+docrs from-markdown page.html --reference template.docx --out page.docx  # editor HTML (--from html)
 docrs markdown-reference --out reference.docx   # starter template to restyle
 docrs markdown-styles template.docx             # which style each element takes
+docrs markdown-inspect template.docx            # what a conversion takes from it
+docrs layout input.docx                         # estimated page of each paragraph
 docrs diff a.docx b.docx
 docrs roundtrip input.docx --out copy.docx
 ```
 
+`docrs --help` lists every command and `docrs <command> --help` its options.
 `--json` prints machine-readable reports (`schema_version: 1`). Exit codes:
 0 success, 2 invalid argument, 3 refusal (ambiguous, not found, protected,
 unsupported structure, boundary, relationship policy, malformed package),
 4 resource limit, 5 I/O, 70 internal error. `--out` may equal the input;
-outputs are written atomically. `--acknowledge-protection` proceeds through
-Restrict Editing without removing it.
+outputs are written atomically. `--acknowledge-protection` (on `replace`,
+`resolve`, `append`, `insert-from` and `from-markdown`) proceeds through
+Restrict Editing without removing it. `--trusted` uses the trusted-input
+resource profile instead of the default budgets.
 
 ## Markdown to DOCX
 
@@ -74,7 +80,7 @@ both pandoc reference documents and ordinary Word templates work.
 ```bash
 docrs from-markdown examples/markdown/showcase.md \
   --reference examples/markdown/reference.docx --out showcase.docx
-docrs from-markdown memo.md --reference examples/markdown/letterhead.docx \
+docrs from-markdown examples/markdown/memo.md --reference examples/markdown/letterhead.docx \
   --placeholder '{{content}}' --out memo.docx
 ```
 
@@ -99,10 +105,12 @@ docrs from-markdown memo.md --reference examples/markdown/letterhead.docx \
 * Branding a template only shows in its sample content (hand-formatted
   headings, body text or tables, Word list buttons, custom bullet styles)
   is lifted into styles. Tables follow the style most sample tables use;
-  a header fill or banding added by hand becomes a `Template Table` style.
+  a header fill or banding added by hand becomes a table style (`Template
+  Table` when the template already has a `Table` style).
 * A template whose first-page header draws a cover (and whose sample body
   leaves page 1 blank) keeps page 1 as the cover; `--no-cover-page` turns
-  the cover off, `--cover-page` forces it.
+  the cover off, `--cover-page` keeps page 1 as a cover whenever the first
+  page is distinct.
 * Reference documents with irregularities Word tolerates (Office `[trash]`
   members, data-free ZIP directory entries) are read with those set aside
   and reported; `--strict-package` refuses them as the library does by
@@ -111,9 +119,10 @@ docrs from-markdown memo.md --reference examples/markdown/letterhead.docx \
   one marker paragraph; the default replaces the body.
 * Example templates: `examples/markdown/reference.docx` and
   `letterhead.docx` (built by `cargo run -p docrs --features markdown
-  --example markdown_reference`). `tools/markdown/check.sh DIR --word`
-  re-exports every feature test and reopens the files with python-docx,
-  pandoc and Microsoft Word.
+  --example markdown_reference -- examples/markdown/reference.docx`, which
+  writes `letterhead.docx` next to it). `tools/markdown/check.sh DIR --word`
+  re-exports every feature test and reopens the files with the pinned
+  python-docx oracle, pandoc (when installed) and Microsoft Word for Mac.
 
 ## Node.js and Next.js (WebAssembly)
 
@@ -139,9 +148,12 @@ const { docx, report, referenceSetAside } = fromMarkdown(markdown, {
 });
 ```
 
-Options mirror the CLI flags in camelCase (unknown names are refused);
-errors are `Error`s with `code`, `reason`, `refusal` and `limit`. Also
-exported: `markdownStyles`, `referenceDocument`, `version`. In Next.js, call
+Options follow the CLI flags in camelCase, with `--no-…` flags as booleans
+(`tocNumbers: false`, `templateLists: false`, `coverPage: false`), `styles`
+as an object and images passed in `images`; unknown names are refused.
+Errors are `Error`s with `code`, `reason`, `refusal` and `limit`. Also
+exported: `fromHtml`, `inspectReference`, `markdownStyles`,
+`referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add
 `serverExternalPackages: ["docrs-wasm"]` to `next.config.js`; the
 package README has a complete route.
@@ -168,7 +180,8 @@ reconciliation) and `redline` (verified compare), e.g.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-# Every oracle parity suite plus the loader gate (requires .reference/ and .venv/):
+# Every oracle parity suite plus the loader gate (requires .reference/ and .venv/;
+# without LibreOffice the loader gate reports UNVERIFIED unless --require-libreoffice):
 cargo run --release -p docrs-compat -- check --upstream-rev 3c0f9a5
 ```
 

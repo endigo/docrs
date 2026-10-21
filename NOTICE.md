@@ -18,11 +18,13 @@ The full license text is reproduced in `LICENSE`.
 | `crates/docrs/assets/default-{settings,styles,header,footer,comments}.xml` | `src/docx/templates/` | Verbatim copies; parsed like python-docx (`remove_blank_text`) when a missing part is created |
 | `crates/docrs/src/difflib.rs` | CPython 3.13 `Lib/difflib.py` (PSF License) | Algorithm port of `SequenceMatcher`/`unified_diff` so outputs match the oracle |
 | `crates/docrs/src/unicode/tables.rs` | CPython 3.13 Unicode database (Unicode 15.1) | Generated data tables (`tools/gen_unicode_tables.py`) |
-| `crates/docrs/src/package/zip_read.rs` | `src/docx/_zipguard.py` | Validation rules re-implemented in Rust |
-| `crates/docrs/src/package/{opc,rels,content_types}.rs` | `src/docx/opc/pkgreader.py`, `_rels.py`, `_contenttypes.py` | Validation rules re-implemented in Rust |
+| `crates/docrs/src/p1_pyclass.rs` | CPython 3.13 `str` character classes (Unicode 15.1) | Generated data tables, taken from the pinned oracle |
+| `crates/docrs/src/clock.rs` | `src/docx/_clock.py` | Behavior re-implemented in Rust |
+| `crates/docrs/src/package/{zip_read,names}.rs` | `src/docx/_zipguard.py` | Validation rules re-implemented in Rust |
+| `crates/docrs/src/package/{mod,rels,content_types}.rs` | `src/docx/opc/pkgreader.py`, `_rels.py`, `_contenttypes.py` | Validation rules re-implemented in Rust |
 | `crates/docrs/src/package/{diff,patch}.rs` | `src/docx/_paperpkg.py` | Comparison/patch-save semantics re-implemented in Rust |
-| `crates/docrs/src/{story,search,replace,anchor,protection}.rs` | `src/docx/{story,search,_textatoms,_normalize,protection,blocks}.py` | Behavior re-implemented in Rust |
-| `crates/docrs/src/{controls,bookmarks,links,notes,p1_xpath,p1_pyclass}.rs` | `src/docx/{controls,bookmarks,links,notes}.py`, `search.py::Span._isolate_edge_runs` | Behavior re-implemented in Rust (P1) |
+| `crates/docrs/src/{story,search,normalize,replace,anchor,protection}.rs` | `src/docx/{story,search,_textatoms,_normalize,protection,blocks}.py` | Behavior re-implemented in Rust |
+| `crates/docrs/src/{controls,bookmarks,links,notes}.rs` | `src/docx/{controls,bookmarks,links,notes}.py`, `search.py::Span._isolate_edge_runs` | Behavior re-implemented in Rust (P1) |
 | `crates/docrs/src/{numbering,blocks,fields}.rs` | `src/docx/{numbering,blocks,fields,_fieldcode}.py` | Behavior re-implemented; the `PaperBulletList`/`PaperDecimalList` definitions are copied from `numbering.py` (P2) |
 | `crates/docrs/src/{tableops,styles,formatting}.rs` | `src/docx/{tableops,formatting}.py`, `styles/` | Behavior re-implemented in Rust (P3) |
 | `crates/docrs/src/{authoring,image,drawing}.rs` | `src/docx/{document,blkcntnr,text,table,section,image,drawing,shape}` and `oxml/` | Behavior re-implemented in Rust (P4) |
@@ -33,8 +35,9 @@ The full license text is reproduced in `LICENSE`.
 | `tests/fixtures/upstream/` | `tests/paper/fixtures/` | Frozen fixture corpus with its MANIFEST and sidecars, unmodified |
 
 The upstream Python project is used only as a **development oracle** pinned
-under the ignored `.reference/` directory; nothing in the Rust crates calls
-Python at runtime.
+under the ignored `.reference/` directory, driven by the unpublished
+`docrs-compat` harness; nothing in the published crates (`docrs`,
+`docrs-cli`) or the npm package calls Python.
 
 ## Font metrics
 

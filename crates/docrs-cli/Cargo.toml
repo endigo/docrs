@@ -1,6 +1,6 @@
 [package]
 name = "docrs-cli"
-description = "The docrs command: find, replace, review, compare and compose .docx files without disturbing the rest, and convert Markdown to Word with a template."
+description = "The docrs command: find, replace, review, compare and compose .docx files without disturbing the rest, and convert Markdown or editor HTML to Word with a template."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

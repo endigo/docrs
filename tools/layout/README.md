@@ -9,8 +9,8 @@
 - **units per em** for each face;
 - **hhea ascender, descender and line gap**;
 - **average character width**;
-- **advance widths** for about 400 Latin code points. Symbol fonts get U+F020–F0FF instead, where bullet characters land;
-- **kerning pairs** from the font's `kern` table, between printable ASCII and the typographic quotes and dashes.
+- **advance widths** for 367 code points: Basic Latin, Latin-1, Latin Extended-A, general punctuation and a few symbols. Symbol fonts (Symbol, Wingdings 1–3, Webdings) get U+F020–F0FF instead, where bullet characters land;
+- **kerning pairs** from the font's `kern` table, between printable ASCII, the no-break space, the typographic quotes and dashes, and the ellipsis (text faces only).
 
 It contains numbers only. No font file, outline or glyph data is shipped. This follows the maintainer's decision of 2026-10-20: tables measured from the fonts references actually name, Microsoft fonts included, may be shipped; the fonts themselves may not. The table holds 410 faces of 205 families: 350 KB compressed, 235 KB of it kerning.
 
@@ -20,6 +20,8 @@ Faces are read in Word for Mac's order of precedence:
 2. Word's own (`Microsoft Word.app/Contents/Resources/DFonts`);
 3. Office cloud fonts already downloaded (`~/Library/Group Containers/UBF8T346G9.Office/FontCache/4/CloudFonts`);
 4. any directories given on the command line. Liberation 2.1.5, under the SIL Open Font License, is passed this way, because reference documents made in LibreOffice name it.
+
+Families Word measures at exactly Cambria's line height are ones it substitutes Cambria for (Liberation Mono, for example); they are left out of the table, so layout substitutes them too.
 
 ```
 python3 tools/layout/make_font_metrics.py <liberation-fonts-ttf-2.1.5>
@@ -33,11 +35,11 @@ Word for Mac's single line height is the font's hhea `ascender + descender + lin
 
 Word for Windows uses the OS/2 win metrics instead. So for fonts where the two differ (Aptos, Times New Roman), Windows paginates differently.
 
-Some fonts don't follow the hhea rule. Helvetica measures 1.2006 em against an hhea total of 1.0, and several other Apple fonts deviate too. `line_heights.tsv` holds the line height Word was measured to use for every family in the table: 14 lines of 40 pt text per family, read back through AppleScript, about 0.001 em precise. Where that differs from the formula by more than 0.004 em, and no other copy of the font matches, the generator adjusts the face's line gap so the table gives the measured height.
+Some fonts don't follow the hhea rule. Helvetica measures 1.2007 em against an hhea total of 1.0, and several other Apple fonts deviate too. `line_heights.tsv` holds the line height Word was measured to use for every family in the table: one page (up to 14 lines) of 40 pt text per family, read back through AppleScript, about 0.001 em precise. Where that differs from the formula by more than 0.004 em, and no other copy of the font matches, the generator adjusts the face's line gap so the table gives the measured height.
 
 ## Rules measured in Word for Mac
 
-Each rule below was measured with synthetic documents (the measuring scripts are not included). It is implemented in `flow.rs` or `model.rs` and has a test in `flow.rs` or `tests/layout.rs`.
+Each rule below was measured with synthetic documents (the measuring scripts are not included). It is implemented in `flow.rs`, `model.rs` or `fonts.rs`; most have a test in `flow.rs` or `tests/layout.rs` (kerning and the unknown-font substitution do not yet).
 
 - **Lines mixing fonts:** the line is as tall as the largest ascent plus line gap, plus the largest descent. For example, Calibri with a Symbol bullet is 1.274 em, where each font alone is at most 1.225.
 - **Multiple line spacing** (for example 259/240): each font's extra height, (multiple − 1) × its single height, adds to its own ascent.
