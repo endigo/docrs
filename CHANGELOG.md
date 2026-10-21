@@ -15,6 +15,7 @@
 - **`markdownStyles(reference?, styles?, options?)`** takes options; `limits`, `strictPackage` and `redact` apply as in the other functions.
 - **`now`** must be a finite number of milliseconds from 0 to the end of the year 9999; anything else is refused (`invalid_argument`, `invalid_options`).
 - **Arguments:** a source that is not a string is refused (`invalid_source`); the `reference` argument of `inspectReference` and `markdownStyles` must be a `Uint8Array` (a `Buffer` is one).
+- **Builds** of the npm package use `Cargo.lock` (`--locked`), and CI builds wasm-bindgen-cli from crates.io instead of downloading an unverified binary.
 - **Panics** (bugs) print their message on `console.error`. The call still throws `RuntimeError: unreachable`; load the module again before the next call (README).
 
 ## 0.1.0 (2026-10-21)
