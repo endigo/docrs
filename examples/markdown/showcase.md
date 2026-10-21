@@ -6,7 +6,7 @@ author:
   - Grace Hopper
 date: 19 October 2026
 abstract: |
-  This document exercises every Markdown feature the converter supports.
+  This document exercises the Markdown features the converter supports.
   Each element takes its look from the reference document's styles.
 keywords: [markdown, docx, review]
 toc: true

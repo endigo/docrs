@@ -412,7 +412,8 @@ export interface RoleStyle {
 }
 
 /**
- * Thrown errors are `Error`s with `code` (`refusal`, `invalid_argument`,
+ * Thrown errors are `Error`s with `code` (a refusal kind such as
+ * `malformed_package` or `unsupported_structure`, or `invalid_argument`,
  * `resource_limit`, …), `reason` (a stable identifier such as
  * `malformed_package` reasons or `style_missing`), `refusal` and `limit`.
  */

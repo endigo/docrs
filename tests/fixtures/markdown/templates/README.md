@@ -6,7 +6,7 @@ synthetic test data; no customer templates or client documents.
 
 | File | Represents |
 | -- | -- |
-| `docx-template-missing-pandoc-styles.docx` | Branded firm template as uploaded (Georgia, lower-case `heading N`, Body Text, bordered `Table` style; no First Paragraph/Compact). Its ZIP has a `word/` directory entry with a 2-byte deflate body, which the guarded reader refuses (as upstream does). |
+| `docx-template-missing-pandoc-styles.docx` | Branded firm template as uploaded (Georgia, lower-case `heading N`, Body Text, bordered `Table` style; no First Paragraph/Compact). Its ZIP has `word/` and `word/_rels/` directory entries with 2-byte deflate bodies, which the guarded reader refuses by default (as upstream does). |
 | `docx-template-missing-pandoc-styles.normalised.docx` | The same template after an upload normaliser added the styles Pandoc expects. |
 | `list-style-template.docx` | Branded List Bullet / List Number styles that only hold `w:numPr`; glyphs, colours and indents in `numbering.xml`, with a `w:lvlOverride`. Modelled on a real customer template shape. |
 | `existing-template.docx` | A Word file with no `styles.xml` ("typed in Word, never styled"). |

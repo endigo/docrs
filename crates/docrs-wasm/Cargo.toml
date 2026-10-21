@@ -1,6 +1,6 @@
 [package]
 name = "docrs-wasm"
-description = "WebAssembly bindings of docrs for Node.js (Markdown to DOCX with a reference document)."
+description = "WebAssembly bindings of docrs for Node.js (Markdown or editor HTML to DOCX with a reference document)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

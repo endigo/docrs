@@ -48,7 +48,7 @@ println!("{} warnings", report.warnings.len());
 
 **What the template supplies:** every style, the lists' numbering, page setup, headers, footers and branding. Like pandoc's `--reference-doc`, but formatting the template shows only by hand in its sample content is lifted into proper styles.
 
-**Inputs:** CommonMark with GitHub tables, task lists, footnotes and alerts; definition lists, front matter and LaTeX math (as Word equations). `docrs::markdown::insert_html` takes editor HTML instead.
+**Inputs:** CommonMark with GitHub tables, task lists, footnotes and alerts; definition lists, front matter and LaTeX math (as Word equations). `docrs::markdown::insert_html(&mut document, html, &options)` renders editor HTML into a document instead.
 
 **Table of contents:** it is written out with page numbers computed by estimating Word for Mac's layout from bundled font metrics, so the document opens without an update prompt. Against Word's own update, 95.8% of 1,344 entries on 84 test documents match exactly, and none is more than one page off.
 

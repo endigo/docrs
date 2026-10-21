@@ -7,6 +7,10 @@
 //! unchanged parts keep their original bytes, unknown markup and namespace
 //! scopes survive edits, and every mutating operation either commits
 //! completely or refuses with the document unchanged.
+//!
+//! With the `markdown` feature, `markdown` converts Markdown or editor HTML
+//! into a document styled by a reference template; [`layout`] estimates
+//! Word for Mac's pagination for the table of contents' page numbers.
 
 /// The README's examples, compiled as doctests.
 #[cfg(doctest)]
