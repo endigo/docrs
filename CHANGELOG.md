@@ -9,6 +9,14 @@
 - **`replace --all`** exits 3 and writes nothing when it replaces nothing (no match: `target_not_found`; every match refused: the first refusal), as `replace` without `--all` does. Reports give `replaced_count` and `refused_count`.
 - **`layout --font`** with an unreadable file is an I/O error (exit 5), not an invalid argument.
 
+### Node.js
+
+- **Budgets before copies:** the source, the reference document and images are checked against the `limits` budgets by their size before they are copied into WebAssembly memory. The reference is also held to the package budget `max_archive_bytes` up front.
+- **`markdownStyles(reference?, styles?, options?)`** takes options; `limits`, `strictPackage` and `redact` apply as in the other functions.
+- **`now`** must be a finite number of milliseconds from 0 to the end of the year 9999; anything else is refused (`invalid_argument`, `invalid_options`).
+- **Arguments:** a source that is not a string is refused (`invalid_source`); the `reference` argument of `inspectReference` and `markdownStyles` must be a `Uint8Array` (a `Buffer` is one).
+- **Panics** (bugs) print their message on `console.error`. The call still throws `RuntimeError: unreachable`; load the module again before the next call (README).
+
 ## 0.1.0 (2026-10-21)
 
 The first release. Three packages:

@@ -153,7 +153,10 @@ const { docx, report, referenceSetAside } = fromMarkdown(markdown, {
 Options follow the CLI flags in camelCase, with `--no-…` flags as booleans
 (`tocNumbers: false`, `templateLists: false`, `coverPage: false`), `styles`
 as an object and images passed in `images`; unknown names are refused.
-Errors are `Error`s with `code`, `reason`, `refusal` and `limit`. Also
+Errors are `Error`s with `code`, `reason`, `refusal` and `limit`;
+`limits: "serverless"` budgets apply to every function and refuse oversized
+inputs before copying them. After a panic (a bug; `RuntimeError: unreachable`)
+load the module again. Also
 exported: `fromHtml`, `inspectReference`, `markdownStyles`,
 `referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add
