@@ -38,7 +38,7 @@ echo "$shown"
 step "npm package"
 crates/docrs-wasm/build.sh --pack > /dev/null
 node --test crates/docrs-wasm/js/test.mjs
-tarball="crates/docrs-wasm/pkg/docrs-$version.tgz"
+tarball="crates/docrs-wasm/pkg/docrs-wasm-$version.tgz"
 ls -l "$tarball"
 shasum -a 256 "$tarball"
 

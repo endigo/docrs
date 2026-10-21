@@ -123,10 +123,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm --version
-          if npm view "docrs@$VERSION" version > /dev/null 2>&1; then
-            echo "docrs $VERSION is already on npm"
+          if npm view "docrs-wasm@$VERSION" version > /dev/null 2>&1; then
+            echo "docrs-wasm $VERSION is already on npm"
           else
-            npm publish "docrs-$VERSION.tgz" --access public --provenance
+            npm publish "docrs-wasm-$VERSION.tgz" --access public --provenance
           fi
   release:
     needs: [version, publish-crates, publish-npm]

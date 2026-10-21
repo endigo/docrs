@@ -6,7 +6,7 @@ Three packages ship together at one version:
 | -- | -- | -- |
 | `docrs` (library) | crates.io | `crates/docrs` |
 | `docrs-cli` (binary `docrs`) | crates.io and GitHub release binaries | `crates/docrs-cli` |
-| `docrs` (WebAssembly) | npm | `crates/docrs-wasm` |
+| `docrs-wasm` (WebAssembly) | npm | `crates/docrs-wasm` |
 
 `docrs-compat` (the oracle harness) and the `docrs-wasm` crate are not published.
 
@@ -21,12 +21,12 @@ The publish jobs run in the GitHub environment `release`. Give it required revie
 **Trusted publishing** (no stored tokens) is the default. It needs each package to exist on its registry first, so it can be set up only after the first release:
 
 - crates.io: on each of `docrs` and `docrs-cli`, Settings → Trusted Publishing → GitHub. Repository `endigo/docrs`, workflow `release.yml`, environment `release`.
-- npm: on `docrs`, Settings → Trusted publishing → GitHub Actions. Same repository, workflow and environment. Allow `npm publish`, because new configurations otherwise allow only `npm stage publish`.
+- npm: on `docrs-wasm`, Settings → Trusted publishing → GitHub Actions. Same repository, workflow and environment. Allow `npm publish`, because new configurations otherwise allow only `npm stage publish`.
 
 **Tokens**, for the first release, or instead of trusted publishing. Add them as secrets of the `release` environment; while one is set, the workflow uses it:
 
 - `CARGO_REGISTRY_TOKEN`: a crates.io API token (crates.io → Account Settings → API Tokens) with the publish-new and publish-update scopes.
-- `NPM_TOKEN`: an npm granular access token with read and write access to packages and "bypass two-factor authentication" enabled. npm requires 2FA for publishing, so a token needs it.
+- `NPM_TOKEN`: an npm granular access token with read and write access to packages and "bypass two-factor authentication" enabled. npm is phasing out direct publishing with such tokens. When it asks for a one-time password instead (`EOTP`), publish the first version by hand from the run's `npm` artifact (`npm publish docrs-wasm-VERSION.tgz --access public`, with your 2FA code) and rerun the failed jobs; the workflow then skips npm.
 
 After the first release, set up trusted publishing and delete both secrets.
 

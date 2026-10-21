@@ -1,4 +1,4 @@
-# docrs
+# docrs-wasm
 
 Markdown or rich-text editor HTML to Word (`.docx`) with a reference
 document, compiled to WebAssembly for Node.js. Your template supplies every style, the lists'
@@ -6,7 +6,7 @@ numbering, page setup, headers, footers and branding; the Markdown supplies
 the body. No native binaries, no pandoc, no LibreOffice.
 
 ```js
-const { fromMarkdown } = require("docrs");
+const { fromMarkdown } = require("docrs-wasm");
 
 const { docx, report } = fromMarkdown(markdown, {
   reference: templateBytes, // Uint8Array of a .docx (optional)
@@ -20,7 +20,7 @@ const { docx, report } = fromMarkdown(markdown, {
 Editor HTML (TipTap's `getHTML()` and similar) takes the same options:
 
 ```js
-const { fromHtml } = require("docrs");
+const { fromHtml } = require("docrs-wasm");
 
 const { docx, report } = fromHtml(editorHtml, {
   reference: templateBytes,
@@ -50,12 +50,12 @@ it out of the server bundle so its `.wasm` file is loaded from the package:
 
 ```js
 // next.config.js
-module.exports = { serverExternalPackages: ["docrs"] };
+module.exports = { serverExternalPackages: ["docrs-wasm"] };
 ```
 
 ```ts
 // app/api/export/route.ts
-import { fromMarkdown } from "docrs";
+import { fromMarkdown } from "docrs-wasm";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
