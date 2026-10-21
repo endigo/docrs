@@ -1,0 +1,5 @@
+# Check out text with LF everywhere; tests compare bytes and hashes.
+* text=auto eol=lf
+# Fixtures are byte-for-byte test inputs, some hashed in MANIFEST.sha256.
+tests/fixtures/** -text
+examples/** -text
