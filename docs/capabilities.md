@@ -31,7 +31,7 @@ Unsupported operations never report success as a no-op.
 | Styles read API (names, ids, defaults, latent styles) | `styles::Styles` | shipped (M4) | ops `m4-styles-*`: 56 pass, 1 deviation |
 | Protection status / acknowledgment / gate | `Document::{protection_status, acknowledge_protection}` | shipped (M3) | `tests/replace.rs::protection_gate_follows_the_matrix`, `tests/cases/m3-protection.json` |
 | Safe untracked replacement (same owner, affix-localized, narrowing across breaks) | `Document::replace`, CLI `replace` | shipped (M3) | `m3-parity`: 2,565 cases identical + 1 deviation; `tests/replace.rs`; CLI tests |
-| replace_all (atomic batch, per-match refusals) | `Document::replace_all`, CLI `replace --all` | shipped (M3) | `m3-parity`, `tests/replace.rs::replace_all_reports_refusals_and_commits_the_rest_atomically` |
+| replace_all (atomic batch, per-match refusals) | `Document::replace_all`, CLI `replace --all` (exit 3 and no output when nothing is replaced) | shipped (M3) | `m3-parity`, `tests/replace.rs::replace_all_reports_refusals_and_commits_the_rest_atomically`, `cli.rs::replace_all_reports_the_count_and_refuses_when_nothing_matches` |
 | `preserve_revision` editing of insertions | `ReplaceOptions::preserve_revision` | implemented, not yet covered (no case or test sets it) | — |
 | Replacement crossing paragraphs, hyperlinks, controls, fields, revisions, positional markers, bookmarks (hollowing) | `Document::replace` | refuses (typed) | `m3-parity`, `tests/cases/m3-structure-refusals.json` |
 | Protection write (`set_protection`) | `Document::set_protection` | shipped (M4) | ops `m4-protection*` |

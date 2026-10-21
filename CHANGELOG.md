@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Command line
+
+- **Panics** are reported as an internal error (exit 70, code `internal`, reason `internal_panic`, the JSON envelope under `--json`) instead of Rust's panic message and exit 101.
+- **Argument errors under `--json`** are the JSON error envelope (`invalid_argument`, exit 2) instead of plain text. `--help` and `--version` still print text and exit 0.
+- **`replace --all`** exits 3 and writes nothing when it replaces nothing (no match: `target_not_found`; every match refused: the first refusal), as `replace` without `--all` does. Reports give `replaced_count` and `refused_count`.
+- **`layout --font`** with an unreadable file is an I/O error (exit 5), not an invalid argument.
+
 ## 0.1.0 (2026-10-21)
 
 The first release. Three packages:
