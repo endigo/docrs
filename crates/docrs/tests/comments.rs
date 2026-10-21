@@ -349,3 +349,52 @@ fn historical_view_spans_cannot_anchor_comments() {
     let span = find(&doc, "keep");
     add_comment(&mut doc, &span, "note", "Reviewer", None, date()).unwrap();
 }
+
+/// One comment (anchored or not), then every `from` in the comment parts
+/// rewritten to `to` (ids at the edge of their range), reopened.
+fn comment_parts_rewritten(anchored: bool, from: &str, to: &str) -> Vec<u8> {
+    let mut doc = target_doc();
+    if anchored {
+        let span = find(&doc, "comment target");
+        span.comment(&mut doc, "first", "A", None, date()).unwrap();
+    } else {
+        add_unanchored_comment(&mut doc, "first", "A", None, date()).unwrap();
+    }
+    for part in [
+        "word/comments.xml",
+        "word/commentsIds.xml",
+        "word/commentsExtensible.xml",
+    ] {
+        let rewritten = xml(&doc, part).replace(from, to);
+        let tree = docrs::xml::parse_str(&rewritten).unwrap();
+        doc.package_mut_for_tests().commit_tree(part, tree).unwrap();
+    }
+    doc.patch_bytes().unwrap().0
+}
+
+#[test]
+fn comment_ids_past_the_signed_32_bit_range_reuse_the_lowest_gap() {
+    for highest in ["2147483647", "9223372036854775807"] {
+        let bytes = comment_parts_rewritten(false, r#"w:id="0""#, &format!(r#"w:id="{highest}""#));
+        let mut doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+        let comment = add_unanchored_comment(&mut doc, "second", "A", None, date()).unwrap();
+        assert_eq!(comment.comment_id, 0, "{highest}");
+    }
+}
+
+#[test]
+fn para_ids_refuse_to_reach_0x80000000() {
+    let bytes = comment_parts_rewritten(true, "10000001", "7FFFFFFF");
+    let mut doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let parent = doc.comments().unwrap().iter().next().unwrap().clone();
+    let err = reply(&mut doc, &parent, "no room", "B", None, date()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidArgument, "{err}");
+    assert_eq!(err.reason(), "para_id_exhausted");
+    assert_eq!(doc.patch_bytes().unwrap().0, bytes);
+
+    let bytes = comment_parts_rewritten(true, "10000001", "7FFFFFFE");
+    let mut doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let parent = doc.comments().unwrap().iter().next().unwrap().clone();
+    reply(&mut doc, &parent, "last one", "B", None, date()).unwrap();
+    assert!(xml(&doc, "word/comments.xml").contains(r#"w14:paraId="7FFFFFFF""#));
+}

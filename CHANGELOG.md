@@ -7,6 +7,7 @@
 - **Protection:** every inherited writer now honours Restrict Editing: authoring (paragraphs, runs, tables, cells, pictures, tab stops, `clear_body_content`), sections, headers and footers, styles and latent styles, and core properties. A forbidden edit refuses `document_protected` and changes nothing; `Document::acknowledge_protection` lets it through. `Run::mark_comment_range` counts as a comment edit. `Document::ensure_styles_part` refuses only when it would create the part.
 - **Compare:** an original under Restrict Editing that forbids body edits is refused unless the new `CompareOptions::acknowledge_protection` is set (CLI: `compare --acknowledge-protection`). The redline no longer comes back with protection acknowledged on the caller's behalf. `author` is validated like other writers' text (XML 1.0, no control characters, at most `MAX_AUTHOR_CHARS` = 255 characters), and the redline is committed through the transaction path.
 - **Comments:** a span captured under `view=original` or `view=all` no longer anchors a comment (`Span::comment`, `comments::add_comment`); it refuses `historical_view_target` like replace does, so a comment cannot anchor on deleted text.
+- **Comment ids:** allocating a comment `w:id` after an id at the 64-bit limit no longer overflows; past the signed 32-bit range the lowest free id is reused as before. A new `w14:paraId` that would reach `0x80000000` refuses `invalid_argument(para_id_exhausted)` instead of writing an id Word rejects.
 
 ## 0.1.0 (2026-10-21)
 
