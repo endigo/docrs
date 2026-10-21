@@ -352,7 +352,8 @@
       "outcome": "ok"
      }
     ]
-   }
+   },
+   "deviation": "platform-dependent upstream: python-docx writes dates with strftime('%Y'), which glibc (Linux) does not zero-pad below year 1000, so the oracle writes modified as '999-12-31T23:59:59Z' and reads it back as None; macOS Python and Rust write '0999-12-31T23:59:59Z' and read it back"
   },
   {
    "name": "revision-42-then-1",
