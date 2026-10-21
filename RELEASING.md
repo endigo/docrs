@@ -10,12 +10,25 @@ Three packages ship together at one version:
 
 `docrs-compat` (the oracle harness) and the `docrs-wasm` crate are not published.
 
-## Before the first release
+A version tag publishes everything: `.github/workflows/release.yml` builds the CLI for Linux (x86_64, arm64), macOS (arm64, x86_64) and Windows (x86_64) and the npm tarball. It then publishes both crates to crates.io and the tarball to npm, and creates the GitHub release with the archives, `SHA256SUMS` and the changelog section. Pushing the tag, or creating a release with a new tag on GitHub, starts it.
 
-1. Fill in the `TODO(release)` field in `Cargo.toml`: `repository`.
-2. Add `repository` to `crates/docrs-wasm/js/package.json`, and delete `"private": true`.
-3. Create the GitHub repository and push to it. `.github/workflows/release.yml` builds the CLI binaries.
-4. Get publish rights: a crates.io API token (`cargo login`) and an npm account (`npm login`). The names `docrs` and `docrs-cli` on crates.io and `docrs` on npm were free on 2026-10-21.
+A version on crates.io or npm can't be replaced, only yanked or deprecated. Fix forward with a new version.
+
+## Registry access
+
+The publish jobs run in the GitHub environment `release`. Give it required reviewers (Settings → Environments) if you want to approve each publish.
+
+**Trusted publishing** (no stored tokens) is the default. It needs each package to exist on its registry first, so it can be set up only after the first release:
+
+- crates.io: on each of `docrs` and `docrs-cli`, Settings → Trusted Publishing → GitHub. Repository `endigo/docrs`, workflow `release.yml`, environment `release`.
+- npm: on `docrs`, Settings → Trusted publishing → GitHub Actions. Same repository, workflow and environment. Allow `npm publish`, because new configurations otherwise allow only `npm stage publish`.
+
+**Tokens**, for the first release, or instead of trusted publishing. Add them as secrets of the `release` environment; while one is set, the workflow uses it:
+
+- `CARGO_REGISTRY_TOKEN`: a crates.io API token (crates.io → Account Settings → API Tokens) with the publish-new and publish-update scopes.
+- `NPM_TOKEN`: an npm granular access token with read and write access to packages and "bypass two-factor authentication" enabled. npm requires 2FA for publishing, so a token needs it.
+
+After the first release, set up trusted publishing and delete both secrets.
 
 ## Each release
 
@@ -29,12 +42,6 @@ Three packages ship together at one version:
    - the npm tests passing.
 
    The oracle parity gates need `.reference/` and `.venv/`: `cargo run --release -p docrs-compat -- check --upstream-rev 3c0f9a5`.
-4. Commit, then tag and push: `git tag v0.1.0 && git push origin main v0.1.0`. The release workflow checks the tag against the version (`tools/release/version.sh v0.1.0`). It builds the CLI for Linux (x86_64, arm64), macOS (arm64, x86_64) and Windows (x86_64), builds the npm tarball, and drafts a GitHub release with the archives, `SHA256SUMS` and the changelog section.
-5. Publish:
-   ```bash
-   cargo publish -p docrs -p docrs-cli   # library first, then the CLI
-   (cd crates/docrs-wasm/pkg && npm publish)     # the tarball check.sh built
-   ```
-6. Review the draft GitHub release and publish it.
+4. Merge to `main`, then tag and push: `git tag v0.1.0 && git push origin v0.1.0`. You can also create the release on GitHub with a new tag `v0.1.0` on `main`.
 
-A version on crates.io or npm can't be replaced, only yanked or deprecated. Fix forward with a new version.
+The workflow refuses a tag that doesn't match the version, or a version with anything left open (`tools/release/ready.sh`). Each publish step skips what its registry already has, so a failed run can be rerun from the Actions tab.

@@ -3,7 +3,11 @@
   "description": "Markdown or editor HTML to Word (.docx) with a reference document: styles, lists, tables, headers and footers come from your template. WebAssembly, no native dependencies.",
   "license": "MIT",
   "author": "endigo",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endigo/docrs.git",
+    "directory": "crates/docrs-wasm"
+  },
   "main": "docrs.js",
   "types": "docrs.d.ts",
   "files": [

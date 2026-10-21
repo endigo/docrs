@@ -14,8 +14,7 @@ edition = "2024"
 rust-version = "1.88.0"
 license = "MIT"
 authors = ["endigo"]
-# TODO(release): repository, e.g.
-# repository = "https://github.com/OWNER/docrs"
+repository = "https://github.com/endigo/docrs"
 keywords = ["docx", "word", "ooxml", "markdown", "document"]
 
 [workspace.dependencies]

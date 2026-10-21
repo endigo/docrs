@@ -43,9 +43,4 @@ ls -l "$tarball"
 shasum -a 256 "$tarball"
 
 step "open before publishing"
-open=0
-grep -n "TODO(release)" Cargo.toml crates/*/Cargo.toml && open=1
-grep -n '"private": true' crates/docrs-wasm/js/package.json && open=1
-grep -q "^## $version (unreleased)" CHANGELOG.md && { echo "CHANGELOG.md: date the $version section"; open=1; }
-[ $open = 0 ] && echo "nothing; ready to publish (RELEASING.md)"
-exit 0
+tools/release/ready.sh "$version" || true
