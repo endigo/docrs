@@ -96,6 +96,14 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   (glyphs, colours, indents) where it defines them; `--converter-lists`
   uses the converter's definitions instead. Simple HTML blocks (tables
   with lists in cells, `<p></p>` blank lines) are converted too.
+* HTML browsers do not display (`<head>`, `<title>`, `<style>`,
+  `<script>`, `<template>`, `<noscript>`, …) is dropped with its content
+  and reported (`html_element_skipped`). Tables wider than Word's 63
+  columns are narrowed: spans are cut back and cells past the last column
+  merge into it (`table_columns_clamped`).
+* Input nested deeper than 128 levels (block quotes, lists, emphasis,
+  links, HTML elements, math groups) is refused with `resource_limit`
+  (`markdown_nesting_too_deep`) before anything changes.
 * Tables span the full text width; cells use a compact Table Contents
   style. The table of contents is written out with links to each heading
   and page numbers computed by estimating Word for Mac's layout, so it needs
