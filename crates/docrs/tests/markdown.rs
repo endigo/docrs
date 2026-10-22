@@ -543,7 +543,7 @@ fn local_images_stay_inside_the_resource_directory() {
     std::fs::write(dir.join("img/dot.png"), png_bytes()).unwrap();
     let secret = outer.path().join("secret.png");
     std::fs::write(&secret, png_bytes()).unwrap();
-    let mut markdown = format!(
+    let markdown = format!(
         "![in](img/dot.png)\n\n![dotted](./img/../img/dot.png)\n\n\
          ![up](../secret.png)\n\n![up missing](../nope.png)\n\n\
          ![encoded](%2e%2e%2fsecret.png)\n\n![absolute](<{abs}>)\n\n\
@@ -551,8 +551,10 @@ fn local_images_stay_inside_the_resource_directory() {
          ![unc](//server/share/x.png)\n\n![unc2](\\\\\\\\server\\\\share\\\\x.png)\n",
         abs = secret.display()
     );
+    // Symbolic links are a Unix-only case; the source is immutable elsewhere.
     #[cfg(unix)]
-    {
+    let markdown = {
+        let mut markdown = markdown;
         std::os::unix::fs::symlink(&secret, dir.join("img/link.png")).unwrap();
         markdown.push_str("\n![link](img/link.png)\n");
         // A linked directory leading out: an existing and a missing file
@@ -561,7 +563,8 @@ fn local_images_stay_inside_the_resource_directory() {
         markdown.push_str(
             "\n![via link](img/out/secret.png)\n\n![via link missing](img/out/nope.png)\n",
         );
-    }
+        markdown
+    };
     let options = MarkdownOptions {
         resource_dir: Some(dir.clone()),
         ..MarkdownOptions::default()
