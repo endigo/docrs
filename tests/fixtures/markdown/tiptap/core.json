@@ -694,11 +694,23 @@
   {
    "type": "image",
    "attrs": {
+    "textAlign": null,
     "src": "https://store.example/logo.png?token=t",
     "alt": "Logo",
     "title": "The logo",
     "width": 200,
     "height": 80
+   }
+  },
+  {
+   "type": "image",
+   "attrs": {
+    "textAlign": "center",
+    "src": "https://store.example/seal.png?token=s",
+    "alt": "Seal",
+    "title": null,
+    "width": 120,
+    "height": 120
    }
   },
   {

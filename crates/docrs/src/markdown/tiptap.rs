@@ -7,7 +7,8 @@
 //! Markdown and HTML sources produce, so a document converts the same from
 //! its JSON as from its `getHTML()`: paragraphs and headings with
 //! `textAlign`, bullet, ordered and task lists, block quotes, code blocks,
-//! rules, hard breaks, images, tables with `colspan`, `rowspan` and
+//! rules, hard breaks, images (a picture standing alone in its paragraph
+//! aligns it by its own `textAlign`), tables with `colspan`, `rowspan` and
 //! `colwidth`, the marks bold, italic, underline, strike, code, subscript,
 //! superscript, link, highlight and textStyle (colour, font, size,
 //! background), inline and block math, details, mentions, YouTube embeds
@@ -337,15 +338,53 @@ impl Converter {
         }
     }
 
+    /// The alignment of a paragraph holding `content`: `own` (the
+    /// paragraph's attribute) or, for a picture standing alone, the
+    /// picture's `textAlign` (Tiptap's TextAlign extension configured for
+    /// `image`). A picture's alignment the paragraph cannot follow is
+    /// reported as dropped.
+    fn with_pictures(
+        &mut self,
+        own: Option<Align>,
+        content: &[&Value],
+        parent: &str,
+    ) -> Option<Align> {
+        let mut align = own;
+        for value in content {
+            // `inlines` read the same nodes already, so none can be refused here.
+            let Some(picture) = read(value, &inside(parent))
+                .ok()
+                .filter(|node| node.kind == "image")
+            else {
+                continue;
+            };
+            let wanted = self.align(&picture);
+            if own.is_none() && content.len() == 1 {
+                align = wanted;
+            } else if wanted.is_some() && wanted != align {
+                self.drop_attr("textAlign", "image");
+            }
+        }
+        align
+    }
+
     /// Block content of `nodes`; inline nodes among them form paragraphs
-    /// (or plain blocks when `plain`, inside list items and cells).
+    /// (or plain blocks when `plain`, inside list items and cells). A
+    /// picture with an alignment of its own is a paragraph of its own.
     fn blocks(&mut self, nodes: &[Value], plain: bool, parent: &str) -> Result<Vec<Block>> {
         let mut out = Vec::new();
         let mut pending: Vec<&Value> = Vec::new();
         for value in nodes {
             let node = read(value, &inside(parent))?;
             if is_inline(node.kind) {
-                pending.push(value);
+                let align = (node.kind == "image").then(|| self.align(&node)).flatten();
+                if align.is_none() {
+                    pending.push(value);
+                    continue;
+                }
+                self.flush(&mut pending, plain, parent, &mut out)?;
+                let picture = paragraph(vec![self.image(&node)], plain);
+                out.extend(aligned(align, vec![picture]));
                 continue;
             }
             self.flush(&mut pending, plain, parent, &mut out)?;
@@ -380,20 +419,24 @@ impl Converter {
         let kind = node.kind;
         match kind {
             "paragraph" => {
-                let inlines = self.inlines(&refs(node.content), kind)?;
+                let content = refs(node.content);
+                let inlines = self.inlines(&content, kind)?;
                 let align = self.align(node);
+                let align = self.with_pictures(align, &content, kind);
                 out.extend(aligned(align, vec![paragraph(inlines, plain)]));
             }
             "heading" => {
                 let level = node
                     .number_attr("level")
                     .map_or(1, |level| level.clamp(1.0, 9.0) as u8);
+                let content = refs(node.content);
                 let heading = Block::Heading {
                     level,
                     id: node.text_attr("id").map(str::to_string),
-                    content: self.inlines(&refs(node.content), kind)?,
+                    content: self.inlines(&content, kind)?,
                 };
                 let align = self.align(node);
+                let align = self.with_pictures(align, &content, kind);
                 out.extend(aligned(align, vec![heading]));
             }
             "blockquote" => {
@@ -484,9 +527,12 @@ impl Converter {
     }
 
     fn summary(&mut self, node: &Node, plain: bool, out: &mut Vec<Block>) -> Result<()> {
-        let inlines = self.inlines(&refs(node.content), node.kind)?;
+        let content = refs(node.content);
+        let inlines = self.inlines(&content, node.kind)?;
         if !inlines.is_empty() {
-            out.push(paragraph(vec![Inline::Strong(inlines)], plain));
+            let align = self.with_pictures(None, &content, node.kind);
+            let summary = paragraph(vec![Inline::Strong(inlines)], plain);
+            out.extend(aligned(align, vec![summary]));
         }
         Ok(())
     }

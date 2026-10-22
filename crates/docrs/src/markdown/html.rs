@@ -522,6 +522,34 @@ fn page_break_sides(attrs: &[(String, String)]) -> (bool, bool) {
     sides
 }
 
+/// The alignment a picture asks for: `text-align` on the `img`, as Tiptap's
+/// TextAlign extension writes it when configured for `image`.
+fn image_align(attrs: &[(String, String)]) -> Option<Align> {
+    declarations(attrs)
+        .iter()
+        .filter(|(property, _)| property == "text-align")
+        .filter_map(|(_, value)| css_align(value))
+        .next_back()
+}
+
+/// The attributes of every `img` among `nodes`, inside inline elements too.
+fn pictures<'a>(nodes: &'a [Node], out: &mut Vec<&'a [(String, String)]>) {
+    for node in nodes {
+        if let Node::Element {
+            name,
+            attrs,
+            children,
+        } = node
+        {
+            if name == "img" {
+                out.push(attrs);
+            } else {
+                pictures(children, out);
+            }
+        }
+    }
+}
+
 /// Whether `nodes` hold no text (only whitespace and line breaks).
 fn is_blank(nodes: &[Node]) -> bool {
     nodes.iter().all(|node| match node {
@@ -741,6 +769,31 @@ impl Converter {
         align
     }
 
+    /// The alignment of a paragraph made of `nodes`: `own` (its element's)
+    /// or, for a picture standing alone, the picture's `text-align`. A
+    /// picture's alignment the paragraph cannot follow is reported.
+    fn picture_align(&mut self, own: Option<Align>, nodes: &[Node]) -> Option<Align> {
+        let mut align = own;
+        let alone = nodes
+            .iter()
+            .filter(|node| !matches!(node, Node::Text(text) if text.trim().is_empty()))
+            .count()
+            == 1;
+        let mut found = Vec::new();
+        pictures(nodes, &mut found);
+        for attrs in found {
+            let Some(wanted) = image_align(attrs) else {
+                continue;
+            };
+            if own.is_none() && alone {
+                align = Some(wanted);
+            } else if Some(wanted) != align {
+                self.note_style("img", "text-align");
+            }
+        }
+        align
+    }
+
     fn image(&mut self, attrs: &[(String, String)]) -> Inline {
         let mut size = [("width", None), ("height", None)];
         for (name, value) in size.iter_mut() {
@@ -763,6 +816,8 @@ impl Converter {
                 }
                 // Pictures never exceed the text width anyway.
                 "max-width" | "max-height" | "display" => {}
+                // Read by the block holding the picture (`picture_align`).
+                "text-align" => {}
                 _ => self.note_style("img", &property),
             }
         }
@@ -882,6 +937,22 @@ impl Converter {
         };
         for node in nodes {
             if is_inline(node) {
+                // A picture with an alignment of its own (Tiptap's block
+                // image) is a paragraph of its own.
+                if let Node::Element { name, attrs, .. } = node
+                    && name == "img"
+                    && let Some(align) = image_align(attrs)
+                {
+                    flush(self, &mut pending, &mut out);
+                    let picture = vec![self.image(attrs)];
+                    let block = if plain {
+                        Block::Plain(picture)
+                    } else {
+                        Block::Paragraph(picture)
+                    };
+                    out.extend(aligned(Some(align), vec![block]));
+                    continue;
+                }
                 pending.push(node.clone());
                 continue;
             }
@@ -915,20 +986,22 @@ impl Converter {
                         .or(self.block_align(name, attrs, &[]))
                         .or((name == "center").then_some(Align::Center));
                     let has_blocks = children.iter().any(|c| !is_inline(c));
-                    let inner = if has_blocks {
-                        self.blocks(children, plain)
+                    let (align, inner) = if has_blocks {
+                        (align, self.blocks(children, plain))
                     } else {
                         let inlines = trim_inlines(self.inlines(children));
-                        vec![if plain {
+                        let block = if plain {
                             Block::Plain(inlines)
                         } else {
                             Block::Paragraph(inlines)
-                        }]
+                        };
+                        (self.picture_align(align, children), vec![block])
                     };
                     out.extend(aligned(align, inner));
                 }
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                     let align = self.block_align(name, attrs, &[]);
+                    let align = self.picture_align(align, children);
                     let heading = Block::Heading {
                         level: name[1..].parse().unwrap_or(1),
                         id: attr(attrs, "id").map(str::to_string),
@@ -1530,7 +1603,10 @@ mod tests {
         let (blocks, unmapped) = read(
             "<h2 style=\"text-align: center;\">T</h2><p style=\"text-align: justify;\">J</p>\
              <div data-image-align=\"right\" style=\"text-align: right;\"><img src=\"a.png\" alt=\"A\" width=\"200\" height=\"80\"></div>\
-             <div data-page-break=\"\" class=\"rich-text-page-break\"></div><p style=\"page-break-before: always\">P</p>",
+             <div data-page-break=\"\" class=\"rich-text-page-break\"></div><p style=\"page-break-before: always\">P</p>\
+             <img style=\"text-align: center;\" src=\"b.png\" alt=\"B\">\
+             <p><img style=\"text-align: right;\" src=\"c.png\" alt=\"C\"></p>\
+             <p style=\"text-align: justify;\"><img style=\"text-align: justify;\" src=\"d.png\" alt=\"D\"></p>",
         );
         assert!(
             unmapped.styles.is_empty() && unmapped.tags.is_empty(),
@@ -1548,6 +1624,33 @@ mod tests {
         assert_eq!(blocks[3], Block::PageBreak);
         assert_eq!(blocks[4], Block::PageBreak);
         assert!(matches!(&blocks[5], Block::Paragraph(_)));
+        // Tiptap's own HTML for an aligned picture: `text-align` on the `img`,
+        // at the top level (block image) or alone in its paragraph.
+        for (block, align) in [
+            (&blocks[6], Align::Center),
+            (&blocks[7], Align::Right),
+            (&blocks[8], Align::Justify),
+        ] {
+            assert!(
+                matches!(block, Block::Aligned(a, b) if *a == align
+                    && matches!(&**b, Block::Paragraph(i) if matches!(&i[..], [Inline::Image { .. }]))),
+                "{block:?}"
+            );
+        }
+        assert_eq!(blocks.len(), 9);
+
+        // A picture among text, or asking for another alignment than its
+        // paragraph, cannot be followed.
+        let (blocks, unmapped) = read(
+            "<p>t <img style=\"text-align: center;\" src=\"e.png\" alt=\"E\"> u</p>\
+             <p style=\"text-align: right;\"><a href=\"https://x.example\"><img style=\"text-align: center;\" src=\"f.png\" alt=\"F\"></a></p>",
+        );
+        assert_eq!(unmapped.styles, ["text-align on <img>"]);
+        assert!(matches!(&blocks[0], Block::Paragraph(_)), "{blocks:?}");
+        assert!(
+            matches!(&blocks[1], Block::Aligned(Align::Right, _)),
+            "{blocks:?}"
+        );
         assert!(is_page_break_element("<div data-page-break=\"\"></div>"));
         assert!(!is_page_break_element(
             "<p>x</p><div data-page-break></div>"
