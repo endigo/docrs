@@ -1,7 +1,7 @@
 # docrs-wasm
 
-Markdown or rich-text editor HTML to Word (`.docx`) with a reference
-document, compiled to WebAssembly for Node.js. Your template supplies every style, the lists'
+Markdown, rich-text editor HTML or TipTap JSON to Word (`.docx`) with a
+reference document, compiled to WebAssembly for Node.js. Your template supplies every style, the lists'
 numbering, page setup, headers, footers and branding; the Markdown supplies
 the body. No native binaries, no pandoc, no LibreOffice.
 
@@ -35,6 +35,27 @@ cell alignment, column widths, merged cells (`colspan`/`rowspan`), picture
 sizes and alignment, and page breaks. CSS it cannot map is reported
 (`html_style_dropped`).
 
+A TipTap document converts from its JSON directly, without `getHTML()` in
+between, with the same options:
+
+```js
+const { fromTiptap } = require("docrs-wasm");
+
+const { docx, report } = fromTiptap(editor.getJSON(), { reference: templateBytes });
+// also takes the JSON as a string
+```
+
+It maps the nodes and marks of Tiptap 3's own extensions (headings and
+paragraphs with `textAlign`, bold, italic, underline, strike, code,
+subscript, superscript, links, highlights, text styles, bullet, ordered and
+task lists, quotes, code blocks, rules, hard breaks, images, tables with
+spans and `colwidth`, inline and block math, details, mentions, YouTube
+links, a table of contents and page breaks) to the same document the HTML
+gives. Node, mark and attribute types with no Word equivalent are reported
+(`tiptap_node_dropped`, `tiptap_mark_dropped`, `tiptap_attribute_dropped`);
+their text is kept. A source that is not a `doc` node is refused
+(`tiptap_json_invalid`).
+
 Also exported: `inspectReference(reference, options?)` (what a conversion
 will take from a template: role styles, lifted branding, the section kept,
 headers and footers, compatibility mode, plain-language problems),
@@ -51,12 +72,17 @@ and 12 MiB of reference and images together. `now` must be a finite number
 of milliseconds from 0 to the end of the year 9999.
 
 A panic is a bug in docrs-wasm. The module is built to abort on a panic
-(WebAssembly has no unwinding here): the call throws
-`RuntimeError: unreachable` and the panic message goes to `console.error`.
-The instance may still answer calls afterwards, but its memory can be
-inconsistent, so load the module again before the next call (for example
-`delete require.cache[require.resolve("docrs-wasm")]` and `require` it
-again; existing references keep the old instance).
+(WebAssembly has no unwinding here): the call throws a
+`WebAssembly.RuntimeError` (`unreachable`; after repeated panics `memory
+access out of bounds`) with no `code`, and the first panic's message goes
+to `console.error`. The instance may still answer calls afterwards, but
+every panic leaks what the call had allocated and a later panic prints
+nothing, so treat any `RuntimeError` as the end of that instance: load the
+module again before the next call (`delete
+require.cache[require.resolve("docrs-wasm")]` and `require` it again, or
+`createRequire` from an ES module; `import()` returns the cached module)
+and retry once. Existing references keep the old instance alive; drop them
+and its memory is collected.
 
 ## Next.js
 

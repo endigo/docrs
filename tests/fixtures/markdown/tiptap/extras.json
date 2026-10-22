@@ -1,0 +1,95 @@
+{
+ "type": "doc",
+ "content": [
+  {
+   "type": "paragraph",
+   "attrs": {
+    "textAlign": null
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "See "
+    },
+    {
+     "type": "mention",
+     "attrs": {
+      "id": "42",
+      "label": "Jane",
+      "mentionSuggestionChar": "@"
+     }
+    },
+    {
+     "type": "text",
+     "text": " and "
+    },
+    {
+     "type": "emoji",
+     "attrs": {
+      "name": "rocket"
+     }
+    },
+    {
+     "type": "text",
+     "text": " for "
+    },
+    {
+     "type": "inlineMath",
+     "attrs": {
+      "latex": "E = mc^2"
+     }
+    },
+    {
+     "type": "text",
+     "text": "."
+    }
+   ]
+  },
+  {
+   "type": "blockMath",
+   "attrs": {
+    "latex": "\\int_0^1 x\\,dx"
+   }
+  },
+  {
+   "type": "details",
+   "content": [
+    {
+     "type": "detailsSummary",
+     "content": [
+      {
+       "type": "text",
+       "text": "More"
+      }
+     ]
+    },
+    {
+     "type": "detailsContent",
+     "content": [
+      {
+       "type": "paragraph",
+       "attrs": {
+        "textAlign": null
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "hidden"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "youtube",
+   "attrs": {
+    "src": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "start": 0,
+    "width": 640,
+    "height": 480
+   }
+  }
+ ]
+}

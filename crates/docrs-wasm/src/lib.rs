@@ -1,5 +1,5 @@
-//! WebAssembly bindings of `docrs` for Node.js: Markdown or
-//! editor HTML to DOCX with a reference document, the same conversion as
+//! WebAssembly bindings of `docrs` for Node.js: Markdown, editor HTML or
+//! TipTap JSON to DOCX with a reference document, the same conversion as
 //! the CLI's `from-markdown`, and the reference document inspection of
 //! `markdown-inspect`.
 //!
@@ -79,7 +79,7 @@ pub struct Options {
 
 /// Budgets on what the caller passes in, beyond the package budgets.
 struct InputLimits {
-    /// Markdown or HTML source, in bytes.
+    /// Markdown, HTML or JSON source, in bytes.
     source: u64,
     /// The reference document and all supplied images together, in bytes.
     input: u64,
@@ -238,7 +238,7 @@ fn markdown_options(
     })
 }
 
-/// Convert `source` (Markdown or editor HTML, by `format`) with `options`
+/// Convert `source` (Markdown, editor HTML or TipTap JSON, by `format`) with `options`
 /// (see [`Options`]); `now` stamps any document property the conversion
 /// has to create. Atomic: a refusal returns the error and produces
 /// nothing.
@@ -724,6 +724,38 @@ pub fn from_html(
     run(html, InputFormat::Html, options)
 }
 
+/// Convert a TipTap document (`editor.getJSON()`, as the object or as JSON
+/// text) into a `.docx` styled by a reference document. Same options and
+/// result as `fromMarkdown`; pictures get no captions unless `captions: true`.
+#[wasm_bindgen(js_name = fromTiptap, unchecked_return_type = "FromMarkdownResult")]
+pub fn from_tiptap(
+    #[wasm_bindgen(unchecked_param_type = "object | string")] document: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
+        js_sys::Object,
+    >,
+) -> Result<JsValue, JsValue> {
+    let source = if document.is_string() {
+        document
+    } else if document.is_object() {
+        // One JavaScript string, sized like any other source before it is
+        // copied into WebAssembly memory.
+        js_sys::JSON::stringify(&document)
+            .map(JsValue::from)
+            .map_err(|_| {
+                js_error(&Error::invalid_argument(
+                    "invalid_source",
+                    "the document could not be serialized as JSON",
+                ))
+            })?
+    } else {
+        return Err(js_error(&Error::invalid_argument(
+            "invalid_source",
+            "the document must be an object (editor.getJSON()) or a JSON string",
+        )));
+    };
+    run(source, InputFormat::Tiptap, options)
+}
+
 /// What a conversion will take from a reference document: role styles,
 /// lifted branding, the section kept, headers and footers, cover page,
 /// compatibility mode and plain-language problems. Options as for
@@ -979,6 +1011,62 @@ mod tests {
                 .code(),
             "invalid_argument"
         );
+    }
+
+    #[test]
+    fn tiptap_json_converts_like_the_editors_html() {
+        let json = r##"{"type":"doc","content":[
+            {"type":"heading","attrs":{"level":2,"textAlign":"center"},"content":[{"type":"text","text":"Advice"}]},
+            {"type":"paragraph","attrs":{"textAlign":null},"content":[
+                {"type":"text","text":"red","marks":[{"type":"textStyle","attrs":{"color":"#dc2626","fontFamily":"","fontSize":""}}]},
+                {"type":"text","text":" plain","marks":[{"type":"comment","attrs":{"id":"c1"}}]}]}]}"##;
+        let converted = convert(
+            json,
+            InputFormat::Tiptap,
+            Options::default(),
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        let body = String::from_utf8(docrs::xml::serialize(
+            reopen(&converted.docx)
+                .package()
+                .xml("word/document.xml")
+                .unwrap(),
+        ))
+        .unwrap();
+        assert!(body.contains("<w:color w:val=\"DC2626\"/>"), "{body}");
+        assert!(body.contains("<w:jc w:val=\"center\"/>"), "{body}");
+        assert_eq!(
+            converted.report["warnings"][0]["code"], "tiptap_mark_dropped",
+            "{}",
+            converted.report
+        );
+        // Not a document: refused as an argument, before any conversion.
+        let err = convert(
+            "[1]",
+            InputFormat::Tiptap,
+            Options::default(),
+            Timestamp::from_unix(0),
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "invalid_argument");
+        assert_eq!(err.reason(), "tiptap_json_invalid");
+        // The source budget applies to JSON as to the other formats.
+        let big = format!(
+            "{{\"type\":\"doc\",\"content\":[{}]}}",
+            "1,".repeat(200 << 10)
+        );
+        let err = convert(
+            &big,
+            InputFormat::Tiptap,
+            Options {
+                limits: Some("serverless".into()),
+                ..Options::default()
+            },
+            Timestamp::from_unix(0),
+        )
+        .unwrap_err();
+        assert_eq!(err.reason(), "max_source_bytes");
     }
 
     #[test]

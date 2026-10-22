@@ -1,6 +1,6 @@
 # docrs-cli
 
-The `docrs` command: find, replace, review, compare and compose Word (`.docx`) files without disturbing what you didn't touch, and convert Markdown or editor HTML to Word styled by a template. Built on the [docrs](https://crates.io/crates/docrs) library.
+The `docrs` command: find, replace, review, compare and compose Word (`.docx`) files without disturbing what you didn't touch, and convert Markdown, editor HTML or TipTap JSON to Word styled by a template. Built on the [docrs](https://crates.io/crates/docrs) library.
 
 ```bash
 cargo install docrs-cli --locked
@@ -16,6 +16,7 @@ docrs compare original.docx revised.docx --author Reviewer --out redline.docx
 docrs append base.docx addition.docx --out combined.docx
 docrs from-markdown notes.md --reference template.docx --toc --out notes.docx
 docrs from-markdown page.html --reference template.docx --out page.docx   # editor HTML
+docrs from-markdown page.json --reference template.docx --out page.docx   # TipTap getJSON()
 docrs markdown-styles template.docx
 docrs markdown-inspect template.docx          # what a conversion takes from the template
 docrs layout input.docx                       # estimated page of each paragraph

@@ -579,3 +579,96 @@ fn a_panic_is_an_internal_error() {
     );
     assert!(!stderr.contains("thread 'main' panicked"), "{stderr}");
 }
+
+fn tiptap_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/markdown/tiptap")
+        .join(name)
+}
+
+#[test]
+fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    // `.json` selects the format; the fixture's picture is remote, so it is
+    // skipped with a warning.
+    let out = dir.path().join("core.docx");
+    let output = bin()
+        .args(["--json", "from-markdown"])
+        .arg(tiptap_fixture("core.json"))
+        .arg("--reference")
+        .arg(examples("reference.docx"))
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report = json_of(&output);
+    assert_eq!(report["markdown"]["counts"]["tables"], 1);
+    assert_eq!(
+        report["markdown"]["warnings"][0]["code"],
+        "remote_image_skipped"
+    );
+    let outline = bin().args(["outline"]).arg(&out).output().unwrap();
+    let text = String::from_utf8_lossy(&outline.stdout);
+    assert!(text.contains("Advice") && text.contains("After"), "{text}");
+
+    // `--from tiptap` for standard input.
+    let out = dir.path().join("stdin.docx");
+    let mut child = bin()
+        .args(["from-markdown", "-", "--from", "tiptap", "--out"])
+        .arg(&out)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(br#"{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"From JSON"}]}]}"#)
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let outline = bin().args(["outline"]).arg(&out).output().unwrap();
+    assert!(String::from_utf8_lossy(&outline.stdout).contains("From JSON"));
+
+    // A JSON file that is not a TipTap document is refused, and the
+    // format list names every choice.
+    let bad = dir.path().join("bad.json");
+    std::fs::write(&bad, "[1, 2]").unwrap();
+    let output = bin()
+        .args(["--json", "from-markdown"])
+        .arg(&bad)
+        .arg("--out")
+        .arg(dir.path().join("bad.docx"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = json_of(&output);
+    assert_eq!(error["error"]["reason"], "tiptap_json_invalid", "{error}");
+    let output = bin()
+        .args(["--json", "from-markdown", "--from", "docbook"])
+        .arg(&bad)
+        .arg("--out")
+        .arg(dir.path().join("bad.docx"))
+        .output()
+        .unwrap();
+    let error = json_of(&output);
+    assert_eq!(error["error"]["reason"], "invalid_format", "{error}");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("tiptap"),
+        "{error}"
+    );
+}

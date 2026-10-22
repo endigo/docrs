@@ -1,6 +1,6 @@
 # docrs
 
-Edit Word (`.docx`) documents without disturbing what you didn't touch, and turn Markdown or editor HTML into Word documents styled by a template. Pure Rust, with no Python or native dependencies at runtime.
+Edit Word (`.docx`) documents without disturbing what you didn't touch, and turn Markdown, editor HTML or TipTap JSON into Word documents styled by a template. Pure Rust, with no Python or native dependencies at runtime.
 
 ```toml
 [dependencies]
@@ -48,7 +48,7 @@ println!("{} warnings", report.warnings.len());
 
 **What the template supplies:** every style, the lists' numbering, page setup, headers, footers and branding. Like pandoc's `--reference-doc`, but formatting the template shows only by hand in its sample content is lifted into proper styles.
 
-**Inputs:** CommonMark with GitHub tables, task lists, footnotes and alerts; definition lists, front matter and LaTeX math (as Word equations). `docrs::markdown::insert_html(&mut document, html, &options)` renders editor HTML into a document instead.
+**Inputs:** CommonMark with GitHub tables, task lists, footnotes and alerts; definition lists, front matter and LaTeX math (as Word equations). `docrs::markdown::insert_html(&mut document, html, &options)` renders editor HTML into a document instead, and `insert_tiptap(&mut document, json, &options)` a TipTap document (`editor.getJSON()`) with its marks, text styles, tables, task lists, math and page breaks intact; nodes, marks and attributes with no Word equivalent are reported (`tiptap_node_dropped`, `tiptap_mark_dropped`, `tiptap_attribute_dropped`).
 
 **Hostile input:** structure nested deeper than `docrs::markdown::MAX_NESTING_DEPTH` (128 levels of quotes, lists, spans, HTML elements or math groups) is refused with `ErrorKind::ResourceLimit` (`markdown_nesting_too_deep`) and nothing changes. HTML browsers do not display (`<script>`, `<style>`, `<head>`, …) is dropped with a warning, and tables are narrowed to Word's 63 columns with a warning.
 

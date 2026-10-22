@@ -17,8 +17,10 @@ use crate::{Error, Result};
 /// The deepest structure a Markdown or HTML source may nest: block quotes,
 /// lists, definition lists, footnotes, tables, inline spans (emphasis,
 /// links, images, HTML spans), HTML elements and math groups all count, one
-/// level each (math counts the levels its Word equation nests). Deeper
-/// input is refused with [`crate::ErrorKind::ResourceLimit`] and reason
+/// level each (math counts the levels its Word equation nests). In TipTap
+/// JSON the arrays and objects count (a node and its `content` are two
+/// levels). Deeper input is refused with
+/// [`crate::ErrorKind::ResourceLimit`] and reason
 /// `markdown_nesting_too_deep` before anything is changed. The cap keeps
 /// conversion off the call stack's limits and the written XML well inside
 /// [`crate::Limits::max_xml_depth`]'s default of 256.
@@ -612,7 +614,7 @@ pub(crate) fn skipped_message(tag: &str) -> String {
     format!("HTML <{tag}> is not displayed; it was dropped with its content")
 }
 
-const TABLE_CLAMPED_MESSAGE: &str = "a table is wider than Word's 63 columns; spans past the last column were cut back and cells past it were merged into the last column";
+pub(crate) const TABLE_CLAMPED_MESSAGE: &str = "a table is wider than Word's 63 columns; spans past the last column were cut back and cells past it were merged into the last column";
 
 /// `\newpage`, `\pagebreak` and `[TOC]` paragraphs become their blocks.
 fn special_paragraph(block: Block) -> Block {

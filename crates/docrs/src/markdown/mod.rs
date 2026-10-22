@@ -32,8 +32,16 @@
 //! rich-text editors emit, including text and highlight colours, fonts,
 //! paragraph and cell alignment, `colgroup` widths, `colspan`/`rowspan`,
 //! picture sizes and alignment, and page-break markers. CSS without a Word
-//! equivalent is reported (`html_style_dropped`). [`inspect`] reports what a
-//! conversion will take from a reference document.
+//! equivalent is reported (`html_style_dropped`).
+//!
+//! TipTap document JSON (`editor.getJSON()`) is a third source format
+//! ([`insert_tiptap`]): the nodes and marks of Tiptap's own extensions
+//! convert as the same document's HTML does, from the JSON directly, with
+//! the editor's default alignment left to the reference document's styles.
+//! Node, mark and attribute types with no Word equivalent are reported
+//! (`tiptap_node_dropped`, `tiptap_mark_dropped`,
+//! `tiptap_attribute_dropped`). [`inspect`] reports what a conversion will
+//! take from a reference document.
 
 mod ast;
 mod frontmatter;
@@ -42,6 +50,7 @@ mod inspect;
 mod math;
 mod render;
 mod styles;
+mod tiptap;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -314,6 +323,18 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "a field in the template shows a document property that was cleared; it will show empty",
     ),
     (
+        "tiptap_attribute_dropped",
+        "a TipTap node or mark attribute has no Word equivalent and was ignored",
+    ),
+    (
+        "tiptap_mark_dropped",
+        "a TipTap mark type has no Word equivalent; its text is kept without it",
+    ),
+    (
+        "tiptap_node_dropped",
+        "a TipTap node type has no Word equivalent; its text is kept",
+    ),
+    (
         "toc_outside_body",
         "a table of contents marker inside a footnote was dropped",
     ),
@@ -355,6 +376,8 @@ pub enum InputFormat {
     Markdown,
     /// HTML as rich-text editors emit it (see the module docs).
     Html,
+    /// TipTap document JSON, `editor.getJSON()` (see the module docs).
+    Tiptap,
 }
 
 /// Render `markdown` into `document` (see the module docs). Atomic.
@@ -374,6 +397,17 @@ pub fn insert_html(
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
     insert_with(document, html, InputFormat::Html, options, false)
+}
+
+/// Render a TipTap document (`editor.getJSON()` as JSON text) into
+/// `document`: the same conversion as [`insert_markdown`] with the editor's
+/// document as the source. Atomic.
+pub fn insert_tiptap(
+    document: &mut Document,
+    json: &str,
+    options: &MarkdownOptions,
+) -> Result<MarkdownReport> {
+    insert_with(document, json, InputFormat::Tiptap, options, false)
 }
 
 /// Render `source` in `format` into `document`. Atomic.
@@ -417,6 +451,7 @@ fn insert_with(
     let parsed = match format {
         InputFormat::Markdown => ast::parse(markdown, options.smart_punctuation),
         InputFormat::Html => ast::parse_html(markdown),
+        InputFormat::Tiptap => tiptap::parse(markdown),
     }?;
     let metadata = parsed
         .metadata

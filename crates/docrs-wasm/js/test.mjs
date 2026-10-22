@@ -294,3 +294,38 @@ test("now must be a time from 1970 to the year 9999 in milliseconds", () => {
   assert.ok(isZip(lib.fromMarkdown("x", { now: 0 }).docx));
   assert.ok(isZip(lib.fromMarkdown("x", { now: 253402300799999 }).docx));
 });
+
+const tiptap = (name) => readFileSync(join(root, "tests", "fixtures", "markdown", "tiptap", name), "utf8");
+
+test("TipTap JSON renders the same document as the editor's HTML", () => {
+  const options = { images: { "https://store.example/logo.png?token=t": PNG }, now: 1_700_000_000_000 };
+  const fromJson = lib.fromTiptap(tiptap("core.json"), options);
+  const fromObject = lib.fromTiptap(JSON.parse(tiptap("core.json")), options);
+  const fromHtml = lib.fromHtml(tiptap("core.html"), options);
+  assert.deepEqual(fromJson.report.warnings, []);
+  assert.deepEqual(fromJson.report.counts, fromHtml.report.counts);
+  assert.equal(documentXml(fromJson.docx), documentXml(fromHtml.docx));
+  assert.deepEqual(fromObject.docx, fromJson.docx);
+  const xml = documentXml(fromJson.docx);
+  for (const needle of ['<w:color w:val="DC2626"/>', 'w:fill="BBF7D0"', '<w:highlight w:val="yellow"/>', '<w:jc w:val="both"/>', '<w:gridSpan w:val="2"/>', 'descr="Logo"']) {
+    assert.ok(xml.includes(needle), needle);
+  }
+});
+
+test("TipTap JSON reports what has no Word equivalent and refuses what is not a document", () => {
+  const { docx, report } = lib.fromTiptap(tiptap("extras.json"));
+  const xml = documentXml(docx);
+  assert.ok(xml.includes("@Jane") && xml.includes(":rocket:") && xml.includes("<m:oMath"), xml);
+  assert.deepEqual(report.warnings.map((w) => w.code), ["tiptap_node_dropped"]);
+  assert.ok(report.warnings[0].message.includes("emoji"));
+  assert.throws(
+    () => lib.fromTiptap('{"type":"paragraph"}'),
+    (err) => err.code === "invalid_argument" && err.reason === "tiptap_json_invalid",
+  );
+  assert.throws(() => lib.fromTiptap("{not json"), (err) => err.reason === "tiptap_json_invalid");
+  assert.throws(() => lib.fromTiptap(42), (err) => err.reason === "invalid_source");
+  assert.throws(
+    () => lib.fromTiptap("x".repeat((384 << 10) + 1), { limits: "serverless" }),
+    (err) => err.code === "resource_limit" && err.limit.limit === "max_source_bytes",
+  );
+});
