@@ -3,7 +3,8 @@
 docrs converts a TipTap document straight from `editor.getJSON()` (the
 ProseMirror document: `{"type": "doc", "content": [...]}`), without
 `getHTML()` in between. Library: `docrs::markdown::insert_tiptap`. CLI:
-`docrs from-markdown page.json` (`--from tiptap`). Node: `fromTiptap`. The
+`docrs from-markdown page.json` (`--from tiptap`). Node: `fromJson` (also
+under its 0.3.0 name, `fromTiptap`). The
 options, report and warnings are those of the Markdown and HTML sources;
 pictures get no caption unless asked (`captions`).
 

@@ -6,6 +6,10 @@
 
 - A picture's `textAlign` (Tiptap's TextAlign extension configured for `image`) aligns the paragraph the picture stands alone in, with the values and defaults of a paragraph's `textAlign`. The TipTap JSON source ignored it silently before; now a centred picture renders the same from `getJSON()` as from the editor's HTML, whether that is Tiptap's own (`text-align` on the `img`, which the HTML source now reads instead of reporting it as a dropped style) or an app's `<div data-image-align>` around the picture. A `textAlign` value that cannot be read, or an alignment a picture cannot follow because it shares its paragraph with other content or with another alignment, is reported (`tiptap_attribute_dropped`; `html_style_dropped` from HTML).
 
+### Node.js
+
+- `fromJson(document, options?)` is the name of the TipTap entry point, next to `fromMarkdown` and `fromHtml`. `fromTiptap`, its name in 0.3.0, stays as a deprecated alias of the same function.
+
 ## 0.3.0 (2026-10-22)
 
 ### Library

@@ -176,7 +176,7 @@ Errors are `Error`s with `code`, `reason`, `refusal` and `limit`;
 `limits: "serverless"` budgets apply to every function and refuse oversized
 inputs before copying them. After a panic (a bug; a
 `WebAssembly.RuntimeError`) load the module again. Also
-exported: `fromHtml`, `fromTiptap` (the editor's `getJSON()`),
+exported: `fromHtml`, `fromJson` (the editor's `getJSON()`),
 `inspectReference`, `markdownStyles`, `referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add
 `serverExternalPackages: ["docrs-wasm"]` to `next.config.js`; the

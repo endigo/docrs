@@ -39,11 +39,14 @@ A TipTap document converts from its JSON directly, without `getHTML()` in
 between, with the same options:
 
 ```js
-const { fromTiptap } = require("docrs-wasm");
+const { fromJson } = require("docrs-wasm");
 
-const { docx, report } = fromTiptap(editor.getJSON(), { reference: templateBytes });
+const { docx, report } = fromJson(editor.getJSON(), { reference: templateBytes });
 // also takes the JSON as a string
 ```
+
+(`fromTiptap`, the name in 0.3.0, is the same function and stays as an
+alias.)
 
 It maps the nodes and marks of Tiptap 3's own extensions (headings and
 paragraphs with `textAlign`, bold, italic, underline, strike, code,
@@ -119,7 +122,7 @@ export async function POST(request: Request) {
 ```
 
 For a TipTap editor, post `editor.getJSON()` as the request body and hand
-it to `fromTiptap`. On a long-lived server (one process serving many
+it to `fromJson`. On a long-lived server (one process serving many
 exports) load the module through a small wrapper that reloads it after a
 panic, as described above, and retries once:
 
@@ -156,7 +159,7 @@ const reference = new Uint8Array(await readFile("templates/letter.docx"));
 export async function POST(request: Request) {
   const document = await request.json(); // editor.getJSON() from the client
   const { docx, report } = withDocrs((lib) =>
-    lib.fromTiptap(document, { reference, limits: "serverless", redact: true }),
+    lib.fromJson(document, { reference, limits: "serverless", redact: true }),
   );
   return new Response(docx.slice(), {
     headers: {
