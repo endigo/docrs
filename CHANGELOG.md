@@ -6,6 +6,8 @@
 
 - **TipTap JSON to Word** (`markdown` feature): `markdown::insert_tiptap` and `InputFormat::Tiptap` render a TipTap document (`editor.getJSON()`) directly, without `getHTML()` in between. The nodes and marks of Tiptap 3's own extensions convert to the same document the editor's HTML gives: headings and paragraphs with `textAlign` (the editor's default alignment is left to the template's styles), bold, italic, underline, strike, code, subscript, superscript, links, highlights, text styles (colour, font, size, background), bullet, ordered and task lists, quotes, code blocks, rules, hard breaks, images, tables with `colspan`, `rowspan`, `colwidth` and cell alignment; and from the JSON what the HTML only hints at: inline and block math as equations, details (summary in bold), mentions, YouTube embeds as links, a table of contents and page breaks. New warnings `tiptap_node_dropped`, `tiptap_mark_dropped` and `tiptap_attribute_dropped` report what has no Word equivalent (the text is kept). A source that is not JSON or not a `doc` node is refused (`invalid_argument`, `tiptap_json_invalid`) and arrays and objects nested past `MAX_NESTING_DEPTH` are refused before parsing (`markdown_nesting_too_deep`), with nothing changed either way.
 
+- Characters XML cannot carry (control characters other than tab and line breaks, U+FFFE, U+FFFF) in a Markdown, HTML or TipTap source are dropped with a warning, `control_characters_dropped`. Before, the conversion failed with the internal error `staged_reparse`; Word refuses a file that holds one.
+
 ### Command line
 
 - `from-markdown` takes TipTap JSON: `--from tiptap` (or `json`), the default for `.json` files.

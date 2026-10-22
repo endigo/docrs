@@ -1453,6 +1453,119 @@ fn span_inline(kind: SpanKind, children: Vec<Inline>) -> Inline {
     }
 }
 
+/// Whether XML 1.0 cannot carry `c` in text or an attribute: a C0 control
+/// other than tab, line feed and carriage return, or the non-characters
+/// U+FFFE and U+FFFF. Word refuses a file holding one.
+pub(crate) fn xml_illegal(c: char) -> bool {
+    !matches!(
+        c,
+        '\u{9}' | '\u{A}' | '\u{D}' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}'
+    )
+}
+
+/// Remove the characters XML cannot carry from every string the renderer
+/// writes (text, code, equations, addresses, titles, alt text, heading ids,
+/// footnote labels and front matter), returning how many were dropped.
+pub(crate) fn drop_illegal_chars(parsed: &mut Parsed) -> usize {
+    let mut dropped = 0;
+    let mut scrub = |text: &mut String| {
+        if text.chars().any(xml_illegal) {
+            text.retain(|c| {
+                let keep = !xml_illegal(c);
+                dropped += usize::from(!keep);
+                keep
+            });
+        }
+    };
+    scrub_blocks(&mut parsed.blocks, &mut scrub);
+    let footnotes = std::mem::take(&mut parsed.footnotes);
+    for (mut label, mut blocks) in footnotes {
+        scrub(&mut label);
+        scrub_blocks(&mut blocks, &mut scrub);
+        parsed.footnotes.insert(label, blocks);
+    }
+    if let Some((_, text)) = &mut parsed.metadata {
+        scrub(text);
+    }
+    dropped
+}
+
+fn scrub_blocks(blocks: &mut [Block], scrub: &mut impl FnMut(&mut String)) {
+    for block in blocks {
+        match block {
+            Block::Heading { id, content, .. } => {
+                if let Some(id) = id {
+                    scrub(id);
+                }
+                scrub_inlines(content, scrub);
+            }
+            Block::Paragraph(inlines) | Block::Plain(inlines) => scrub_inlines(inlines, scrub),
+            Block::Code { language, text } => {
+                if let Some(language) = language {
+                    scrub(language);
+                }
+                scrub(text);
+            }
+            Block::Quote { blocks, .. } => scrub_blocks(blocks, scrub),
+            Block::List { items, .. } => {
+                for item in items {
+                    scrub_blocks(&mut item.blocks, scrub);
+                }
+            }
+            Block::Table { head, rows, .. } => {
+                for cell in head.iter_mut().chain(rows.iter_mut().flatten()) {
+                    scrub_blocks(cell, scrub);
+                }
+            }
+            Block::Aligned(_, inner) => scrub_blocks(std::slice::from_mut(&mut **inner), scrub),
+            Block::DefinitionList(entries) => {
+                for (term, definitions) in entries {
+                    scrub_inlines(term, scrub);
+                    for definition in definitions {
+                        scrub_blocks(definition, scrub);
+                    }
+                }
+            }
+            Block::DisplayMath(text) | Block::Html { html: text, .. } => scrub(text),
+            Block::Rule | Block::PageBreak | Block::Toc => {}
+        }
+    }
+}
+
+fn scrub_inlines(inlines: &mut [Inline], scrub: &mut impl FnMut(&mut String)) {
+    for inline in inlines {
+        match inline {
+            Inline::Text(text) | Inline::Code(text) | Inline::Math(text) => scrub(text),
+            Inline::Emphasis(children)
+            | Inline::Strong(children)
+            | Inline::Strike(children)
+            | Inline::Superscript(children)
+            | Inline::Subscript(children)
+            | Inline::Underline(children)
+            | Inline::Highlight(children)
+            | Inline::Styled(_, children) => scrub_inlines(children, scrub),
+            Inline::Link {
+                url,
+                title,
+                content,
+            } => {
+                scrub(url);
+                scrub(title);
+                scrub_inlines(content, scrub);
+            }
+            Inline::Image {
+                url, title, alt, ..
+            } => {
+                scrub(url);
+                scrub(title);
+                scrub_inlines(alt, scrub);
+            }
+            Inline::FootnoteRef { label, .. } => scrub(label),
+            Inline::SoftBreak | Inline::HardBreak => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

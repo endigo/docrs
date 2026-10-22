@@ -264,6 +264,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "an internal link matches no heading; its text is kept without a link",
     ),
     (
+        "control_characters_dropped",
+        "characters XML cannot carry (control characters other than tab and line breaks, U+FFFE, U+FFFF) were dropped from the text",
+    ),
+    (
         "font_metrics_missing",
         "a font has no metrics; contents page numbers are estimated with a substitute",
     ),
@@ -453,11 +457,26 @@ fn insert_with(
         "convert Markdown into",
         OperationClass::BodyContent,
     )?;
-    let parsed = match format {
+    let mut parsed = match format {
         InputFormat::Markdown => ast::parse(markdown, options.smart_punctuation),
         InputFormat::Html => ast::parse_html(markdown),
         InputFormat::Tiptap => tiptap::parse(markdown),
     }?;
+    // Word refuses a file with a character XML cannot carry; a source that
+    // holds one (a NUL pasted into an editor, `&#0;`) loses it, not the
+    // conversion.
+    let dropped = ast::drop_illegal_chars(&mut parsed);
+    if dropped > 0 {
+        ast::warn_once(
+            &mut parsed.warnings,
+            "control_characters_dropped",
+            format!(
+                "{dropped} character{} XML cannot carry (control characters other than tab and line breaks, U+FFFE, U+FFFF) dropped from the text",
+                if dropped == 1 { "" } else { "s" }
+            ),
+            None,
+        );
+    }
     let metadata = parsed
         .metadata
         .as_ref()
