@@ -8,6 +8,7 @@
 - **Compare:** an original under Restrict Editing that forbids body edits is refused unless the new `CompareOptions::acknowledge_protection` is set (CLI: `compare --acknowledge-protection`). The redline no longer comes back with protection acknowledged on the caller's behalf. `author` is validated like other writers' text (XML 1.0, no control characters, at most `MAX_AUTHOR_CHARS` = 255 characters), and the redline is committed through the transaction path.
 - **Comments:** a span captured under `view=original` or `view=all` no longer anchors a comment (`Span::comment`, `comments::add_comment`); it refuses `historical_view_target` like replace does, so a comment cannot anchor on deleted text.
 - **Comment ids:** allocating a comment `w:id` after an id at the 64-bit limit no longer overflows; past the signed 32-bit range the lowest free id is reused as before. A new `w14:paraId` that would reach `0x80000000` refuses `invalid_argument(para_id_exhausted)` instead of writing an id Word rejects.
+- **Revisions:** `Revisions::accept_all` / `reject_all` refresh the caller's snapshot from the staged trees before committing, so they can no longer report an error after the document has changed.
 
 ## 0.1.0 (2026-10-21)
 

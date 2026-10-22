@@ -836,8 +836,12 @@ fn signature_of(
 }
 
 fn snapshot(document: &Document) -> Result<Revisions> {
-    let stories = story::stories(document);
-    let raws = enumerate(document, &stories, document.id())?;
+    snapshot_of(document, &story::stories(document), document.id())
+}
+
+/// The snapshot of `trees` (the document, or a transaction's staged state).
+fn snapshot_of(trees: &impl Trees, stories: &[Story], document: DocumentId) -> Result<Revisions> {
+    let raws = enumerate(trees, stories, document)?;
     let signature = Arc::new(raws.iter().map(|raw| raw.node.clone()).collect::<Vec<_>>());
     let items = raws
         .into_iter()
@@ -850,12 +854,12 @@ fn snapshot(document: &Document) -> Result<Revisions> {
             anchor: raw.anchor,
             is_paragraph_mark: raw.is_paragraph_mark,
             node: raw.node,
-            document: document.id(),
+            document,
             signature: signature.clone(),
         })
         .collect();
     Ok(Revisions {
-        document: document.id(),
+        document,
         items,
         signature,
     })
@@ -2562,7 +2566,7 @@ fn resolve_all(
     }
     let stories = story::stories(document);
     let count;
-    let staged = {
+    let (staged, refreshed) = {
         let mut ctx = Ctx::new(document, &stories);
         let current = signature_of(&ctx.txn, &stories, ctx.document)?;
         if *revisions.signature != current {
@@ -2626,11 +2630,67 @@ fn resolve_all(
             handled.insert(revision.node.clone());
         }
         count = selected.len();
-        ctx.txn.finish()?
+        // The refreshed snapshot is taken from the staged trees, so nothing
+        // fallible follows the commit. Resolution never adds, removes or
+        // re-types parts, so the story list is unchanged by it.
+        inject_refresh()?;
+        let refreshed = snapshot_of(&ctx.txn, &stories, ctx.document)?;
+        (ctx.txn.finish()?, refreshed)
     };
     document.commit(staged)?;
-    *revisions = snapshot(document)?;
+    *revisions = refreshed;
     Ok(count)
+}
+
+/// Failure-injection points for revision resolution (`fault-injection`
+/// feature).
+#[cfg(feature = "fault-injection")]
+pub mod fault {
+    use std::cell::Cell;
+
+    /// Where an injected failure fires.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum RevisionPoint {
+        /// While `accept_all`/`reject_all` refresh the caller's snapshot.
+        Refresh,
+    }
+
+    thread_local! {
+        static FAIL_AT: Cell<Option<RevisionPoint>> = const { Cell::new(None) };
+    }
+
+    /// Arm a one-shot failure.
+    pub fn fail_at(point: RevisionPoint) {
+        FAIL_AT.with(|cell| cell.set(Some(point)));
+    }
+
+    /// Disarm.
+    pub fn clear() {
+        FAIL_AT.with(|cell| cell.set(None));
+    }
+
+    pub(crate) fn check(point: RevisionPoint) -> crate::Result<()> {
+        FAIL_AT.with(|cell| {
+            if cell.get() == Some(point) {
+                cell.set(None);
+                Err(crate::Error::internal(
+                    "injected_failure",
+                    format!("injected failure at {point:?}"),
+                ))
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
+#[cfg(feature = "fault-injection")]
+fn inject_refresh() -> Result<()> {
+    fault::check(fault::RevisionPoint::Refresh)
+}
+#[cfg(not(feature = "fault-injection"))]
+fn inject_refresh() -> Result<()> {
+    Ok(())
 }
 
 /// Map from a revision's element to its index in a snapshot (test support).
