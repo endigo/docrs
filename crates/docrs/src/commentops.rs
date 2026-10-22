@@ -303,11 +303,23 @@ pub(crate) fn ensure_para_id(
     if let Some(existing) = tree.attr(paragraph, Some(W14), "paraId") {
         return validate_para_id(Some(existing), "w14:paraId");
     }
-    let next = existing_para_ids(tree)?
-        .into_iter()
-        .max()
-        .unwrap_or(0x1000_0000) as u64
-        + 1;
+    let next = u64::from(
+        existing_para_ids(tree)?
+            .into_iter()
+            .max()
+            .unwrap_or(0x1000_0000),
+    ) + 1;
+    // A w14:paraId is non-zero and below 0x80000000.
+    if next >= 0x8000_0000 {
+        return Err(Error::invalid_argument(
+            "para_id_exhausted",
+            format!(
+                "the highest w14:paraId in the comments part is {:08X}; the next one would reach \
+                 0x80000000, which Word does not accept. Nothing was changed",
+                next - 1
+            ),
+        ));
+    }
     let para_id = format!("{next:08X}");
     txn.tree_mut(comments)?
         .set_attr(paragraph, Some(W14), "paraId", &para_id)?;

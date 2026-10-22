@@ -29,7 +29,7 @@ Unsupported operations never report success as a no-op.
 | Opaque span handles with local freshness evidence | `Span` | shipped (M2/M3) | `tests/replace.rs` freshness/alias/foreign tests |
 | Formatting inspection (`format_of`, style resolution) | `formatting::format_of` | shipped (M4) | ops `m4-formatting-*`: 110 pass, 2 deviation |
 | Styles read API (names, ids, defaults, latent styles) | `styles::Styles` | shipped (M4) | ops `m4-styles-*`: 56 pass, 1 deviation |
-| Protection status / acknowledgment / gate | `Document::{protection_status, acknowledge_protection}` | shipped (M3) | `tests/replace.rs::protection_gate_follows_the_matrix`, `tests/cases/m3-protection.json` |
+| Protection status / acknowledgment / gate | `Document::{protection_status, acknowledge_protection}`; every writer, inherited authoring, sections, styles and core properties included | shipped (M3; inherited writers gated after 0.1.0) | `tests/replace.rs::protection_gate_follows_the_matrix`, `tests/protection_gate.rs`, `tests/cases/m3-protection.json` |
 | Safe untracked replacement (same owner, affix-localized, narrowing across breaks) | `Document::replace`, CLI `replace` | shipped (M3) | `m3-parity`: 2,565 cases identical + 1 deviation; `tests/replace.rs`; CLI tests |
 | replace_all (atomic batch, per-match refusals) | `Document::replace_all`, CLI `replace --all` | shipped (M3) | `m3-parity`, `tests/replace.rs::replace_all_reports_refusals_and_commits_the_rest_atomically` |
 | `preserve_revision` editing of insertions | `ReplaceOptions::preserve_revision` | implemented, not yet covered (no case or test sets it) | — |
@@ -58,7 +58,7 @@ Unsupported operations never report success as a no-op.
 | Revisions enumerate/accept/reject (incl. moves, rows, paragraph marks) | `Document::revisions`, `revision::{Revisions, Revision}` | shipped (M5) | ops `m5-revision-*`: 425 pass, 1 deviation |
 | Comments (add, reply, resolve, thread, delete, Span::comment) | `comments.rs`, `commentops.rs` | shipped (M5) | ops `m5-comments-*`: 104 pass |
 | Text diff / pending changes | `textdiff.rs`, CLI `text-diff`/`pending` | shipped (M6) | m6-parity |
-| Compare redline (verified algebra; materialize) | `compare::compare`, CLI `compare` | shipped (M6) | `m6-parity` (compare): 544 redlines + 214 refusals identical, 0 mismatches |
+| Compare redline (verified algebra; materialize; protection gate on the original) | `compare::compare`, CLI `compare` | shipped (M6) | `m6-parity` (compare): 544 redlines + 214 refusals identical, 0 mismatches; `tests/compare.rs` |
 | Composition: `insert_blocks_from`, `append_document` (styles, numbering, media, hyperlinks, bookmark/REF reconciliation, letterhead) | `composition.rs`, CLI `append`/`insert-from` | shipped (M7) | ops `m7-composition-*`: 212 pass, 3 deviation; `tests/composition.rs`; CLI tests |
 | Review CLI: list / accept / reject revisions | CLI `revisions`, `resolve` | shipped (M7) | `crates/docrs-cli/tests/cli.rs` (accept-all equals `multiround-accepted.docx` text) |
 | Markdown → DOCX with a reference document (styles by role, placement, front matter, lists, tables, images, footnotes, links/bookmarks, TOC, LaTeX → OMML) | `markdown::{convert, insert_markdown}` (feature `markdown`), CLI `from-markdown` | shipped (post-M7, not upstream) | `tests/markdown.rs` (67), module unit tests (24), CLI tests (5); exports reopened by python-docx, pandoc and Word (`tools/markdown/check.sh`) |

@@ -22,6 +22,7 @@ use crate::clock::Timestamp;
 use crate::package::content_types::CT_NS;
 use crate::package::ct;
 use crate::package::rels::rt;
+use crate::protection::{OperationClass, refuse_if_protected};
 use crate::txn::{RelTarget, Txn};
 use crate::wml::{leading_text, set_leading_text};
 use crate::xml::{self, NodeId, XmlTree};
@@ -660,6 +661,7 @@ pub fn set_core_properties(
     now: Option<Timestamp>,
 ) -> Result<CoreProperties> {
     let texts = changes.iter().map(rendered).collect::<Result<Vec<_>>>()?;
+    refuse_if_protected(document, "set core properties", OperationClass::BodyContent)?;
     let mut txn = Txn::new(document);
     let part = ensure_part(&mut txn, now)?;
     {

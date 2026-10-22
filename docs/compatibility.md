@@ -13,7 +13,11 @@ docrs ports the behaviour of the Python [paper-docx](https://github.com/paper-in
 | Raw exceptions on open (BadZipFile, KeyError, XMLSyntaxError, NotImplementedError) | leak as non-refusals | `malformed_package` with stable reason | 9 `classified` parity rows |
 | QName-valued attribute values in equivalence | textual | resolved (`xsi:type`, `mc:*`, `Choice@Requires`) | `xml_preservation.rs::qname_valued_attributes_compare_by_resolved_namespace` |
 | Non-Word main part (`.dotx` etc.) | `ValueError` | `invalid_argument(not_a_word_document)` | `zip_guard.rs::main_part_kind_and_xml_validity` |
+| Inherited python-docx writers (authoring, sections, headers and footers, styles, core properties) on a document under Restrict Editing | edit regardless | refused (`document_protected`) unless protection is acknowledged, by the same matrix as every other writer | ops `m4-drawing-protected` `authoring-gated`; `protection_gate.rs` |
+| Compare of an original under Restrict Editing that forbids body edits | redlines anyway (reports `document_protection_present`) | refused (`document_protected`) unless `CompareOptions::acknowledge_protection` (CLI `--acknowledge-protection`); the finding is still reported. `m6-parity` acknowledges to match upstream | `compare.rs::a_protected_original_refuses_unless_the_caller_acknowledges` |
+| Compare `author` | written unvalidated | XML 1.0 text without control characters, at most 255 characters (`invalid_argument`) | `compare.rs::author_is_validated_before_anything_is_written` |
 | Editing spans captured under `view=original`/`all` | allowed when no revision is involved | refused (`historical_view_target`) | `replace.rs::historical_view_targets_are_inspection_only` |
+| Comment anchored on a span captured under `view=original`/`all` | anchored (deleted text included) | refused (`historical_view_target`) | `comments.rs::historical_view_spans_cannot_anchor_comments` |
 | Detach-and-reinsert of a text node | span stays valid (same lxml identity) | span stale (structural generation) | `Signature::struct_gen` in `src/search.rs` (no dedicated test) |
 | Unknown story root element | `ValueError` crash | `unsupported_structure(unrecognized_story_root)` | `src/story.rs` (no dedicated test) |
 | XML encodings | any libxml2/iconv encoding | UTF-8, UTF-16, ASCII, ISO-8859-1, windows-1252; others refused | `xml/decode.rs` tests |

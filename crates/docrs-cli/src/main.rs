@@ -132,6 +132,9 @@ pub enum Command {
         /// Resolve pending input revisions first: accept or reject.
         #[arg(long)]
         materialize: Option<String>,
+        /// Proceed despite Restrict Editing on the original (the setting is kept).
+        #[arg(long)]
+        acknowledge_protection: bool,
         /// Output path for the redline.
         #[arg(long)]
         out: std::path::PathBuf,

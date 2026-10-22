@@ -543,3 +543,33 @@ fn format_change_reject_restores_stored_properties() {
     assert_eq!(marks.get("rPrChange"), Some(&1));
     assert_eq!(marks.get("pPrChange"), Some(&1));
 }
+
+#[test]
+fn a_failed_snapshot_refresh_leaves_document_and_snapshot_unchanged() {
+    use docrs::revision::fault::{self, RevisionPoint};
+    for accept in [true, false] {
+        let mut doc = open("generated/feature-isolated/tracked-ins-del.docx");
+        let before = doc.patch_bytes().unwrap().0;
+        let mut revisions = doc.revisions().unwrap();
+        fault::fail_at(RevisionPoint::Refresh);
+        let result = if accept {
+            revisions.accept_all(&mut doc, None)
+        } else {
+            revisions.reject_all(&mut doc, None)
+        };
+        fault::clear();
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Internal, "{err}");
+        assert_eq!(doc.patch_bytes().unwrap().0, before, "accept={accept}");
+        // The snapshot still describes the document, so a retry works.
+        assert_eq!(revisions.len(), 3);
+        let resolved = if accept {
+            revisions.accept_all(&mut doc, None)
+        } else {
+            revisions.reject_all(&mut doc, None)
+        };
+        assert_eq!(resolved.unwrap(), 3);
+        assert!(revisions.is_empty());
+        assert!(remaining_markup(&doc).unwrap().is_empty());
+    }
+}
