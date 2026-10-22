@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 (2026-10-22)
+
+### Node.js
+
+- The package recovers from a panic by itself. A panic (a bug in docrs-wasm) still throws a `WebAssembly.RuntimeError` with no `code` from the call that hit it; the next call now runs on a fresh instance of the module, so a poisoned instance never serves another call. The new entry point, `index.js`, evaluates the wasm-bindgen glue again around a new `WebAssembly.Instance` of the module compiled when the package loaded and rethrows the error as it is; any other exception that unwinds through the module (a stack overflow, say) is handled the same way. Errors docrs reports (an `Error` with a `code`) leave the instance in place, and nothing is retried: the same input would panic again. The README's reload-and-retry recipe is gone with the need for it.
+
 ## 0.3.1 (2026-10-22)
 
 ### Library

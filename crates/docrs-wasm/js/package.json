@@ -8,9 +8,10 @@
     "url": "git+https://github.com/endigo/docrs.git",
     "directory": "crates/docrs-wasm"
   },
-  "main": "docrs.js",
+  "main": "index.js",
   "types": "docrs.d.ts",
   "files": [
+    "index.js",
     "docrs.js",
     "docrs.d.ts",
     "docrs_bg.wasm",

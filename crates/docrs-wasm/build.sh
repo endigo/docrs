@@ -21,7 +21,7 @@ version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
 node -e 'const [src, out, version] = process.argv.slice(1); const p = require(src);
   require("fs").writeFileSync(out, JSON.stringify({ name: p.name, version, ...p }, null, 2) + "\n");' \
   "$here/js/package.json" "$here/pkg/package.json" "$version"
-cp "$here/js/README.md" "$root/LICENSE" "$root/NOTICE.md" "$here/pkg/"
+cp "$here/js/index.js" "$here/js/README.md" "$root/LICENSE" "$root/NOTICE.md" "$here/pkg/"
 if [ "$1" = "--pack" ]; then
   (cd "$here/pkg" && npm pack --silent)
 fi

@@ -843,13 +843,14 @@ extern "C" {
 
 /// Runs when the module is instantiated. The build aborts on a panic (a bug):
 /// the instance traps with `RuntimeError: unreachable` and is unusable
-/// afterwards. Say what panicked on `console.error` first.
+/// afterwards, and the package's entry point (`js/index.js`) replaces it
+/// with a fresh one. Say what panicked on `console.error` first.
 #[wasm_bindgen(start)]
 fn start() {
     std::panic::set_hook(Box::new(|info| {
         console_error(&format!(
-            "docrs-wasm {} {info}\nThis is a bug in docrs-wasm; the WebAssembly instance \
-             is unusable now: load the module again before the next call.",
+            "docrs-wasm {} {info}\nThis is a bug in docrs-wasm. The call throws \
+             WebAssembly.RuntimeError; the next call runs on a fresh instance.",
             env!("CARGO_PKG_VERSION")
         ));
     }));
