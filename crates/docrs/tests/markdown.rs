@@ -811,7 +811,8 @@ fn links_keep_only_web_mail_phone_and_relative_targets() {
 
 #[test]
 fn deeply_nested_quotes_convert() {
-    let markdown = format!("{} deep\n", ">".repeat(300));
+    // As deep as the nesting cap allows; deeper sources are refused (tests/markdown_parse.rs).
+    let markdown = format!("{} deep\n", ">".repeat(docrs::markdown::MAX_NESTING_DEPTH));
     let out = export_with(
         "06-deep-quotes",
         &markdown,
