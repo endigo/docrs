@@ -367,8 +367,10 @@ proptest! {
         let converted = markdown(&source);
         let written = source.matches('x').count();
         // Inside a code span, `x` stays; image descriptions become alt text
-        // (not body text), so only check sources without images.
-        if !source.contains("![") {
+        // (not body text) and a fence's info string is not text at all
+        // (```x opens a code block named x), so only check sources without
+        // images or fences.
+        if !source.contains("![") && !source.contains("```") && !source.contains("~~~") {
             prop_assert_eq!(
                 converted.text().matches('x').count(),
                 written,
