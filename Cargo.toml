@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 # sha2 0.11 needs 1.88; tools/release/check.sh checks with this toolchain.
 rust-version = "1.88.0"
@@ -19,7 +19,7 @@ keywords = ["docx", "word", "ooxml", "markdown", "document"]
 
 [workspace.dependencies]
 # The library, at the workspace version (the CLI's published dependency).
-docrs = { path = "crates/docrs", version = "0.3.0" }
+docrs = { path = "crates/docrs", version = "0.3.1" }
 # Published crates take compatible updates from the versions tested here;
 # Cargo.lock pins exactly what was tested,
 # and `cargo install --locked` uses it.
