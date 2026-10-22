@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "docrs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "crc32fast",
  "docrs",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "docrs-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "docrs",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "docrs-compat"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "crc32fast",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "docrs-wasm"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "docrs",
  "js-sys",

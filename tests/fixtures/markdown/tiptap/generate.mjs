@@ -35,7 +35,7 @@ import { dirname } from "node:path";
 
 const extensions = [
   StarterKit,
-  TextAlign.configure({ types: ["heading", "paragraph"] }),
+  TextAlign.configure({ types: ["heading", "paragraph", "image"] }),
   TextStyleKit,
   Highlight.configure({ multicolor: true }),
   TableKit.configure({ table: { resizable: true } }),
@@ -74,6 +74,7 @@ const core = [
   '<tr><td rowspan="2" colwidth="240"><p>Two rows</p></td><td colwidth="140"><p style="text-align: right">$1</p></td><td colwidth="140"><p>x</p></td></tr>',
   '<tr><td colwidth="140"><p>y</p></td><td colwidth="140"><p>z</p></td></tr></tbody></table>',
   '<img src="https://store.example/logo.png?token=t" alt="Logo" title="The logo" width="200" height="80">',
+  '<img src="https://store.example/seal.png?token=s" alt="Seal" width="120" height="120" style="text-align: center">',
   '<p>a line<br>break</p>',
   "<h2>After</h2>",
 ].join("");

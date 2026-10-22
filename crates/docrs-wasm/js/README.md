@@ -48,7 +48,8 @@ const { docx, report } = fromTiptap(editor.getJSON(), { reference: templateBytes
 It maps the nodes and marks of Tiptap 3's own extensions (headings and
 paragraphs with `textAlign`, bold, italic, underline, strike, code,
 subscript, superscript, links, highlights, text styles, bullet, ordered and
-task lists, quotes, code blocks, rules, hard breaks, images, tables with
+task lists, quotes, code blocks, rules, hard breaks, images (aligned by
+their own `textAlign`), tables with
 spans and `colwidth`, inline and block math, details, mentions, YouTube
 links, a table of contents and page breaks) to the same document the HTML
 gives. Node, mark and attribute types with no Word equivalent are reported

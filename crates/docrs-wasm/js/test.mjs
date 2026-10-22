@@ -298,7 +298,7 @@ test("now must be a time from 1970 to the year 9999 in milliseconds", () => {
 const tiptap = (name) => readFileSync(join(root, "tests", "fixtures", "markdown", "tiptap", name), "utf8");
 
 test("TipTap JSON renders the same document as the editor's HTML", () => {
-  const options = { images: { "https://store.example/logo.png?token=t": PNG }, now: 1_700_000_000_000 };
+  const options = { images: { "https://store.example/logo.png?token=t": PNG, "https://store.example/seal.png?token=s": PNG }, now: 1_700_000_000_000 };
   const fromJson = lib.fromTiptap(tiptap("core.json"), options);
   const fromObject = lib.fromTiptap(JSON.parse(tiptap("core.json")), options);
   const fromHtml = lib.fromHtml(tiptap("core.html"), options);

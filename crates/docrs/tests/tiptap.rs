@@ -128,19 +128,41 @@ fn count(haystack: &str, needle: &str) -> usize {
     haystack.matches(needle).count()
 }
 
+/// The body paragraph (`<w:p>…</w:p>`) holding `needle`.
+fn paragraph_holding<'a>(body: &'a str, needle: &str) -> &'a str {
+    let at = body
+        .find(needle)
+        .unwrap_or_else(|| panic!("{needle} in {body}"));
+    let start = body[..at].rfind("<w:p>").unwrap();
+    let end = at + body[at..].find("</w:p>").unwrap();
+    &body[start..end]
+}
+
+/// The options the editor's page converts with: no captions, bytes for its
+/// pictures.
+fn page_options() -> MarkdownOptions {
+    MarkdownOptions {
+        figure_captions: false,
+        images: [
+            (
+                "https://store.example/logo.png?token=t".to_string(),
+                png_bytes(),
+            ),
+            (
+                "https://store.example/seal.png?token=s".to_string(),
+                png_bytes(),
+            ),
+        ]
+        .into(),
+        ..MarkdownOptions::default()
+    }
+}
+
 // ------------------------------------------------------- the editor's page
 
 #[test]
 fn the_json_renders_the_same_document_as_the_editors_html() {
-    let options = MarkdownOptions {
-        figure_captions: false,
-        images: [(
-            "https://store.example/logo.png?token=t".to_string(),
-            png_bytes(),
-        )]
-        .into(),
-        ..MarkdownOptions::default()
-    };
+    let options = page_options();
     let json = tiptap_with("30-tiptap-core", &fixture("core.json"), &options);
     let html = html_with("30-tiptap-core-html", &fixture("core.html"), &options);
     assert!(json.report.warnings.is_empty(), "{}", json.messages());
@@ -151,7 +173,7 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
         html.part("word/_rels/document.xml.rels")
     );
     assert_eq!(json.report.counts.tables, html.report.counts.tables);
-    assert_eq!(json.report.counts.images, 1);
+    assert_eq!(json.report.counts.images, 2);
     assert_eq!(json.report.counts.links, 1);
 
     let body = json.body();
@@ -186,9 +208,13 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
             .contains("Target=\"https://example.org/advice\" TargetMode=\"External\"")
     );
     // The editor's default alignment is not written: only the three asked
-    // for (and the cell's) carry one.
+    // for, the cell's and the centred picture's.
     assert_eq!(count(&body, "<w:jc w:val=\"left\"/>"), 0);
-    assert_eq!(count(&body, "<w:jc "), 4);
+    assert_eq!(count(&body, "<w:jc "), 5);
+    let logo = paragraph_holding(&body, "<wp:extent cx=\"1905000\" cy=\"762000\"/>");
+    assert!(!logo.contains("<w:jc "), "{logo}");
+    let seal = paragraph_holding(&body, "<wp:extent cx=\"1143000\" cy=\"1143000\"/>");
+    assert!(seal.contains("<w:jc w:val=\"center\"/>"), "{seal}");
 
     let paragraphs = json.paragraphs();
     let texts: Vec<&str> = paragraphs.iter().map(|(_, text)| text.as_str()).collect();
@@ -271,6 +297,87 @@ fn the_editors_default_alignment_is_left_to_the_template() {
         out.messages()
     );
     assert_eq!(out.paragraphs().len(), 6);
+}
+
+#[test]
+fn a_picture_standing_alone_aligns_its_paragraph_by_its_own_text_align() {
+    const LOGO: &str = r#""src":"https://store.example/logo.png?token=t","alt":"Logo","title":null,"width":200,"height":80"#;
+    let out = tiptap_with(
+        "32-tiptap-picture-alignment",
+        &doc(&format!(
+            r#"{{"type":"image","attrs":{{{LOGO},"fileId":"fil_1","textAlign":"center"}}}},
+             {{"type":"paragraph","attrs":{{"textAlign":null}},"content":[{{"type":"image","attrs":{{{LOGO},"textAlign":"right"}}}}]}},
+             {{"type":"paragraph","attrs":{{"textAlign":"justify"}},"content":[{{"type":"image","attrs":{{{LOGO},"textAlign":"justify"}}}}]}},
+             {{"type":"image","attrs":{{{LOGO},"textAlign":"end"}}}},
+             {{"type":"image","attrs":{{{LOGO},"textAlign":"left"}}}},
+             {{"type":"paragraph","content":[{{"type":"image","attrs":{{{LOGO},"textAlign":null}}}}]}},
+             {{"type":"heading","attrs":{{"level":2}},"content":[{{"type":"image","attrs":{{{LOGO},"textAlign":"center"}}}}]}}"#
+        )),
+        &page_options(),
+    );
+    assert!(out.report.warnings.is_empty(), "{}", out.messages());
+    assert_eq!(out.report.counts.images, 7);
+    let body = out.body();
+    assert_eq!(count(&body, "<w:jc w:val=\"center\"/>"), 2, "{body}");
+    assert_eq!(count(&body, "<w:jc w:val=\"right\"/>"), 2, "{body}");
+    assert_eq!(count(&body, "<w:jc w:val=\"both\"/>"), 1, "{body}");
+    assert_eq!(count(&body, "<w:jc w:val=\"left\"/>"), 0, "{body}");
+    assert_eq!(out.paragraphs().len(), 7);
+
+    // The same picture from the editor's HTML: an app's `div` around it, or
+    // Tiptap's own `text-align` on the `img`.
+    let json = tiptap_with(
+        "32-tiptap-picture-json",
+        &doc(&format!(
+            r#"{{"type":"image","attrs":{{{LOGO},"fileId":"fil_1","textAlign":"center"}}}}"#
+        )),
+        &page_options(),
+    );
+    let wrapped = html_with(
+        "32-tiptap-picture-div",
+        r#"<div data-image-align="center" style="text-align: center;"><img src="https://store.example/logo.png?token=t" alt="Logo" width="200" height="80" data-file-id="fil_1"></div>"#,
+        &page_options(),
+    );
+    let styled = html_with(
+        "32-tiptap-picture-img",
+        r#"<img style="text-align: center;" src="https://store.example/logo.png?token=t" alt="Logo" width="200" height="80">"#,
+        &page_options(),
+    );
+    assert!(wrapped.report.warnings.is_empty(), "{}", wrapped.messages());
+    assert!(styled.report.warnings.is_empty(), "{}", styled.messages());
+    assert_eq!(json.body(), wrapped.body());
+    assert_eq!(json.body(), styled.body());
+    let body = json.body();
+    let picture = paragraph_holding(&body, "<w:drawing>");
+    assert!(picture.contains("<w:jc w:val=\"center\"/>"), "{picture}");
+
+    // An alignment the paragraph cannot follow, or one that cannot be read,
+    // is reported; the picture and the paragraph's own alignment stay.
+    let out = tiptap_with(
+        "32-tiptap-picture-dropped",
+        &doc(&format!(
+            r#"{{"type":"paragraph","content":[{{"type":"text","text":"before "}},{{"type":"image","attrs":{{{LOGO},"textAlign":"center"}}}},{{"type":"text","text":" after"}}]}},
+             {{"type":"paragraph","attrs":{{"textAlign":"right"}},"content":[{{"type":"image","attrs":{{{LOGO},"textAlign":"center"}}}}]}},
+             {{"type":"image","attrs":{{{LOGO},"textAlign":"sideways"}}}}"#
+        )),
+        &page_options(),
+    );
+    assert_eq!(
+        out.codes(),
+        ["tiptap_attribute_dropped"],
+        "{}",
+        out.messages()
+    );
+    assert!(
+        out.messages().contains("textAlign on image"),
+        "{}",
+        out.messages()
+    );
+    assert_eq!(out.report.counts.images, 3);
+    let body = out.body();
+    assert_eq!(count(&body, "<w:jc w:val=\"center\"/>"), 0, "{body}");
+    assert_eq!(count(&body, "<w:jc w:val=\"right\"/>"), 1, "{body}");
+    assert_eq!(out.paragraphs()[0].1, "before  after");
 }
 
 #[test]
