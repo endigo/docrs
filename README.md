@@ -60,10 +60,12 @@ docrs roundtrip input.docx --out copy.docx
 ```
 
 `docrs --help` lists every command and `docrs <command> --help` its options.
-`--json` prints machine-readable reports (`schema_version: 1`). Exit codes:
+`--json` prints machine-readable reports (`schema_version: 1`), and errors,
+argument errors included, as a JSON object on stdout. Exit codes:
 0 success, 2 invalid argument, 3 refusal (ambiguous, not found, protected,
 unsupported structure, boundary, relationship policy, malformed package),
-4 resource limit, 5 I/O, 70 internal error. `--out` may equal the input;
+4 resource limit, 5 I/O, 70 internal error (a panic included). `find` and
+`replace` (with `--all` too) exit 3 when nothing matches. `--out` may equal the input;
 outputs are written atomically. `--acknowledge-protection` (on `replace`,
 `resolve`, `compare`, `append`, `insert-from` and `from-markdown`) proceeds through
 Restrict Editing without removing it. `--trusted` uses the trusted-input
@@ -166,7 +168,10 @@ const { docx, report, referenceSetAside } = fromMarkdown(markdown, {
 Options follow the CLI flags in camelCase, with `--no-…` flags as booleans
 (`tocNumbers: false`, `templateLists: false`, `coverPage: false`), `styles`
 as an object and images passed in `images`; unknown names are refused.
-Errors are `Error`s with `code`, `reason`, `refusal` and `limit`. Also
+Errors are `Error`s with `code`, `reason`, `refusal` and `limit`;
+`limits: "serverless"` budgets apply to every function and refuse oversized
+inputs before copying them. After a panic (a bug; `RuntimeError: unreachable`)
+load the module again. Also
 exported: `fromHtml`, `inspectReference`, `markdownStyles`,
 `referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add

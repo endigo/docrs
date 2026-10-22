@@ -68,7 +68,8 @@ pub struct Options {
     /// Proceed despite Restrict Editing on the reference.
     pub acknowledge_protection: bool,
     /// Time for any document property the conversion creates, in
-    /// milliseconds since the Unix epoch (default: now).
+    /// milliseconds since the Unix epoch (default: now); finite, from 0 to
+    /// the end of the year 9999.
     pub now: Option<f64>,
     /// Resource budgets: `default`, or `serverless` for a 256 MB function.
     pub limits: Option<String>,
@@ -85,7 +86,12 @@ struct InputLimits {
 }
 
 fn limits_of(options: &Options) -> Result<(Limits, InputLimits), Error> {
-    match options.limits.as_deref() {
+    profile(options.limits.as_deref())
+}
+
+/// The budgets of the `limits` option `name`.
+fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
+    match name {
         None | Some("default") => Ok((
             Limits::default(),
             InputLimits {
@@ -108,6 +114,55 @@ fn limits_of(options: &Options) -> Result<(Limits, InputLimits), Error> {
             format!("limits must be \"default\" or \"serverless\", got {other:?}"),
         )),
     }
+}
+
+/// Refuse inputs over budget by their sizes alone, before anything reads
+/// them: the source text, the reference document (also bounded by the
+/// package's `max_archive_bytes`, as opening it would be) and the reference
+/// and images together. The JavaScript entry points call this with the
+/// lengths of the JavaScript values, before copying them into WebAssembly
+/// memory; the Rust functions call it again with the exact sizes.
+fn check_sizes(
+    limits: &Limits,
+    input: &InputLimits,
+    source: u64,
+    reference: u64,
+    images: u64,
+) -> Result<(), Error> {
+    if source > input.source {
+        return Err(Error::limit("max_source_bytes", input.source, source));
+    }
+    if reference > limits.max_archive_bytes {
+        return Err(Error::limit(
+            "max_archive_bytes",
+            limits.max_archive_bytes,
+            reference,
+        ));
+    }
+    let total = reference.saturating_add(images);
+    if total > input.input {
+        return Err(Error::limit("max_input_bytes", input.input, total));
+    }
+    Ok(())
+}
+
+/// The latest time `now` may give: the end of the year 9999, in
+/// milliseconds since the Unix epoch.
+const MAX_NOW_MILLIS: f64 = 253_402_300_799_999.0;
+
+/// The time of a conversion from JavaScript milliseconds since the Unix
+/// epoch: a finite number from 0 (1970) to the end of the year 9999.
+pub fn timestamp_from_millis(millis: f64) -> Result<Timestamp, Error> {
+    if !millis.is_finite() || !(0.0..=MAX_NOW_MILLIS).contains(&millis) {
+        return Err(Error::invalid_argument(
+            "invalid_options",
+            format!(
+                "now must be milliseconds since the Unix epoch, from 0 to {MAX_NOW_MILLIS} \
+                 (the end of 9999), got {millis}"
+            ),
+        ));
+    }
+    Ok(Timestamp::from_unix((millis / 1000.0).floor() as i64))
 }
 
 /// A finished conversion.
@@ -199,15 +254,13 @@ pub fn convert(
     now: Timestamp,
 ) -> Result<Converted, Error> {
     let (limits, input) = limits_of(&options)?;
-    let source_bytes = source.len() as u64;
-    if source_bytes > input.source {
-        return Err(Error::limit("max_source_bytes", input.source, source_bytes));
-    }
-    let input_bytes: u64 = options.images.values().map(|b| b.len() as u64).sum::<u64>()
-        + options.reference.as_ref().map_or(0, |b| b.len() as u64);
-    if input_bytes > input.input {
-        return Err(Error::limit("max_input_bytes", input.input, input_bytes));
-    }
+    check_sizes(
+        &limits,
+        &input,
+        source.len() as u64,
+        options.reference.as_ref().map_or(0, |b| b.len() as u64),
+        options.images.values().map(|b| b.len() as u64).sum(),
+    )?;
     let mut markdown_options = markdown_options(&options, format, now)?;
     markdown_options.images = std::mem::take(&mut options.images)
         .into_iter()
@@ -240,7 +293,8 @@ pub fn convert(
 /// What a conversion with `options` will take from `reference` (see
 /// `markdown::inspect`).
 pub fn inspect(reference: &[u8], options: &Options) -> Result<serde_json::Value, Error> {
-    let (limits, _) = limits_of(options)?;
+    let (limits, input) = limits_of(options)?;
+    check_sizes(&limits, &input, 0, reference.len() as u64, 0)?;
     let (document, set_aside) = open_reference(Some(reference), options.strict_package, &limits)?;
     let markdown_options =
         markdown_options(options, InputFormat::Markdown, Timestamp::from_unix(0))?;
@@ -249,13 +303,19 @@ pub fn inspect(reference: &[u8], options: &Options) -> Result<serde_json::Value,
     Ok(inspection)
 }
 
-/// `(role, candidates, style)` for every Markdown role in `reference`.
-pub fn styles_of(
-    reference: Option<&[u8]>,
-    styles: &BTreeMap<String, String>,
-) -> Result<serde_json::Value, Error> {
-    let (document, _) = open_reference(reference, false, &Limits::default())?;
-    let roles = markdown::role_styles(&document, &style_map(styles)?)?;
+/// `(role, candidates, style)` for every Markdown role in `reference`, with
+/// `options.styles` (`limits` and `strict_package` apply too).
+pub fn styles_of(reference: Option<&[u8]>, options: &Options) -> Result<serde_json::Value, Error> {
+    let (limits, input) = limits_of(options)?;
+    check_sizes(
+        &limits,
+        &input,
+        0,
+        reference.map_or(0, |b| b.len() as u64),
+        0,
+    )?;
+    let (document, _) = open_reference(reference, options.strict_package, &limits)?;
+    let roles = markdown::role_styles(&document, &style_map(&options.styles)?)?;
     Ok(serde_json::Value::Array(
         roles
             .into_iter()
@@ -305,7 +365,7 @@ export interface FromMarkdownOptions {
   images?: Record<string, Uint8Array>;
   strictPackage?: boolean;
   acknowledgeProtection?: boolean;
-  /** Milliseconds since the Unix epoch for created document properties (default: now). */
+  /** Milliseconds since the Unix epoch for created document properties (default: now); 0 to the end of 9999. */
   now?: number;
   /** Resource budgets: `"default"`, or `"serverless"` for a 256 MB function. */
   limits?: "default" | "serverless";
@@ -480,15 +540,97 @@ fn to_js(value: &serde_json::Value) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
+/// The size of a JavaScript value: a string's UTF-16 code units, else its
+/// `length` (a `Uint8Array`'s or an array's elements) or `byteLength`; 0
+/// when it has neither.
+fn js_length(value: &JsValue) -> u64 {
+    if let Some(text) = value.dyn_ref::<js_sys::JsString>() {
+        return u64::from(text.length());
+    }
+    ["length", "byteLength"]
+        .into_iter()
+        .filter_map(|key| js_sys::Reflect::get(value, &JsValue::from_str(key)).ok())
+        .find_map(|length| length.as_f64())
+        .filter(|length| length.is_finite() && *length > 0.0)
+        .map_or(0, |length| length as u64)
+}
+
+/// Check the budgets of the `limits` option against the sizes of the source
+/// and of the `reference` and `images` options as JavaScript holds them,
+/// before any of them is copied into WebAssembly memory. A string's UTF-8
+/// size is at least its UTF-16 length, so the source check never refuses
+/// what fits; the exact size is checked again after the copy.
+fn check_js_sizes(
+    source: Option<&JsValue>,
+    reference: Option<&JsValue>,
+    options: Option<&js_sys::Object>,
+) -> Result<(), JsValue> {
+    let get = |key: &str| {
+        options
+            .and_then(|options| js_sys::Reflect::get(options, &JsValue::from_str(key)).ok())
+            .filter(|value| !value.is_undefined() && !value.is_null())
+    };
+    let redact = get("redact").and_then(|v| v.as_bool()) == Some(true);
+    let refuse = |err: Error| js_error_with(&err, redact);
+    let name = match get("limits") {
+        None => None,
+        Some(value) => Some(value.as_string().ok_or_else(|| {
+            refuse(Error::invalid_argument(
+                "invalid_options",
+                "limits must be \"default\" or \"serverless\"",
+            ))
+        })?),
+    };
+    let (limits, input) = profile(name.as_deref()).map_err(refuse)?;
+    let reference = reference.cloned().or_else(|| get("reference"));
+    let images = get("images")
+        .and_then(|images| images.dyn_into::<js_sys::Object>().ok())
+        .map_or(0, |images| {
+            js_sys::Object::values(&images)
+                .iter()
+                .map(|image| js_length(&image))
+                .fold(0u64, u64::saturating_add)
+        });
+    check_sizes(
+        &limits,
+        &input,
+        source.map_or(0, js_length),
+        reference.as_ref().map_or(0, js_length),
+        images,
+    )
+    .map_err(refuse)
+}
+
+/// The source text, after its size was checked.
+fn source_from(source: &JsValue, redact: bool) -> Result<String, JsValue> {
+    source.as_string().ok_or_else(|| {
+        js_error_with(
+            &Error::invalid_argument("invalid_source", "the source must be a string"),
+            redact,
+        )
+    })
+}
+
+/// A `Uint8Array` argument, after its size was checked.
+fn bytes_from(value: &JsValue, what: &str) -> Result<Vec<u8>, JsValue> {
+    value
+        .dyn_ref::<js_sys::Uint8Array>()
+        .map(js_sys::Uint8Array::to_vec)
+        .ok_or_else(|| {
+            js_error(&Error::invalid_argument(
+                "invalid_options",
+                format!("{what} must be a Uint8Array"),
+            ))
+        })
+}
+
 fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
     let Some(value) = value else {
         return Ok(Options::default());
     };
     // Option names and types are the caller's code, not input data, but a
     // value echoed in a type error could be; honour `redact` early.
-    let redact = js_sys::Reflect::get(&value, &JsValue::from_str("redact"))
-        .map(|v| v.as_bool() == Some(true))
-        .unwrap_or(false);
+    let redact = redact_of(&value);
     // serde-wasm-bindgen reads only the fields it knows, so a misspelt
     // option would be ignored silently; refuse it instead. An option set to
     // `undefined` or `null` counts as not set, as JavaScript callers
@@ -515,6 +657,12 @@ fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
     })
 }
 
+fn redact_of(options: &js_sys::Object) -> bool {
+    js_sys::Reflect::get(options, &JsValue::from_str("redact"))
+        .map(|v| v.as_bool() == Some(true))
+        .unwrap_or(false)
+}
+
 fn converted_to_js(converted: Converted) -> JsValue {
     let result = js_sys::Object::new();
     let set = |key: &str, value: &JsValue| {
@@ -533,15 +681,17 @@ fn converted_to_js(converted: Converted) -> JsValue {
 }
 
 fn run(
-    source: &str,
+    source: JsValue,
     format: InputFormat,
     options: Option<js_sys::Object>,
 ) -> Result<JsValue, JsValue> {
+    check_js_sizes(Some(&source), None, options.as_ref())?;
     let options = options_from(options)?;
-    let millis = options.now.unwrap_or_else(js_sys::Date::now);
-    let now = Timestamp::from_unix((millis / 1000.0).floor() as i64);
     let redact = options.redact;
-    convert(source, format, options, now)
+    let now = timestamp_from_millis(options.now.unwrap_or_else(js_sys::Date::now))
+        .map_err(|err| js_error_with(&err, redact))?;
+    let source = source_from(&source, redact)?;
+    convert(&source, format, options, now)
         .map(converted_to_js)
         .map_err(|err| js_error_with(&err, redact))
 }
@@ -549,7 +699,7 @@ fn run(
 /// Convert Markdown into a `.docx` styled by a reference document.
 #[wasm_bindgen(js_name = fromMarkdown, unchecked_return_type = "FromMarkdownResult")]
 pub fn from_markdown(
-    markdown: &str,
+    #[wasm_bindgen(unchecked_param_type = "string")] markdown: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
         js_sys::Object,
     >,
@@ -562,7 +712,7 @@ pub fn from_markdown(
 /// `fromMarkdown`; pictures get no captions unless `captions: true`.
 #[wasm_bindgen(js_name = fromHtml, unchecked_return_type = "FromMarkdownResult")]
 pub fn from_html(
-    html: &str,
+    #[wasm_bindgen(unchecked_param_type = "string")] html: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
         js_sys::Object,
     >,
@@ -577,38 +727,53 @@ pub fn from_html(
 /// `limits` matter).
 #[wasm_bindgen(js_name = inspectReference, unchecked_return_type = "ReferenceInspection")]
 pub fn inspect_reference(
-    reference: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Uint8Array")] reference: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
         js_sys::Object,
     >,
 ) -> Result<JsValue, JsValue> {
+    check_js_sizes(None, Some(&reference), options.as_ref())?;
     let options = options_from(options)?;
-    inspect(reference, &options)
+    let reference = bytes_from(&reference, "reference")?;
+    inspect(&reference, &options)
         .map(|value| to_js(&value))
         .map_err(|err| js_error_with(&err, options.redact))
 }
 
 /// Which style each Markdown role takes from `reference` (the bundled blank
-/// document when absent), with an optional role → style name map.
+/// document when absent), with an optional role → style name map. Options as
+/// for `fromMarkdown` (`limits`, `strictPackage` and `redact` matter; `styles`
+/// there adds to the map, which wins).
 #[wasm_bindgen(js_name = markdownStyles, unchecked_return_type = "RoleStyle[]")]
 pub fn markdown_styles(
-    #[wasm_bindgen(unchecked_optional_param_type = "Uint8Array")] reference: Option<Vec<u8>>,
+    #[wasm_bindgen(unchecked_optional_param_type = "Uint8Array")] reference: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "Record<string, string>")] styles: Option<
         js_sys::Object,
     >,
+    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
+        js_sys::Object,
+    >,
 ) -> Result<JsValue, JsValue> {
-    let styles: BTreeMap<String, String> = match styles {
-        None => BTreeMap::new(),
-        Some(styles) => serde_wasm_bindgen::from_value(styles.into()).map_err(|err| {
-            js_error(&Error::invalid_argument(
-                "invalid_options",
-                format!("styles: {err}"),
-            ))
-        })?,
-    };
-    styles_of(reference.as_deref(), &styles)
+    let reference = Some(reference).filter(|r| !r.is_undefined() && !r.is_null());
+    check_js_sizes(None, reference.as_ref(), options.as_ref())?;
+    let redact = options.as_ref().is_some_and(redact_of);
+    let mut options = options_from(options)?;
+    if let Some(styles) = styles {
+        let styles: BTreeMap<String, String> = serde_wasm_bindgen::from_value(styles.into())
+            .map_err(|err| {
+                js_error_with(
+                    &Error::invalid_argument("invalid_options", format!("styles: {err}")),
+                    redact,
+                )
+            })?;
+        options.styles.extend(styles);
+    }
+    let reference = reference
+        .map(|reference| bytes_from(&reference, "reference"))
+        .transpose()?;
+    styles_of(reference.as_deref(), &options)
         .map(|value| to_js(&value))
-        .map_err(|err| js_error(&err))
+        .map_err(|err| js_error_with(&err, redact))
 }
 
 /// A starter reference document showing every Markdown style, to restyle in
@@ -619,6 +784,26 @@ pub fn reference_document() -> Result<Vec<u8>, JsValue> {
         .and_then(|document| document.patch_bytes())
         .map(|(bytes, _)| bytes)
         .map_err(|err| js_error(&err))
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(message: &str);
+}
+
+/// Runs when the module is instantiated. The build aborts on a panic (a bug):
+/// the instance traps with `RuntimeError: unreachable` and is unusable
+/// afterwards. Say what panicked on `console.error` first.
+#[wasm_bindgen(start)]
+fn start() {
+    std::panic::set_hook(Box::new(|info| {
+        console_error(&format!(
+            "docrs-wasm {} {info}\nThis is a bug in docrs-wasm; the WebAssembly instance \
+             is unusable now: load the module again before the next call.",
+            env!("CARGO_PKG_VERSION")
+        ));
+    }));
 }
 
 /// The library version.
@@ -804,7 +989,72 @@ mod tests {
 
     #[test]
     fn role_styles_list_every_role() {
-        let roles = styles_of(None, &BTreeMap::new()).unwrap();
+        let roles = styles_of(None, &Options::default()).unwrap();
         assert_eq!(roles.as_array().unwrap().len(), Role::ALL.len());
+    }
+
+    #[test]
+    fn every_entry_point_applies_the_limits() {
+        let serverless = Options {
+            limits: Some("serverless".into()),
+            ..Options::default()
+        };
+        // Sizes alone refuse; the bytes are never parsed.
+        let big = vec![0u8; (8 << 20) + 1];
+        for err in [
+            styles_of(Some(&big), &serverless).unwrap_err(),
+            inspect(&big, &serverless).unwrap_err(),
+            convert(
+                "x",
+                InputFormat::Markdown,
+                Options {
+                    reference: Some(ByteBuf::from(big.clone())),
+                    ..serverless.clone()
+                },
+                Timestamp::from_unix(0),
+            )
+            .unwrap_err(),
+        ] {
+            assert_eq!(err.reason(), "max_archive_bytes", "{err}");
+        }
+        // The default budgets read the same bytes (and refuse them as a
+        // malformed package, not by size).
+        assert!(
+            styles_of(Some(&big), &Options::default())
+                .unwrap_err()
+                .is_refusal()
+        );
+        let starter = reference_document().unwrap();
+        assert!(styles_of(Some(&starter), &serverless).is_ok());
+        let bad = Options {
+            limits: Some("huge".into()),
+            ..Options::default()
+        };
+        assert_eq!(
+            styles_of(None, &bad).unwrap_err().code(),
+            "invalid_argument"
+        );
+    }
+
+    #[test]
+    fn the_clock_is_validated() {
+        assert_eq!(
+            timestamp_from_millis(1_700_000_000_999.0).unwrap().unix(),
+            1_700_000_000
+        );
+        assert_eq!(timestamp_from_millis(0.0).unwrap().unix(), 0);
+        assert!(timestamp_from_millis(MAX_NOW_MILLIS).is_ok());
+        for bad in [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -1.0,
+            MAX_NOW_MILLIS + 1.0,
+            1e300,
+        ] {
+            let err = timestamp_from_millis(bad).unwrap_err();
+            assert_eq!(err.code(), "invalid_argument", "{bad}");
+            assert_eq!(err.reason(), "invalid_options", "{bad}");
+        }
     }
 }

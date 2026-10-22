@@ -245,3 +245,52 @@ test("headings without text get no contents entry", () => {
   assert.equal((documentXml(docx).match(/ PAGEREF /g) ?? []).length, 2);
   assert.equal(report.toc.entries, 2);
 });
+
+test("oversized inputs are refused before they are copied in", () => {
+  // Zero-filled and untouched, so this costs no resident memory unless the
+  // module copies it into WebAssembly memory.
+  const big = new Uint8Array(512 << 20);
+  const before = process.memoryUsage().rss;
+  const tooBig = (err) => err.code === "resource_limit" && err.limit.limit === "max_archive_bytes";
+  assert.throws(() => lib.fromMarkdown("x", { limits: "serverless", reference: big }), tooBig);
+  assert.throws(() => lib.fromHtml("x", { limits: "serverless", reference: big }), tooBig);
+  assert.throws(() => lib.inspectReference(big, { limits: "serverless" }), tooBig);
+  assert.throws(() => lib.markdownStyles(big, undefined, { limits: "serverless" }), tooBig);
+  assert.throws(
+    () => lib.fromMarkdown("x", { limits: "serverless", images: { a: big } }),
+    (err) => err.code === "resource_limit" && err.limit.limit === "max_input_bytes",
+  );
+  assert.ok(process.memoryUsage().rss - before < 256 << 20, "the reference was copied");
+  // A source over budget by its UTF-16 length alone.
+  assert.throws(
+    () => lib.fromMarkdown("x".repeat((384 << 10) + 1), { limits: "serverless", redact: true }),
+    (err) => err.limit.limit === "max_source_bytes",
+  );
+  assert.throws(() => lib.fromMarkdown(42), (err) => err.code === "invalid_argument" && err.reason === "invalid_source");
+  assert.throws(() => lib.fromMarkdown("x", { limits: 1 }), (err) => err.reason === "invalid_options");
+});
+
+test("markdownStyles takes the limits and strictPackage options", () => {
+  const reference = readBytes(join(templates, "docx-template-missing-pandoc-styles.docx"));
+  assert.equal(lib.markdownStyles(reference, undefined, { limits: "serverless" }).length, 40);
+  assert.throws(
+    () => lib.markdownStyles(reference, undefined, { strictPackage: true }),
+    (err) => err.reason === "zip_directory_data",
+  );
+  const mapped = lib.markdownStyles(undefined, { code_block: "Normal" }, { styles: { code_block: "Title" } });
+  assert.equal(mapped.find((role) => role.role === "code_block").style.name, "Normal");
+  assert.throws(() => lib.markdownStyles(undefined, undefined, { limits: "huge" }), (err) => err.code === "invalid_argument");
+});
+
+test("now must be a time from 1970 to the year 9999 in milliseconds", () => {
+  for (const now of [NaN, Infinity, -Infinity, -1, 253402300800000, 1e300]) {
+    assert.throws(
+      () => lib.fromMarkdown("x", { now }),
+      (err) => err instanceof Error && err.code === "invalid_argument" && err.reason === "invalid_options",
+      String(now),
+    );
+  }
+  assert.throws(() => lib.fromMarkdown("x", { now: "today" }), (err) => err.reason === "invalid_options");
+  assert.ok(isZip(lib.fromMarkdown("x", { now: 0 }).docx));
+  assert.ok(isZip(lib.fromMarkdown("x", { now: 253402300799999 }).docx));
+});

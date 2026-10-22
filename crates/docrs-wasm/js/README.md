@@ -38,10 +38,25 @@ sizes and alignment, and page breaks. CSS it cannot map is reported
 Also exported: `inspectReference(reference, options?)` (what a conversion
 will take from a template: role styles, lifted branding, the section kept,
 headers and footers, compatibility mode, plain-language problems),
-`markdownStyles(reference?, styles?)` (which style each element takes),
-`referenceDocument()` (a starter template to restyle in Word) and
+`markdownStyles(reference?, styles?, options?)` (which style each element
+takes), `referenceDocument()` (a starter template to restyle in Word) and
 `version()`. Errors are thrown as `Error`s with `code`, `reason`, `refusal`
 and `limit`; a refusal produces nothing.
+
+`limits` applies to every function that takes options. Inputs over budget
+are refused by their size before they are copied into WebAssembly memory:
+the source text, the reference document (`max_archive_bytes`: 1 GiB by
+default, 8 MiB with `serverless`) and, with `serverless`, 384 KiB of source
+and 12 MiB of reference and images together. `now` must be a finite number
+of milliseconds from 0 to the end of the year 9999.
+
+A panic is a bug in docrs-wasm. The module is built to abort on a panic
+(WebAssembly has no unwinding here): the call throws
+`RuntimeError: unreachable` and the panic message goes to `console.error`.
+The instance may still answer calls afterwards, but its memory can be
+inconsistent, so load the module again before the next call (for example
+`delete require.cache[require.resolve("docrs-wasm")]` and `require` it
+again; existing references keep the old instance).
 
 ## Next.js
 
