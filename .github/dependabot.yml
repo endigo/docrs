@@ -1,0 +1,41 @@
+# Dependabot keeps the pinned dependencies current.
+#
+# GitHub Actions are referenced by commit SHA with the version in a comment
+# (`uses: owner/action@<sha> # vX.Y.Z`); Dependabot moves the SHA and the
+# comment together. The composite action under .github/actions has its own
+# entry because the workflow directory does not cover it. dtolnay/rust-toolchain
+# publishes no releases (its refs are toolchain names such as `stable`), so
+# Dependabot leaves that pin alone; move it by hand when needed.
+#
+# Cargo updates keep Cargo.lock fresh, which `cargo install --locked` and the
+# release use; a requirement in a Cargo.toml only changes when a new version
+# falls outside it. CI, including the MSRV job, gates every update.
+#
+# One grouped pull request per ecosystem, on Mondays.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/wasm-pack
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: CI
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      cargo:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: Dependencies
