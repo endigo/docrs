@@ -22,7 +22,7 @@ pub mod save;
 pub mod zip_read;
 pub mod zip_write;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use content_types::{ContentTypes, content_type_matches, parse_content_types};
@@ -143,6 +143,7 @@ pub struct Part {
     removed: bool,
     reachable: bool,
     generation: u64,
+    incarnation: u32,
 }
 
 impl Part {
@@ -156,7 +157,10 @@ impl Part {
         self.content_type.as_deref()
     }
 
-    /// Original bytes, `None` for parts added in this session.
+    /// Bytes the member had when the package was opened: `None` for a part
+    /// added in this session under a new name. A part added under the name
+    /// of a removed member keeps that member's bytes here, so a patch save
+    /// can tell an unchanged re-addition from a change.
     pub fn original(&self) -> Option<&[u8]> {
         self.original.as_deref()
     }
@@ -174,6 +178,12 @@ impl Part {
     /// Commit generation of this part (bumped on each committed change).
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// How many times this member's name was removed and added again; the
+    /// part's tree carries the same value ([`XmlTree::incarnation`]).
+    pub fn incarnation(&self) -> u32 {
+        self.incarnation
     }
 
     /// Current bytes (serialized when the tree was modified).
@@ -235,6 +245,7 @@ impl Package {
                 removed: false,
                 reachable: false,
                 generation: 0,
+                incarnation: 0,
             });
         }
         let mut package = Package {
@@ -256,8 +267,7 @@ impl Package {
     /// Actual member name matching `part_name` case-insensitively
     /// (`/`-prefixed or not), as Word and upstream resolve targets.
     pub fn resolve_member(&self, part_name: &str) -> Option<&str> {
-        self.member_by_fold(part_name)
-            .filter(|index| !self.parts[*index].removed)
+        self.live_member_by_fold(part_name)
             .map(|index| self.parts[index].name.as_str())
     }
 
@@ -269,16 +279,9 @@ impl Package {
         content_type: &str,
         tree: XmlTree,
     ) -> Result<()> {
-        if self.member_by_fold(name).is_some() {
-            return Err(Error::internal(
-                "duplicate_part",
-                format!("part {name} already exists"),
-            ));
-        }
-        let position = self.parts.len();
         let cell = OnceLock::new();
         let _ = cell.set(tree);
-        self.parts.push(Part {
+        self.place_new_part(Part {
             name: name.to_string(),
             original: None,
             content_type: Some(content_type.to_string()),
@@ -288,10 +291,8 @@ impl Package {
             removed: false,
             reachable: true,
             generation: 1,
-        });
-        self.index.insert(name.to_string(), position);
-        self.fold_index.insert(casefold(name), position);
-        Ok(())
+            incarnation: 0,
+        })
     }
 
     /// Add a new binary (non-XML) part such as an image (transaction
@@ -302,14 +303,7 @@ impl Package {
         content_type: &str,
         bytes: Vec<u8>,
     ) -> Result<()> {
-        if self.member_by_fold(name).is_some() {
-            return Err(Error::internal(
-                "duplicate_part",
-                format!("part {name} already exists"),
-            ));
-        }
-        let position = self.parts.len();
-        self.parts.push(Part {
+        self.place_new_part(Part {
             name: name.to_string(),
             original: None,
             content_type: Some(content_type.to_string()),
@@ -319,14 +313,50 @@ impl Package {
             removed: false,
             reachable: true,
             generation: 1,
-        });
-        self.index.insert(name.to_string(), position);
-        self.fold_index.insert(casefold(name), position);
+            incarnation: 0,
+        })
+    }
+
+    /// Install a part added by a commit. A name no live part holds (case
+    /// folded) is free: a removed member of exactly that name gets its slot
+    /// back, keeping its original bytes and archive position so the patch
+    /// save sees a change (or, with identical bytes, no change) rather than a
+    /// removal plus an addition.
+    fn place_new_part(&mut self, mut part: Part) -> Result<()> {
+        if self.live_member_by_fold(&part.name).is_some() {
+            return Err(Error::internal(
+                "duplicate_part",
+                format!("part {} already exists", part.name),
+            ));
+        }
+        let folded = casefold(&part.name);
+        match self.index.get(&part.name).copied() {
+            Some(position) => {
+                let slot = &mut self.parts[position];
+                part.original = slot.original.take();
+                part.generation = slot.generation + 1;
+                // A new incarnation of the name: handles into the removed
+                // member must not pass for this one.
+                part.incarnation = slot.incarnation.wrapping_add(1);
+                if let Some(tree) = part.tree.get_mut() {
+                    tree.set_incarnation(part.incarnation);
+                }
+                *slot = part;
+                self.fold_index.insert(folded, position);
+            }
+            None => {
+                let position = self.parts.len();
+                self.index.insert(part.name.clone(), position);
+                self.fold_index.insert(folded, position);
+                self.parts.push(part);
+            }
+        }
         Ok(())
     }
 
     /// Mark a member removed (transaction commit); it is left out of every
-    /// listing and of the saved package.
+    /// listing and of the saved package, and its name is free for a later
+    /// [`Package::add_xml_part`] or [`Package::add_binary_part`].
     pub(crate) fn remove_part(&mut self, name: &str) {
         if let Some(index) = self.index.get(name).copied() {
             self.parts[index].removed = true;
@@ -335,20 +365,24 @@ impl Package {
     }
 
     /// Check that a staged commit can be applied without failing part-way:
-    /// new parts must not collide with existing parts or each other, replaced
-    /// trees must name existing parts, and a staged `[Content_Types].xml`
-    /// must parse. Returns the parsed content types for
-    /// [`Package::set_content_types`].
+    /// new parts must not collide with live parts (other than those the same
+    /// commit removes first) or each other, replaced trees must name existing
+    /// parts, and a staged `[Content_Types].xml` must parse. Returns the
+    /// parsed content types for [`Package::set_content_types`].
     pub(crate) fn preflight_commit<'a>(
         &self,
         new_parts: impl IntoIterator<Item = &'a str>,
         replaced: impl IntoIterator<Item = &'a str>,
+        removed: &BTreeSet<String>,
         content_types: Option<&XmlTree>,
     ) -> Result<Option<ContentTypes>> {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for name in new_parts {
             let member = name.strip_prefix('/').unwrap_or(name);
-            if self.member_by_fold(name).is_some() || !seen.insert(casefold(member)) {
+            let taken = self
+                .live_member_by_fold(name)
+                .is_some_and(|index| !removed.contains(&self.parts[index].name));
+            if taken || !seen.insert(casefold(member)) {
                 return Err(Error::internal(
                     "duplicate_part",
                     format!("part {name} already exists"),
@@ -376,6 +410,11 @@ impl Package {
     fn member_by_fold(&self, part_name: &str) -> Option<usize> {
         let member = part_name.strip_prefix('/').unwrap_or(part_name);
         self.fold_index.get(&casefold(member)).copied()
+    }
+
+    fn live_member_by_fold(&self, part_name: &str) -> Option<usize> {
+        self.member_by_fold(part_name)
+            .filter(|index| !self.parts[*index].removed)
     }
 
     /// Validate content types and the relationship graph (upstream
@@ -410,7 +449,7 @@ impl Package {
         }
 
         // Depth-first walk mirroring `_walk_phys_parts`.
-        let mut visited: Vec<String> = Vec::new();
+        let mut visited: HashSet<String> = HashSet::new();
         let mut reached: Vec<(usize, String)> = Vec::new();
         let mut stack: Vec<(String, Vec<Relationship>, usize)> =
             vec![("/".to_string(), package_rels.clone(), 0)];
@@ -443,11 +482,9 @@ impl Package {
                 )
             })?;
             validate_target_content_type(&rel.rel_type, content_type, &part_name)?;
-            let folded = casefold(&part_name);
-            if visited.contains(&folded) {
+            if !visited.insert(casefold(&part_name)) {
                 continue;
             }
-            visited.push(folded);
             reached.push((member, content_type.to_string()));
             let child_rels = self.relationships_at(&part_name)?;
             stack.push((part_name, child_rels, 0));
@@ -588,7 +625,8 @@ impl Package {
             return Ok(tree);
         }
         let bytes = part.current_bytes();
-        let tree = xml::parse(&bytes, &self.limits).map_err(|err| err.into_error(name))?;
+        let mut tree = xml::parse(&bytes, &self.limits).map_err(|err| err.into_error(name))?;
+        tree.set_incarnation(part.incarnation);
         let _ = part.tree.set(tree);
         part.tree
             .get()
@@ -596,12 +634,18 @@ impl Package {
     }
 
     /// Replace the parsed tree of `name` (transaction commit).
-    pub fn commit_tree(&mut self, name: &str, tree: XmlTree) -> Result<()> {
+    pub fn commit_tree(&mut self, name: &str, mut tree: XmlTree) -> Result<()> {
         let index = *self
             .index
             .get(name)
             .ok_or_else(|| Error::internal("unknown_part", format!("no part named {name:?}")))?;
         let part = &mut self.parts[index];
+        if tree.incarnation() != part.incarnation {
+            // Not a copy of the member's own tree: handles into the old one
+            // must not pass for the new one.
+            part.incarnation = part.incarnation.wrapping_add(1);
+            tree.set_incarnation(part.incarnation);
+        }
         part.tree = OnceLock::new();
         let _ = part.tree.set(tree);
         part.dirty = true;
@@ -620,6 +664,8 @@ impl Package {
         part.replaced = Some(bytes);
         part.dirty = false;
         part.generation += 1;
+        // New content from bytes is a new arena for any handle into the old.
+        part.incarnation = part.incarnation.wrapping_add(1);
         Ok(())
     }
 

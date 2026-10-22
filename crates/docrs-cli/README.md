@@ -24,9 +24,11 @@ docrs roundtrip input.docx --out copy.docx    # byte-identical when unchanged
 
 `docrs --help` lists every command and `docrs <command> --help` its options.
 
+`from-markdown` reads images only from the Markdown file's directory (standard input: the current directory) or `--resource-path`; absolute, UNC and `file:` paths and paths leading out of it are refused with a warning.
+
 **Output and exit codes:**
 
-- `--json` prints machine-readable reports (`schema_version: 1`).
+- `--json` prints machine-readable reports (`schema_version: 1`). Errors are printed as JSON on stdout too, `{"schema_version": 1, "error": {"code", "reason", "message", "refusal", "limit"}}`, including argument errors (`--json` anywhere on the command line). `--help` and `--version` print text and exit 0.
 - Exit codes:
 
   | Code | Meaning |
@@ -36,8 +38,9 @@ docrs roundtrip input.docx --out copy.docx    # byte-identical when unchanged
   | 3 | refusal (ambiguous, not found, protected, unsupported structure, boundary, relationship policy, malformed package) |
   | 4 | resource limit |
   | 5 | I/O |
-  | 70 | internal error |
+  | 70 | internal error (a bug; a panic is reported as code `internal`, reason `internal_panic`) |
 
+- `find` exits 3 when nothing matches. `replace` exits 3 when it replaces nothing, `--all` included (no match: `target_not_found`; every match refused: the first refusal), and writes no output. Its report gives `replaced_count` and `refused_count`.
 - Outputs are written atomically, and `--out` may be the input file. A refusal leaves every file unchanged.
 
 ## License

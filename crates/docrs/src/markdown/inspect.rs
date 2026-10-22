@@ -233,7 +233,7 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     let sample = super::styles::Sample::read(&txn)?;
     let lifted = sample.summary();
     drop(txn);
-    let parsed = ast::parse(PROBE, false);
+    let parsed = ast::parse(PROBE, false)?;
     let trial_options = MarkdownOptions {
         placement: match options.placement {
             Placement::Placeholder(_) => Placement::Append,

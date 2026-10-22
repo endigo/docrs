@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.2.0 (2026-10-22)
+
+### Library
+
+- **Package and XML:**
+  - A removed part's name can be used again, in the same edit or a later one. Before, adding a part under a removed name failed with the internal error `duplicate_part`. A part re-added with identical bytes saves as the original. Handles into the removed member (spans, blocks, paragraphs, runs, tables, controls) are stale against the new one (`story_replaced`, `stale_handle`, …) even when its content lines up (`XmlTree::incarnation`).
+  - Opening a package is linear in its part count: 64k parts open in about 0.3 s instead of 48 s.
+  - Copying deeply nested markup (deep copies, importing from another document as `append` and `insert-from` do) and comparing run properties during replace no longer recurse. With `--trusted`, 40k levels of nested content controls no longer abort `append` with a stack overflow.
+- **Protection:** every inherited writer now honours Restrict Editing: authoring (paragraphs, runs, tables, cells, pictures, tab stops, `clear_body_content`), sections, headers and footers, styles and latent styles, and core properties. A forbidden edit refuses `document_protected` and changes nothing; `Document::acknowledge_protection` lets it through. `Run::mark_comment_range` counts as a comment edit. `Document::ensure_styles_part` refuses only when it would create the part.
+- **Compare (breaking for struct literals of `CompareOptions`):** an original under Restrict Editing that forbids body edits is refused unless the new `CompareOptions::acknowledge_protection` is set (CLI: `compare --acknowledge-protection`). The redline no longer comes back with protection acknowledged on the caller's behalf. `author` is validated like other writers' text (XML 1.0, no control characters, at most `MAX_AUTHOR_CHARS` = 255 characters), and the redline is committed through the transaction path. Code that builds `CompareOptions` with a struct literal needs the new field (`acknowledge_protection: false` keeps the safe default).
+- **Comments:** a span captured under `view=original` or `view=all` no longer anchors a comment (`Span::comment`, `comments::add_comment`); it refuses `historical_view_target` like replace does, so a comment cannot anchor on deleted text.
+- **Comment ids:** allocating a comment `w:id` after an id at the 64-bit limit no longer overflows; past the signed 32-bit range the lowest free id is reused as before. A new `w14:paraId` that would reach `0x80000000` refuses `invalid_argument(para_id_exhausted)` instead of writing an id Word rejects.
+- **Revisions:** `Revisions::accept_all` / `reject_all` refresh the caller's snapshot from the staged trees before committing, so they can no longer report an error after the document has changed.
+- **Markdown and HTML to Word, hostile input:**
+  - Inline HTML closed across Markdown emphasis (`<b>*x</b>*`) no longer panics; the Markdown spans close with the HTML span and reopen after it, so the text and its formatting are kept.
+  - An unclosed inline HTML tag ends with its block instead of swallowing what follows (a nested list, display math).
+  - Front matter indented with a non-ASCII space (U+00A0) no longer panics: YAML indentation is ASCII spaces only, anything else is content.
+  - Structure nested deeper than 128 levels (`markdown::MAX_NESTING_DEPTH`: block quotes, lists, emphasis, links, images, HTML elements, math groups) is refused with `ResourceLimit` (`markdown_nesting_too_deep`) before anything changes, instead of overflowing the stack.
+  - Tables are narrowed to Word's 63 columns: spans past the last column are cut back and cells past it merge into it, with a `table_columns_clamped` warning. 300 cells with `colspan="1000"` took tens of seconds and wrote 300,000 columns.
+  - HTML browsers do not display (`head`, `title`, `style`, `script`, `template`, `noscript`, …) is dropped with its content and an `html_element_skipped` warning per element kind, instead of becoming body paragraphs. Script, style and title text is no longer read as markup.
+- **Markdown and HTML to Word, untrusted input:**
+  - Local images are read only when `MarkdownOptions::resource_dir` is set, and only from inside it: absolute paths, drive and UNC prefixes, `file:` URLs and paths leading out of it (`..`, symbolic links) are refused with an `image_outside_resource_dir` warning. **Behaviour change:** with `resource_dir: None` (the default) nothing is read from disk; pass images in `images` or set the directory.
+  - Image warnings quote the reference as written, never the resolved path or the operating system's error.
+  - Pictures larger than the document's `Limits::max_part_bytes` (`data:` URIs measured before decoding) are left out with an `image_too_large` warning.
+  - A damaged or truncated picture is left out with an `image_unreadable` warning instead of failing the conversion; a resolution of zero is taken as 96 dpi (`Image::layout_dimensions`).
+  - Links keep their target only for `http`, `https`, `mailto`, `tel`, `#fragment` and relative references; other schemes (`javascript:`, `file:`, ...) keep their text without the link (`link_scheme_skipped`).
+  - The template's package thumbnail (a picture of its first page) is left out of replace-body conversions and listed in `removed_parts`.
+  - `images` keys and references match alike: `./a.png` finds `a.png`, `a%20b.png` finds `a b.png`, and the other way round.
+  - Very deeply nested block quotes no longer overflow the quote depth.
+- **Hyperlinks:** `add_hyperlink` refuses `javascript:` and `vbscript:` addresses and addresses with control characters (`invalid_argument`).
+- **Images:** `Image::from_vec` characterises owned bytes without copying them.
+
+### Command line
+
+- `compare --acknowledge-protection` redlines an original under Restrict Editing; without it such an original is refused (exit 3).
+- `from-markdown` reads images from the current directory for standard input, as before, and only from inside the Markdown file's directory or `--resource-path`.
+- **Panics** are reported as an internal error (exit 70, code `internal`, reason `internal_panic`, the JSON envelope under `--json`) instead of Rust's panic message and exit 101.
+- **Argument errors under `--json`** are the JSON error envelope (`invalid_argument`, exit 2) instead of plain text. `--help` and `--version` still print text and exit 0.
+- **`replace --all`** exits 3 and writes nothing when it replaces nothing (no match: `target_not_found`; every match refused: the first refusal), as `replace` without `--all` does. Reports give `replaced_count` and `refused_count`.
+- **`layout --font`** with an unreadable file is an I/O error (exit 5), not an invalid argument.
+
+### Node.js
+
+- **Budgets before copies:** the source, the reference document and images are checked against the `limits` budgets by their size before they are copied into WebAssembly memory. The reference is also held to the package budget `max_archive_bytes` up front.
+- **`markdownStyles(reference?, styles?, options?)`** takes options; `limits`, `strictPackage` and `redact` apply as in the other functions.
+- **`now`** must be a finite number of milliseconds from 0 to the end of the year 9999; anything else is refused (`invalid_argument`, `invalid_options`).
+- **Arguments:** a source that is not a string is refused (`invalid_source`); the `reference` argument of `inspectReference` and `markdownStyles` must be a `Uint8Array` (a `Buffer` is one).
+- **Builds** of the npm package use `Cargo.lock` (`--locked`), and CI builds wasm-bindgen-cli from crates.io instead of downloading an unverified binary.
+- **Panics** (bugs) print their message on `console.error`. The call still throws `RuntimeError: unreachable`; load the module again before the next call (README).
+
 ## 0.1.0 (2026-10-21)
 
 The first release. Three packages:

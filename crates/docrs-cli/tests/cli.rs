@@ -439,3 +439,143 @@ fn from_markdown_sets_aside_package_quirks_word_tolerates() {
     assert!(json_of(&output)["markdown"]["cover_page"].is_null());
     assert!(!run(&["--cover-page", "--no-cover-page"]).status.success());
 }
+
+#[test]
+fn replace_all_reports_the_count_and_refuses_when_nothing_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.docx");
+    let output = bin()
+        .args(["--json", "replace"])
+        .arg(fixture(FRAGMENTED))
+        .args([
+            "--find",
+            "payment terms",
+            "--with",
+            "payment schedule",
+            "--all",
+        ])
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let report = json_of(&output);
+    assert_eq!(report["replaced_count"], 1);
+    assert_eq!(report["refused_count"], 0);
+    assert_eq!(report["edit"]["replaced_count"], 1);
+
+    // No match: a refusal (exit 3) like a single replace, and an existing
+    // output file is left as it was.
+    std::fs::write(&out, b"sentinel bytes").unwrap();
+    for json in [true, false] {
+        let mut command = bin();
+        if json {
+            command.arg("--json");
+        }
+        let output = command
+            .arg("replace")
+            .arg(fixture(FRAGMENTED))
+            .args(["--find", "no such text", "--with", "x", "--all", "--out"])
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(3));
+        if json {
+            let error = json_of(&output);
+            assert_eq!(error["error"]["code"], "target_not_found");
+            assert_eq!(error["error"]["reason"], "no_match");
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("nothing replaced"), "{stderr}");
+        }
+        assert_eq!(std::fs::read(&out).unwrap(), b"sentinel bytes");
+    }
+}
+
+#[test]
+fn argument_errors_are_json_under_json() {
+    for args in [
+        &["--json", "replace", "x.docx", "--bogus"][..],
+        &["replace", "x.docx", "--nth", "abc", "--json"],
+        &["--json"],
+        &["--json", "no-such-command"],
+    ] {
+        let output = bin().args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let error = json_of(&output);
+        assert_eq!(error["schema_version"], 1, "{args:?}");
+        assert_eq!(error["error"]["code"], "invalid_argument", "{args:?}");
+        assert_eq!(error["error"]["refusal"], false, "{args:?}");
+    }
+    // Without --json, clap's own text on stderr.
+    let output = bin().args(["replace", "--bogus"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--bogus"));
+    // Help and version still print to stdout and succeed.
+    for flag in ["--help", "--version"] {
+        let output = bin().args(["--json", flag]).output().unwrap();
+        assert_eq!(output.status.code(), Some(0), "{flag}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("docrs"));
+    }
+}
+
+#[test]
+fn an_unreadable_font_is_an_io_error() {
+    let output = bin()
+        .args(["--json", "layout"])
+        .arg(fixture(FRAGMENTED))
+        .args(["--font", "/no/such/font.ttf"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    let error = json_of(&output);
+    assert_eq!(error["error"]["code"], "io");
+    assert_eq!(error["error"]["reason"], "font_unreadable");
+}
+
+#[test]
+fn a_panic_is_an_internal_error() {
+    // The DOCRS_TEST_PANIC hook exists in debug builds only.
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let output = bin()
+        .args(["--json", "diagnose"])
+        .arg(fixture(FRAGMENTED))
+        .env("DOCRS_TEST_PANIC", "1")
+        .env_remove("RUST_BACKTRACE")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(70));
+    let error = json_of(&output);
+    assert_eq!(error["schema_version"], 1);
+    assert_eq!(error["error"]["code"], "internal");
+    assert_eq!(error["error"]["reason"], "internal_panic");
+    let message = error["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("panic requested by DOCRS_TEST_PANIC"),
+        "{message}"
+    );
+    // The quiet hook: no "thread 'main' panicked" report.
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = bin()
+        .arg("diagnose")
+        .arg(fixture(FRAGMENTED))
+        .env("DOCRS_TEST_PANIC", "1")
+        .env_remove("RUST_BACKTRACE")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(70));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with("docrs: internal (internal_panic)"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("thread 'main' panicked"), "{stderr}");
+}

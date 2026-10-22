@@ -155,8 +155,11 @@ fn inline_list(raw: &str) -> Option<Vec<String>> {
     Some(items.into_iter().filter(|i| !i.is_empty()).collect())
 }
 
+/// Leading ASCII spaces: YAML indents with spaces only, so a tab or a
+/// non-ASCII space (U+00A0, U+3000, …) starts the content. Always a char
+/// boundary of `line`.
 fn indent_of(line: &str) -> usize {
-    line.len() - line.trim_start().len()
+    line.len() - line.trim_start_matches(' ').len()
 }
 
 /// Top-level keys of a YAML mapping.
@@ -190,9 +193,11 @@ pub(crate) fn parse_yaml(text: &str) -> BTreeMap<String, Value> {
                 .map(|l| indent_of(l))
                 .min()
                 .unwrap_or(0);
+            // Blank lines may be shorter than the indentation, or blank with
+            // other white space, so each drops at most its own spaces.
             let body: Vec<&str> = block
                 .iter()
-                .map(|l| if l.len() >= indent { &l[indent..] } else { "" })
+                .map(|l| &l[indent_of(l).min(indent)..])
                 .collect();
             let joined = if folded { fold(&body) } else { body.join("\n") };
             Value::Scalar(joined.trim_end().to_string())
@@ -304,5 +309,20 @@ mod tests {
         assert_eq!(meta.title.as_deref(), Some("T"));
         assert_eq!(meta.authors, vec!["A", "B"]);
         assert_eq!(meta.toc, Some(false));
+    }
+
+    #[test]
+    fn indentation_is_ascii_spaces_only() {
+        // A no-break space is content: it ends the block scalar and its
+        // line, with no key, is ignored.
+        let meta = metadata(MetadataKind::Yaml, "abstract: |\n x\n\u{a0}y\ntitle: T\n");
+        assert_eq!(meta.abstract_.as_deref(), Some("x"));
+        assert_eq!(meta.title.as_deref(), Some("T"));
+        // Inside the block it is kept, after the spaces.
+        let meta = metadata(
+            MetadataKind::Yaml,
+            "abstract: >\n  one\n  \u{a0}two\n\u{3000}\n  three\n",
+        );
+        assert_eq!(meta.abstract_.as_deref(), Some("one \u{a0}two\nthree"));
     }
 }

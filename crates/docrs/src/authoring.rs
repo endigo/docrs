@@ -49,6 +49,7 @@ pub(crate) struct Handle {
     pub element: NodeId,
     pub parent: Option<NodeId>,
     pub struct_gen: u32,
+    pub incarnation: u32,
 }
 
 impl Handle {
@@ -60,6 +61,7 @@ impl Handle {
             element,
             parent: tree.parent(element),
             struct_gen: tree.struct_gen(element),
+            incarnation: tree.incarnation(),
         }
     }
 
@@ -104,6 +106,7 @@ impl Handle {
         }
         let tree = doc.package().xml(&self.part)?;
         if tree.root() != self.root
+            || tree.incarnation() != self.incarnation
             || !tree.contains(self.element)
             || !tree.is_attached(self.element)
             || tree.parent(self.element) != self.parent
@@ -1132,6 +1135,7 @@ impl Document {
     /// style `style` (UI name, e.g. `"Heading 1"`, or style id).
     pub fn add_paragraph(&mut self, text: &str, style: Option<&str>) -> Result<Paragraph> {
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "add a paragraph", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let p = add_body_paragraph(txn.tree_mut(&part)?)?;
         fill_paragraph(&mut txn, &part, p, Some(text), style)?;
@@ -1160,6 +1164,7 @@ impl Document {
     /// `<w:br w:type="page"/>`.
     pub fn add_page_break(&mut self) -> Result<Paragraph> {
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "add a page break", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let p = add_body_paragraph(tree)?;
@@ -1174,6 +1179,7 @@ impl Document {
     /// columns share the block width of the last section evenly.
     pub fn add_table(&mut self, rows: usize, cols: usize, style: Option<&str>) -> Result<Table> {
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "add a table", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let width = block_width(tree)?;
@@ -1196,6 +1202,7 @@ impl Document {
         height: Option<i64>,
     ) -> Result<InlineShape> {
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "add a picture", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let p = add_body_paragraph(tree)?;
@@ -1210,6 +1217,7 @@ impl Document {
     /// its header/footer references and takes `start_type`.
     pub fn add_section(&mut self, start_type: SectionStart) -> Result<Section> {
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "add a section", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let body = body(tree)?;
@@ -2006,6 +2014,7 @@ impl Paragraph {
         style: Option<&str>,
     ) -> Result<Run> {
         self.live(doc)?;
+        refuse_if_protected(doc, "add a run", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let r = add_run_in(&mut txn, &self.h.part, self.h.element, text, style)?;
         let handle = staged_handle(&txn, &self.h.part, r)?;
@@ -2020,6 +2029,7 @@ impl Paragraph {
         style: Option<&str>,
     ) -> Result<Paragraph> {
         self.live(doc)?;
+        refuse_if_protected(doc, "insert a paragraph", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let parent = tree
@@ -2039,6 +2049,7 @@ impl Paragraph {
     /// paragraph properties kept.
     pub fn set_text(&self, doc: &mut Document, text: Option<&str>) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "set paragraph text", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         clear_except(txn.tree_mut(&self.h.part)?, self.h.element, "pPr")?;
         add_run_in(&mut txn, &self.h.part, self.h.element, text, None)?;
@@ -2048,6 +2059,7 @@ impl Paragraph {
     /// Upstream `Paragraph.clear()`: every child element but `w:pPr` goes.
     pub fn clear(&self, doc: &mut Document) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "clear a paragraph", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         clear_except(txn.tree_mut(&self.h.part)?, self.h.element, "pPr")?;
         commit!(doc, txn, ())
@@ -2056,6 +2068,7 @@ impl Paragraph {
     /// Upstream `Paragraph.style = style` (UI name or id; `None` removes).
     pub fn set_style(&self, doc: &mut Document, style: Option<&str>) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "set a paragraph style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let style_id = resolve_style_id(&mut txn, style, StyleType::Paragraph)?;
         set_paragraph_style_id(
@@ -2072,6 +2085,7 @@ impl Paragraph {
         if let Some(token) = value {
             validate_alignment(token)?;
         }
+        refuse_if_protected(doc, "set paragraph alignment", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         set_alignment_xml(
             txn.tree_mut(&self.h.part)?,
@@ -2090,6 +2104,7 @@ impl Paragraph {
     /// Upstream `ParagraphFormat` setters, applied atomically.
     pub fn set_format(&self, doc: &mut Document, format: &ParagraphFormat) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "set paragraph formatting", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         apply_format(
             txn.tree_mut(&self.h.part)?,
@@ -2591,6 +2606,7 @@ impl Run {
         f: impl FnOnce(&mut XmlTree, NodeId) -> Result<()>,
     ) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "edit a run", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         f(txn.tree_mut(&self.h.part)?, self.h.element)?;
         commit!(doc, txn, ())
@@ -2627,6 +2643,7 @@ impl Run {
     /// Upstream `Run.style = style` (character style UI name or id).
     pub fn set_style(&self, doc: &mut Document, style: Option<&str>) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "set a run style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let style_id = resolve_style_id(&mut txn, style, StyleType::Character)?;
         set_run_style(
@@ -2677,6 +2694,7 @@ impl Run {
         height: Option<i64>,
     ) -> Result<InlineShape> {
         self.live(doc)?;
+        refuse_if_protected(doc, "add a picture", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let shape = add_picture_in(&mut txn, &self.h.part, self.h.element, image, width, height)?;
         commit!(doc, txn, shape)
@@ -2731,6 +2749,7 @@ impl Table {
     /// sized from its `w:gridCol/@w:w`.
     pub fn add_row(&self, doc: &mut Document) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "add a table row", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let tbl = self.h.element;
@@ -2754,6 +2773,7 @@ impl Table {
     /// Upstream `Table.add_column(width)` (EMU).
     pub fn add_column(&self, doc: &mut Document, width: i64) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "add a table column", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let tbl = self.h.element;
@@ -2771,6 +2791,7 @@ impl Table {
     /// Upstream `Table.style = style` (table style UI name or id).
     pub fn set_style(&self, doc: &mut Document, style: Option<&str>) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "set a table style", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let style_id = resolve_style_id(&mut txn, style, StyleType::Table)?;
         set_table_style_id(
@@ -2800,6 +2821,7 @@ impl Cell {
     /// one paragraph with one run.
     pub fn set_text(&self, doc: &mut Document, text: &str) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "set cell text", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let tc = self.h.element;
@@ -2938,6 +2960,7 @@ impl BlockContainer {
         style: Option<&str>,
     ) -> Result<Paragraph> {
         self.live(doc)?;
+        refuse_if_protected(doc, "add a paragraph", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let p = add_container_paragraph(&mut txn, &self.h.part, self.h.element, self.kind)?;
         fill_paragraph(&mut txn, &self.h.part, p, Some(text), style)?;
@@ -2956,6 +2979,7 @@ impl BlockContainer {
         width: i64,
     ) -> Result<Table> {
         self.live(doc)?;
+        refuse_if_protected(doc, "add a table", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tbl = add_container_table(
             &mut txn,
@@ -3053,6 +3077,7 @@ impl Document {
     /// lxml's `./*` selects elements only).
     pub fn clear_body_content(&mut self) -> Result<()> {
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "clear the body content", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let body = body(tree)?;
@@ -3633,6 +3658,7 @@ impl Table {
         f: impl FnOnce(&mut XmlTree, NodeId) -> Result<()>,
     ) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "edit a table", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         f(txn.tree_mut(&self.h.part)?, self.h.element)?;
         commit!(doc, txn, ())
@@ -3817,6 +3843,7 @@ impl Row {
         f: impl FnOnce(&mut XmlTree, NodeId) -> Result<()>,
     ) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "edit a table row", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         f(txn.tree_mut(&self.h.part)?, self.h.element)?;
         commit!(doc, txn, ())
@@ -3949,6 +3976,7 @@ impl Column {
     pub fn set_width(&self, doc: &mut Document, value: Option<i64>) -> Result<()> {
         let xml = value.map(|emu| twips_measure(emu, "w:w")).transpose()?;
         self.live(doc)?;
+        refuse_if_protected(doc, "set a column width", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         set_opt(txn.tree_mut(&self.h.part)?, self.h.element, "w", xml)?;
         commit!(doc, txn, ())
@@ -3983,6 +4011,7 @@ impl Cell {
         f: impl FnOnce(&mut XmlTree, NodeId) -> Result<()>,
     ) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "edit a table cell", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         f(txn.tree_mut(&self.h.part)?, self.h.element)?;
         commit!(doc, txn, ())
@@ -4019,6 +4048,7 @@ impl Cell {
     pub fn add_table(&self, doc: &mut Document, rows: usize, cols: usize) -> Result<Table> {
         let tree = self.live(doc)?;
         let width = tc_width(tree, self.h.element)?.unwrap_or(914_400);
+        refuse_if_protected(doc, "add a table", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tc = self.h.element;
         let tbl = add_container_table(
@@ -4110,6 +4140,7 @@ impl Cell {
                 "cells can only be merged with cells of the same table",
             ));
         }
+        refuse_if_protected(doc, "merge table cells", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let (top, left, height, width) =
@@ -4276,6 +4307,7 @@ impl InlineShapeRef {
             )
         })?;
         let sp_pr = required_child(tree, pic, PIC, "spPr")?;
+        refuse_if_protected(doc, "resize a picture", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let text = value.to_string();
@@ -4458,6 +4490,7 @@ impl Paragraph {
     ) -> Result<TabStop> {
         validate_tab(alignment, leader)?;
         self.live(doc)?;
+        refuse_if_protected(doc, "add a tab stop", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let ppr = get_or_add_ppr(tree, self.h.element)?;
@@ -4470,6 +4503,7 @@ impl Paragraph {
     /// Upstream `TabStops.clear_all()` (accessing `tab_stops` adds `w:pPr`).
     pub fn clear_tab_stops(&self, doc: &mut Document) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "clear tab stops", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let ppr = get_or_add_ppr(tree, self.h.element)?;
@@ -4482,6 +4516,7 @@ impl Paragraph {
     /// `invalid_argument(index_out_of_range)` (upstream `IndexError`).
     pub fn delete_tab_stop(&self, doc: &mut Document, index: i64) -> Result<()> {
         self.live(doc)?;
+        refuse_if_protected(doc, "delete a tab stop", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let ppr = get_or_add_ppr(tree, self.h.element)?;
@@ -4531,6 +4566,7 @@ impl TabStop {
         let tabs = tree
             .parent(self.h.element)
             .ok_or_else(|| Error::internal("tab_parent", "tab without parent"))?;
+        refuse_if_protected(doc, "move a tab stop", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         let tab = insert_tab_in_order(tree, tabs, position, &current.alignment, &current.leader)?;
@@ -4548,6 +4584,7 @@ impl TabStop {
             "invalid_tab_alignment",
         )?;
         self.live(doc)?;
+        refuse_if_protected(doc, "set a tab stop alignment", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         set_w(
             txn.tree_mut(&self.h.part)?,
@@ -4565,6 +4602,7 @@ impl TabStop {
             check_token(token, TAB_LEADERS, "WD_TAB_LEADER", "invalid_tab_leader")?;
         }
         self.live(doc)?;
+        refuse_if_protected(doc, "set a tab stop leader", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let tree = txn.tree_mut(&self.h.part)?;
         set_opt(
@@ -4612,6 +4650,7 @@ impl Run {
                 ));
             }
         }
+        refuse_if_protected(doc, "mark a comment range", OperationClass::Comment)?;
         let mut txn = Txn::new(doc);
         crate::commentops::mark_comment_range(
             txn.tree_mut(&self.h.part)?,
@@ -4633,6 +4672,7 @@ impl Run {
     ) -> Result<InlineShape> {
         let (bytes, name) = read_image_file(path.as_ref())?;
         self.live(doc)?;
+        refuse_if_protected(doc, "add a picture", OperationClass::BodyContent)?;
         let mut txn = Txn::new(doc);
         let shape = add_picture_named(
             &mut txn,
@@ -4672,6 +4712,7 @@ impl Document {
     ) -> Result<InlineShape> {
         let (bytes, name) = read_image_file(path.as_ref())?;
         let part = self.package().main_part_name().to_string();
+        refuse_if_protected(self, "add a picture", OperationClass::BodyContent)?;
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let p = add_body_paragraph(tree)?;

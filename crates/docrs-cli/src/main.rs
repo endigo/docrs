@@ -2,8 +2,9 @@
 //!
 //! Exit codes: 0 success; 2 invalid usage or argument; 3 safe refusal
 //! (nothing changed); 4 resource budget exceeded; 5 I/O failure; 70 internal
-//! error. With `--json`, stdout carries one JSON object with
-//! `schema_version: 1`; errors are JSON on stdout as well.
+//! error (a panic is reported as one, reason `internal_panic`). With
+//! `--json`, stdout carries one JSON object with `schema_version: 1`; errors,
+//! argument errors included, are JSON on stdout as well.
 //!
 //! Mutating commands select and edit within one process and publish success
 //! only after the output file has been atomically committed.
@@ -132,6 +133,9 @@ pub enum Command {
         /// Resolve pending input revisions first: accept or reject.
         #[arg(long)]
         materialize: Option<String>,
+        /// Proceed despite Restrict Editing on the original (the setting is kept).
+        #[arg(long)]
+        acknowledge_protection: bool,
         /// Output path for the redline.
         #[arg(long)]
         out: std::path::PathBuf,
@@ -379,13 +383,19 @@ pub fn exit_code(err: &Error) -> u8 {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // Clap's own errors would be plain text; under `--json` a script reads
+    // stdout for the error envelope, so look for the flag before parsing.
+    let json = std::env::args_os().any(|arg| arg == "--json");
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => return usage_error(err, json),
+    };
     let limits = if cli.trusted {
         docrs::Limits::trusted()
     } else {
         docrs::Limits::default()
     };
-    match commands::run(&cli.command, &limits, cli.json) {
+    match guarded(|| commands::run(&cli.command, &limits, cli.json)) {
         Ok(code) => ExitCode::from(code),
         Err(err) => {
             if cli.json {
@@ -396,4 +406,73 @@ fn main() -> ExitCode {
             ExitCode::from(exit_code(&err))
         }
     }
+}
+
+/// `--help` and `--version` print to stdout and succeed; every other parse
+/// failure is an invalid argument (exit 2), as JSON under `--json`.
+fn usage_error(err: clap::Error, json: bool) -> ExitCode {
+    use clap::error::ErrorKind as Clap;
+    if !json || matches!(err.kind(), Clap::DisplayHelp | Clap::DisplayVersion) {
+        err.exit();
+    }
+    let reason = match err.kind() {
+        Clap::UnknownArgument => "unknown_argument",
+        Clap::InvalidSubcommand => "unknown_command",
+        Clap::MissingRequiredArgument => "missing_argument",
+        Clap::MissingSubcommand | Clap::DisplayHelpOnMissingArgumentOrSubcommand => {
+            "missing_command"
+        }
+        Clap::InvalidValue | Clap::ValueValidation | Clap::InvalidUtf8 => "invalid_value",
+        Clap::ArgumentConflict => "argument_conflict",
+        _ => "invalid_usage",
+    };
+    let message = err.render().to_string();
+    let message = message.trim().trim_start_matches("error: ");
+    let err = Error::invalid_argument(reason, message);
+    println!("{}", err.to_json());
+    ExitCode::from(exit_code(&err))
+}
+
+/// Location of the last panic, recorded by the hook `guarded` installs.
+static PANIC_LOCATION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Run `command`, turning a panic (a bug) into an internal error (exit 70,
+/// reason `internal_panic`) instead of Rust's default report and exit 101.
+/// `RUST_BACKTRACE` still prints the default report to stderr.
+fn guarded(command: impl FnOnce() -> docrs::Result<u8>) -> docrs::Result<u8> {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(location) = info.location()
+            && let Ok(mut slot) = PANIC_LOCATION.lock()
+        {
+            *slot = Some(location.to_string());
+        }
+        if std::env::var_os("RUST_BACKTRACE").is_some_and(|value| value != "0") {
+            default_hook(info);
+        }
+    }));
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(debug_assertions)]
+        if std::env::var_os("DOCRS_TEST_PANIC").is_some() {
+            panic!("panic requested by DOCRS_TEST_PANIC");
+        }
+        command()
+    }))
+    .unwrap_or_else(|payload| {
+        let what = payload
+            .downcast_ref::<&str>()
+            .map(|text| text.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".to_string());
+        let at = PANIC_LOCATION
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+            .map(|location| format!(" at {location}"))
+            .unwrap_or_default();
+        Err(Error::internal(
+            "internal_panic",
+            format!("docrs panicked{at}: {what} (this is a bug; please report it)"),
+        ))
+    })
 }

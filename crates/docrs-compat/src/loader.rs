@@ -158,6 +158,7 @@ fn representative_outputs(dir: &Path) -> Result<Vec<PathBuf>, String> {
         date,
         granularity: docrs::compare::Granularity::Word,
         materialize: None,
+        acknowledge_protection: false,
     };
     let redline = docrs::compare::compare(
         &read("generated/redline/compare-original.docx")?,

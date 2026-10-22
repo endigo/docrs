@@ -203,13 +203,22 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             } else {
                 MatchPolicy::Exact
             };
-            let edit = if *all {
+            let (edit, replaced, refused) = if *all {
                 let options = ReplaceAllOptions {
                     policy,
                     story: story.clone(),
                     ..ReplaceAllOptions::default()
                 };
-                document.replace_all(find, with_text, &options)?.to_json()
+                let report = document.replace_all(find, with_text, &options)?;
+                if report.replaced_count == 0 {
+                    // Nothing to write: refuse like a single replace does.
+                    return Err(nothing_replaced(find, &report.refused));
+                }
+                (
+                    report.to_json(),
+                    report.replaced_count,
+                    report.refused.len(),
+                )
             } else {
                 let options = FindOptions {
                     policy,
@@ -218,16 +227,17 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     ..FindOptions::default()
                 };
                 let span = document.find_one(find, &options)?;
-                document
+                let edit = document
                     .replace(&span, with_text, &ReplaceOptions::default())?
-                    .to_json()
+                    .to_json();
+                (edit, 1, 0)
             };
             // Success is published only after the output is committed.
             let patch = document.save(out)?;
-            let value = json!({"schema": "docrs_replace", "version": 1, "edit": edit, "save": patch.to_json(), "out": out});
+            let value = json!({"schema": "docrs_replace", "version": 1, "replaced_count": replaced, "refused_count": refused, "edit": edit, "save": patch.to_json(), "out": out});
             emit(json_mode, value, || {
                 format!(
-                    "wrote {} (changed: {})",
+                    "wrote {} ({replaced} replaced, {refused} refused; changed: {})",
                     out.display(),
                     if patch.changed_parts.is_empty() {
                         "nothing".into()
@@ -280,6 +290,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             date,
             block,
             materialize,
+            acknowledge_protection,
             out,
         } => {
             let options = docrs::compare::CompareOptions {
@@ -304,6 +315,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         ));
                     }
                 },
+                acknowledge_protection: *acknowledge_protection,
             };
             let result =
                 docrs::compare::compare(&read(original)?, &read(revised)?, &options, limits)?;
@@ -483,10 +495,15 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     )
                 })?
             };
+            // The library reads no image file without a directory; the
+            // command reads them beside the Markdown (standard input: the
+            // current directory).
             let resource_dir = resource_path.clone().or_else(|| {
-                (input.as_os_str() != "-")
-                    .then(|| input.parent().map(Path::to_path_buf))
-                    .flatten()
+                Some(if input.as_os_str() == "-" {
+                    std::path::PathBuf::from(".")
+                } else {
+                    input.parent().map(Path::to_path_buf).unwrap_or_default()
+                })
             });
             let options = MarkdownOptions {
                 placement: match (placeholder, append) {
@@ -590,10 +607,11 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let (document, _) = open_reference(Some(file), limits, false)?;
             let mut faces = Vec::new();
             for path in fonts {
-                let data = std::fs::read(path).map_err(|e| {
-                    docrs::Error::invalid_argument(
+                let data = std::fs::read(path).map_err(|err| {
+                    Error::io(
                         "font_unreadable",
-                        format!("{}: {e}", path.display()),
+                        format!("reading font {}: {err}", path.display()),
+                        err,
                     )
                 })?;
                 faces.extend(docrs::layout::Face::parse_file(&data));
@@ -699,6 +717,41 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             Ok(0)
         }
     }
+}
+
+/// The refusal for a `replace --all` that replaced nothing: no match, or
+/// every match refused (the first refusal's kind and reason).
+fn nothing_replaced(find: &str, refused: &[docrs::replace::RefusedMatch]) -> Error {
+    use docrs::RefusalKind;
+    let Some(first) = refused.first() else {
+        return Error::refusal(
+            RefusalKind::TargetNotFound,
+            "no_match",
+            format!("no match for {find:?} in any story part; nothing replaced"),
+        );
+    };
+    let kind = [
+        RefusalKind::MalformedPackage,
+        RefusalKind::AmbiguousTarget,
+        RefusalKind::TargetNotFound,
+        RefusalKind::UnsupportedStructure,
+        RefusalKind::BoundaryViolation,
+        RefusalKind::RelationshipPolicy,
+        RefusalKind::DocumentProtected,
+    ]
+    .into_iter()
+    .find(|kind| kind.code() == first.code)
+    .unwrap_or(RefusalKind::UnsupportedStructure);
+    Error::refusal(
+        kind,
+        first.reason,
+        format!(
+            "all {} match(es) for {find:?} were refused; nothing replaced (first, in {}: {})",
+            refused.len(),
+            first.story,
+            first.message
+        ),
+    )
 }
 
 /// Open a Markdown reference document. It is only read, so irregularities

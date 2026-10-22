@@ -10,7 +10,9 @@
 //! whole-block add/remove only beside story-container blocks; changed merged
 //! rows, objects, fields, controls, package-part changes and formatting
 //! differences refuse; block and sequence budgets refuse before quadratic
-//! work).
+//! work). The original is gated like any writer: Restrict Editing that
+//! forbids body edits refuses unless [`CompareOptions::acknowledge_protection`]
+//! is set.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -20,19 +22,22 @@ use crate::clock::Timestamp;
 use crate::difflib::{SequenceMatcher, Tag};
 use crate::normalize::content_hash;
 use crate::oxml::{self, insert_before_successors, w_el};
-use crate::package::content_types::{CT_NS, extension};
 use crate::package::ct;
 use crate::package::is_xml_part_name;
 use crate::package::patch::{effective_content_types, parts_semantically_equal};
 use crate::package::rels::{RELS_NS, base_uri, rels_member_for, resolve_target};
 use crate::package::zip_read::read_archive;
-use crate::replace::{ReplaceOptions, apply_plan, next_revision_id, plan_replace};
+use crate::protection::{OperationClass, refuse_if_protected};
+use crate::replace::{
+    ReplaceOptions, apply_plan, next_revision_id, plan_replace, validate_writable_text,
+};
 use crate::search::{Atom, Span, include_atom, new_span_token, signature, story_atoms};
 use crate::story::{self, Anchor, BlockKind, View, iter_block_elements, subtree_text, table_text};
+use crate::txn::Txn;
 use crate::unicode::{casefold, is_py_space};
 use crate::wml::{W, is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};
 use crate::xml::{self, NodeData, NodeId, XML_NS, XmlTree};
-use crate::{Document, Error, ErrorKind, Limits, RefusalKind, Result};
+use crate::{Document, Error, Limits, RefusalKind, Result};
 
 /// Per-story block budget.
 pub const MAX_BLOCKS: usize = 10_000;
@@ -71,7 +76,14 @@ pub struct CompareOptions {
     pub granularity: Granularity,
     /// Resolve pending input revisions first.
     pub materialize: Option<Materialize>,
+    /// Redline an original under Restrict Editing that forbids body edits
+    /// (see [`crate::Document::acknowledge_protection`]); the redline keeps
+    /// the acknowledgment.
+    pub acknowledge_protection: bool,
 }
+
+/// Longest `author` compare writes into `w:author`, in characters.
+pub const MAX_AUTHOR_CHARS: usize = 255;
 
 /// A difference compare reports instead of redlining.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1637,6 +1649,7 @@ fn paragraph_span(
     }
     let text: String = visible.chars().skip(start).take(end - start).collect();
     Ok(Some(Span {
+        incarnation: tree.incarnation(),
         document: ctx.document.id(),
         token: new_span_token(),
         story: ctx.story.clone(),
@@ -1849,6 +1862,32 @@ pub(crate) struct Verifier {
     pub resolve_all: fn(&mut Document, bool) -> Result<()>,
 }
 
+/// `author` goes into every `w:author`: required, XML 1.0 text without
+/// control characters, at most [`MAX_AUTHOR_CHARS`] characters.
+fn validate_author(author: &str) -> Result<()> {
+    if author.is_empty() {
+        return Err(Error::invalid_argument(
+            "author_required",
+            "author is required",
+        ));
+    }
+    validate_writable_text(author, "author")?;
+    if author.chars().any(char::is_control) {
+        return Err(Error::invalid_argument(
+            "control_characters",
+            "author contains control character(s); w:author is a single line of text",
+        ));
+    }
+    let length = author.chars().count();
+    if length > MAX_AUTHOR_CHARS {
+        return Err(Error::invalid_argument(
+            "author_too_long",
+            format!("author is {length} characters; at most {MAX_AUTHOR_CHARS} are allowed"),
+        ));
+    }
+    Ok(())
+}
+
 /// Produce the redline. `verifier` resolves revisions for `materialize` and
 /// for the algebra proof; without it compare refuses inputs that need
 /// materialization and skips nothing silently (`algebra_unverified` is
@@ -1860,12 +1899,7 @@ pub(crate) fn compare_with(
     limits: &Limits,
     verifier: Option<&Verifier>,
 ) -> Result<CompareResult> {
-    if options.author.is_empty() {
-        return Err(Error::invalid_argument(
-            "author_required",
-            "author is required",
-        ));
-    }
+    validate_author(&options.author)?;
     let stamp_ts = options.date.unwrap_or_else(Timestamp::now);
     let raw_original = read_raw_package(original, "original", limits)?;
     let raw_revised = read_raw_package(revised, "revised", limits)?;
@@ -1883,6 +1917,10 @@ pub(crate) fn compare_with(
     }
     refuse_unsupported_package_differences(&raw_original, &raw_revised, limits)?;
     let mut document = Document::open_bytes(original, limits)?;
+    if options.acknowledge_protection {
+        document.acknowledge_protection()?;
+    }
+    refuse_if_protected(&document, "compare documents", OperationClass::BodyContent)?;
     let mut revised_doc = Document::open_bytes(revised, limits)?;
     let mut findings = Vec::new();
     for (which, doc) in [("original", &mut document), ("revised", &mut revised_doc)] {
@@ -1903,7 +1941,10 @@ pub(crate) fn compare_with(
                     ));
                 }
                 (Some(mode), Some(verifier)) => {
-                    if doc.protection_status()?.enforced {
+                    // The revised input is a throwaway working copy; the
+                    // original was gated above and keeps the caller's
+                    // acknowledgment.
+                    if which == "revised" && doc.protection_status()?.enforced {
                         doc.acknowledge_protection()?;
                     }
                     (verifier.resolve_all)(doc, mode == Materialize::Accept)?;
@@ -1915,7 +1956,6 @@ pub(crate) fn compare_with(
     let revised_reference = revised_doc.patch_bytes()?.0;
     let status = document.protection_status()?;
     if status.enforced {
-        document.acknowledge_protection()?;
         findings.push(CompareFinding {
             kind: "document_protection_present".into(),
             story: "word/settings.xml".into(),
@@ -2001,12 +2041,15 @@ pub(crate) fn compare_with(
     }
     let finished = std::mem::take(&mut ctx.finished);
     drop(ctx);
+    let mut txn = Txn::new(&document);
     for (part, tree) in finished {
         let unchanged = xml::trees_equivalent(&tree, document.package().xml(&part)?);
         if !unchanged {
-            document.package_mut().commit_tree(&part, tree)?;
+            *txn.tree_mut(&part)? = tree;
         }
     }
+    let staged = txn.finish()?;
+    document.commit(staged)?;
     match verifier {
         Some(verifier) => verify_algebra(
             &document,
@@ -2022,7 +2065,6 @@ pub(crate) fn compare_with(
         }),
     }
     let revision_count = document.revisions()?.len();
-    let _ = (extension, CT_NS);
     Ok(CompareResult {
         document,
         findings,
@@ -2175,6 +2217,3 @@ pub(crate) fn default_verifier() -> Option<Verifier> {
     }
     Some(Verifier { resolve_all })
 }
-
-#[allow(dead_code)]
-fn _unused(_: ErrorKind) {}

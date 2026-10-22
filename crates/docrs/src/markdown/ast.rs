@@ -11,6 +11,54 @@ use pulldown_cmark::{
     Parser, Tag, TagEnd,
 };
 
+use super::MarkdownWarning;
+use crate::{Error, Result};
+
+/// The deepest structure a Markdown or HTML source may nest: block quotes,
+/// lists, definition lists, footnotes, tables, inline spans (emphasis,
+/// links, images, HTML spans), HTML elements and math groups all count, one
+/// level each (math counts the levels its Word equation nests). Deeper
+/// input is refused with [`crate::ErrorKind::ResourceLimit`] and reason
+/// `markdown_nesting_too_deep` before anything is changed. The cap keeps
+/// conversion off the call stack's limits and the written XML well inside
+/// [`crate::Limits::max_xml_depth`]'s default of 256.
+pub const MAX_NESTING_DEPTH: usize = 128;
+
+/// Word's limit on the columns of a table.
+pub(crate) const MAX_TABLE_COLUMNS: usize = 63;
+
+/// The refusal for structure nested `observed` levels deep.
+pub(crate) fn too_deep(observed: usize) -> Error {
+    Error::limit(
+        "markdown_nesting_too_deep",
+        MAX_NESTING_DEPTH as u64,
+        observed as u64,
+    )
+    .context(format!(
+        "the source nests deeper than {MAX_NESTING_DEPTH} levels; nothing was changed"
+    ))
+}
+
+/// Add a warning unless an identical one (code and message) is already
+/// there: one warning per kind of loss, at its first line.
+pub(crate) fn warn_once(
+    warnings: &mut Vec<MarkdownWarning>,
+    code: &'static str,
+    message: String,
+    line: Option<usize>,
+) {
+    if !warnings
+        .iter()
+        .any(|w| w.code == code && w.message == message)
+    {
+        warnings.push(MarkdownWarning {
+            code,
+            message,
+            line,
+        });
+    }
+}
+
 /// Column alignment of a table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Align {
@@ -106,7 +154,9 @@ impl Slot {
 /// Place each row's cells on the grid (HTML's table model: a cell takes the
 /// next column not covered by a row span from above). Every row gets a slot
 /// for every grid column, sorted by column; returns the rows and the
-/// column count.
+/// column count. Spans never widen the grid past Word's 63 columns: a span
+/// reaching past the last column is cut back to it, and a cell starting
+/// beyond it spans one column and one row.
 pub(crate) fn place(spans: &[Vec<CellSpan>]) -> (Vec<Vec<Slot>>, usize) {
     let rows = spans.len();
     let mut covered: Vec<Vec<bool>> = vec![Vec::new(); rows];
@@ -120,8 +170,7 @@ pub(crate) fn place(spans: &[Vec<CellSpan>]) -> (Vec<Vec<Slot>>, usize) {
             while is_covered(&covered, row, col) {
                 col += 1;
             }
-            let rowspan = span.rowspan.clamp(1, rows - row);
-            let colspan = span.colspan.max(1);
+            let (colspan, rowspan) = clamped_span(span, col, rows - row);
             for (offset, line) in covered[row..row + rowspan].iter_mut().enumerate() {
                 if line.len() < col + colspan {
                     line.resize(col + colspan, false);
@@ -156,6 +205,18 @@ pub(crate) fn place(spans: &[Vec<CellSpan>]) -> (Vec<Vec<Slot>>, usize) {
         slots.sort_by_key(Slot::col);
     }
     (out, columns)
+}
+
+/// A cell's `(colspan, rowspan)` once placed at `col` with `rows_left` rows
+/// from its own to the table's end (see [`place`]).
+fn clamped_span(span: &CellSpan, col: usize, rows_left: usize) -> (usize, usize) {
+    if col >= MAX_TABLE_COLUMNS {
+        return (1, 1);
+    }
+    (
+        span.colspan.clamp(1, MAX_TABLE_COLUMNS - col),
+        span.rowspan.clamp(1, rows_left.max(1)),
+    )
 }
 
 /// GitHub alert kind (`> [!NOTE]`).
@@ -277,6 +338,9 @@ pub(crate) struct Parsed {
     pub unknown_html: Vec<(usize, String)>,
     /// CSS declarations with no Word equivalent (`property on <tag>`).
     pub dropped_styles: Vec<(usize, String)>,
+    /// Other losses found while parsing (skipped HTML elements, tables
+    /// narrowed to Word's column limit).
+    pub warnings: Vec<MarkdownWarning>,
     /// Parsed from HTML: a picture alone in a paragraph is an ordinary
     /// paragraph, not a figure.
     pub html: bool,
@@ -357,6 +421,24 @@ enum Frame {
     },
 }
 
+impl Frame {
+    /// Whether the frame is a level of [`MAX_NESTING_DEPTH`]. The others
+    /// add at most one frame to a level: an item to its list, a row and
+    /// cell to their table, a paragraph or heading to its container.
+    fn nests(&self) -> bool {
+        matches!(
+            self,
+            Frame::Quote(_)
+                | Frame::List { .. }
+                | Frame::Footnote(_)
+                | Frame::DefinitionList(_)
+                | Frame::Table { .. }
+                | Frame::Span(_)
+                | Frame::Image { .. }
+        )
+    }
+}
+
 #[derive(Clone)]
 enum SpanKind {
     Emphasis,
@@ -372,6 +454,9 @@ enum SpanKind {
     Html(&'static str, Box<SpanKind>),
     /// Editor formatting of a `<span>`, `<font>` or `<mark>`.
     Format(Box<super::html::SpanFormat>),
+    /// An element browsers do not display (`<script>`, `<style>`, …): its
+    /// content is dropped.
+    Hidden,
     Link {
         url: String,
         title: String,
@@ -396,10 +481,15 @@ impl Level {
 
 struct Folder<'s> {
     stack: Vec<Level>,
+    /// Open frames that count toward [`MAX_NESTING_DEPTH`].
+    depth: usize,
+    /// The refusal that stops folding (nesting too deep).
+    error: Option<Error>,
     footnotes: BTreeMap<String, Vec<Block>>,
     metadata: Option<(MetadataKind, String)>,
     unknown_html: Vec<(usize, String)>,
     dropped_styles: Vec<(usize, String)>,
+    warnings: Vec<MarkdownWarning>,
     line_starts: Vec<usize>,
     _source: &'s str,
 }
@@ -411,22 +501,29 @@ fn line_of(line_starts: &[usize], offset: usize) -> usize {
     }
 }
 
-/// Parse `source` into blocks.
-pub(crate) fn parse(source: &str, smart_punctuation: bool) -> Parsed {
+/// Parse `source` into blocks. Refuses structure nested deeper than
+/// [`MAX_NESTING_DEPTH`].
+pub(crate) fn parse(source: &str, smart_punctuation: bool) -> Result<Parsed> {
     let mut line_starts = vec![0];
     line_starts.extend(source.match_indices('\n').map(|(i, _)| i + 1));
     let mut folder = Folder {
         stack: vec![Level::new(Frame::Root)],
+        depth: 0,
+        error: None,
         footnotes: BTreeMap::new(),
         metadata: None,
         unknown_html: Vec::new(),
         dropped_styles: Vec::new(),
+        warnings: Vec::new(),
         line_starts,
         _source: source,
     };
     for (event, range) in Parser::new_ext(source, options(smart_punctuation)).into_offset_iter() {
         let line = line_of(&folder.line_starts, range.start);
         folder.event(event, line);
+        if let Some(error) = folder.error.take() {
+            return Err(error);
+        }
     }
     // Close anything an unbalanced raw-HTML span left open.
     while folder.stack.len() > 1 {
@@ -444,7 +541,7 @@ pub(crate) fn parse(source: &str, smart_punctuation: bool) -> Parsed {
             .map(intraword_scripts)
             .collect()
     };
-    Parsed {
+    Ok(Parsed {
         blocks: finish(blocks),
         footnotes: folder
             .footnotes
@@ -454,26 +551,68 @@ pub(crate) fn parse(source: &str, smart_punctuation: bool) -> Parsed {
         metadata: folder.metadata,
         unknown_html: folder.unknown_html,
         dropped_styles: folder.dropped_styles,
+        warnings: folder.warnings,
         html: false,
-    }
+    })
 }
 
 /// Parse an HTML document or fragment (an editor's HTML) into blocks.
-pub(crate) fn parse_html(source: &str) -> Parsed {
+/// Refuses elements nested deeper than [`MAX_NESTING_DEPTH`].
+pub(crate) fn parse_html(source: &str) -> Result<Parsed> {
     let mut parsed = Parsed {
         html: true,
         ..Parsed::default()
     };
-    let mut blocks = super::html::convert(source, 1);
-    for tag in std::mem::take(&mut blocks.1.tags) {
-        parsed.unknown_html.push((1, format!("<{tag}>")));
-    }
-    for style in std::mem::take(&mut blocks.1.styles) {
-        parsed.dropped_styles.push((1, style));
-    }
-    parsed.blocks = blocks.0;
-    parsed
+    let (blocks, unmapped) = super::html::convert(source, 1, 0)?;
+    record_unmapped(
+        unmapped,
+        1,
+        &mut parsed.unknown_html,
+        &mut parsed.dropped_styles,
+        &mut parsed.warnings,
+    );
+    parsed.blocks = blocks;
+    Ok(parsed)
 }
+
+/// File what an HTML conversion starting on `line` could not map.
+fn record_unmapped(
+    unmapped: super::html::Unmapped,
+    line: usize,
+    unknown: &mut Vec<(usize, String)>,
+    dropped: &mut Vec<(usize, String)>,
+    warnings: &mut Vec<MarkdownWarning>,
+) {
+    for tag in unmapped.tags {
+        unknown.push((line, format!("<{tag}>")));
+    }
+    for style in unmapped.styles {
+        dropped.push((line, style));
+    }
+    for tag in unmapped.skipped {
+        warn_once(
+            warnings,
+            "html_element_skipped",
+            skipped_message(&tag),
+            Some(line),
+        );
+    }
+    if unmapped.narrowed_table {
+        warn_once(
+            warnings,
+            "table_columns_clamped",
+            TABLE_CLAMPED_MESSAGE.to_string(),
+            Some(line),
+        );
+    }
+}
+
+/// The warning for an element browsers do not display.
+pub(crate) fn skipped_message(tag: &str) -> String {
+    format!("HTML <{tag}> is not displayed; it was dropped with its content")
+}
+
+const TABLE_CLAMPED_MESSAGE: &str = "a table is wider than Word's 63 columns; spans past the last column were cut back and cells past it were merged into the last column";
 
 /// `\newpage`, `\pagebreak` and `[TOC]` paragraphs become their blocks.
 fn special_paragraph(block: Block) -> Block {
@@ -704,42 +843,41 @@ pub(crate) fn is_page_break_html(html: &str) -> bool {
         || super::html::is_page_break_element(html)
 }
 
-/// Blocks for raw HTML: page-break markers, intentional blank lines
-/// (`<p></p>`), and the HTML subset `html::convert` reads; tags and CSS
-/// declarations it cannot map are recorded in `unknown` and `dropped`.
+/// Blocks for raw HTML at nesting `depth`: page-break markers, intentional
+/// blank lines (`<p></p>`), and the HTML subset `html::convert` reads; tags
+/// and CSS declarations it cannot map are recorded in `unknown` and
+/// `dropped`, other losses in `warnings`.
 pub(crate) fn html_blocks(
     html: &str,
     line: usize,
+    depth: usize,
     unknown: &mut Vec<(usize, String)>,
     dropped: &mut Vec<(usize, String)>,
-) -> Vec<Block> {
+    warnings: &mut Vec<MarkdownWarning>,
+) -> Result<Vec<Block>> {
     let trimmed = html.trim();
     if is_page_break_html(trimmed) {
-        return vec![Block::PageBreak];
+        return Ok(vec![Block::PageBreak]);
     }
     if trimmed.is_empty()
         || is_comment(trimmed)
         || matches!(html_tag(trimmed), Some((name, _)) if name == "br")
     {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     if super::html::is_empty_paragraph(trimmed) {
-        return vec![Block::Paragraph(Vec::new())];
+        return Ok(vec![Block::Paragraph(Vec::new())]);
     }
-    let (blocks, unmapped) = super::html::convert(trimmed, line);
-    for tag in unmapped.tags {
-        unknown.push((line, format!("<{tag}>")));
-    }
-    for style in unmapped.styles {
-        dropped.push((line, style));
-    }
-    if blocks.is_empty() {
-        return vec![Block::Html {
+    let (blocks, unmapped) = super::html::convert(trimmed, line, depth)?;
+    let skipped_only = blocks.is_empty() && !unmapped.skipped.is_empty();
+    record_unmapped(unmapped, line, unknown, dropped, warnings);
+    if blocks.is_empty() && !skipped_only {
+        return Ok(vec![Block::Html {
             html: html.to_string(),
             line,
-        }];
+        }]);
     }
-    blocks
+    Ok(blocks)
 }
 
 fn is_comment(html: &str) -> bool {
@@ -753,12 +891,27 @@ impl Folder<'_> {
     }
 
     fn push(&mut self, frame: Frame) {
+        if frame.nests() {
+            self.depth += 1;
+            if self.depth > MAX_NESTING_DEPTH && self.error.is_none() {
+                self.error = Some(too_deep(self.depth));
+            }
+        }
         self.stack.push(Level::new(frame));
+    }
+
+    /// Close the raw-HTML spans open at the top: inline HTML cannot hold
+    /// blocks, so an unclosed one ends with its block, as browsers end it.
+    fn close_html_spans(&mut self) {
+        while matches!(self.top().frame, Frame::Span(SpanKind::Html(..))) {
+            self.close();
+        }
     }
 
     /// Inline content of a tight list item (or stray inline content in a
     /// block container) becomes a block before the next block starts.
     fn flush_inlines(&mut self) {
+        self.close_html_spans();
         let level = self.top();
         if level.inlines.is_empty() {
             return;
@@ -803,23 +956,37 @@ impl Folder<'_> {
             Event::End(end) => self.end(end),
             Event::Text(text) => self.push_inline(Inline::Text(text.into_string())),
             Event::Code(code) => self.push_inline(Inline::Code(code.into_string())),
-            Event::InlineMath(math) => self.push_inline(Inline::Math(math.into_string())),
+            Event::InlineMath(math) => {
+                self.check_math(&math);
+                self.push_inline(Inline::Math(math.into_string()));
+            }
             Event::DisplayMath(math) => {
-                // Display math inside a paragraph splits it.
-                if matches!(self.top().frame, Frame::Paragraph) {
-                    let inlines = std::mem::take(&mut self.top().inlines);
-                    let level = self.stack.len() - 2;
-                    if !inlines.is_empty() {
-                        self.stack[level].blocks.push(Block::Paragraph(inlines));
+                self.check_math(&math);
+                match self.top().frame {
+                    // Display math inside a paragraph splits it.
+                    Frame::Paragraph => {
+                        let inlines = std::mem::take(&mut self.top().inlines);
+                        let level = self.stack.len() - 2;
+                        if !inlines.is_empty() {
+                            self.stack[level].blocks.push(Block::Paragraph(inlines));
+                        }
+                        self.stack[level]
+                            .blocks
+                            .push(Block::DisplayMath(math.into_string()));
                     }
-                    self.stack[level]
-                        .blocks
-                        .push(Block::DisplayMath(math.into_string()));
-                } else {
-                    self.flush_inlines();
-                    self.top()
-                        .blocks
-                        .push(Block::DisplayMath(math.into_string()));
+                    Frame::Root
+                    | Frame::Quote(_)
+                    | Frame::Item { .. }
+                    | Frame::Footnote(_)
+                    | Frame::Definition => {
+                        self.flush_inlines();
+                        self.top()
+                            .blocks
+                            .push(Block::DisplayMath(math.into_string()));
+                    }
+                    // Inside a span, heading or cell, which hold no blocks:
+                    // kept in line.
+                    _ => self.push_inline(Inline::Math(math.into_string())),
                 }
             }
             Event::Html(html) => {
@@ -862,16 +1029,50 @@ impl Folder<'_> {
             return;
         }
         if closing {
-            // Close the innermost matching raw-HTML span, if any.
-            let position = self.stack.iter().rposition(
+            // Close the innermost matching raw-HTML span, if any. An
+            // unmatched end tag needs no report: its start tag (if any) was
+            // already reported or was a transparent wrapper.
+            let Some(index) = self.stack.iter().rposition(
                 |level| matches!(&level.frame, Frame::Span(SpanKind::Html(tag, _)) if *tag == name),
-            );
-            // An unmatched end tag needs no report: its start tag (if
-            // any) was already reported or was a transparent wrapper.
-            if let Some(index) = position {
-                while self.stack.len() > index {
-                    self.close();
+            ) else {
+                return;
+            };
+            // Only spans can be open inside it. With an image open there
+            // the end tag waits for the image's container to close it.
+            if self.stack[index + 1..]
+                .iter()
+                .any(|level| !matches!(level.frame, Frame::Span(_)))
+            {
+                return;
+            }
+            // Markdown spans opened inside it (`<b>*x</b>*`) end with it and
+            // reopen after it, as browsers treat misnested formatting: the
+            // parser still has to close them.
+            let mut reopen = Vec::new();
+            while self.stack.len() > index + 1 {
+                if let Frame::Span(kind) = &self.top().frame
+                    && !matches!(kind, SpanKind::Html(..))
+                {
+                    reopen.push(kind.clone());
                 }
+                self.close();
+            }
+            self.close();
+            for kind in reopen.into_iter().rev() {
+                self.push(Frame::Span(kind));
+            }
+            return;
+        }
+        if let Some(tag) = super::html::hidden_tag(&name) {
+            warn_once(
+                &mut self.warnings,
+                "html_element_skipped",
+                skipped_message(tag),
+                Some(line),
+            );
+            // A void element (`<meta>`) holds nothing to drop.
+            if !super::html::is_void(tag) && !html.trim_end().ends_with("/>") {
+                self.push(Frame::Span(SpanKind::Html(tag, Box::new(SpanKind::Hidden))));
             }
             return;
         }
@@ -902,13 +1103,31 @@ impl Folder<'_> {
     }
 
     fn html_block(&mut self, html: String, line: usize) {
-        let blocks = html_blocks(
+        match html_blocks(
             &html,
             line,
+            self.depth,
             &mut self.unknown_html,
             &mut self.dropped_styles,
-        );
-        self.top().blocks.extend(blocks);
+            &mut self.warnings,
+        ) {
+            Ok(blocks) => self.top().blocks.extend(blocks),
+            Err(error) => self.fail(error),
+        }
+    }
+
+    /// Record the refusal that stops folding (the first one wins).
+    fn fail(&mut self, error: Error) {
+        if self.error.is_none() {
+            self.error = Some(error);
+        }
+    }
+
+    /// Math nests on top of the Markdown around it.
+    fn check_math(&mut self, source: &str) {
+        if let Err(error) = super::math::check_depth(source, self.depth) {
+            self.fail(error);
+        }
     }
 
     fn start(&mut self, tag: Tag<'_>, line: usize) {
@@ -1038,22 +1257,27 @@ impl Folder<'_> {
 
     fn end(&mut self, end: TagEnd) {
         // Raw-HTML spans left open inside this container close with it.
-        while matches!(self.top().frame, Frame::Span(SpanKind::Html(..))) {
-            self.close();
-        }
+        self.close_html_spans();
         if matches!(end, TagEnd::List(_) | TagEnd::Item | TagEnd::BlockQuote(_)) {
             self.flush_inlines();
         }
         self.close();
     }
 
-    /// Pop the top level and attach what it built to its parent.
+    /// Pop the top level and attach what it built to its parent. The root
+    /// stays.
     fn close(&mut self) {
+        if self.stack.len() < 2 {
+            return;
+        }
         let Level {
             frame,
             mut blocks,
             inlines,
         } = self.stack.pop().expect("level to close");
+        if frame.nests() {
+            self.depth -= 1;
+        }
         let parent = self.stack.last_mut().expect("parent level");
         match frame {
             Frame::Root => unreachable!("root is never closed"),
@@ -1074,19 +1298,7 @@ impl Folder<'_> {
                 parent.blocks.push(Block::Quote { alert, blocks });
             }
             Frame::Code { language, text } => parent.blocks.push(Block::Code { language, text }),
-            Frame::Html { html, line } => {
-                let blocks = html_blocks(
-                    &html,
-                    line,
-                    &mut self.unknown_html,
-                    &mut self.dropped_styles,
-                );
-                self.stack
-                    .last_mut()
-                    .expect("parent level")
-                    .blocks
-                    .extend(blocks);
-            }
+            Frame::Html { html, line } => self.html_block(html, line),
             Frame::List {
                 start,
                 items,
@@ -1132,13 +1344,31 @@ impl Folder<'_> {
                 }
             }
             Frame::Table {
-                aligns, head, rows, ..
-            } => parent.blocks.push(Block::Table {
-                aligns,
-                head,
-                rows,
-                layout: None,
-            }),
+                mut aligns,
+                mut head,
+                mut rows,
+                ..
+            } => {
+                let mut narrowed = fold_wide_row(&mut head);
+                for row in &mut rows {
+                    narrowed |= fold_wide_row(row);
+                }
+                aligns.truncate(MAX_TABLE_COLUMNS);
+                parent.blocks.push(Block::Table {
+                    aligns,
+                    head,
+                    rows,
+                    layout: None,
+                });
+                if narrowed {
+                    warn_once(
+                        &mut self.warnings,
+                        "table_columns_clamped",
+                        TABLE_CLAMPED_MESSAGE.to_string(),
+                        None,
+                    );
+                }
+            }
             Frame::TableRow(cells) => {
                 if let Frame::Table {
                     head,
@@ -1165,6 +1395,7 @@ impl Folder<'_> {
                     self.metadata = Some((kind, text));
                 }
             }
+            Frame::Span(SpanKind::Html(_, kind)) if matches!(*kind, SpanKind::Hidden) => {}
             Frame::Span(kind) => {
                 let inline = span_inline(kind, inlines);
                 parent.inlines.push(inline);
@@ -1181,6 +1412,17 @@ impl Folder<'_> {
     }
 }
 
+/// A table row past Word's 63 columns keeps 63 cells: the cells past the
+/// last column move into it, one after another. Returns whether any moved.
+pub(crate) fn fold_wide_row(cells: &mut Vec<Vec<Block>>) -> bool {
+    if cells.len() <= MAX_TABLE_COLUMNS {
+        return false;
+    }
+    let overflow: Vec<Block> = cells.drain(MAX_TABLE_COLUMNS..).flatten().collect();
+    cells[MAX_TABLE_COLUMNS - 1].extend(overflow);
+    true
+}
+
 fn span_inline(kind: SpanKind, children: Vec<Inline>) -> Inline {
     match kind {
         SpanKind::Emphasis => Inline::Emphasis(children),
@@ -1191,6 +1433,7 @@ fn span_inline(kind: SpanKind, children: Vec<Inline>) -> Inline {
         SpanKind::Underline => Inline::Underline(children),
         SpanKind::Highlight => Inline::Highlight(children),
         SpanKind::Code => Inline::Code(plain_text(&children)),
+        SpanKind::Hidden => Inline::Text(String::new()),
         SpanKind::Html(_, inner) => span_inline(*inner, children),
         SpanKind::Format(format) => {
             let mut wrapped = format.wrap(children);
@@ -1213,7 +1456,7 @@ mod tests {
     use super::*;
 
     fn blocks(source: &str) -> Vec<Block> {
-        parse(source, false).blocks
+        parse(source, false).unwrap().blocks
     }
 
     #[test]
@@ -1260,7 +1503,7 @@ mod tests {
 
     #[test]
     fn footnotes_and_front_matter_are_collected() {
-        let parsed = parse("---\ntitle: T\n---\n\nText[^n].\n\n[^n]: Note.\n", false);
+        let parsed = parse("---\ntitle: T\n---\n\nText[^n].\n\n[^n]: Note.\n", false).unwrap();
         assert_eq!(parsed.metadata.unwrap().1.trim(), "title: T");
         assert!(parsed.footnotes.contains_key("n"));
     }

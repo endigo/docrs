@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::package::rels::rt;
 use crate::unicode::py_strip;
-use crate::wml::{W, w_attr, w_child, w_children};
+use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, Result};
 
@@ -525,7 +525,6 @@ pub(crate) fn style_elements(tree: &XmlTree) -> Vec<NodeId> {
 }
 
 /// First `w:style` with `w:styleId == style_id` (`CT_Styles.get_by_id`).
-#[allow(dead_code)] // reader for the style-writing packages
 pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<NodeId> {
     style_elements(tree)
         .into_iter()
@@ -534,20 +533,10 @@ pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<Node
 
 /// First `w:style` whose `w:name/@w:val` is `internal_name`
 /// (`CT_Styles.get_by_name`).
-#[allow(dead_code)] // reader for the style-writing packages
 pub(crate) fn style_element_by_name(tree: &XmlTree, internal_name: &str) -> Option<NodeId> {
     style_elements(tree).into_iter().find(|style| {
         w_child(tree, *style, "name").and_then(|name| w_attr(tree, name, "val"))
             == Some(internal_name)
-    })
-}
-
-/// Last default `w:style` of `style_type` (`CT_Styles.default_for`).
-#[allow(dead_code)] // reader for the style-writing packages
-pub(crate) fn default_style_element(tree: &XmlTree, style_type: StyleType) -> Option<NodeId> {
-    style_elements(tree).into_iter().rfind(|style| {
-        w_attr(tree, *style, "type") == Some(style_type.as_xml())
-            && w_attr(tree, *style, "default").is_some_and(on_off)
     })
 }
 
@@ -562,10 +551,6 @@ pub(crate) fn styles_index(tree: &XmlTree) -> std::collections::HashMap<String, 
     }
     index
 }
-
-/// `W` re-exported for writers that build style markup.
-#[allow(dead_code)]
-pub(crate) const STYLES_NS: &str = W;
 
 #[cfg(test)]
 mod tests {

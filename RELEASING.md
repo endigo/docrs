@@ -47,3 +47,8 @@ After the first release, set up trusted publishing and delete both secrets.
 4. Merge to `main`, then tag and push: `git tag v0.1.0 && git push origin v0.1.0`. You can also create the release on GitHub with a new tag `v0.1.0` on `main`.
 
 The workflow refuses a tag that doesn't match the version, or a version with anything left open (`tools/release/ready.sh`). Each publish step skips what its registry already has, so a failed run can be rerun from the Actions tab.
+
+## Workflow dependencies
+
+- Third-party actions are pinned to full commit SHAs, with the release tag in a trailing comment (`dtolnay/rust-toolchain` follows its `stable` branch, which installs the current stable Rust). To move one, resolve the new tag to its commit and replace both: `gh api repos/OWNER/REPO/git/ref/tags/TAG` gives the object; when its `type` is `tag` (an annotated tag), `gh api repos/OWNER/REPO/git/tags/SHA --jq .object.sha` gives the commit. A branch such as `stable` resolves with `git/ref/heads/BRANCH`. Run `actionlint` afterwards.
+- wasm-bindgen-cli is built with `cargo install wasm-bindgen-cli --locked` at the version `Cargo.lock` pins (`.github/actions/wasm-pack`), so Cargo verifies it and a `wasm-bindgen` update needs no other change. `crates/docrs-wasm/build.sh` builds with `--locked`. The npm package has no dependencies and no lockfile, so nothing runs `npm install` or `npm ci`.

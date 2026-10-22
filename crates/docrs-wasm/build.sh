@@ -13,7 +13,7 @@ case "$(wasm-bindgen --version 2>/dev/null)" in
   "wasm-bindgen $bindgen"*) ;;
   *) echo "needs wasm-bindgen-cli $bindgen: cargo install wasm-bindgen-cli --version $bindgen --locked" >&2; exit 1 ;;
 esac
-cargo build --manifest-path "$root/Cargo.toml" --release -p docrs-wasm --target wasm32-unknown-unknown
+cargo build --manifest-path "$root/Cargo.toml" --locked --release -p docrs-wasm --target wasm32-unknown-unknown
 rm -rf "$here/pkg"
 wasm-bindgen --target nodejs --out-dir "$here/pkg" --out-name docrs \
   "$root/target/wasm32-unknown-unknown/release/docrs_wasm.wasm"

@@ -60,12 +60,14 @@ docrs roundtrip input.docx --out copy.docx
 ```
 
 `docrs --help` lists every command and `docrs <command> --help` its options.
-`--json` prints machine-readable reports (`schema_version: 1`). Exit codes:
+`--json` prints machine-readable reports (`schema_version: 1`), and errors,
+argument errors included, as a JSON object on stdout. Exit codes:
 0 success, 2 invalid argument, 3 refusal (ambiguous, not found, protected,
 unsupported structure, boundary, relationship policy, malformed package),
-4 resource limit, 5 I/O, 70 internal error. `--out` may equal the input;
+4 resource limit, 5 I/O, 70 internal error (a panic included). `find` and
+`replace` (with `--all` too) exit 3 when nothing matches. `--out` may equal the input;
 outputs are written atomically. `--acknowledge-protection` (on `replace`,
-`resolve`, `append`, `insert-from` and `from-markdown`) proceeds through
+`resolve`, `compare`, `append`, `insert-from` and `from-markdown`) proceeds through
 Restrict Editing without removing it. `--trusted` uses the trusted-input
 resource profile instead of the default budgets.
 
@@ -86,9 +88,18 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
 
 * Supported: CommonMark + GitHub tables, task lists, strikethrough,
   footnotes and alerts; definition lists; heading ids and internal links;
-  sub/superscript; images (local or `data:`, scaled to the page); front
+  sub/superscript; images (local, beside the Markdown, or `data:`,
+  scaled to the page); front
   matter (title block and document properties); `[TOC]`/`toc: true`;
   page breaks; LaTeX math as native Word equations.
+* Images are read only from the Markdown file's directory (standard
+  input: the current directory) or `--resource-path`: absolute, UNC and
+  `file:` paths and paths leading out of it are refused with a warning.
+  Links keep their target only for `http`, `https`, `mailto`, `tel`,
+  `#heading` and relative references. The template's thumbnail (a
+  picture of its first page) is left out when the conversion replaces
+  the template's body (the default; `--append` and `--placeholder` keep
+  the document's own).
 * Missing styles are added and reported; `--strict-styles` refuses instead,
   `--style code_block="My Code"` maps a role, `--strict` refuses on any
   loss (missing image, unsupported HTML or LaTeX). Refusals change nothing.
@@ -96,6 +107,14 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   (glyphs, colours, indents) where it defines them; `--converter-lists`
   uses the converter's definitions instead. Simple HTML blocks (tables
   with lists in cells, `<p></p>` blank lines) are converted too.
+* HTML browsers do not display (`<head>`, `<title>`, `<style>`,
+  `<script>`, `<template>`, `<noscript>`, …) is dropped with its content
+  and reported (`html_element_skipped`). Tables wider than Word's 63
+  columns are narrowed: spans are cut back and cells past the last column
+  merge into it (`table_columns_clamped`).
+* Input nested deeper than 128 levels (block quotes, lists, emphasis,
+  links, HTML elements, math groups) is refused with `resource_limit`
+  (`markdown_nesting_too_deep`) before anything changes.
 * Tables span the full text width; cells use a compact Table Contents
   style. The table of contents is written out with links to each heading
   and page numbers computed by estimating Word for Mac's layout, so it needs
@@ -151,7 +170,10 @@ const { docx, report, referenceSetAside } = fromMarkdown(markdown, {
 Options follow the CLI flags in camelCase, with `--no-…` flags as booleans
 (`tocNumbers: false`, `templateLists: false`, `coverPage: false`), `styles`
 as an object and images passed in `images`; unknown names are refused.
-Errors are `Error`s with `code`, `reason`, `refusal` and `limit`. Also
+Errors are `Error`s with `code`, `reason`, `refusal` and `limit`;
+`limits: "serverless"` budgets apply to every function and refuse oversized
+inputs before copying them. After a panic (a bug; `RuntimeError: unreachable`)
+load the module again. Also
 exported: `fromHtml`, `inspectReference`, `markdownStyles`,
 `referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add

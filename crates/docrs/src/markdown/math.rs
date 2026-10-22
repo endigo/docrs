@@ -4,6 +4,7 @@
 //! and font commands. Word lays the result out natively. Commands outside
 //! the subset keep their source text and are reported.
 
+use super::ast::{MAX_NESTING_DEPTH, too_deep};
 use crate::Result;
 use crate::wml::{M, W};
 use crate::xml::{NodeId, XML_NS, XmlTree};
@@ -319,6 +320,12 @@ struct Parser {
     tokens: Vec<Token>,
     index: usize,
     unknown: Vec<String>,
+    /// Nesting levels open (see [`Parser::nested`]), from the Markdown
+    /// around the formula on.
+    depth: usize,
+    /// The deepest `depth` reached past [`MAX_NESTING_DEPTH`]; parsing
+    /// stops descending once set.
+    too_deep: Option<usize>,
 }
 
 /// Where an expression stops.
@@ -331,6 +338,24 @@ enum Stop {
 }
 
 impl Parser {
+    /// Run `parse` `levels` nesting levels deeper. Each recursion (a group,
+    /// an argument, an operator's operand, an environment) counts the levels
+    /// its Word equation nests, so the cap also bounds the equation's XML.
+    /// Past [`MAX_NESTING_DEPTH`] nothing more is parsed.
+    fn nested<T: Default>(&mut self, levels: usize, parse: impl FnOnce(&mut Self) -> T) -> T {
+        if self.too_deep.is_some() {
+            return T::default();
+        }
+        if self.depth + levels > MAX_NESTING_DEPTH {
+            self.too_deep = Some(self.depth + levels);
+            return T::default();
+        }
+        self.depth += levels;
+        let parsed = parse(self);
+        self.depth -= levels;
+        parsed
+    }
+
     fn skip_space(&mut self) {
         while self.tokens.get(self.index) == Some(&Token::Space) {
             self.index += 1;
@@ -352,8 +377,15 @@ impl Parser {
     /// Nodes up to `stop`; cells (`&`) and rows (`\\`) also stop it when
     /// `in_table`.
     fn expression(&mut self, stop: Stop, in_table: bool) -> Vec<Node> {
+        self.nested(1, |parser| parser.sequence(stop, in_table))
+    }
+
+    /// [`Parser::expression`] at the current level (the formula itself).
+    fn sequence(&mut self, stop: Stop, in_table: bool) -> Vec<Node> {
         let mut nodes = Vec::new();
-        while let Some(token) = self.peek() {
+        while self.too_deep.is_none()
+            && let Some(token) = self.peek()
+        {
             match token {
                 Token::Close if stop == Stop::Close => {
                     self.index += 1;
@@ -380,8 +412,13 @@ impl Parser {
         nodes
     }
 
-    /// One `{group}` or single-token argument.
+    /// One `{group}` or single-token argument: two levels, an element and
+    /// its argument container (`m:rad` / `m:e`).
     fn argument(&mut self) -> Vec<Node> {
+        self.nested(2, Self::argument_body)
+    }
+
+    fn argument_body(&mut self) -> Vec<Node> {
         match self.peek() {
             Some(Token::Open) => {
                 self.index += 1;
@@ -438,8 +475,15 @@ impl Parser {
             return None;
         }
         self.index += 1;
+        self.nested(2, |parser| Some(parser.bracketed()))
+    }
+
+    /// The nodes of an optional argument after its `[`.
+    fn bracketed(&mut self) -> Vec<Node> {
         let mut nodes = Vec::new();
-        while let Some(token) = self.peek() {
+        while self.too_deep.is_none()
+            && let Some(token) = self.peek()
+        {
             if token == &Token::Char(']') {
                 self.index += 1;
                 break;
@@ -448,7 +492,7 @@ impl Parser {
             let node = self.scripts(atom);
             push_node(&mut nodes, node);
         }
-        Some(nodes)
+        nodes
     }
 
     /// A delimiter after `\left` / `\right`.
@@ -489,8 +533,10 @@ impl Parser {
             if !starts_argument {
                 return name_node.expect("a function name");
             }
-            let atom = self.atom();
-            let argument: Vec<Node> = self.scripts(atom).into_iter().collect();
+            let argument: Vec<Node> = self.nested(2, |parser| {
+                let atom = parser.atom();
+                parser.scripts(atom).into_iter().collect()
+            });
             return Node::Func(name_node.into_iter().collect(), argument);
         }
         if LIMITS.contains(&name) {
@@ -518,13 +564,13 @@ impl Parser {
                     _ => break,
                 }
             }
-            let body = match self.atom() {
-                Some(atom) => vec![self.scripts(Some(atom))]
+            let body = self.nested(2, |parser| match parser.atom() {
+                Some(atom) => vec![parser.scripts(Some(atom))]
                     .into_iter()
                     .flatten()
                     .collect(),
                 None => Vec::new(),
-            };
+            });
             return Node::Nary {
                 chr,
                 sub,
@@ -556,8 +602,8 @@ impl Parser {
                 }
             }
             "binom" | "dbinom" | "tbinom" => {
-                let num = self.argument();
-                let den = self.argument();
+                // Inside the parentheses (`m:d` / `m:e`) one level more.
+                let (num, den) = self.nested(1, |parser| (parser.argument(), parser.argument()));
                 Node::Delim {
                     open: "(".into(),
                     close: ")".into(),
@@ -577,7 +623,8 @@ impl Parser {
             "underline" => Node::Bar(false, self.argument()),
             "left" => {
                 let open = self.delimiter();
-                let body = self.expression(Stop::Right, false);
+                // `m:d` / `m:e`: one level besides the expression's own.
+                let body = self.nested(1, |parser| parser.expression(Stop::Right, false));
                 let close = if matches!(self.peek(), Some(Token::Command(n)) if n == "right") {
                     self.index += 1;
                     self.delimiter()
@@ -590,7 +637,10 @@ impl Parser {
             | "displaystyle" | "textstyle" | "limits" | "nolimits" | "middle" => {
                 Node::Run(String::new(), Style::Auto)
             }
-            "begin" => self.environment(),
+            // A delimited matrix nests `m:d` / `m:e` / `m:m` / `m:mr` / `m:e`.
+            "begin" => self
+                .nested(4, |parser| Some(parser.environment()))
+                .unwrap_or(Node::Run(String::new(), Style::Auto)),
             other => {
                 self.unknown.push(format!("\\{other}"));
                 Node::Run(format!("\\{other}"), Style::Text)
@@ -602,7 +652,7 @@ impl Parser {
     fn environment(&mut self) -> Node {
         let env = self.raw_argument();
         let mut rows: Vec<Vec<Vec<Node>>> = vec![vec![]];
-        loop {
+        while self.too_deep.is_none() {
             let cell = self.expression(Stop::EndEnv, true);
             rows.last_mut().expect("a row").push(cell);
             match self.next() {
@@ -722,17 +772,37 @@ fn restyle(nodes: Vec<Node>, style: Style) -> Node {
     group_node(restyled)
 }
 
-/// Parse a LaTeX math source.
+/// Parse a LaTeX math source. Structure nested past [`MAX_NESTING_DEPTH`]
+/// is left out ([`check_depth`] refuses it before rendering).
 pub(crate) fn parse(source: &str) -> Parsed {
-    let mut parser = Parser {
-        tokens: tokenize(source),
-        index: 0,
-        unknown: Vec::new(),
-    };
-    let nodes = parser.expression(Stop::End, false);
+    let mut parser = Parser::new(source, 0);
+    let nodes = parser.sequence(Stop::End, false);
     Parsed {
         nodes,
         unknown: parser.unknown,
+    }
+}
+
+/// Refuse a formula that, inside `depth` levels of Markdown, nests past
+/// [`MAX_NESTING_DEPTH`].
+pub(crate) fn check_depth(source: &str, depth: usize) -> Result<()> {
+    let mut parser = Parser::new(source, depth);
+    parser.sequence(Stop::End, false);
+    match parser.too_deep {
+        Some(observed) => Err(too_deep(observed)),
+        None => Ok(()),
+    }
+}
+
+impl Parser {
+    fn new(source: &str, depth: usize) -> Self {
+        Parser {
+            tokens: tokenize(source),
+            index: 0,
+            unknown: Vec::new(),
+            depth,
+            too_deep: None,
+        }
     }
 }
 

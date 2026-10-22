@@ -109,6 +109,26 @@ pub struct Image {
 impl Image {
     /// Characterize `blob` (upstream `Image.from_blob`).
     pub fn from_blob(blob: &[u8]) -> Result<Image> {
+        Image::from_vec(blob.to_vec())
+    }
+
+    /// [`Image::from_blob`] taking ownership of the bytes, without a copy.
+    pub fn from_vec(blob: Vec<u8>) -> Result<Image> {
+        let (format, header) = Image::header(&blob)?;
+        let sha1 = sha1_hex(&blob);
+        Ok(Image {
+            blob,
+            format,
+            px_width: header.px_width,
+            px_height: header.px_height,
+            horz_dpi: header.horz_dpi,
+            vert_dpi: header.vert_dpi,
+            sha1,
+            filename: None,
+        })
+    }
+
+    fn header(blob: &[u8]) -> Result<(ImageFormat, Header)> {
         let format = detect(blob)?;
         let header = match format {
             ImageFormat::Png => png(blob)?,
@@ -125,16 +145,7 @@ impl Image {
             }
             ImageFormat::Bmp => bmp(blob)?,
         };
-        Ok(Image {
-            blob: blob.to_vec(),
-            format,
-            px_width: header.px_width,
-            px_height: header.px_height,
-            horz_dpi: header.horz_dpi,
-            vert_dpi: header.vert_dpi,
-            sha1: sha1_hex(blob),
-            filename: None,
-        })
+        Ok((format, header))
     }
 
     /// Load and characterize an image file (upstream `Image.from_file` with
@@ -230,26 +241,23 @@ impl Image {
     /// returned as is; one given scales the other preserving aspect ratio
     /// (Python `round`); neither gives the native size.
     pub fn scaled_dimensions(&self, width: Option<i64>, height: Option<i64>) -> Result<(i64, i64)> {
-        match (width, height) {
-            (None, None) => Ok((self.width()?, self.height()?)),
-            (Some(width), Some(height)) => Ok((width, height)),
-            (None, Some(height)) => {
-                let native_height = self.height()?;
-                if native_height == 0 {
-                    return Err(err("zero_division", "image has zero native height"));
-                }
-                let factor = height as f64 / native_height as f64;
-                Ok((py_round(self.width()? as f64 * factor), height))
-            }
-            (Some(width), None) => {
-                let native_width = self.width()?;
-                if native_width == 0 {
-                    return Err(err("zero_division", "image has zero native width"));
-                }
-                let factor = width as f64 / native_width as f64;
-                Ok((width, py_round(self.height()? as f64 * factor)))
-            }
-        }
+        scale(width, height, || self.width(), || self.height())
+    }
+
+    /// [`Image::scaled_dimensions`] for laying a picture out rather than
+    /// matching upstream: a resolution of zero (or below) counts as 96 dpi,
+    /// the Windows default Word assumes for an image without a usable one,
+    /// where upstream raises `ZeroDivisionError`. A zero pixel size is
+    /// still refused (`zero_division`) when the other side has to be
+    /// scaled from it.
+    pub fn layout_dimensions(&self, width: Option<i64>, height: Option<i64>) -> Result<(i64, i64)> {
+        let usable = |dpi: i64| if dpi > 0 { dpi } else { DEFAULT_DPI };
+        scale(
+            width,
+            height,
+            || native(self.px_width, usable(self.horz_dpi)),
+            || native(self.px_height, usable(self.vert_dpi)),
+        )
     }
 
     /// Characterization report (`content_type`, pixel size, dpi, `ext`,
@@ -277,6 +285,40 @@ pub(crate) fn py_splitext_ext(filename: &str) -> &str {
     match filename[stem_start..].rfind('.') {
         Some(dot) => &filename[stem_start + dot + 1..],
         None => "",
+    }
+}
+
+/// Resolution assumed for an image whose header gives none usable (BMP's
+/// zero pixels per metre, and [`Image::layout_dimensions`]).
+const DEFAULT_DPI: i64 = 96;
+
+/// Upstream `scaled_dimensions` over the native size `native_width` and
+/// `native_height` give.
+fn scale(
+    width: Option<i64>,
+    height: Option<i64>,
+    native_width: impl Fn() -> Result<i64>,
+    native_height: impl Fn() -> Result<i64>,
+) -> Result<(i64, i64)> {
+    match (width, height) {
+        (None, None) => Ok((native_width()?, native_height()?)),
+        (Some(width), Some(height)) => Ok((width, height)),
+        (None, Some(height)) => {
+            let native = native_height()?;
+            if native == 0 {
+                return Err(err("zero_division", "image has zero native height"));
+            }
+            let factor = height as f64 / native as f64;
+            Ok((py_round(native_width()? as f64 * factor), height))
+        }
+        (Some(width), None) => {
+            let native = native_width()?;
+            if native == 0 {
+                return Err(err("zero_division", "image has zero native width"));
+            }
+            let factor = width as f64 / native as f64;
+            Ok((width, py_round(native_height()? as f64 * factor)))
+        }
     }
 }
 
@@ -382,7 +424,7 @@ fn bmp(blob: &[u8]) -> Result<Header> {
     let vert = reader.long(0x2A)?;
     let dpi = |px_per_meter: u32| {
         if px_per_meter == 0 {
-            96
+            DEFAULT_DPI
         } else {
             py_round(px_per_meter as f64 * 0.0254)
         }
@@ -831,6 +873,34 @@ mod tests {
         assert_eq!(
             sha1_hex(&[b'a'; 1000]),
             "291e9a6c66994949b57ba5e650361e98fc36b1ba"
+        );
+    }
+
+    #[test]
+    fn layout_takes_a_zero_resolution_as_96_dpi() {
+        let image = Image {
+            blob: Vec::new(),
+            format: ImageFormat::Jfif,
+            px_width: Some(96),
+            px_height: Some(48),
+            horz_dpi: 0,
+            vert_dpi: 0,
+            sha1: String::new(),
+            filename: None,
+        };
+        assert_eq!(image.width().unwrap_err().reason(), "zero_division");
+        assert_eq!(
+            image.layout_dimensions(None, None).unwrap(),
+            (914_400, 457_200)
+        );
+        assert_eq!(image.layout_dimensions(Some(100), None).unwrap(), (100, 50));
+        let flat = Image {
+            px_height: Some(0),
+            ..image
+        };
+        assert_eq!(
+            flat.layout_dimensions(None, Some(10)).unwrap_err().reason(),
+            "zero_division"
         );
     }
 

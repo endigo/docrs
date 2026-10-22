@@ -312,15 +312,33 @@ fn ensure_hyperlink_style(txn: &mut Txn<'_>) -> Result<()> {
 /// `add_hyperlink`).
 ///
 /// The text stays; it takes the `Hyperlink` character style, which is
-/// defined when the document lacks it. Refuses an empty address, a protected
-/// document, a stale or foreign span, a field result, a span crossing
-/// paragraphs, an existing hyperlink, intervening markup, and a data-bound,
-/// locked or plain-text control surface.
+/// defined when the document lacks it. Refuses an empty address, a script
+/// address (`javascript:`, `vbscript:`) or one with control characters, a
+/// protected document, a stale or foreign span, a field result, a span
+/// crossing paragraphs, an existing hyperlink, intervening markup, and a
+/// data-bound, locked or plain-text control surface. Other schemes are the
+/// caller's to vet.
 pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Result<Hyperlink> {
     if address.is_empty() {
         return Err(Error::invalid_argument(
             "empty_address",
             "address must be a non-empty URL",
+        ));
+    }
+    if address.chars().any(char::is_control) {
+        return Err(Error::invalid_argument(
+            "address_control_character",
+            "address must not contain control characters",
+        ));
+    }
+    let scheme = address
+        .trim_start()
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
+    if matches!(scheme.as_deref(), Some("javascript" | "vbscript")) {
+        return Err(Error::invalid_argument(
+            "script_address",
+            "address must not be a javascript: or vbscript: URL",
         ));
     }
     let doc: &Document = document;

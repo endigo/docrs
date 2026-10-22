@@ -370,6 +370,7 @@ pub struct Control {
     story: String,
     part: String,
     sdt: NodeId,
+    incarnation: u32,
 }
 
 impl Control {
@@ -392,7 +393,7 @@ impl Control {
                     "control is stale: it was removed from its document",
                 )
             })?;
-        if !tree.contains(self.sdt) {
+        if !tree.contains(self.sdt) || tree.incarnation() != self.incarnation {
             return Err(not_found(
                 "stale_control",
                 "control is stale: it was removed from its document",
@@ -669,6 +670,7 @@ pub fn iter_controls(document: &Document) -> Result<Vec<Control>> {
             story: story.name.clone(),
             part: story.part.clone(),
             sdt,
+            incarnation: tree.incarnation(),
         }));
     }
     Ok(out)

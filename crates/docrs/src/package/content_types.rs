@@ -1,6 +1,8 @@
 //! `[Content_Types].xml` validation and lookup (upstream
 //! `_zipguard._parse_content_types`, `pkgreader._ContentTypeMap`).
 
+use std::collections::{HashMap, HashSet};
+
 use crate::unicode::{casefold, py_strip};
 use crate::xml::{self, NodeData, XmlTree};
 use crate::{Error, Limits, Result};
@@ -9,12 +11,26 @@ use crate::{Error, Limits, Result};
 pub const CT_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 
 /// Parsed content-type declarations, in document order.
+///
+/// Lookups go through an index built when the declarations are parsed, so
+/// the public lists are for reading: pushing to them does not change what
+/// [`ContentTypes::lookup`] answers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContentTypes {
     /// `(extension, content type)` from `Default` elements.
     pub defaults: Vec<(String, String)>,
     /// `(part name, content type)` from `Override` elements.
     pub overrides: Vec<(String, String)>,
+    /// Lower-cased keys of the declarations above, built by
+    /// [`parse_content_types`].
+    index: LookupIndex,
+}
+
+/// Lower-cased extension or part name → position of its first declaration.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LookupIndex {
+    defaults: HashMap<String, usize>,
+    overrides: HashMap<String, usize>,
 }
 
 fn malformed(reason: &'static str, message: impl Into<String>) -> Error {
@@ -51,8 +67,7 @@ pub fn parse_content_types(data: &[u8]) -> Result<ContentTypes> {
         ));
     }
     let mut types = ContentTypes::default();
-    let mut default_keys: Vec<String> = Vec::new();
-    let mut override_keys: Vec<String> = Vec::new();
+    let mut override_keys: HashSet<String> = HashSet::new();
     for child in tree.children(root) {
         let NodeData::Element(_) = tree.data(*child) else {
             continue;
@@ -73,7 +88,7 @@ pub fn parse_content_types(data: &[u8]) -> Result<ContentTypes> {
                 return Err(invalid_default());
             }
             let key = extension.to_lowercase();
-            if default_keys.contains(&key) {
+            if types.index.defaults.contains_key(&key) {
                 return Err(malformed(
                     "content_types_duplicate_default",
                     format!(
@@ -84,7 +99,7 @@ pub fn parse_content_types(data: &[u8]) -> Result<ContentTypes> {
                     ),
                 ));
             }
-            default_keys.push(key);
+            types.index.defaults.insert(key, types.defaults.len());
             types
                 .defaults
                 .push((extension.to_string(), content_type.to_string()));
@@ -105,14 +120,17 @@ pub fn parse_content_types(data: &[u8]) -> Result<ContentTypes> {
             {
                 return Err(invalid_override());
             }
-            let key = casefold(part_name);
-            if override_keys.contains(&key) {
+            if !override_keys.insert(casefold(part_name)) {
                 return Err(malformed(
                     "content_types_ambiguous_override",
                     "[Content_Types].xml contains an ambiguous Override declaration",
                 ));
             }
-            override_keys.push(key);
+            types
+                .index
+                .overrides
+                .entry(part_name.to_lowercase())
+                .or_insert(types.overrides.len());
             types
                 .overrides
                 .push((part_name.to_string(), content_type.to_string()));
@@ -152,21 +170,16 @@ pub fn extension(part_name: &str) -> &str {
 
 impl ContentTypes {
     /// Content type for `part_name` (`/`-prefixed): override first, then the
-    /// extension default; both case-insensitive.
+    /// extension default; both case-insensitive (the first matching
+    /// declaration wins).
     pub fn lookup(&self, part_name: &str) -> Option<&str> {
-        let lowered = part_name.to_lowercase();
-        if let Some((_, content_type)) = self
-            .overrides
-            .iter()
-            .find(|(name, _)| name.to_lowercase() == lowered)
-        {
-            return Some(content_type);
+        if let Some(position) = self.index.overrides.get(&part_name.to_lowercase()) {
+            return Some(&self.overrides[*position].1);
         }
-        let ext = extension(part_name).to_lowercase();
-        self.defaults
-            .iter()
-            .find(|(candidate, _)| candidate.to_lowercase() == ext)
-            .map(|(_, content_type)| content_type.as_str())
+        self.index
+            .defaults
+            .get(&extension(part_name).to_lowercase())
+            .map(|position| self.defaults[*position].1.as_str())
     }
 }
 
