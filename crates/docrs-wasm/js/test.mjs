@@ -7,12 +7,18 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import timers from "node:timers/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import v8 from "node:v8";
+import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
 const pkg = process.env.DOCRS_WASM_PKG ?? join(here, "..", "pkg");
-const lib = createRequire(import.meta.url)(pkg);
+const require = createRequire(import.meta.url);
+const lib = require(pkg);
+// The memory of an instance that has done nothing yet.
+const freshSize = lib.__wasm.memory.buffer.byteLength;
 const templates = join(root, "tests", "fixtures", "markdown", "templates");
 const readBytes = (path) => new Uint8Array(readFileSync(path));
 
@@ -123,6 +129,10 @@ const PNG = Uint8Array.from(
   ),
 );
 
+const LOGO = { "https://store.example/logo.png?token=t": PNG };
+// A source over the serverless budget (384 KiB) by one byte.
+const OVER_BUDGET = "x".repeat((384 << 10) + 1);
+
 // The editor HTML contract (the shapes a rich-text editor emits), synthetic.
 const EDITOR_HTML =
   '<h2 style="text-align: center;">Advice</h2>' +
@@ -137,7 +147,7 @@ const EDITOR_HTML =
 
 const documentXml = (docx) => {
   // Stored or deflated: find word/document.xml through the package reader.
-  const { inflateRawSync } = createRequire(import.meta.url)("node:zlib");
+  const { inflateRawSync } = require("node:zlib");
   const buf = Buffer.from(docx);
   let at = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   const entries = buf.readUInt16LE(at + 10);
@@ -161,9 +171,7 @@ const documentXml = (docx) => {
 };
 
 test("editor HTML maps colours, alignment, spans, widths, images and page breaks", () => {
-  const { docx, report } = lib.fromHtml(EDITOR_HTML, {
-    images: { "https://store.example/logo.png?token=t": PNG },
-  });
+  const { docx, report } = lib.fromHtml(EDITOR_HTML, { images: LOGO });
   assert.deepEqual(report.warnings, []);
   assert.equal(report.counts.images, 1);
   const xml = documentXml(docx);
@@ -199,12 +207,11 @@ test("redact keeps input text out of warnings and errors", () => {
 });
 
 test("the serverless preset bounds input and the reference", () => {
-  const big = "x".repeat((384 << 10) + 1);
   assert.throws(
-    () => lib.fromMarkdown(big, { limits: "serverless" }),
+    () => lib.fromMarkdown(OVER_BUDGET, { limits: "serverless" }),
     (err) => err.code === "resource_limit" && err.limit.limit === "max_source_bytes",
   );
-  assert.ok(isZip(lib.fromMarkdown(big.slice(0, 1000), { limits: "serverless" }).docx));
+  assert.ok(isZip(lib.fromMarkdown(OVER_BUDGET.slice(0, 1000), { limits: "serverless" }).docx));
   assert.throws(
     () => lib.fromMarkdown("a", { limits: "serverless", images: { a: new Uint8Array((12 << 20) + 1) } }),
     (err) => err.code === "resource_limit" && err.limit.limit === "max_input_bytes",
@@ -263,7 +270,7 @@ test("oversized inputs are refused before they are copied in", () => {
   assert.ok(process.memoryUsage().rss - before < 256 << 20, "the reference was copied");
   // A source over budget by its UTF-16 length alone.
   assert.throws(
-    () => lib.fromMarkdown("x".repeat((384 << 10) + 1), { limits: "serverless", redact: true }),
+    () => lib.fromMarkdown(OVER_BUDGET, { limits: "serverless", redact: true }),
     (err) => err.limit.limit === "max_source_bytes",
   );
   assert.throws(() => lib.fromMarkdown(42), (err) => err.code === "invalid_argument" && err.reason === "invalid_source");
@@ -327,7 +334,115 @@ test("TipTap JSON reports what has no Word equivalent and refuses what is not a 
   assert.throws(() => lib.fromJson("{not json"), (err) => err.reason === "tiptap_json_invalid");
   assert.throws(() => lib.fromJson(42), (err) => err.reason === "invalid_source");
   assert.throws(
-    () => lib.fromJson("x".repeat((384 << 10) + 1), { limits: "serverless" }),
+    () => lib.fromJson(OVER_BUDGET, { limits: "serverless" }),
     (err) => err.code === "resource_limit" && err.limit.limit === "max_source_bytes",
   );
+});
+
+
+// Recovery after a panic. The module aborts on a panic: the call traps
+// (WebAssembly.RuntimeError) and index.js replaces the instance. The trap
+// here is the raw exports' allocator asked for more than the address space
+// holds, the abort a panic ends in (minus the panic hook), reached from
+// inside the conversion while it reads the options so that it hits a
+// guarded call.
+const trapping = {
+  images: {
+    get "a.png"() {
+      lib.__wasm.__wbindgen_malloc(0xfffffff0, 1);
+      return PNG;
+    },
+  },
+};
+const trapInside = () => lib.fromHtml("<p>x</p>", trapping);
+const sample = () => lib.fromHtml(EDITOR_HTML, { images: LOGO, now: 1_700_000_000_000 }).docx;
+// V8's full collection, from a fresh context once the flag is set at run time.
+v8.setFlagsFromString("--expose-gc");
+const collect = vm.runInNewContext("gc");
+
+test("a trap replaces the instance and the next call runs on a fresh one", () => {
+  const baseline = sample();
+  const poisoned = lib.__wasm;
+  assert.ok(poisoned.memory.buffer.byteLength > freshSize, "the conversion grew the memory");
+  assert.throws(trapInside, (err) => err instanceof WebAssembly.RuntimeError && err.code === undefined);
+  assert.notEqual(lib.__wasm, poisoned);
+  assert.equal(lib.__wasm.memory.buffer.byteLength, freshSize);
+  assert.deepEqual(sample(), baseline);
+  // Every function that takes options is guarded the same way.
+  for (const call of [
+    () => lib.fromMarkdown("x", trapping),
+    () => lib.fromJson('{"type":"doc"}', trapping),
+    () => lib.fromTiptap('{"type":"doc"}', trapping),
+    () => lib.inspectReference(new Uint8Array(4), trapping),
+    () => lib.markdownStyles(undefined, undefined, trapping),
+  ]) {
+    const before = lib.__wasm;
+    assert.throws(call, WebAssembly.RuntimeError);
+    assert.notEqual(lib.__wasm, before);
+  }
+  // A trap through the raw exports marks the instance the same way; the
+  // next call, whatever it is, runs on a fresh one.
+  const marked = lib.__wasm;
+  assert.throws(() => marked.__wbindgen_malloc(0xfffffff0, 1), WebAssembly.RuntimeError);
+  assert.notEqual(lib.__wasm, marked);
+  assert.deepEqual(sample(), baseline);
+});
+
+test("an error docrs reports leaves the instance in place", () => {
+  const instance = lib.__wasm;
+  assert.throws(() => lib.fromMarkdown("x", { nonsense: true }), (err) => err.code === "invalid_argument");
+  assert.throws(() => lib.fromMarkdown("![x](missing.png)\n", { strict: true }), (err) => err.refusal === true);
+  assert.throws(() => lib.fromMarkdown(OVER_BUDGET, { limits: "serverless" }), (err) => err.code === "resource_limit");
+  assert.throws(() => lib.inspectReference(new Uint8Array([1, 2, 3, 4])), (err) => err.code === "malformed_package");
+  assert.equal(lib.__wasm, instance);
+});
+
+test("any exception that unwinds through the module replaces the instance", () => {
+  // The module's frames are unwound without restoring its stack pointer
+  // whatever the exception is: a stack overflow, or the caller's own error
+  // thrown while the conversion reads the options.
+  const recurse = () => recurse() + 1;
+  const boom = new Error("boom");
+  for (const [getter, expected] of [
+    [recurse, (err) => err instanceof RangeError && /call stack/.test(err.message)],
+    [() => { throw boom; }, (err) => err === boom],
+  ]) {
+    const before = lib.__wasm;
+    assert.throws(() => lib.fromHtml("<p>x</p>", { images: { get "a.png"() { return getter(); } } }), expected);
+    assert.notEqual(lib.__wasm, before);
+  }
+  assert.ok(isZip(lib.fromHtml("<p>x</p>").docx));
+});
+
+test("a few hundred traps leave memory flat and the replaced instances unreachable", async () => {
+  const baseline = sample();
+  const replaced = [];
+  for (let i = 0; i < 300; i++) {
+    replaced.push(new WeakRef(lib.__wasm.memory));
+    assert.throws(trapInside, WebAssembly.RuntimeError);
+    assert.equal(lib.__wasm.memory.buffer.byteLength, freshSize, `trap ${i}`);
+  }
+  assert.deepEqual(sample(), baseline);
+  // Nothing holds the replaced instances: a full collection frees them. (A
+  // WeakRef keeps its target to the end of the job that made it, hence the
+  // turn before collecting.)
+  await timers.setImmediate();
+  collect();
+  await timers.setImmediate();
+  collect();
+  const alive = replaced.filter((ref) => ref.deref() !== undefined).length;
+  assert.ok(alive <= 3, `${alive} of ${replaced.length} replaced instances are still reachable`);
+});
+
+test("the entry point exports every function the typings declare, to ESM by name too", async () => {
+  const declared = [...readFileSync(join(pkg, "docrs.d.ts"), "utf8").matchAll(/^export function (\w+)\(/gm)]
+    .map((m) => m[1])
+    .sort();
+  assert.ok(declared.includes("fromHtml") && declared.includes("fromJson"));
+  assert.deepEqual(Object.keys(lib).sort(), declared);
+  // Node reads the named exports out of the CommonJS source, so
+  // `import { fromHtml } from "docrs-wasm"` resolves.
+  const esm = await import(pathToFileURL(require.resolve(pkg)).href);
+  assert.deepEqual(Object.keys(esm).filter((key) => key !== "default" && key !== "module.exports").sort(), declared);
+  assert.equal(esm.fromHtml, lib.fromHtml);
 });
