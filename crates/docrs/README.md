@@ -4,8 +4,8 @@ Edit Word (`.docx`) documents without disturbing what you didn't touch, and turn
 
 ```toml
 [dependencies]
-docrs = "0.1"                                       # editing
-docrs = { version = "0.1", features = ["markdown"] } # + Markdown/HTML to Word
+docrs = "0.3"                                       # editing
+docrs = { version = "0.3", features = ["markdown"] } # + Markdown/HTML to Word
 ```
 
 ## Editing
