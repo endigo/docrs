@@ -340,12 +340,8 @@ test("TipTap JSON reports what has no Word equivalent and refuses what is not a 
 });
 
 
-// Recovery after a panic. The module aborts on a panic: the call traps
-// (WebAssembly.RuntimeError) and index.js replaces the instance. The trap
-// here is the raw exports' allocator asked for more than the address space
-// holds, the abort a panic ends in (minus the panic hook), reached from
-// inside the conversion while it reads the options so that it hits a
-// guarded call.
+// A trap the way a panic ends (the allocator asked for more than the address
+// space holds), raised inside a call while the conversion reads the options.
 const trapping = {
   images: {
     get "a.png"() {
@@ -356,7 +352,6 @@ const trapping = {
 };
 const trapInside = () => lib.fromHtml("<p>x</p>", trapping);
 const sample = () => lib.fromHtml(EDITOR_HTML, { images: LOGO, now: 1_700_000_000_000 }).docx;
-// V8's full collection, from a fresh context once the flag is set at run time.
 v8.setFlagsFromString("--expose-gc");
 const collect = vm.runInNewContext("gc");
 
@@ -380,8 +375,7 @@ test("a trap replaces the instance and the next call runs on a fresh one", () =>
     assert.throws(call, WebAssembly.RuntimeError);
     assert.notEqual(lib.__wasm, before);
   }
-  // A trap through the raw exports marks the instance the same way; the
-  // next call, whatever it is, runs on a fresh one.
+  // Through the raw exports too.
   const marked = lib.__wasm;
   assert.throws(() => marked.__wbindgen_malloc(0xfffffff0, 1), WebAssembly.RuntimeError);
   assert.notEqual(lib.__wasm, marked);
@@ -398,9 +392,6 @@ test("an error docrs reports leaves the instance in place", () => {
 });
 
 test("any exception that unwinds through the module replaces the instance", () => {
-  // The module's frames are unwound without restoring its stack pointer
-  // whatever the exception is: a stack overflow, or the caller's own error
-  // thrown while the conversion reads the options.
   const recurse = () => recurse() + 1;
   const boom = new Error("boom");
   for (const [getter, expected] of [
@@ -423,9 +414,7 @@ test("a few hundred traps leave memory flat and the replaced instances unreachab
     assert.equal(lib.__wasm.memory.buffer.byteLength, freshSize, `trap ${i}`);
   }
   assert.deepEqual(sample(), baseline);
-  // Nothing holds the replaced instances: a full collection frees them. (A
-  // WeakRef keeps its target to the end of the job that made it, hence the
-  // turn before collecting.)
+  // A WeakRef keeps its target to the end of the job that made it.
   await timers.setImmediate();
   collect();
   await timers.setImmediate();
@@ -440,8 +429,6 @@ test("the entry point exports every function the typings declare, to ESM by name
     .sort();
   assert.ok(declared.includes("fromHtml") && declared.includes("fromJson"));
   assert.deepEqual(Object.keys(lib).sort(), declared);
-  // Node reads the named exports out of the CommonJS source, so
-  // `import { fromHtml } from "docrs-wasm"` resolves.
   const esm = await import(pathToFileURL(require.resolve(pkg)).href);
   assert.deepEqual(Object.keys(esm).filter((key) => key !== "default" && key !== "module.exports").sort(), declared);
   assert.equal(esm.fromHtml, lib.fromHtml);
