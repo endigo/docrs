@@ -88,9 +88,14 @@ impl Staged {
         self.trees.is_empty() && self.binaries.is_empty() && self.removed.is_empty()
     }
 
-    /// Existing parts the commit removes.
+    /// Existing parts the commit removes (a name the change set adds back
+    /// is not removed).
     pub fn removed_parts(&self) -> Vec<&str> {
-        self.removed.iter().map(String::as_str).collect()
+        self.removed
+            .iter()
+            .filter(|name| !self.new_parts.iter().any(|(new, _)| new == *name))
+            .map(String::as_str)
+            .collect()
     }
 }
 
@@ -138,7 +143,8 @@ impl<'d> Txn<'d> {
     /// Remove an existing part: its member, its relationships part and its
     /// `[Content_Types].xml` override go when the change set commits.
     /// Relationships that target it are the caller's to remove. A part added
-    /// in this transaction cannot be removed.
+    /// in this transaction cannot be removed; a removed name can be added
+    /// again.
     pub fn remove_part(&mut self, name: &str) -> Result<()> {
         let Some(member) = self.resolve(name) else {
             return Ok(());
@@ -247,7 +253,9 @@ impl<'d> Txn<'d> {
     /// number placeholder (member names, no leading slash).
     pub fn next_partname(&self, template: &str) -> String {
         let count = self.doc.package().parts().count() + self.new_parts.len();
-        // A removed member's name stays taken until the commit.
+        // A member this transaction removes keeps its name out of the
+        // numbering (it can still be added back by name), so the chosen name
+        // does not depend on removals staged earlier in the same change set.
         (1..=count + 1)
             .map(|n| template.replace("{}", &n.to_string()))
             .find(|candidate| {
@@ -454,8 +462,13 @@ impl Document {
         let content_types = self.package().preflight_commit(
             new_parts.iter().map(|(name, _)| name.as_str()),
             replaced,
+            &removed,
             trees.get(CONTENT_TYPES),
         )?;
+        // Removals go first so a removed name can be added back.
+        for name in &removed {
+            self.package_mut().remove_part(name);
+        }
         for (name, content_type) in &new_parts {
             if let Some(bytes) = binaries.remove(name) {
                 self.package_mut()
@@ -469,13 +482,17 @@ impl Document {
         for (name, tree) in trees {
             self.package_mut().commit_tree(&name, tree)?;
         }
-        for name in &removed {
-            self.package_mut().remove_part(name);
-        }
         if let Some(content_types) = content_types {
             self.package_mut().set_content_types(content_types);
         }
         Ok(())
+    }
+
+    /// [`Document::commit`] for tests only (`test-support` feature).
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn commit_for_tests(&mut self, staged: Staged) -> Result<()> {
+        self.commit(staged)
     }
 }
 

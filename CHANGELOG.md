@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Library
+
+- **Package and XML:**
+  - A removed part's name can be used again, in the same edit or a later one. Before, adding a part under a removed name failed with the internal error `duplicate_part`. A part re-added with identical bytes saves as the original.
+  - Opening a package is linear in its part count: 64k parts open in about 0.3 s instead of 48 s.
+  - Copying deeply nested markup (deep copies, importing from another document as `append` and `insert-from` do) and comparing run properties during replace no longer recurse. With `--trusted`, 40k levels of nested content controls no longer abort `append` with a stack overflow.
+
 ## 0.1.0 (2026-10-21)
 
 The first release. Three packages:
