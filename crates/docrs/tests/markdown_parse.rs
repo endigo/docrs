@@ -5,7 +5,9 @@
 //! stack (test threads have 2 MB, so a recursive regression fails loudly),
 //! refusals are typed, and text is not lost.
 
-use docrs::markdown::{MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, convert, insert_html};
+use docrs::markdown::{
+    MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, convert, insert_html, insert_tiptap,
+};
 use docrs::{Document, Error, ErrorKind, Limits, RefusalKind};
 use proptest::prelude::*;
 
@@ -524,4 +526,94 @@ fn a_long_row_over_many_short_rows_is_narrowed_cheaply() {
     assert_eq!(converted.warnings("table_columns_clamped"), 1);
     let text = converted.text();
     assert!(text.contains("c4999"), "the folded cells' text was lost");
+}
+
+// ------------------------------------------- characters XML cannot carry
+
+#[test]
+fn characters_xml_cannot_carry_are_dropped_with_a_warning() {
+    // NUL, a C0 control and the U+FFFE non-character in text, code, a link
+    // address and title, an equation and a heading id. Tab, line breaks and
+    // the characters XML allows but discourages (U+007F, U+FEFF) stay.
+    let markdown_source = "# T\u{0}itle\n\na\u{0}b\u{1}c\ttab \u{7f}\u{feff}[d\u{fffe}](https://e.org/x \"t\")\n\n```\nx\u{0}y\n```\n\n$a\u{1f}b$\n\nf[^n]\n\n[^n]: no\u{0}te\n";
+    let html_source = "<h1 id=\"i\u{1}d\">T&#0;itle</h1><p>a&#0;b\u{1}c\ttab \u{7f}\u{feff}<a href=\"https://e.org/\u{0}x\" title=\"t\u{0}\">d\u{fffe}</a></p><pre>x\u{0}y</pre>";
+    let tiptap_source = "{\"type\":\"doc\",\"content\":[\
+        {\"type\":\"heading\",\"attrs\":{\"level\":1,\"id\":\"i\\u0001d\"},\"content\":[{\"type\":\"text\",\"text\":\"T\\u0000itle\"}]},\
+        {\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"a\\u0000b\\u0001c\\ttab \\u007f\\ufeff\"},\
+            {\"type\":\"text\",\"text\":\"d\\ufffe\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"https://e.org/\\u0000x\",\"title\":\"t\\u0000\"}}]}]},\
+        {\"type\":\"codeBlock\",\"content\":[{\"type\":\"text\",\"text\":\"x\\u0000y\"}]},\
+        {\"type\":\"inlineMath\",\"attrs\":{\"latex\":\"a\\u001fb\"}}]}";
+    let tiptap = |source: &str| {
+        let mut doc = Document::new();
+        let report = insert_tiptap(&mut doc, source, &MarkdownOptions::default())?;
+        Ok((doc, report))
+    };
+    for (what, converted) in [
+        ("markdown", markdown(markdown_source)),
+        ("html", html(html_source)),
+        ("tiptap", reopen(tiptap(tiptap_source), "tiptap")),
+    ] {
+        // Reopening under the default limits is the proof the XML is clean.
+        let text = converted.text();
+        for piece in ["Title", "abc", "tab ", "\u{7f}\u{feff}d", "xy"] {
+            assert!(text.contains(piece), "{what}: {piece:?} in {text:?}");
+        }
+        let body = converted.body();
+        assert!(body.contains("<w:hyperlink "), "{what}: {body}");
+        assert!(body.contains("w:tooltip=\"t\""), "{what}: {body}");
+        if what != "html" {
+            assert!(body.contains("<m:oMath>"), "{what}: the equation is kept");
+        }
+        let rels = String::from_utf8(docrs::xml::serialize(
+            converted
+                .doc
+                .package()
+                .xml("word/_rels/document.xml.rels")
+                .unwrap(),
+        ))
+        .unwrap();
+        assert!(
+            rels.contains("Target=\"https://e.org/x\""),
+            "{what}: {rels}"
+        );
+        assert_eq!(
+            converted.warnings("control_characters_dropped"),
+            1,
+            "{what}"
+        );
+        let message = &converted
+            .report
+            .warnings
+            .iter()
+            .find(|w| w.code == "control_characters_dropped")
+            .unwrap()
+            .message;
+        assert!(
+            message.contains("characters XML cannot carry"),
+            "{what}: {message}"
+        );
+        assert!(
+            !message.contains('\u{0}'),
+            "{what}: the message quotes nothing"
+        );
+    }
+    let converted = markdown(markdown_source);
+    let notes = String::from_utf8(docrs::xml::serialize(
+        converted.doc.package().xml("word/footnotes.xml").unwrap(),
+    ))
+    .unwrap();
+    assert!(notes.contains(">note<"), "{notes}");
+    let mut doc = Document::new();
+    let before = doc.patch_bytes().unwrap().0;
+    let err = insert_html(
+        &mut doc,
+        "<p>a\u{0}b</p>",
+        &MarkdownOptions {
+            strict: true,
+            ..MarkdownOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err.reason(), "markdown_not_faithful", "{err}");
+    assert_eq!(doc.patch_bytes().unwrap().0, before);
 }
