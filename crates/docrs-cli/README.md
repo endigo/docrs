@@ -24,6 +24,8 @@ docrs roundtrip input.docx --out copy.docx    # byte-identical when unchanged
 
 `docrs --help` lists every command and `docrs <command> --help` its options.
 
+`from-markdown` reads images only from the Markdown file's directory (standard input: the current directory) or `--resource-path`; absolute, UNC and `file:` paths and paths leading out of it are refused with a warning.
+
 **Output and exit codes:**
 
 - `--json` prints machine-readable reports (`schema_version: 1`).

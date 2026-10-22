@@ -24,6 +24,21 @@
   - Structure nested deeper than 128 levels (`markdown::MAX_NESTING_DEPTH`: block quotes, lists, emphasis, links, images, HTML elements, math groups) is refused with `ResourceLimit` (`markdown_nesting_too_deep`) before anything changes, instead of overflowing the stack.
   - Tables are narrowed to Word's 63 columns: spans past the last column are cut back and cells past it merge into it, with a `table_columns_clamped` warning. 300 cells with `colspan="1000"` took tens of seconds and wrote 300,000 columns.
   - HTML browsers do not display (`head`, `title`, `style`, `script`, `template`, `noscript`, …) is dropped with its content and an `html_element_skipped` warning per element kind, instead of becoming body paragraphs. Script, style and title text is no longer read as markup.
+- **Markdown and HTML to Word, untrusted input:**
+  - Local images are read only when `MarkdownOptions::resource_dir` is set, and only from inside it: absolute paths, drive and UNC prefixes, `file:` URLs and paths leading out of it (`..`, symbolic links) are refused with an `image_outside_resource_dir` warning. **Behaviour change:** with `resource_dir: None` (the default) nothing is read from disk; pass images in `images` or set the directory.
+  - Image warnings quote the reference as written, never the resolved path or the operating system's error.
+  - Pictures larger than the document's `Limits::max_part_bytes` (`data:` URIs measured before decoding) are left out with an `image_too_large` warning.
+  - A damaged or truncated picture is left out with an `image_unreadable` warning instead of failing the conversion; a resolution of zero is taken as 96 dpi (`Image::layout_dimensions`).
+  - Links keep their target only for `http`, `https`, `mailto`, `tel`, `#fragment` and relative references; other schemes (`javascript:`, `file:`, ...) keep their text without the link (`link_scheme_skipped`).
+  - The template's package thumbnail (a picture of its first page) is left out of replace-body conversions and listed in `removed_parts`.
+  - `images` keys and references match alike: `./a.png` finds `a.png`, `a%20b.png` finds `a b.png`, and the other way round.
+  - Very deeply nested block quotes no longer overflow the quote depth.
+- **Hyperlinks:** `add_hyperlink` refuses `javascript:` and `vbscript:` addresses and addresses with control characters (`invalid_argument`).
+- **Images:** `Image::from_vec` characterises owned bytes without copying them.
+
+### Command line
+
+- `from-markdown` reads images from the current directory for standard input, as before, and only from inside the Markdown file's directory or `--resource-path`.
 
 ## 0.1.0 (2026-10-21)
 

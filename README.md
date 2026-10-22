@@ -86,9 +86,16 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
 
 * Supported: CommonMark + GitHub tables, task lists, strikethrough,
   footnotes and alerts; definition lists; heading ids and internal links;
-  sub/superscript; images (local or `data:`, scaled to the page); front
+  sub/superscript; images (local, beside the Markdown, or `data:`,
+  scaled to the page); front
   matter (title block and document properties); `[TOC]`/`toc: true`;
   page breaks; LaTeX math as native Word equations.
+* Images are read only from the Markdown file's directory (standard
+  input: the current directory) or `--resource-path`: absolute, UNC and
+  `file:` paths and paths leading out of it are refused with a warning.
+  Links keep their target only for `http`, `https`, `mailto`, `tel`,
+  `#heading` and relative references. The template's thumbnail (a
+  picture of its first page) is not shipped.
 * Missing styles are added and reported; `--strict-styles` refuses instead,
   `--style code_block="My Code"` maps a role, `--strict` refuses on any
   loss (missing image, unsupported HTML or LaTeX). Refusals change nothing.
