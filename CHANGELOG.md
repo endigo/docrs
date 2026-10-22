@@ -17,6 +17,13 @@
 ### Command line
 
 - `compare --acknowledge-protection` redlines an original under Restrict Editing; without it such an original is refused (exit 3).
+- **Markdown and HTML to Word, hostile input:**
+  - Inline HTML closed across Markdown emphasis (`<b>*x</b>*`) no longer panics; the Markdown spans close with the HTML span and reopen after it, so the text and its formatting are kept.
+  - An unclosed inline HTML tag ends with its block instead of swallowing what follows (a nested list, display math).
+  - Front matter indented with a non-ASCII space (U+00A0) no longer panics: YAML indentation is ASCII spaces only, anything else is content.
+  - Structure nested deeper than 128 levels (`markdown::MAX_NESTING_DEPTH`: block quotes, lists, emphasis, links, images, HTML elements, math groups) is refused with `ResourceLimit` (`markdown_nesting_too_deep`) before anything changes, instead of overflowing the stack.
+  - Tables are narrowed to Word's 63 columns: spans past the last column are cut back and cells past it merge into it, with a `table_columns_clamped` warning. 300 cells with `colspan="1000"` took tens of seconds and wrote 300,000 columns.
+  - HTML browsers do not display (`head`, `title`, `style`, `script`, `template`, `noscript`, …) is dropped with its content and an `html_element_skipped` warning per element kind, instead of becoming body paragraphs. Script, style and title text is no longer read as markup.
 
 ## 0.1.0 (2026-10-21)
 
