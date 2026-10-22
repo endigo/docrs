@@ -727,8 +727,8 @@ pub fn from_html(
 /// Convert a TipTap document (`editor.getJSON()`, as the object or as JSON
 /// text) into a `.docx` styled by a reference document. Same options and
 /// result as `fromMarkdown`; pictures get no captions unless `captions: true`.
-#[wasm_bindgen(js_name = fromTiptap, unchecked_return_type = "FromMarkdownResult")]
-pub fn from_tiptap(
+#[wasm_bindgen(js_name = fromJson, unchecked_return_type = "FromMarkdownResult")]
+pub fn from_json(
     #[wasm_bindgen(unchecked_param_type = "object | string")] document: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
         js_sys::Object,
@@ -754,6 +754,19 @@ pub fn from_tiptap(
         )));
     };
     run(source, InputFormat::Tiptap, options)
+}
+
+/// `fromJson` under the name it had in 0.3.0.
+///
+/// @deprecated Use `fromJson`.
+#[wasm_bindgen(js_name = fromTiptap, unchecked_return_type = "FromMarkdownResult")]
+pub fn from_tiptap(
+    #[wasm_bindgen(unchecked_param_type = "object | string")] document: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
+        js_sys::Object,
+    >,
+) -> Result<JsValue, JsValue> {
+    from_json(document, options)
 }
 
 /// What a conversion will take from a reference document: role styles,
