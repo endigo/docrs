@@ -304,6 +304,9 @@ proptest! {
         word in "[a-z]{3,8}",
     ) {
         prop_assume!(!prefix.starts_with("xml"));
+        // The word is searched for in "alpha {word} omega"; a word inside
+        // "alpha" or "omega" ("pha") would match twice.
+        prop_assume!(!"alpha".contains(word.as_str()) && !"omega".contains(word.as_str()));
         let p = &prefix;
         let inner = if redeclare { format!(" xmlns:{p}=\"{W}\"") } else { String::new() };
         let xml = format!(
