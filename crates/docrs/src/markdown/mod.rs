@@ -462,9 +462,8 @@ fn insert_with(
         InputFormat::Html => ast::parse_html(markdown),
         InputFormat::Tiptap => tiptap::parse(markdown),
     }?;
-    // Word refuses a file with a character XML cannot carry; a source that
-    // holds one (a NUL pasted into an editor, `&#0;`) loses it, not the
-    // conversion.
+    // Word refuses a file holding a character XML cannot carry; the source
+    // loses it, not the conversion.
     let dropped = ast::drop_illegal_chars(&mut parsed);
     if dropped > 0 {
         ast::warn_once(

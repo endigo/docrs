@@ -597,14 +597,12 @@ fn characters_xml_cannot_carry_are_dropped_with_a_warning() {
             "{what}: the message quotes nothing"
         );
     }
-    // Footnote text is scrubbed too.
     let converted = markdown(markdown_source);
     let notes = String::from_utf8(docrs::xml::serialize(
         converted.doc.package().xml("word/footnotes.xml").unwrap(),
     ))
     .unwrap();
     assert!(notes.contains(">note<"), "{notes}");
-    // Strict conversions refuse the loss, and change nothing.
     let mut doc = Document::new();
     let before = doc.patch_bytes().unwrap().0;
     let err = insert_html(
