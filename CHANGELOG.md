@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (2026-10-22)
+
+### Library
+
+- **TipTap JSON to Word** (`markdown` feature): `markdown::insert_tiptap` and `InputFormat::Tiptap` render a TipTap document (`editor.getJSON()`) directly, without `getHTML()` in between. The nodes and marks of Tiptap 3's own extensions convert to the same document the editor's HTML gives: headings and paragraphs with `textAlign` (the editor's default alignment is left to the template's styles), bold, italic, underline, strike, code, subscript, superscript, links, highlights, text styles (colour, font, size, background), bullet, ordered and task lists, quotes, code blocks, rules, hard breaks, images, tables with `colspan`, `rowspan`, `colwidth` and cell alignment; and from the JSON what the HTML only hints at: inline and block math as equations, details (summary in bold), mentions, YouTube embeds as links, a table of contents and page breaks. New warnings `tiptap_node_dropped`, `tiptap_mark_dropped` and `tiptap_attribute_dropped` report what has no Word equivalent (the text is kept). A source that is not JSON or not a `doc` node is refused (`invalid_argument`, `tiptap_json_invalid`) and arrays and objects nested past `MAX_NESTING_DEPTH` are refused before parsing (`markdown_nesting_too_deep`), with nothing changed either way.
+
+### Command line
+
+- `from-markdown` takes TipTap JSON: `--from tiptap` (or `json`), the default for `.json` files.
+
+### Node.js
+
+- `fromTiptap(document, options?)`: the editor's `getJSON()` as an object or as JSON text, with the options and result of `fromMarkdown`; the same size budgets apply.
+- The README describes what a panic leaves behind (measured against the published 0.2.0): the instance keeps answering with correct output, but each panic leaks the call's memory and a later panic prints nothing, so a `WebAssembly.RuntimeError` of any message means reload and retry once.
+
 ## 0.2.0 (2026-10-22)
 
 ### Library

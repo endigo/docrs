@@ -1,11 +1,12 @@
 # docrs
 
 A preservation-first DOCX editing library and CLI in Rust: guarded OPC
-reads, lossless XML arenas, narrow patch saves, typed refusals. Markdown and
-editor HTML convert to Word through a reference template.
+reads, lossless XML arenas, narrow patch saves, typed refusals. Markdown,
+editor HTML and TipTap JSON convert to Word through a reference template.
 
 * Compatibility: [docs/compatibility.md](docs/compatibility.md)
 * Capability ledger: [docs/capabilities.md](docs/capabilities.md) · Case format: [docs/cases.md](docs/cases.md)
+* TipTap JSON, node by node: [docs/tiptap.md](docs/tiptap.md)
 * Notices: [NOTICE.md](NOTICE.md) (MIT, upstream attribution) · Changes: [CHANGELOG.md](CHANGELOG.md)
 
 ## Install
@@ -51,6 +52,7 @@ docrs text-diff a.docx b.docx
 docrs pending input.docx
 docrs from-markdown notes.md --reference template.docx --out notes.docx
 docrs from-markdown page.html --reference template.docx --out page.docx  # editor HTML (--from html)
+docrs from-markdown page.json --reference template.docx --out page.docx  # TipTap getJSON() (--from tiptap)
 docrs markdown-reference --out reference.docx   # starter template to restyle
 docrs markdown-styles template.docx             # which style each element takes
 docrs markdown-inspect template.docx            # what a conversion takes from it
@@ -172,10 +174,10 @@ Options follow the CLI flags in camelCase, with `--no-…` flags as booleans
 as an object and images passed in `images`; unknown names are refused.
 Errors are `Error`s with `code`, `reason`, `refusal` and `limit`;
 `limits: "serverless"` budgets apply to every function and refuse oversized
-inputs before copying them. After a panic (a bug; `RuntimeError: unreachable`)
-load the module again. Also
-exported: `fromHtml`, `inspectReference`, `markdownStyles`,
-`referenceDocument`, `version`. In Next.js, call
+inputs before copying them. After a panic (a bug; a
+`WebAssembly.RuntimeError`) load the module again. Also
+exported: `fromHtml`, `fromTiptap` (the editor's `getJSON()`),
+`inspectReference`, `markdownStyles`, `referenceDocument`, `version`. In Next.js, call
 it from a Route Handler on the Node.js runtime and add
 `serverExternalPackages: ["docrs-wasm"]` to `next.config.js`; the
 package README has a complete route.

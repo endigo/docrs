@@ -432,7 +432,7 @@ pub(crate) fn css_color(value: &str) -> Option<Option<String>> {
 
 /// The first family of a CSS `font-family` list; a generic family becomes a
 /// font every Word installation has.
-fn first_family(value: &str) -> Option<String> {
+pub(crate) fn first_family(value: &str) -> Option<String> {
     let first = value
         .split(',')
         .next()?
@@ -452,7 +452,7 @@ fn first_family(value: &str) -> Option<String> {
 
 /// A CSS length in pixels (`200`, `200px`, `150pt`, `2in`, `5cm`); `None`
 /// for relative units (`%`, `em`) and anything unreadable.
-fn css_pixels(value: &str) -> Option<f64> {
+pub(crate) fn css_pixels(value: &str) -> Option<f64> {
     let value = value.trim().to_ascii_lowercase();
     let (number, factor) = [
         ("px", 1.0),
@@ -485,7 +485,7 @@ fn css_column_width(value: &str) -> Option<f64> {
     }
 }
 
-fn css_align(value: &str) -> Option<Align> {
+pub(crate) fn css_align(value: &str) -> Option<Align> {
     match value.trim().to_ascii_lowercase().as_str() {
         "left" | "start" => Some(Align::Left),
         "center" | "middle" => Some(Align::Center),
@@ -533,7 +533,7 @@ fn is_blank(nodes: &[Node]) -> bool {
 }
 
 /// `blocks` with `align` applied to each one that has text of its own.
-fn aligned(align: Option<Align>, blocks: Vec<Block>) -> Vec<Block> {
+pub(crate) fn aligned(align: Option<Align>, blocks: Vec<Block>) -> Vec<Block> {
     let Some(align) = align else {
         return blocks;
     };
@@ -555,17 +555,22 @@ fn aligned(align: Option<Align>, blocks: Vec<Block>) -> Vec<Block> {
 /// attributes), with the declarations that have no Word equivalent.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SpanFormat {
-    style: RunStyle,
+    pub style: RunStyle,
     /// `<mark>` with no colour of its own: Word's yellow highlight.
-    default_highlight: bool,
-    bold: bool,
-    italic: bool,
-    underline: bool,
-    strike: bool,
-    superscript: bool,
-    subscript: bool,
+    pub default_highlight: bool,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strike: bool,
+    pub superscript: bool,
+    pub subscript: bool,
     /// `property on <tag>` for each declaration that was ignored.
     pub dropped: Vec<String>,
+}
+
+/// A font size in CSS pixels as Word's half-points.
+pub(crate) fn half_points(px: f64) -> u32 {
+    ((px * 1.5).round() as u32).clamp(2, 3276)
 }
 
 pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
@@ -617,7 +622,7 @@ pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
             },
             "font-family" => format.style.font = first_family(&value).or(format.style.font),
             "font-size" => match css_pixels(&value) {
-                Some(px) => format.style.size = Some(((px * 1.5).round() as u32).clamp(2, 3276)),
+                Some(px) => format.style.size = Some(half_points(px)),
                 None => drop(&mut format, &property),
             },
             "font-weight" => {
@@ -677,17 +682,17 @@ pub(crate) fn tag_format(html: &str) -> Option<SpanFormat> {
     }
 }
 
-/// A table cell as read: its blocks, spans and editor widths.
-struct HtmlCell {
-    blocks: Vec<Block>,
-    span: CellSpan,
+/// A table cell as an editor wrote it: its blocks, spans and widths.
+pub(crate) struct HtmlCell {
+    pub blocks: Vec<Block>,
+    pub span: CellSpan,
     /// TipTap's `colwidth` (one width per spanned column).
-    colwidth: Vec<Option<f64>>,
+    pub colwidth: Vec<Option<f64>>,
 }
 
-struct HtmlRow {
-    header: bool,
-    cells: Vec<HtmlCell>,
+pub(crate) struct HtmlRow {
+    pub header: bool,
+    pub cells: Vec<HtmlCell>,
 }
 
 impl Converter {
@@ -1073,59 +1078,15 @@ impl Converter {
                 _ => self.note_style("table", &property),
             }
         }
-        let header_rows = rows.iter().take_while(|row| row.header).count();
-        self.narrowed_table |= narrow(&mut rows);
-        let spans: Vec<Vec<CellSpan>> = rows
-            .iter()
-            .map(|row| row.cells.iter().map(|cell| cell.span).collect())
-            .collect();
-        let (placed, columns) = place(&spans);
-        widths.resize(columns, None);
-        // TipTap's `colwidth` fills the columns `colgroup` left open.
-        for (row, slots) in rows.iter().zip(&placed) {
-            for slot in slots {
-                let Slot::Cell { index, col, .. } = *slot else {
-                    continue;
-                };
-                for (offset, width) in row.cells[index].colwidth.iter().enumerate() {
-                    if let Some(entry) = widths.get_mut(col + offset)
-                        && entry.is_none()
-                    {
-                        *entry = *width;
-                    }
-                }
-            }
-        }
-        // Percentages are of the table's width; without one they are
-        // proportions like any other.
-        for width in widths.iter_mut().flatten() {
-            if *width < 0.0 {
-                *width = match table_width {
-                    Some(table) => -*width / 100.0 * table,
-                    None => -*width,
-                };
-            }
-        }
+        let (table, narrowed) = assemble_table(rows, widths, table_width);
+        self.narrowed_table |= narrowed;
         let mut out = Vec::new();
         if !caption.is_empty() {
             let mut inlines = vec![Inline::Text("Table: ".into())];
             inlines.extend(trim_inlines(caption));
             out.push(Block::Paragraph(inlines));
         }
-        out.push(Block::Table {
-            aligns: vec![Align::None; columns],
-            head: Vec::new(),
-            rows: rows
-                .into_iter()
-                .map(|row| row.cells.into_iter().map(|cell| cell.blocks).collect())
-                .collect(),
-            layout: Some(Box::new(TableLayout {
-                spans,
-                header_rows,
-                widths,
-                table_width,
-            })),
-        });
+        out.push(table);
         out
     }
 
@@ -1260,6 +1221,66 @@ impl Converter {
         }
         Block::DefinitionList(entries)
     }
+}
+
+/// The table block of `rows` as an editor wrote them: leading header rows
+/// repeat, spans are placed on the grid (narrowed to Word's 63 columns),
+/// each cell's `colwidth` fills the grid columns `widths` (from `colgroup`)
+/// left open, and percentage widths are of `table_width`. Also whether the
+/// table was narrowed.
+pub(crate) fn assemble_table(
+    mut rows: Vec<HtmlRow>,
+    mut widths: Vec<Option<f64>>,
+    table_width: Option<f64>,
+) -> (Block, bool) {
+    let header_rows = rows.iter().take_while(|row| row.header).count();
+    let narrowed = narrow(&mut rows);
+    let spans: Vec<Vec<CellSpan>> = rows
+        .iter()
+        .map(|row| row.cells.iter().map(|cell| cell.span).collect())
+        .collect();
+    let (placed, columns) = place(&spans);
+    widths.resize(columns, None);
+    // TipTap's `colwidth` fills the columns `colgroup` left open.
+    for (row, slots) in rows.iter().zip(&placed) {
+        for slot in slots {
+            let Slot::Cell { index, col, .. } = *slot else {
+                continue;
+            };
+            for (offset, width) in row.cells[index].colwidth.iter().enumerate() {
+                if let Some(entry) = widths.get_mut(col + offset)
+                    && entry.is_none()
+                {
+                    *entry = *width;
+                }
+            }
+        }
+    }
+    // Percentages are of the table's width; without one they are
+    // proportions like any other.
+    for width in widths.iter_mut().flatten() {
+        if *width < 0.0 {
+            *width = match table_width {
+                Some(table) => -*width / 100.0 * table,
+                None => -*width,
+            };
+        }
+    }
+    let table = Block::Table {
+        aligns: vec![Align::None; columns],
+        head: Vec::new(),
+        rows: rows
+            .into_iter()
+            .map(|row| row.cells.into_iter().map(|cell| cell.blocks).collect())
+            .collect(),
+        layout: Some(Box::new(TableLayout {
+            spans,
+            header_rows,
+            widths,
+            table_width,
+        })),
+    };
+    (table, narrowed)
 }
 
 /// Fit a table into Word's 63 columns: spans reaching past the last column

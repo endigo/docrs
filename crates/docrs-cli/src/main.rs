@@ -221,12 +221,13 @@ pub enum Command {
         #[arg(long)]
         acknowledge_protection: bool,
     },
-    /// Convert Markdown (or editor HTML) into a .docx styled by a reference document.
+    /// Convert Markdown, editor HTML or TipTap JSON into a .docx styled by a reference document.
     FromMarkdown {
-        /// Markdown or HTML file (`-` reads standard input).
+        /// Markdown, HTML or TipTap JSON (`editor.getJSON()`) file (`-` reads
+        /// standard input).
         input: std::path::PathBuf,
-        /// Source format: markdown or html (default: html for .html/.htm
-        /// files, else markdown).
+        /// Source format: markdown, html or tiptap (default: html for
+        /// .html/.htm files, tiptap for .json, else markdown).
         #[arg(long)]
         from: Option<String>,
         /// Reference document supplying styles, lists, page setup, headers

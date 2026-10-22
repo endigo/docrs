@@ -467,10 +467,11 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let format = match from.as_deref() {
                 Some("markdown" | "md") => InputFormat::Markdown,
                 Some("html") => InputFormat::Html,
+                Some("tiptap" | "json") => InputFormat::Tiptap,
                 Some(other) => {
                     return Err(Error::invalid_argument(
                         "invalid_format",
-                        format!("--from must be markdown or html, got {other:?}"),
+                        format!("--from must be markdown, html or tiptap, got {other:?}"),
                     ));
                 }
                 None => match input.extension().and_then(|e| e.to_str()) {
@@ -479,6 +480,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     {
                         InputFormat::Html
                     }
+                    Some(ext) if ext.eq_ignore_ascii_case("json") => InputFormat::Tiptap,
                     _ => InputFormat::Markdown,
                 },
             };
