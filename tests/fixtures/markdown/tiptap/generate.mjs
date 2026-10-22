@@ -99,7 +99,6 @@ for (const [name, source] of [["core", core], ["extras", extras]]) {
   writeFileSync(join(out, `${name}.json`), JSON.stringify(json, null, 1) + "\n");
   writeFileSync(join(out, `${name}.html`), generateHTML(json, extensions) + "\n");
 }
-// The package's version, from its package.json above the resolved entry.
 let dir = dirname(fileURLToPath(import.meta.resolve("@tiptap/core")));
 while (!dir.endsWith("core")) dir = dirname(dir);
 const version = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;

@@ -6,6 +6,7 @@ editor HTML and TipTap JSON convert to Word through a reference template.
 
 * Compatibility: [docs/compatibility.md](docs/compatibility.md)
 * Capability ledger: [docs/capabilities.md](docs/capabilities.md) · Case format: [docs/cases.md](docs/cases.md)
+* TipTap JSON, node by node: [docs/tiptap.md](docs/tiptap.md)
 * Notices: [NOTICE.md](NOTICE.md) (MIT, upstream attribution) · Changes: [CHANGELOG.md](CHANGELOG.md)
 
 ## Install

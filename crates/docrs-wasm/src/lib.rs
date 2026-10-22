@@ -1041,7 +1041,6 @@ mod tests {
             "{}",
             converted.report
         );
-        // Not a document: refused as an argument, before any conversion.
         let err = convert(
             "[1]",
             InputFormat::Tiptap,
@@ -1051,7 +1050,6 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.code(), "invalid_argument");
         assert_eq!(err.reason(), "tiptap_json_invalid");
-        // The source budget applies to JSON as to the other formats.
         let big = format!(
             "{{\"type\":\"doc\",\"content\":[{}]}}",
             "1,".repeat(200 << 10)

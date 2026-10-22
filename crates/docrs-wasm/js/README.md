@@ -54,7 +54,8 @@ links, a table of contents and page breaks) to the same document the HTML
 gives. Node, mark and attribute types with no Word equivalent are reported
 (`tiptap_node_dropped`, `tiptap_mark_dropped`, `tiptap_attribute_dropped`);
 their text is kept. A source that is not a `doc` node is refused
-(`tiptap_json_invalid`).
+(`tiptap_json_invalid`). The node-by-node table is
+[docs/tiptap.md](https://github.com/endigo/docrs/blob/main/docs/tiptap.md).
 
 Also exported: `inspectReference(reference, options?)` (what a conversion
 will take from a template: role styles, lifted branding, the section kept,
@@ -106,6 +107,56 @@ export async function POST(request: Request) {
   const reference =
     template instanceof File ? new Uint8Array(await template.arrayBuffer()) : undefined;
   const { docx } = fromMarkdown(markdown, { reference });
+  return new Response(docx.slice(), {
+    headers: {
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Disposition": 'attachment; filename="document.docx"',
+    },
+  });
+}
+```
+
+For a TipTap editor, post `editor.getJSON()` as the request body and hand
+it to `fromTiptap`. On a long-lived server (one process serving many
+exports) load the module through a small wrapper that reloads it after a
+panic, as described above, and retries once:
+
+```ts
+// lib/docrs.ts
+import { createRequire } from "node:module";
+
+type Docrs = typeof import("docrs-wasm");
+const require = createRequire(import.meta.url);
+let docrs: Docrs = require("docrs-wasm");
+
+/** Run `use` against the module; after a panic (a WebAssembly.RuntimeError,
+ *  never a docrs error with a `code`) load a fresh instance and try once more. */
+export function withDocrs<T>(use: (lib: Docrs) => T): T {
+  try {
+    return use(docrs);
+  } catch (error) {
+    if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+    delete require.cache[require.resolve("docrs-wasm")];
+    docrs = require("docrs-wasm");
+    return use(docrs);
+  }
+}
+```
+
+```ts
+// app/api/export/route.ts
+import { readFile } from "node:fs/promises";
+import { withDocrs } from "@/lib/docrs";
+export const runtime = "nodejs";
+
+const reference = new Uint8Array(await readFile("templates/letter.docx"));
+
+export async function POST(request: Request) {
+  const document = await request.json(); // editor.getJSON() from the client
+  const { docx, report } = withDocrs((lib) =>
+    lib.fromTiptap(document, { reference, limits: "serverless", redact: true }),
+  );
   return new Response(docx.slice(), {
     headers: {
       "Content-Type":

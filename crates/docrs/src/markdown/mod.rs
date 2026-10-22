@@ -40,8 +40,9 @@
 //! the editor's default alignment left to the reference document's styles.
 //! Node, mark and attribute types with no Word equivalent are reported
 //! (`tiptap_node_dropped`, `tiptap_mark_dropped`,
-//! `tiptap_attribute_dropped`). [`inspect`] reports what a conversion will
-//! take from a reference document.
+//! `tiptap_attribute_dropped`); `docs/tiptap.md` in the repository lists
+//! every node and mark with what Word gets. [`inspect`] reports what a
+//! conversion will take from a reference document.
 
 mod ast;
 mod frontmatter;
@@ -401,7 +402,11 @@ pub fn insert_html(
 
 /// Render a TipTap document (`editor.getJSON()` as JSON text) into
 /// `document`: the same conversion as [`insert_markdown`] with the editor's
-/// document as the source. Atomic.
+/// document as the source (the node-by-node table is `docs/tiptap.md` in
+/// the repository). Node, mark and attribute types with no Word equivalent
+/// are reported as `tiptap_node_dropped`, `tiptap_mark_dropped` and
+/// `tiptap_attribute_dropped` with the text kept; a source that is not a
+/// `doc` node is refused as `tiptap_json_invalid`. Atomic.
 pub fn insert_tiptap(
     document: &mut Document,
     json: &str,

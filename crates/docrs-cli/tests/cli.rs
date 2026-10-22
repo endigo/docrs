@@ -589,8 +589,7 @@ fn tiptap_fixture(name: &str) -> PathBuf {
 #[test]
 fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
     let dir = tempfile::tempdir().unwrap();
-    // `.json` selects the format; the fixture's picture is remote, so it is
-    // skipped with a warning.
+    // The fixture's picture is remote, so it is skipped with a warning.
     let out = dir.path().join("core.docx");
     let output = bin()
         .args(["--json", "from-markdown"])
@@ -616,7 +615,6 @@ fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
     let text = String::from_utf8_lossy(&outline.stdout);
     assert!(text.contains("Advice") && text.contains("After"), "{text}");
 
-    // `--from tiptap` for standard input.
     let out = dir.path().join("stdin.docx");
     let mut child = bin()
         .args(["from-markdown", "-", "--from", "tiptap", "--out"])
@@ -641,8 +639,6 @@ fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
     let outline = bin().args(["outline"]).arg(&out).output().unwrap();
     assert!(String::from_utf8_lossy(&outline.stdout).contains("From JSON"));
 
-    // A JSON file that is not a TipTap document is refused, and the
-    // format list names every choice.
     let bad = dir.path().join("bad.json");
     std::fs::write(&bad, "[1, 2]").unwrap();
     let output = bin()

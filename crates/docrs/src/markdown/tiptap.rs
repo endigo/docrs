@@ -320,9 +320,9 @@ impl Converter {
         }
     }
 
-    /// The alignment a block asks for. The editor's default (`left`, which
-    /// ProseMirror writes on every block) is not an instruction, so the
-    /// reference document's styles keep their own.
+    /// The alignment a block asks for. The editor's default (`null` in
+    /// Tiptap 3, `left` before) is not an instruction, so the reference
+    /// document's styles keep their own.
     fn align(&mut self, node: &Node) -> Option<Align> {
         let value = node.text_attr("textAlign")?;
         match value.trim().to_ascii_lowercase().as_str() {
@@ -418,8 +418,6 @@ impl Converter {
                 let align = self.align(node);
                 out.extend(aligned(align, vec![list]));
             }
-            // An item outside any list is drawn as a bullet; consecutive
-            // ones form one list.
             "listItem" | "taskItem" => {
                 let item = self.item(node)?;
                 match out.last_mut() {
@@ -439,8 +437,6 @@ impl Converter {
                 let table = self.table(node)?;
                 out.push(table);
             }
-            // A collapsible section: its summary as a bold paragraph, then
-            // its content.
             "details" => {
                 for child_value in node.content {
                     let child = read(child_value, &inside(kind))?;
@@ -530,8 +526,7 @@ impl Converter {
                     let image = self.image(&node);
                     out.push(image);
                 }
-                // As the editor shows it: the suggestion character and the
-                // label (or the id).
+                // As the editor shows it.
                 "mention" => {
                     let label = node
                         .text_attr("label")
@@ -591,8 +586,6 @@ impl Converter {
                         )
                     });
                 }
-                // Without a colour of its own: Word's yellow highlight, as
-                // `<mark>`.
                 "highlight" => match mark.text_attr("color") {
                     None => format.default_highlight = true,
                     Some(color) => match css_color(color) {
@@ -707,7 +700,6 @@ impl Converter {
             let child = read(value, &inside(node.kind))?;
             items.push(match child.kind {
                 "listItem" | "taskItem" => self.item(&child)?,
-                // Anything else is an item's worth of content.
                 _ => ListItem {
                     task: None,
                     blocks: self.blocks(std::slice::from_ref(value), true, node.kind)?,
@@ -741,7 +733,6 @@ impl Converter {
         for row_value in node.content {
             let row = read(row_value, &inside(node.kind))?;
             if row.kind != "tableRow" {
-                // Not a row: a row of one cell keeps its text.
                 let cell = HtmlCell {
                     blocks: self.blocks(std::slice::from_ref(row_value), true, node.kind)?,
                     span: CellSpan::default(),
@@ -785,8 +776,7 @@ impl Converter {
                 if colwidth.is_empty() && span.colspan == 1 {
                     colwidth.push(None);
                 }
-                // The cell's own alignment (Tiptap 3.32's `align`), as
-                // `<td align>`.
+                // Tiptap 3.32's cell `align`, as `<td align>`.
                 let align = cell.text_attr("align").and_then(css_align);
                 let blocks = self.blocks(cell.content, true, cell.kind)?;
                 cells.push(HtmlCell {

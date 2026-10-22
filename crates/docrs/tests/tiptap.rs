@@ -156,7 +156,6 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
 
     let body = json.body();
     for needle in [
-        // Marks and text styles as direct run formatting.
         "<w:color w:val=\"DC2626\"/>",
         "<w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\" w:cs=\"Courier New\"/>",
         "<w:sz w:val=\"27\"/>",
@@ -169,11 +168,9 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
         "<w:u w:val=\"single\"/>",
         "<w:rStyle w:val=\"Hyperlink\"/>",
         "w:tooltip=\"Advice\"",
-        // Alignment on the heading, paragraphs and a cell.
         "<w:jc w:val=\"center\"/>",
         "<w:jc w:val=\"right\"/>",
         "<w:jc w:val=\"both\"/>",
-        // Merged cells, a header row, the picture at the editor's size.
         "<w:gridSpan w:val=\"2\"/>",
         "<w:vMerge w:val=\"restart\"/>",
         "<w:vMerge/>",
@@ -220,7 +217,6 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
     );
     assert!(texts.contains(&""), "the empty paragraph stays");
     assert!(texts.iter().any(|t| t.starts_with("Plain bold italic underlined struck code sub sup a bold link red mono large shaded yellow pale.")), "{texts:?}");
-    // The ordered list starts where the editor says.
     let numbering = json.part("word/numbering.xml");
     assert!(numbering.contains("<w:startOverride w:val=\"3\"/>"));
 }
@@ -229,11 +225,9 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
 fn nodes_the_html_only_hints_at_come_through_from_the_json() {
     let out = tiptap("31-tiptap-extras", &fixture("extras.json"));
     let body = out.body();
-    // Inline and display math as Word equations.
     assert!(body.contains("<m:oMath>"), "{body}");
     assert!(body.contains("<m:oMathPara>"), "{body}");
     assert!(body.contains("mc"), "{body}");
-    // Mentions as the editor shows them; emoji by name, reported.
     let text: String = out
         .paragraphs()
         .into_iter()
@@ -241,10 +235,8 @@ fn nodes_the_html_only_hints_at_come_through_from_the_json() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("See @Jane and :rocket: for"), "{text}");
-    // A collapsible section: its summary in bold, then its content.
     assert!(text.contains("More\nhidden"), "{text}");
     assert!(body.contains("<w:b/>"), "{body}");
-    // An embedded video as a link to it.
     assert!(
         out.part("word/_rels/document.xml.rels")
             .contains("Target=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\""),
@@ -333,7 +325,6 @@ fn unknown_nodes_marks_and_attributes_are_reported_and_the_text_kept() {
     assert_eq!(out.report.counts.images, 1);
     assert!(out.body().contains("cy=\"190500\""), "20px high");
 
-    // Strict conversions refuse any loss, and change nothing.
     let mut document = reference();
     let before = document.patch_bytes().unwrap().0;
     let err = insert_tiptap(
@@ -436,8 +427,7 @@ fn lists_tables_images_and_breaks_map_from_hand_written_nodes() {
             .any(|(s, t)| s == "Block Text" && t == "centred quote")
     );
     assert!(body.contains("<w:jc w:val=\"center\"/>"));
-    // A paragraph of spaces stays (the editor wrote it); loose inline nodes
-    // form a paragraph; text nodes join.
+    // A paragraph of spaces stays: the editor wrote it.
     let texts: Vec<&str> = paragraphs.iter().map(|(_, t)| t.as_str()).collect();
     assert!(texts.contains(&"  "), "{texts:?}");
     assert_eq!(*texts.last().unwrap(), "loose text joins");
