@@ -510,3 +510,16 @@ fn html_elements_browsers_do_not_display_are_dropped() {
     assert_eq!(converted.text(), "a b  c");
     assert_eq!(converted.warnings("html_element_skipped"), 3);
 }
+
+#[test]
+fn a_long_row_over_many_short_rows_is_narrowed_cheaply() {
+    // Cells past the 63rd move into it before the grid is laid out. Laying
+    // out the raw rows first cost rows × cells slots: 30 million here.
+    let long: String = (0..5000).map(|i| format!("<td>c{i}</td>")).collect();
+    let short = "<tr><td>s</td></tr>".repeat(6000);
+    let converted = html(&format!("<table><tr>{long}</tr>{short}</table>"));
+    assert_eq!(converted.body().matches("<w:gridCol ").count(), 63);
+    assert_eq!(converted.warnings("table_columns_clamped"), 1);
+    let text = converted.text();
+    assert!(text.contains("c4999"), "the folded cells' text was lost");
+}

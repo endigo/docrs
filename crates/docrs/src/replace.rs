@@ -320,6 +320,12 @@ pub(crate) fn validate_fresh(
             "span is stale: its story part was removed from the document",
         ));
     }
+    if tree.incarnation() != span.incarnation {
+        return Err(stale(
+            "story_replaced",
+            "span is stale: its story part was removed and added again; re-find the text",
+        ));
+    }
     let owned;
     let (atoms, by_element): (&[Atom], &HashMap<NodeId, usize>) = match census {
         Some(census) => (&census.atoms, &census.by_element),
@@ -1417,6 +1423,7 @@ pub(crate) fn narrow_to_change(
     };
     let first_paragraph = sub_atoms[0].paragraph;
     let sub = Span {
+        incarnation: span.incarnation,
         document: span.document,
         token: span.token,
         story: span.story.clone(),

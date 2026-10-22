@@ -1268,12 +1268,27 @@ impl Converter {
 /// cell covering that column from a row above. Returns whether anything
 /// changed.
 fn narrow(rows: &mut [HtmlRow]) -> bool {
+    let mut changed = false;
+    // A row's 64th cell and later start past the last column whatever the
+    // spans before them do, so they move into the 63rd before the grid is
+    // laid out: a long row over many short ones then costs rows × 63
+    // slots, not rows × cells.
+    for row in rows.iter_mut() {
+        if row.cells.len() > MAX_TABLE_COLUMNS {
+            let overflow: Vec<Block> = row
+                .cells
+                .drain(MAX_TABLE_COLUMNS..)
+                .flat_map(|cell| cell.blocks)
+                .collect();
+            row.cells[MAX_TABLE_COLUMNS - 1].blocks.extend(overflow);
+            changed = true;
+        }
+    }
     let spans: Vec<Vec<CellSpan>> = rows
         .iter()
         .map(|row| row.cells.iter().map(|cell| cell.span).collect())
         .collect();
     let (placed, _) = place(&spans);
-    let mut changed = false;
     // `(row, cell index)` moves into `(row, cell index)`.
     let mut moves: Vec<((usize, usize), (usize, usize))> = Vec::new();
     for (row, slots) in placed.iter().enumerate() {

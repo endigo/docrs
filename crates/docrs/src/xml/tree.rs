@@ -141,6 +141,8 @@ pub struct XmlTree {
     mutations: u64,
     /// Scope a detached or cloned node was taken from, for relocation checks.
     origin_scope: HashMap<NodeId, NodeId>,
+    /// See [`XmlTree::incarnation`].
+    incarnation: u32,
 }
 
 impl XmlTree {
@@ -155,6 +157,7 @@ impl XmlTree {
             source_encoding,
             mutations: 0,
             origin_scope: HashMap::new(),
+            incarnation: 0,
         };
         tree.intern(XML_NS);
         tree
@@ -209,6 +212,19 @@ impl XmlTree {
     }
 
     /// The document element.
+    /// Which incarnation of its package member this tree belongs to: 0 for a
+    /// member as opened or first added, one more each time the member's name
+    /// was removed and added again. Live handles capture it, so a handle into
+    /// the old member does not pass for the new one even when node ids and
+    /// text line up.
+    pub fn incarnation(&self) -> u32 {
+        self.incarnation
+    }
+
+    pub(crate) fn set_incarnation(&mut self, incarnation: u32) {
+        self.incarnation = incarnation;
+    }
+
     pub fn root(&self) -> NodeId {
         self.root
     }

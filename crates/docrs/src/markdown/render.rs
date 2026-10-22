@@ -3744,7 +3744,9 @@ enum Unread {
 /// `file:` URLs are refused, as is a `..` that climbs above `dir`, all
 /// before the file system is touched, so nothing outside answers whether
 /// it exists. What is left is joined onto `dir` and both are canonicalised:
-/// the file must lie inside `dir` with symbolic links resolved.
+/// the file must lie inside `dir` with symbolic links resolved. A missing
+/// file under a link that leads out of `dir` counts as outside, not
+/// missing, so the link cannot be used to probe for files elsewhere.
 fn resolve_in(dir: &Path, reference: &str) -> std::result::Result<PathBuf, Unread> {
     use std::path::Component;
     let lower = reference.get(..5).map(str::to_ascii_lowercase);
@@ -3770,7 +3772,28 @@ fn resolve_in(dir: &Path, reference: &str) -> std::result::Result<PathBuf, Unrea
         dir
     };
     let root = std::fs::canonicalize(dir).map_err(|_| Unread::Missing)?;
-    let path = std::fs::canonicalize(root.join(relative)).map_err(|_| Unread::Missing)?;
+    let joined = root.join(relative);
+    let path = match std::fs::canonicalize(&joined) {
+        Ok(path) => path,
+        // Nothing there. Whether the answer is "missing" or "outside" comes
+        // from the nearest ancestor that does exist: past a symbolic link
+        // leading out of `dir`, every path is "outside", so the two
+        // warnings never tell whether a file outside exists.
+        Err(_) => {
+            let mut ancestor = joined.parent();
+            while let Some(candidate) = ancestor {
+                if let Ok(resolved) = std::fs::canonicalize(candidate) {
+                    return Err(if resolved.starts_with(&root) {
+                        Unread::Missing
+                    } else {
+                        Unread::Outside
+                    });
+                }
+                ancestor = candidate.parent();
+            }
+            return Err(Unread::Missing);
+        }
+    };
     if !path.starts_with(&root) {
         return Err(Unread::Outside);
     }

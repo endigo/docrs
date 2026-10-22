@@ -447,7 +447,7 @@ fn guarded(command: impl FnOnce() -> docrs::Result<u8>) -> docrs::Result<u8> {
         {
             *slot = Some(location.to_string());
         }
-        if std::env::var_os("RUST_BACKTRACE").is_some() {
+        if std::env::var_os("RUST_BACKTRACE").is_some_and(|value| value != "0") {
             default_hook(info);
         }
     }));

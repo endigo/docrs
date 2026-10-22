@@ -189,6 +189,7 @@ pub(crate) struct BlockHandle {
     pub parent: Option<NodeId>,
     pub containers: Vec<NodeId>,
     pub struct_gen: u32,
+    pub incarnation: u32,
 }
 
 impl Block {
@@ -717,6 +718,7 @@ pub(crate) fn story_blocks(
                 parent: tree.parent(block.element),
                 containers: container_elements(tree, block.element),
                 struct_gen: tree.struct_gen(block.element),
+                incarnation: tree.incarnation(),
             },
         });
     }

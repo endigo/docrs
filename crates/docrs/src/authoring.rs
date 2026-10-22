@@ -49,6 +49,7 @@ pub(crate) struct Handle {
     pub element: NodeId,
     pub parent: Option<NodeId>,
     pub struct_gen: u32,
+    pub incarnation: u32,
 }
 
 impl Handle {
@@ -60,6 +61,7 @@ impl Handle {
             element,
             parent: tree.parent(element),
             struct_gen: tree.struct_gen(element),
+            incarnation: tree.incarnation(),
         }
     }
 
@@ -104,6 +106,7 @@ impl Handle {
         }
         let tree = doc.package().xml(&self.part)?;
         if tree.root() != self.root
+            || tree.incarnation() != self.incarnation
             || !tree.contains(self.element)
             || !tree.is_attached(self.element)
             || tree.parent(self.element) != self.parent

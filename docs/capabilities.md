@@ -45,7 +45,7 @@ Unsupported operations never report success as a no-op.
 | `Image.from_file` | `image::Image::from_file` | shipped (M7) | ops `m7-inherited-image-from-file`: 12 pass, 1 deviation |
 | Inherited python-docx member matrix | — | 263 shipped, 8 excluded (Python object-model back-references), 0 not done | ops `m7-inherited-*` |
 | Image characterization (BMP/GIF/JPEG/PNG/TIFF) | `image::Image::from_blob` | shipped (M4) | ops `m4-image-*`: 48 pass |
-| Picture replacement | `drawing.rs` | shipped (M4) | ops `m4-drawing-*`: 30 pass, 2 deviation |
+| Picture replacement | `drawing.rs` | shipped (M4) | ops `m4-drawing-*`: 30 pass, 3 deviation |
 | Content controls (list/get/set value, all types, data binding) | `controls.rs` | shipped (M4) | ops `m4-controls-*`: 180 pass |
 | Bookmarks (list/create/delete) | `bookmarks.rs` | shipped (M4) | ops `m4-bookmarks-*`: 82 pass, 1 deviation |
 | Hyperlinks (add) | `links.rs` | shipped (M4); retargeting shipped in M7 (below) | ops `m4-links-*`: 38 pass, 1 deviation |

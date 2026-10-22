@@ -11,6 +11,10 @@ use crate::{Error, Limits, Result};
 pub const CT_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 
 /// Parsed content-type declarations, in document order.
+///
+/// Lookups go through an index built when the declarations are parsed, so
+/// the public lists are for reading: pushing to them does not change what
+/// [`ContentTypes::lookup`] answers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContentTypes {
     /// `(extension, content type)` from `Default` elements.

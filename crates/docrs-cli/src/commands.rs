@@ -610,7 +610,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                 let data = std::fs::read(path).map_err(|err| {
                     Error::io(
                         "font_unreadable",
-                        format!("reading font {}", path.display()),
+                        format!("reading font {}: {err}", path.display()),
                         err,
                     )
                 })?;

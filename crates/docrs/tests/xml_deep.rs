@@ -4,6 +4,7 @@
 
 mod support;
 
+use docrs::composition::AppendOptions;
 use docrs::xml::{self, NodeId, XmlTree, trees_equivalent};
 use docrs::{Document, FindOptions, Limits};
 use support::*;
@@ -168,4 +169,27 @@ fn replace_canonicalizes_deep_run_properties() {
         .filter(|node| tree.is(*node, "urn:x", "e"))
         .count();
     assert_eq!(kept, 2 * PAIRS, "the run keeps its properties");
+}
+
+/// `append` imports the source body through the same copies: the whole
+/// path, open to commit, at depth under the trusted profile.
+#[test]
+fn append_of_fifty_thousand_levels() {
+    let source = Document::open_bytes(
+        &minimal_package_with(&deep_document(&both_decls())),
+        &Limits::trusted(),
+    )
+    .unwrap();
+    let mut dest =
+        Document::open_bytes(&minimal_package_with(DOCUMENT_XML), &Limits::trusted()).unwrap();
+    dest.append_document(&source, &AppendOptions::default())
+        .unwrap();
+    let tree = dest.package().xml("word/document.xml").unwrap();
+    let sdts = tree
+        .descendants(tree.root())
+        .filter(|node| tree.is(*node, W, "sdt"))
+        .count();
+    assert_eq!(sdts, PAIRS);
+    let text = dest.find_text("deep", &FindOptions::default()).unwrap();
+    assert_eq!(text.len(), 1);
 }

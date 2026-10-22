@@ -170,7 +170,10 @@ fn locate_live_block(document: &Document, block: &Block) -> Result<Located> {
         ));
     };
     let tree: &XmlTree = document.package().xml(&story.part)?;
-    if tree.root() != block.handle.root || story.part != block.handle.part {
+    if tree.root() != block.handle.root
+        || tree.incarnation() != block.handle.incarnation
+        || story.part != block.handle.part
+    {
         return Err(stale(
             "story_replaced",
             format!(

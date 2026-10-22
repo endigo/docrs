@@ -143,6 +143,7 @@ pub struct Part {
     removed: bool,
     reachable: bool,
     generation: u64,
+    incarnation: u32,
 }
 
 impl Part {
@@ -156,7 +157,10 @@ impl Part {
         self.content_type.as_deref()
     }
 
-    /// Original bytes, `None` for parts added in this session.
+    /// Bytes the member had when the package was opened: `None` for a part
+    /// added in this session under a new name. A part added under the name
+    /// of a removed member keeps that member's bytes here, so a patch save
+    /// can tell an unchanged re-addition from a change.
     pub fn original(&self) -> Option<&[u8]> {
         self.original.as_deref()
     }
@@ -174,6 +178,12 @@ impl Part {
     /// Commit generation of this part (bumped on each committed change).
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// How many times this member's name was removed and added again; the
+    /// part's tree carries the same value ([`XmlTree::incarnation`]).
+    pub fn incarnation(&self) -> u32 {
+        self.incarnation
     }
 
     /// Current bytes (serialized when the tree was modified).
@@ -235,6 +245,7 @@ impl Package {
                 removed: false,
                 reachable: false,
                 generation: 0,
+                incarnation: 0,
             });
         }
         let mut package = Package {
@@ -280,6 +291,7 @@ impl Package {
             removed: false,
             reachable: true,
             generation: 1,
+            incarnation: 0,
         })
     }
 
@@ -301,6 +313,7 @@ impl Package {
             removed: false,
             reachable: true,
             generation: 1,
+            incarnation: 0,
         })
     }
 
@@ -322,6 +335,12 @@ impl Package {
                 let slot = &mut self.parts[position];
                 part.original = slot.original.take();
                 part.generation = slot.generation + 1;
+                // A new incarnation of the name: handles into the removed
+                // member must not pass for this one.
+                part.incarnation = slot.incarnation.wrapping_add(1);
+                if let Some(tree) = part.tree.get_mut() {
+                    tree.set_incarnation(part.incarnation);
+                }
                 *slot = part;
                 self.fold_index.insert(folded, position);
             }
@@ -606,7 +625,8 @@ impl Package {
             return Ok(tree);
         }
         let bytes = part.current_bytes();
-        let tree = xml::parse(&bytes, &self.limits).map_err(|err| err.into_error(name))?;
+        let mut tree = xml::parse(&bytes, &self.limits).map_err(|err| err.into_error(name))?;
+        tree.set_incarnation(part.incarnation);
         let _ = part.tree.set(tree);
         part.tree
             .get()
@@ -614,12 +634,18 @@ impl Package {
     }
 
     /// Replace the parsed tree of `name` (transaction commit).
-    pub fn commit_tree(&mut self, name: &str, tree: XmlTree) -> Result<()> {
+    pub fn commit_tree(&mut self, name: &str, mut tree: XmlTree) -> Result<()> {
         let index = *self
             .index
             .get(name)
             .ok_or_else(|| Error::internal("unknown_part", format!("no part named {name:?}")))?;
         let part = &mut self.parts[index];
+        if tree.incarnation() != part.incarnation {
+            // Not a copy of the member's own tree: handles into the old one
+            // must not pass for the new one.
+            part.incarnation = part.incarnation.wrapping_add(1);
+            tree.set_incarnation(part.incarnation);
+        }
         part.tree = OnceLock::new();
         let _ = part.tree.set(tree);
         part.dirty = true;
@@ -638,6 +664,8 @@ impl Package {
         part.replaced = Some(bytes);
         part.dirty = false;
         part.generation += 1;
+        // New content from bytes is a new arena for any handle into the old.
+        part.incarnation = part.incarnation.wrapping_add(1);
         Ok(())
     }
 

@@ -1649,6 +1649,7 @@ fn paragraph_span(
     }
     let text: String = visible.chars().skip(start).take(end - start).collect();
     Ok(Some(Span {
+        incarnation: tree.incarnation(),
         document: ctx.document.id(),
         token: new_span_token(),
         story: ctx.story.clone(),

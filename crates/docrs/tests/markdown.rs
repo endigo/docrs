@@ -555,6 +555,12 @@ fn local_images_stay_inside_the_resource_directory() {
     {
         std::os::unix::fs::symlink(&secret, dir.join("img/link.png")).unwrap();
         markdown.push_str("\n![link](img/link.png)\n");
+        // A linked directory leading out: an existing and a missing file
+        // behind it read alike, so the link is no probe for files outside.
+        std::os::unix::fs::symlink(outer.path(), dir.join("img/out")).unwrap();
+        markdown.push_str(
+            "\n![via link](img/out/secret.png)\n\n![via link missing](img/out/nope.png)\n",
+        );
     }
     let options = MarkdownOptions {
         resource_dir: Some(dir.clone()),
@@ -571,7 +577,7 @@ fn local_images_stay_inside_the_resource_directory() {
     // missing file outside reads the same as an existing one.
     assert_eq!(
         outside,
-        if cfg!(unix) { 9 } else { 8 },
+        if cfg!(unix) { 11 } else { 8 },
         "{:?}",
         out.report.warnings
     );
@@ -807,6 +813,19 @@ fn links_keep_only_web_mail_phone_and_relative_targets() {
     };
     let err = convert("[a](javascript:alert(1))\n", None, &strict).unwrap_err();
     assert_eq!(err.reason(), "markdown_not_faithful");
+
+    // Editor HTML links follow the same policy, control characters stripped.
+    let html = export_html(
+        "05-links-schemes-html",
+        "<p><a href=\"javascript:alert(1)\">a</a> <a href=\"java&#9;script:alert(2)\">b</a> \
+         <a href=\"https://ok.example\">c</a></p>",
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(html.report.counts.links, 1);
+    assert_eq!(html.warning_codes(), ["link_scheme_skipped"; 2]);
+    let rels = html.part("word/_rels/document.xml.rels");
+    assert!(!rels.contains("avascript"), "{rels}");
+    assert!(rels.contains("https://ok.example"));
 }
 
 #[test]

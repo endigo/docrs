@@ -454,6 +454,8 @@ pub struct Span {
     pub(crate) match_start: usize,
     pub(crate) match_policy: Option<MatchPolicy>,
     pub(crate) view: View,
+    /// [`XmlTree::incarnation`] of the story part when the span was found.
+    pub(crate) incarnation: u32,
     pub(crate) signatures: Vec<Signature>,
     pub(crate) atom_sequence: Vec<NodeId>,
     /// `None`: the sequence covers every atom (search-produced spans).
@@ -653,6 +655,7 @@ fn spans_for_story(
         let sequence_start = positions[&span_atoms[0].element];
         let sequence_end = positions[&span_atoms[span_atoms.len() - 1].element];
         let span = Span {
+            incarnation: tree.incarnation(),
             document: document.id(),
             token: NEXT_SPAN_TOKEN.fetch_add(1, Ordering::Relaxed),
             story: story.name.clone(),

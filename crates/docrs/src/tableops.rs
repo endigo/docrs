@@ -71,6 +71,7 @@ pub struct Table {
     element: NodeId,
     parent: Option<NodeId>,
     struct_gen: u32,
+    incarnation: u32,
 }
 
 impl Table {
@@ -92,6 +93,7 @@ impl Table {
             element,
             parent: tree.parent(element),
             struct_gen: tree.struct_gen(element),
+            incarnation: tree.incarnation(),
         }
     }
 }
@@ -117,6 +119,7 @@ fn locate(document: &Document, table: &Table) -> Result<NodeId> {
     let tree = document.package().xml(&table.part)?;
     let element = table.element;
     if tree.root() != table.root
+        || tree.incarnation() != table.incarnation
         || !tree.contains(element)
         || !tree.is_attached(element)
         || tree.parent(element) != table.parent
@@ -703,6 +706,7 @@ pub fn update_cell(
     let text: String = atoms.iter().map(|atom| atom.text(tree)).collect();
     let end_offset = atoms[atoms.len() - 1].text(tree).chars().count();
     let span = Span {
+        incarnation: tree.incarnation(),
         document: document.id(),
         token: fresh_span_token(),
         story: story_name.clone(),

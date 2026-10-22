@@ -582,7 +582,11 @@ fn check_js_sizes(
         })?),
     };
     let (limits, input) = profile(name.as_deref()).map_err(refuse)?;
-    let reference = reference.cloned().or_else(|| get("reference"));
+    // Both a positional reference and `options.reference` are copied in,
+    // so both count.
+    let reference = reference
+        .map_or(0, js_length)
+        .saturating_add(get("reference").as_ref().map_or(0, js_length));
     let images = get("images")
         .and_then(|images| images.dyn_into::<js_sys::Object>().ok())
         .map_or(0, |images| {
@@ -595,7 +599,7 @@ fn check_js_sizes(
         &limits,
         &input,
         source.map_or(0, js_length),
-        reference.as_ref().map_or(0, js_length),
+        reference,
         images,
     )
     .map_err(refuse)

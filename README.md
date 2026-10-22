@@ -97,7 +97,9 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   `file:` paths and paths leading out of it are refused with a warning.
   Links keep their target only for `http`, `https`, `mailto`, `tel`,
   `#heading` and relative references. The template's thumbnail (a
-  picture of its first page) is not shipped.
+  picture of its first page) is left out when the conversion replaces
+  the template's body (the default; `--append` and `--placeholder` keep
+  the document's own).
 * Missing styles are added and reported; `--strict-styles` refuses instead,
   `--style code_block="My Code"` maps a role, `--strict` refuses on any
   loss (missing image, unsupported HTML or LaTeX). Refusals change nothing.
