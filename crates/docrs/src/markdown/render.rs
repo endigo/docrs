@@ -3829,7 +3829,7 @@ fn read_within(path: &Path, limit: u64) -> std::result::Result<Vec<u8>, Unread> 
 /// sized none. In between, a sized column keeps its pixels (a percentage
 /// is of the text width) and the others share what is left by their text,
 /// none narrower than the editor's minimum column; the whole is scaled
-/// down when it does not fit.
+/// down only when the sized columns and those minimums do not fit.
 fn column_widths(
     rows: &[&[Vec<Block>]],
     grid: &[Vec<Slot>],
@@ -3854,22 +3854,32 @@ fn column_widths(
             }
         };
         let text = text_weights(rows, grid, cols);
-        let taken: f64 = given.iter().flatten().map(|w| twips(*w)).sum();
-        let open: f64 = given
-            .iter()
-            .zip(&text)
-            .filter(|(width, _)| width.is_none())
-            .map(|(_, weight)| weight)
-            .sum();
-        let left = (total as f64 - taken).max(0.0);
-        given
-            .iter()
-            .zip(&text)
-            .map(|(width, weight)| match width {
-                Some(w) => twips(*w),
-                None => (left * weight / open).max(MIN_COLUMN_PX * TWIPS_PER_PX),
-            })
-            .collect()
+        let floor = MIN_COLUMN_PX * TWIPS_PER_PX;
+        let mut widths: Vec<f64> = given.iter().map(|w| w.map_or(0.0, &twips)).collect();
+        let mut open: Vec<usize> = (0..cols).filter(|c| given[*c].is_none()).collect();
+        let mut left = total as f64 - widths.iter().sum::<f64>();
+        // A column the sharing would put under the floor takes the floor and
+        // leaves the sharing to the others.
+        loop {
+            let weight: f64 = open.iter().map(|c| text[*c]).sum();
+            let short: Vec<usize> = open
+                .iter()
+                .copied()
+                .filter(|c| left * text[*c] / weight < floor)
+                .collect();
+            if short.is_empty() {
+                for c in &open {
+                    widths[*c] = left * text[*c] / weight;
+                }
+                break;
+            }
+            for c in &short {
+                widths[*c] = floor;
+            }
+            open.retain(|c| !short.contains(c));
+            left -= short.len() as f64 * floor;
+        }
+        widths
     };
     let sum: f64 = weights.iter().sum::<f64>().max(f64::MIN_POSITIVE);
     let mut widths: Vec<i64> = weights

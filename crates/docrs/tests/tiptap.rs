@@ -817,3 +817,60 @@ fn a_partly_resized_table_keeps_the_widths_the_editor_set() {
     );
     assert_eq!(spanned, [1800, width - 1800]);
 }
+
+#[test]
+fn a_header_several_rows_deep_keeps_its_spans_and_the_resized_columns() {
+    // `nested.{json,html}`: a rowspan cell over five header rows, three
+    // eight-column spans, two four-column spans, eight leaf columns; the
+    // first column dragged to 180 px and the fourth to 140 px, which the
+    // editor writes onto every cell of those columns, as zero-filled lists
+    // on the spanning ones.
+    let json = tiptap("39-tiptap-nested", &fixture("nested.json"));
+    let html = html_with(
+        "39-tiptap-nested-html",
+        &fixture("nested.html"),
+        &MarkdownOptions::default(),
+    );
+    assert!(json.report.warnings.is_empty(), "{}", json.messages());
+    assert!(html.report.warnings.is_empty(), "{}", html.messages());
+    let body = json.body();
+    assert_eq!(body, html.body(), "the two sources alike");
+    assert_eq!(count(&body, "<w:gridSpan w:val=\"8\"/>"), 3);
+    assert_eq!(count(&body, "<w:gridSpan w:val=\"4\"/>"), 2);
+    assert_eq!(count(&body, "<w:vMerge w:val=\"restart\"/>"), 1);
+    assert_eq!(count(&body, "<w:vMerge/>"), 4);
+    assert_eq!(count(&body, "<w:tblHeader/>"), 5);
+    let (widths, grid) = grids(&body);
+    assert_eq!(grid.len(), 9, "{grid:?}");
+    assert_eq!(grid.iter().sum::<i64>(), widths[0], "{grid:?}");
+    assert!((grid[0] - 2700).abs() <= 1, "{grid:?}");
+    assert!((grid[3] - 2100).abs() <= 1, "{grid:?}");
+    // The other seven share the rest by their text: "Hong Kong Residents"
+    // over "Total".
+    assert!(grid[1] > 2 * grid[4], "{grid:?}");
+    assert_eq!(grid[1], grid[5], "{grid:?}");
+    assert!(grid[1] < grid[0], "{grid:?}");
+    // The same table before any column was dragged: by text alone, the
+    // control points' column is the widest.
+    fn unsize(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(width) = map.get_mut("colwidth") {
+                    *width = serde_json::Value::Null;
+                }
+                map.values_mut().for_each(unsize);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(unsize),
+            _ => {}
+        }
+    }
+    let mut undragged: serde_json::Value = serde_json::from_str(&fixture("nested.json")).unwrap();
+    unsize(&mut undragged);
+    let out = tiptap("39-tiptap-nested-unsized", &undragged.to_string());
+    assert!(out.report.warnings.is_empty(), "{}", out.messages());
+    let (widths, grid) = grids(&out.body());
+    assert_eq!(grid.len(), 9, "{grid:?}");
+    assert_eq!(grid.iter().sum::<i64>(), widths[0], "{grid:?}");
+    assert!(grid.iter().all(|w| *w <= grid[0]), "{grid:?}");
+    assert!(grid[1] > 2 * grid[4], "{grid:?}");
+}

@@ -92,13 +92,37 @@ const extras = [
   '<div data-youtube-video><iframe src="https://www.youtube.com/watch?v=dQw4w9WgXcQ"></iframe></div>',
 ].join("");
 
+// A table with a header several rows deep, as a statistics page lays it
+// out, after the user dragged two column borders: the editor writes the
+// width onto every cell of that column, zero-filled lists on spanning
+// cells.
+const points = [
+  ["Airport", "4,258", "1,488", "422", "6,168", "3,775", "1,154", "315", "5,244"],
+  ["Express Rail Link West Kowloon", "0", "0", "0", "0", "0", "0", "0", "0"],
+  ["Hung Hom", "0", "0", "0", "0", "0", "0", "0", "0"],
+  ["Lo Wu", "0", "0", "0", "0", "0", "0", "0", "0"],
+  ["Lok Ma Chau Spur Line", "0", "0", "0", "0", "0", "0", "0", "0"],
+  ["Heung Yuen Wai", "0", "0", "0", "0", "0", "0", "0", "0"],
+];
+const leaves = ["Hong Kong Residents", "Mainland Visitors", "Other Visitors", "Total"];
+const nested = [
+  "<table><tbody>",
+  '<tr><th rowspan="5" colwidth="180"><p>Control Point</p></th><th colspan="8" colwidth="0,0,140,0,0,0,0,0"><p>Passenger Traffic</p></th></tr>',
+  '<tr><th colspan="8" colwidth="0,0,140,0,0,0,0,0"><p>1 September 2022</p></th></tr>',
+  '<tr><th colspan="8" colwidth="0,0,140,0,0,0,0,0"><p>Thursday</p></th></tr>',
+  '<tr><th colspan="4" colwidth="0,0,140,0"><p>Arrival</p></th><th colspan="4"><p>Departure</p></th></tr>',
+  "<tr>" + [...leaves, ...leaves].map((text, i) => `<th${i === 2 ? ' colwidth="140"' : ""}><p>${text}</p></th>`).join("") + "</tr>",
+  ...points.map((cells) => "<tr>" + cells.map((text, i) => `<td${i === 0 ? ' colwidth="180"' : i === 3 ? ' colwidth="140"' : ""}><p>${text}</p></td>`).join("") + "</tr>"),
+  "</tbody></table>",
+].join("");
+
 const out = process.argv[2];
 if (!out) {
   console.error("usage: node generate.mjs <output directory>");
   process.exit(2);
 }
 mkdirSync(out, { recursive: true });
-for (const [name, source] of [["core", core], ["extras", extras]]) {
+for (const [name, source] of [["core", core], ["extras", extras], ["nested", nested]]) {
   const json = generateJSON(source, extensions);
   writeFileSync(join(out, `${name}.json`), JSON.stringify(json, null, 1) + "\n");
   writeFileSync(join(out, `${name}.html`), generateHTML(json, extensions) + "\n");
@@ -106,4 +130,4 @@ for (const [name, source] of [["core", core], ["extras", extras]]) {
 let dir = dirname(fileURLToPath(import.meta.resolve("@tiptap/core")));
 while (!dir.endsWith("core")) dir = dirname(dir);
 const version = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
-console.log(`wrote core.{json,html} and extras.{json,html} with @tiptap/core ${version}`);
+console.log(`wrote core, extras and nested .{json,html} with @tiptap/core ${version}`);
