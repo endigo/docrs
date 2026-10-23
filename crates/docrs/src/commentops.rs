@@ -770,10 +770,6 @@ fn entry_for_create(txn: &mut Txn<'_>, root: &str, para_id: &str) -> Result<Node
     )
 }
 
-// ---------------------------------------------------------------------------
-// Ownership
-// ---------------------------------------------------------------------------
-
 /// Upstream `require_comment_owner`: the comment's element in the live
 /// comments part.
 pub(crate) fn comment_element(txn: &Txn<'_>, comment: &Comment) -> Result<(String, NodeId)> {
@@ -800,10 +796,6 @@ pub(crate) fn comment_element(txn: &Txn<'_>, comment: &Comment) -> Result<(Strin
     }
     Ok((expected, comment.element))
 }
-
-// ---------------------------------------------------------------------------
-// Public operations
-// ---------------------------------------------------------------------------
 
 fn last_para_id(tree: &XmlTree, comment: NodeId) -> Result<Option<String>> {
     let last = require_last_paragraph(tree, comment)?;

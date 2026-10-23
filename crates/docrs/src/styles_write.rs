@@ -31,8 +31,6 @@ use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
-// ---------------------------------------------------------------- helpers
-
 /// lxml `parent.remove(element)`: the element and its tail text go.
 fn remove(tree: &mut XmlTree, element: NodeId) -> Result<()> {
     if let Some(parent) = tree.parent(element) {
@@ -165,8 +163,6 @@ macro_rules! commit {
         $doc.commit(staged)
     }};
 }
-
-// ----------------------------------------------------------------- styles
 
 /// A live `w:style` handle (upstream `BaseStyle` and subclasses).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -608,8 +604,6 @@ impl Document {
         commit!(self, txn)
     }
 }
-
-// ----------------------------------------------------------- latent styles
 
 /// One `LatentStyles` default assignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

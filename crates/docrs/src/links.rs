@@ -28,10 +28,6 @@ fn boundary(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::BoundaryViolation, reason, message)
 }
 
-// ---------------------------------------------------------------------------
-// Shared span machinery
-// ---------------------------------------------------------------------------
-
 /// Upstream `require_span_owner`.
 pub(crate) fn require_span_owner(document: &Document, span: &Span) -> Result<()> {
     if span.document != document.id() {
@@ -236,10 +232,6 @@ pub(crate) fn next_sibling(tree: &XmlTree, node: NodeId) -> Option<NodeId> {
     let index = siblings.iter().position(|s| *s == node)?;
     siblings.get(index + 1).copied()
 }
-
-// ---------------------------------------------------------------------------
-// Hyperlinks
-// ---------------------------------------------------------------------------
 
 /// A created hyperlink: its address and visible text (what upstream's
 /// `Hyperlink.address` / `.text` report).

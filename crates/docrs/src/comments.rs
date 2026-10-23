@@ -479,7 +479,6 @@ fn main_story(document: &Document) -> Option<String> {
         .map(|story| story.name)
 }
 
-/// Distinct runs of a span's atoms, in order.
 fn span_runs(span: &Span) -> Vec<Option<NodeId>> {
     let mut runs: Vec<Option<NodeId>> = Vec::new();
     for atom in &span.atoms {
@@ -649,10 +648,6 @@ fn set_comment_attr(
     document.commit(staged)?;
     comment_at(document, &comment.part, comment.element)
 }
-
-// ---------------------------------------------------------------------------
-// Span.comment
-// ---------------------------------------------------------------------------
 
 fn atom_text(tree: &XmlTree, atom: &crate::search::Atom) -> String {
     atom.text(tree)

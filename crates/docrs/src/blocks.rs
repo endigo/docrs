@@ -33,10 +33,6 @@ use crate::wml::{W, is_w, iter_nodes, leading_text, w_attr, w_child, w_children}
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
-// ---------------------------------------------------------------------------
-// Result and block vocabulary
-// ---------------------------------------------------------------------------
-
 /// Outcome of a block-level edit (upstream `BlockEditResult`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlockEditResult {
@@ -174,10 +170,6 @@ impl<'a> ParagraphRange<'a> {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Validation helpers
-// ---------------------------------------------------------------------------
 
 fn value_error(reason: &'static str, message: impl Into<String>) -> Error {
     Error::invalid_argument(reason, message)
@@ -401,11 +393,6 @@ fn paragraph_visible_text(tree: &XmlTree, paragraph: NodeId) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// Revision stamping (all through schema-aware construction)
-// ---------------------------------------------------------------------------
-
-/// Revision identity applied to tracked edits.
 #[derive(Debug, Clone, Copy)]
 struct Stamp<'a> {
     author: &'a str,
@@ -668,10 +655,6 @@ fn finish_styles(txn: &mut Txn<'_>, styles_missing: bool) -> Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Public operations
-// ---------------------------------------------------------------------------
 
 /// Insert a heading plus body paragraphs after `anchor` (upstream
 /// `insert_section_after`). With `tracked` each paragraph is a real Word

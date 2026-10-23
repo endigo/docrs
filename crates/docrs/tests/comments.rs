@@ -152,7 +152,6 @@ fn foreign_comment_handles_are_boundary_violations() {
 
 #[test]
 fn comment_refusals_change_nothing() {
-    // A complex-field boundary inside the anchored runs.
     let bytes = minimal_package_with(&format!(
         r#"<w:document {W_DECLS}><w:body><w:p><w:r><w:fldChar w:fldCharType="begin"/><w:t>target</w:t></w:r></w:p></w:body></w:document>"#
     ));
@@ -168,7 +167,6 @@ fn comment_refusals_change_nothing() {
         .unwrap_err();
     assert!(err.message().contains("field boundary"), "{err}");
     assert_eq!(doc.patch_bytes().unwrap().0, before);
-    // Programmer errors.
     let mut doc = target_doc();
     let before = doc.patch_bytes().unwrap().0;
     let span = find(&doc, "comment target");
@@ -316,8 +314,6 @@ fn multiple_comment_relationships_refuse_resolution_atomically() {
 
 #[test]
 fn historical_view_spans_cannot_anchor_comments() {
-    // "old " is deleted text: visible under view=original, not in the
-    // current body.
     let bytes = minimal_package_with(&format!(
         r#"<w:document {W_DECLS}><w:body><w:p><w:r><w:t xml:space="preserve">keep </w:t></w:r><w:del w:id="1" w:author="A" w:date="2024-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">old </w:delText></w:r></w:del><w:ins w:id="2" w:author="A" w:date="2024-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">new </w:t></w:r></w:ins><w:r><w:t>words</w:t></w:r></w:p></w:body></w:document>"#
     ));
@@ -345,7 +341,6 @@ fn historical_view_spans_cannot_anchor_comments() {
         assert_eq!(err.reason(), "historical_view_target", "{needle:?}");
         assert_eq!(doc.patch_bytes().unwrap().0, bytes, "{needle:?}");
     }
-    // The same text found under the current view anchors.
     let span = find(&doc, "keep");
     add_comment(&mut doc, &span, "note", "Reviewer", None, date()).unwrap();
 }

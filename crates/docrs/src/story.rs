@@ -278,10 +278,6 @@ impl Outline {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Text projection of one run child (upstream `_textatoms.py`)
-// ---------------------------------------------------------------------------
-
 /// Object-replacement character separating search text at unmodeled
 /// visible run content.
 pub const BARRIER_TEXT: &str = "\u{FFFC}";
@@ -330,10 +326,6 @@ pub fn is_direct_run_child(tree: &XmlTree, id: NodeId) -> bool {
     tree.parent(id)
         .is_some_and(|parent| is_w(tree, parent, "r"))
 }
-
-// ---------------------------------------------------------------------------
-// View-filtered text visitor
-// ---------------------------------------------------------------------------
 
 #[derive(Default)]
 pub(crate) struct TextVisitor {
@@ -468,10 +460,6 @@ fn emit(visitor: &mut TextVisitor, text: &str, ins: bool, del: bool, sdt: bool, 
     visitor.in_content_control |= sdt;
     visitor.in_text_box |= txbx;
 }
-
-// ---------------------------------------------------------------------------
-// Block iteration
-// ---------------------------------------------------------------------------
 
 /// One block element found by the shared walker.
 #[derive(Debug, Clone, Copy)]

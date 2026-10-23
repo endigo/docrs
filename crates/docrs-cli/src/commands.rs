@@ -232,7 +232,6 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     .to_json();
                 (edit, 1, 0)
             };
-            // Success is published only after the output is committed.
             let patch = document.save(out)?;
             let value = json!({"schema": "docrs_replace", "version": 1, "replaced_count": replaced, "refused_count": refused, "edit": edit, "save": patch.to_json(), "out": out});
             emit(json_mode, value, || {
@@ -544,7 +543,6 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     (_, true) => Some(false),
                     _ => None,
                 },
-                // Images resolve on disk next to the Markdown file.
                 images: Default::default(),
                 now: None,
             };

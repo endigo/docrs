@@ -261,7 +261,6 @@ fn closure_refusals_are_atomic() {
     assert_eq!(refusal(&err), RefusalKind::UnsupportedStructure);
     assert!(err.message().contains("nested unselected"), "{err}");
     assert_eq!(doc.patch_bytes().unwrap().0, before);
-    // The handle stays usable: nothing changed, so it is still fresh.
     row_ins.accept(&mut doc).unwrap();
     assert_eq!(doc.revisions().unwrap().len(), 9);
 
@@ -561,7 +560,6 @@ fn a_failed_snapshot_refresh_leaves_document_and_snapshot_unchanged() {
         let err = result.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Internal, "{err}");
         assert_eq!(doc.patch_bytes().unwrap().0, before, "accept={accept}");
-        // The snapshot still describes the document, so a retry works.
         assert_eq!(revisions.len(), 3);
         let resolved = if accept {
             revisions.accept_all(&mut doc, None)

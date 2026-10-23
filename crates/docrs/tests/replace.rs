@@ -134,7 +134,6 @@ fn refusals_are_atomic() {
             "{needle}: refusal changed the package"
         );
         assert_eq!(fs::read(&out).unwrap(), b"sentinel");
-        // The span is still usable for a valid edit afterwards.
         assert!(doc.find_one(needle, &FindOptions::default()).is_ok());
     }
     let span = find(&doc, "alpha");
@@ -207,9 +206,7 @@ fn unrelated_edits_keep_independent_spans_fresh_and_related_edits_stale_them() {
     let second = find(&doc, "second");
     let overlapping = find(&doc, "second paragraph");
     doc.replace(&first, "1st", &plain()).unwrap();
-    // A harmless edit elsewhere does not invalidate an independent span.
     doc.replace(&second, "2nd", &plain()).unwrap();
-    // ...but a span over text that changed is stale.
     let err = doc.replace(&overlapping, "x", &plain()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Refusal(RefusalKind::TargetNotFound));
     assert_eq!(body_text(&doc), "1st paragraph\n2nd paragraph");
@@ -287,12 +284,10 @@ fn formatting_and_affix_localization() {
     let span = find(&doc, "Omega point");
     let report = doc.replace(&span, "Xmega poinX", &plain()).unwrap();
     assert!(!report.preserved_formatting_regions);
-    // Same formatting on both runs: preserved.
     let span = find(&doc, "Payment due");
     let report = doc.replace(&span, "Payment overdue", &plain()).unwrap();
     assert!(report.preserved_formatting_regions);
     assert_eq!(body_text(&doc), "Xmega poinX\nPayment overdue");
-    // Ambiguous affix alignment refuses.
     let mut doc = open(&bytes_with(&format!("<w:p>{}</w:p>", r("aa"))));
     let span = find(&doc, "aa");
     let err = doc.replace(&span, "aaa", &plain()).unwrap_err();
@@ -332,8 +327,6 @@ fn bookmarks_and_positional_markers_are_respected() {
             .reason(),
         "hollows_bookmark"
     );
-    // A change inside the bookmarked atom alone is fine (checked below);
-    // one spanning the marker without hollowing it crosses the bookmark.
     let mut wide = open(&bytes_with(&format!(
         r#"<w:p>{}<w:bookmarkStart w:id="2" w:name="Wide"/>{}{}<w:bookmarkEnd w:id="2"/></w:p>"#,
         r("See "),
@@ -407,7 +400,6 @@ fn protection_gate_follows_the_matrix() {
             doc.acknowledge_protection().unwrap();
             let span = find(&doc, "locked");
             doc.replace(&span, "open", &plain()).unwrap();
-            // The protection setting itself is never removed.
             assert!(doc.protection_status().unwrap().enforced);
         }
     }

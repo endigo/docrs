@@ -239,8 +239,6 @@ fn char_slice(chars: &[char], start: usize, end: usize) -> String {
     chars[start..end].iter().collect()
 }
 
-// --------------------------------------------------------------- options
-
 /// How source styles reconcile with the destination (`styles=`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StylesMode {
@@ -362,8 +360,6 @@ pub struct AppendOptions {
     /// Letterhead source.
     pub headers: HeadersFrom,
 }
-
-// ---------------------------------------------------------------- report
 
 /// A report-only finding (upstream `CompositionFinding`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -515,9 +511,6 @@ impl Progress {
     }
 }
 
-// ----------------------------------------------------------- source side
-
-/// Read-only view of the source document.
 struct Source<'s> {
     doc: &'s Document,
     main: String,
@@ -603,8 +596,6 @@ fn section_properties(tree: &XmlTree) -> Result<Vec<NodeId>> {
     }
     Ok(out)
 }
-
-// ------------------------------------------------------------- preflight
 
 fn refused_reason(tree: &XmlTree, node: NodeId) -> Option<&'static str> {
     if tree.ns_uri(node) != Some(W) {
@@ -937,8 +928,6 @@ fn preflight_relationships(
     Ok(())
 }
 
-/// `(node, attribute local name)` of every `a:blip` / `v:imagedata` under
-/// `elements`, in document order.
 fn image_nodes(tree: &XmlTree, elements: &[NodeId]) -> Vec<(NodeId, &'static str)> {
     let mut out = Vec::new();
     for &element in elements {
@@ -1000,8 +989,6 @@ fn image_blob(source: &Source<'_>, part: &str, rel: &Relationship) -> Option<Vec
     let part = source.doc.package().part(&member)?;
     Some(part.current_bytes().into_owned())
 }
-
-// ---------------------------------------------------------------- styles
 
 /// Upstream `_style_definitions`: `w:style` children by id and by
 /// (casefolded name, type).
@@ -1194,8 +1181,6 @@ fn fresh_style_name(by_name: &HashMap<(String, String), NodeId>, base: &str, kin
     candidate
 }
 
-// ------------------------------------------------------------- numbering
-
 #[derive(Debug, Clone)]
 struct NumberingRemap {
     source_num_id: i64,
@@ -1348,8 +1333,6 @@ fn validated_numbering_graph(tree: &XmlTree, label: &str) -> Result<NumberingGra
     })
 }
 
-// -------------------------------------------------------------- bookmarks
-
 /// Upstream `_fresh_bookmark_name`: a Word-legal name of at most 40
 /// characters not used (casefolded) in `existing`.
 fn fresh_bookmark_name(existing: &HashSet<String>, base: &str) -> String {
@@ -1392,8 +1375,6 @@ fn redistribute(tree: &mut XmlTree, nodes: &[NodeId], instruction: &str) -> Resu
     }
     Ok(())
 }
-
-// ------------------------------------------------------------- composer
 
 /// A composition in progress: one transaction over the destination.
 struct Composer<'d, 's> {
@@ -2583,8 +2564,6 @@ fn remap_field_refs(tree: &mut XmlTree, clones: &[NodeId], renames: &OrderedMap)
     }
     Ok(())
 }
-
-// ------------------------------------------------------------ public API
 
 /// Upstream `_body_block_for_paragraph`: the top-level body block (a
 /// paragraph or content control) containing `paragraph`.

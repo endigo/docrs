@@ -455,10 +455,6 @@ impl XmlTree {
         out
     }
 
-    // ----------------------------------------------------------------------
-    // Mutation
-    // ----------------------------------------------------------------------
-
     fn touch(&mut self, id: NodeId) {
         let slot = &mut self.slots[id.0 as usize];
         slot.rev = slot.rev.wrapping_add(1);
@@ -572,7 +568,6 @@ impl XmlTree {
         );
         self.origin_scope.insert(id, scope);
         if bound.is_none() {
-            // Not in scope: declare it on the new element.
             let prefix = self.fresh_prefix(scope, ns);
             if let NodeData::Element(element) = &mut self.slots[id.0 as usize].data {
                 element.name.prefix = Some(prefix.clone());
@@ -600,7 +595,6 @@ impl XmlTree {
             .into()
     }
 
-    /// Declare a prefix for `uri` on `element` and return it.
     fn declare_prefix(&mut self, element: NodeId, uri: &str) -> Box<str> {
         let prefix = self.fresh_prefix(element, uri);
         let ns_id = self.intern(uri);

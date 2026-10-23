@@ -61,7 +61,6 @@ fn injected_failures_preserve_existing_output_and_clean_up() {
             leftovers(dir.path()).is_empty(),
             "{point:?}: temp file left behind"
         );
-        // The failed save did not undo the in-memory edit.
         let (bytes, report) = doc.patch_bytes().unwrap();
         assert_eq!(report.changed_parts, vec!["word/document.xml".to_string()]);
         assert!(Document::open_bytes(&bytes, &Limits::default()).is_ok());
@@ -140,7 +139,6 @@ fn permissions_and_symlinks_are_preserved() {
     assert!(Document::open(&link).is_ok());
     assert!(leftovers(dir.path()).is_empty());
 
-    // A dangling link creates its target.
     let dangling = dir.path().join("dangling.docx");
     let missing = dir.path().join("missing.docx");
     symlink(&missing, &dangling).unwrap();
@@ -160,7 +158,6 @@ fn failed_validation_never_touches_disk() {
     let out = dir.path().join("out.docx");
     fs::write(&out, b"keep").unwrap();
     let mut doc = edited_document();
-    // An output budget smaller than the package fails before any write.
     let mut tight = doc.package().limits().clone();
     tight.max_output_bytes = 64;
     let reopened_bytes = doc.patch_bytes().unwrap().0;

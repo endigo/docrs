@@ -426,7 +426,6 @@ fn cmap(table: &[u8]) -> Option<Vec<(u32, u16)>> {
     Some(out)
 }
 
-/// The bundled faces.
 fn builtin() -> &'static [Arc<Face>] {
     static FACES: OnceLock<Vec<Arc<Face>>> = OnceLock::new();
     FACES.get_or_init(|| read_table(include_bytes!("font_metrics.bin")).unwrap_or_default())
@@ -671,8 +670,6 @@ mod tests {
 mod coverage {
     use super::*;
 
-    /// Fonts reference documents commonly name: theme, body, heading,
-    /// code and bullet fonts, and a LibreOffice leftover.
     #[test]
     fn common_document_fonts_are_measured() {
         let mut book = FontBook::default();

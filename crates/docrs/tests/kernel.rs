@@ -96,7 +96,6 @@ fn every_xml_part_round_trips_semantically() {
                 "{rel}/{}",
                 member.name
             );
-            // Serialization is a fixed point after one round.
             assert_eq!(xml::serialize(&reparsed), written, "{rel}/{}", member.name);
             parts += 1;
         }
@@ -104,8 +103,6 @@ fn every_xml_part_round_trips_semantically() {
     assert!(parts > 300, "only {parts} XML parts checked");
 }
 
-/// Re-serializing every parsed part and saving restores every part to its
-/// original bytes: the output is the original archive.
 #[test]
 fn forced_reserialization_restores_all_parts() {
     for rel in [
@@ -150,8 +147,6 @@ fn first_text_node(doc: &Document) -> docrs::xml::NodeId {
         .expect("a w:t text node")
 }
 
-/// A one-part edit changes exactly that part; every other member keeps its
-/// original bytes (changed-part budget).
 #[test]
 fn single_part_edit_respects_changed_part_budget() {
     for rel in all_fixtures() {
@@ -185,7 +180,6 @@ fn single_part_edit_respects_changed_part_budget() {
             1,
             "{rel}: only the edited part may change bytes"
         );
-        // Reopen: the edit is there and everything else is byte-identical.
         let reopened = Document::open_bytes(&out, &Limits::default()).unwrap();
         for part in doc.package().parts() {
             if part.name() == main {

@@ -115,8 +115,6 @@ fn cases_for(doc: &Document, budget: usize) -> Vec<Value> {
             }
         }
     }
-    // Tracked variants of every generated case (M5): same targets, real
-    // w:del / w:ins revisions with a fixed author and date.
     let untracked: Vec<Value> = cases.clone();
     for case in untracked {
         let mut tracked = case.clone();
@@ -415,7 +413,6 @@ pub fn run(python: &Path, report: Option<&Path>) -> Result<bool, String> {
             }
         }
     }
-    // Every Rust output must reopen in the oracle too.
     let mut reopen_requests = Vec::new();
     for (_, _, _, rust_results, rust_outs) in &plans {
         for (result, out) in rust_results.iter().zip(rust_outs) {

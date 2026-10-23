@@ -108,7 +108,6 @@ fn style_types_lookups_and_defaults() {
     ] {
         assert_eq!(styles.get(name).unwrap().style_type, kind, "{name}");
     }
-    // UI-name aliases, deprecated id fallback, contains.
     assert_eq!(id(styles.get("Heading 1")), Some("Heading1"));
     assert_eq!(
         styles.get("Heading 1").unwrap().name.as_deref(),

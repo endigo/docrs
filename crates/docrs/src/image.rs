@@ -505,8 +505,6 @@ fn png(blob: &[u8]) -> Result<Header> {
     })
 }
 
-// ---------------------------------------------------------------- JPEG
-
 const SOS: u8 = 0xDA;
 const EOI: u8 = 0xD9;
 const APP0: u8 = 0xE0;
@@ -683,8 +681,6 @@ fn jpeg(blob: &[u8], format: ImageFormat) -> Result<Header> {
     })
 }
 
-// ---------------------------------------------------------------- TIFF
-
 const TAG_IMAGE_WIDTH: u16 = 0x0100;
 const TAG_IMAGE_LENGTH: u16 = 0x0101;
 const TAG_X_RESOLUTION: u16 = 0x011A;
@@ -808,8 +804,6 @@ impl Tiff {
         }
     }
 }
-
-// ---------------------------------------------------------------- SHA-1
 
 /// Lowercase hex SHA-1 digest (upstream `hashlib.sha1(blob).hexdigest()`).
 pub fn sha1_hex(data: &[u8]) -> String {

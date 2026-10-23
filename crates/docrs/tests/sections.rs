@@ -157,14 +157,12 @@ fn unlinking_creates_a_definition_from_the_template() {
         document.contains("<w:headerReference w:type=\"default\" r:id=\""),
         "{document}"
     );
-    // A second definition takes the next free partname.
     section
         .even_page_footer()
         .set_linked_to_previous(&mut doc, false)
         .unwrap();
     let (_, report) = doc.patch_bytes().unwrap();
     assert!(report.added_parts.contains(&"word/footer1.xml".to_string()));
-    // Writing content through the definition.
     let container = header.definition(&mut doc).unwrap();
     let paragraphs = container.paragraphs(&doc).unwrap();
     assert_eq!(paragraphs.len(), 1);
@@ -172,7 +170,6 @@ fn unlinking_creates_a_definition_from_the_template() {
         .set_text(&mut doc, Some("Header text"))
         .unwrap();
     assert!(xml(&doc, "word/header1.xml").contains("<w:t>Header text</w:t>"));
-    // Unchanged values do nothing.
     let before = bytes(&doc);
     header.set_linked_to_previous(&mut doc, false).unwrap();
     assert_eq!(bytes(&doc), before);
@@ -189,7 +186,6 @@ fn definitions_are_inherited_and_created_on_the_first_section() {
     container
         .add_paragraph(&mut doc, "from second", None)
         .unwrap();
-    // The definition went to the first section; the second stays linked.
     let sections = doc.sections().unwrap();
     assert!(!sections[0].header().is_linked_to_previous(&doc).unwrap());
     assert!(sections[1].header().is_linked_to_previous(&doc).unwrap());
@@ -223,19 +219,16 @@ fn removing_a_shared_reference_keeps_the_relationship() {
         first.paragraph_texts(&doc).unwrap(),
         vec!["shared".to_string()]
     );
-    // The even reference shares rId9 with the default one: kept too.
     sections[2]
         .even_page_header()
         .set_linked_to_previous(&mut doc, true)
         .unwrap();
     assert!(xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId9\""));
-    // Dropping the last reference to rId9 removes the relationship.
     sections[2]
         .header()
         .set_linked_to_previous(&mut doc, true)
         .unwrap();
     assert!(!xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId9\""));
-    // Section three now inherits section two's (= section one's) header.
     let inherited = sections[2]
         .header()
         .existing_definition(&doc)
@@ -280,14 +273,13 @@ fn even_and_odd_setting() {
     assert!(xml(&doc, "word/settings.xml").contains("<w:evenAndOddHeaders/>"));
     doc.set_odd_and_even_pages_header_footer(false).unwrap();
     assert!(!xml(&doc, "word/settings.xml").contains("evenAndOddHeaders"));
-    // Without a settings part, writing creates one; reading does not.
     let mut bare =
         Document::open_bytes(&minimal_package_with(DOCUMENT_XML), &Limits::default()).unwrap();
     assert!(!bare.odd_and_even_pages_header_footer().unwrap());
     assert!(!bare.package().is_modified());
     bare.set_odd_and_even_pages_header_footer(true).unwrap();
     let (_, report) = bare.patch_bytes().unwrap();
-    // (the minimal package has no document relationships part yet)
+    // The minimal package has no document relationships part yet.
     assert_eq!(
         report.added_parts,
         vec![

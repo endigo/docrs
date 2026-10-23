@@ -26,7 +26,6 @@ fn edit_preserves_scopes_prefixes_and_unknown_markup() {
     edited.set_text(node, " Goodbye ").unwrap();
     let out = String::from_utf8(serialize(&edited)).unwrap();
 
-    // Declarations stay on the elements that carried them, in order.
     assert!(
         out.contains(r#"<w:p w14:paraId="1A2B" xmlns:x="urn:unknown:x">"#)
             || out.contains(r#"<w:p xmlns:x="urn:unknown:x" w14:paraId="1A2B">"#),
@@ -46,7 +45,6 @@ fn edit_preserves_scopes_prefixes_and_unknown_markup() {
     assert!(out.contains(r#"<w:t xml:space="preserve"> Goodbye </w:t>"#));
     assert!(out.contains(r#"<w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:t>rebound-same</w:t>"#));
 
-    // Reparse: exactly one semantic change.
     let reparsed = parse_str(&out).unwrap();
     assert!(!trees_equivalent(&tree, &reparsed));
     let mut reverted = reparsed.clone();
@@ -62,7 +60,6 @@ fn equivalence_is_prefix_insensitive_and_uri_sensitive() {
     let c = parse_str(r#"<a:x xmlns:a="urn:2" a:k="v"/>"#).unwrap();
     assert!(trees_equivalent(&a, &b));
     assert!(!trees_equivalent(&a, &c));
-    // Attribute order does not matter; child order and whitespace do.
     assert!(trees_equivalent(
         &parse_str("<r x='1' y='2'/>").unwrap(),
         &parse_str("<r y='2' x='1'/>").unwrap()
@@ -75,12 +72,10 @@ fn equivalence_is_prefix_insensitive_and_uri_sensitive() {
         &parse_str("<r><t>a </t></r>").unwrap(),
         &parse_str("<r><t>a</t></r>").unwrap()
     ));
-    // CDATA and references are character data.
     assert!(trees_equivalent(
         &parse_str("<r>&lt;x&gt;</r>").unwrap(),
         &parse_str("<r><![CDATA[<x>]]></r>").unwrap()
     ));
-    // Prolog PIs and comments are compared.
     assert!(!trees_equivalent(
         &parse_str("<?mso-application x?><r/>").unwrap(),
         &parse_str("<r/>").unwrap()
@@ -136,7 +131,6 @@ fn relocation_that_would_change_prefix_meaning_refuses() {
         ErrorKind::Refusal(RefusalKind::UnsupportedStructure)
     );
     assert_eq!(err.reason(), "namespace_scope_change");
-    // Same-scope relocation is fine.
     tree.insert(c, 0, x).unwrap();
     assert_ne!(serialize(&tree), before);
 }
@@ -151,7 +145,6 @@ fn new_elements_take_in_scope_prefixes() {
         String::from_utf8(serialize(&tree)).unwrap(),
         format!(r#"<w:p xmlns:w="{W}"><w:r/><w:r/></w:p>"#)
     );
-    // A namespace not in scope is declared on the new element itself.
     let foreign = tree.create_element(root, "urn:not-declared", "x").unwrap();
     tree.set_attr(foreign, Some("urn:not-declared"), "k", "v")
         .unwrap();

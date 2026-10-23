@@ -62,7 +62,6 @@ fn a_protected_original_refuses_unless_the_caller_acknowledges() {
             .iter()
             .any(|f| f.kind == "document_protection_present")
     );
-    // The acknowledgment is the caller's, and the setting is carried through.
     assert!(result.document.protection_acknowledged());
     assert!(result.document.protection_status().unwrap().enforced);
 }
@@ -111,7 +110,6 @@ fn author_is_validated_before_anything_is_written() {
         .err()
         .unwrap();
     assert_eq!(err.reason(), "author_too_long");
-    // XML-special characters are fine: they are escaped.
     let result = compare(&original, &revised, &options("A & <B>"), &Limits::default()).unwrap();
     let bytes = result.document.patch_bytes().unwrap().0;
     let reopened = Document::open_bytes(&bytes, &Limits::default()).unwrap();

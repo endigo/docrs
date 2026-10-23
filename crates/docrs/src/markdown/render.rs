@@ -199,7 +199,6 @@ fn jc(align: Align) -> Option<&'static str> {
     }
 }
 
-/// The block inside an alignment wrapper, and the alignment.
 fn unaligned(block: &Block) -> (&Block, Option<Align>) {
     match block {
         Block::Aligned(align, inner) => (unaligned(inner).0, Some(*align)),
@@ -214,7 +213,6 @@ struct ParaProps {
     keep_next: bool,
     numbering: Option<(i64, i64)>,
     indent_left: Option<i64>,
-    /// Hanging indent with `indent_left` (list items).
     hanging: Option<i64>,
     align: Option<&'static str>,
     /// A horizontal rule: a bottom border under an otherwise empty line.
@@ -244,27 +242,20 @@ struct RunProps {
 /// Where paragraphs of a block sequence go and how they look.
 #[derive(Debug, Clone, Copy)]
 struct Ctx {
-    /// Role for ordinary paragraphs (quote, footnote, definition).
     paragraph_role: Option<Role>,
     /// Left indent for paragraphs continuing a list item (twips).
     indent: Option<i64>,
-    /// Block-quote nesting.
     quote_depth: u8,
-    /// Inside a footnote (no nested notes, no heading bookmarks).
     in_note: bool,
-    /// Top-level body sequence (first-paragraph styling applies).
     top_level: bool,
     /// Widest picture that fits (EMU).
     max_image_width: i64,
-    /// Alignment the editor gave the enclosing block.
     align: Option<Align>,
 }
 
-/// Placement anchor in the main body.
 enum Anchor {
     /// Before the body's final `w:sectPr` (or at the end).
     End,
-    /// In place of this paragraph.
     Replace(NodeId),
 }
 
@@ -285,7 +276,6 @@ struct Lists {
 struct TemplateList {
     /// UI name of the base style (`List Bullet`).
     name: String,
-    /// Where each nesting level comes from.
     levels: BTreeMap<i64, LevelSource>,
 }
 
@@ -324,7 +314,6 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     toc_entries: Vec<(u8, String, String)>,
     /// `wp:docPr` elements created, renumbered once attached.
     pictures: Vec<(String, NodeId)>,
-    /// A manual line break was written into a paragraph.
     line_breaks: bool,
     /// The text width (EMU).
     block_width: i64,
@@ -544,13 +533,9 @@ const COMMENT_RELATIONSHIPS: &[&str] = &[
 
 /// After replacing the body, nothing of the template's sample content may
 /// remain in the package: for a template made from a real client document,
-/// its pictures, embedded files and comments are that client's data. Drop
-/// the main part's content relationships the new body does not reference,
-/// the comment parts when no comment is referenced, custom XML when no
-/// content control is bound to it, the package thumbnail (a rendering of
-/// the template's first page), and then every part no relationship chain
-/// from the package reaches. Headers, footers, styles, numbering,
-/// theme, settings and everything they reference stay.
+/// its pictures, embedded files and comments are that client's data.
+/// Headers, footers, styles, numbering, theme, settings and everything they
+/// reference stay.
 fn drop_unreferenced_parts(txn: &mut Txn<'_>, main: &str) -> Result<()> {
     let (referenced, comments_used) = {
         let tree = txn.tree(main)?;
@@ -608,7 +593,6 @@ fn drop_unreferenced_parts(txn: &mut Txn<'_>, main: &str) -> Result<()> {
     for r_id in thumbnails {
         crate::revision::drop_rel(txn, "/", &r_id)?;
     }
-    // Every part a relationship chain from the package reaches stays.
     let mut reachable: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::from(["/".to_string()]);
     while let Some(source) = queue.pop_front() {
@@ -919,9 +903,6 @@ fn tidy_settings(txn: &mut Txn<'_>, keep_update_fields: bool, line_breaks: bool)
     Ok(())
 }
 
-/// Whether the reference document's own body leaves its first page blank:
-/// it opens with empty paragraphs up to a page break, or with at least
-/// eight of them (padding that pushes the sample past a cover).
 /// `(space before, space after)` in twips a paragraph of style `style_id`
 /// (the default paragraph style when `None`) gets from its style chain and
 /// the document defaults.
@@ -1030,6 +1011,9 @@ fn adopt_references(
     Ok(())
 }
 
+/// Whether the reference document's own body leaves its first page blank:
+/// it opens with empty paragraphs up to a page break, or with at least
+/// eight of them (padding that pushes the sample past a cover).
 fn blank_first_page(tree: &XmlTree, body_node: NodeId) -> bool {
     let mut blank = 0;
     for block in tree.child_elements(body_node) {
@@ -1056,7 +1040,6 @@ fn blank_first_page(tree: &XmlTree, body_node: NodeId) -> bool {
     blank >= 8
 }
 
-/// Number format of level `ilvl` of list instance `num_id`.
 fn level_format(numbering: &XmlTree, num_id: i64, ilvl: i64) -> Option<String> {
     let root = numbering.root();
     let int = |node: NodeId, name: &str| {
@@ -1160,7 +1143,6 @@ fn collect_headings<'a>(blocks: &'a [Block], out: &mut Vec<(Option<&'a str>, Str
                     collect_headings(&item.blocks, out);
                 }
             }
-            // In rendering order: row by row, cell by cell.
             Block::Table { head, rows, .. } => {
                 for cell in head.iter().chain(rows.iter().flatten()) {
                     collect_headings(cell, out);
@@ -1337,8 +1319,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(())
     }
 
-    // ------------------------------------------------------------ blocks
-
     fn blocks(
         &mut self,
         part: &str,
@@ -1350,7 +1330,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         let mut after_paragraph = false;
         let mut pending_caption: Option<Vec<Inline>> = None;
         let mut last_table: Option<usize> = None;
-        // Indices in `out` of the last node of each list.
         let mut list_ends: Vec<usize> = Vec::new();
         let mut index = 0;
         while index < blocks.len() {
@@ -1525,7 +1504,6 @@ impl<'p> Renderer<'_, '_, 'p> {
                         out.extend(self.toc(scope, depth)?);
                     }
                 }
-                // Unwrapped above.
                 Block::Aligned(..) => {}
                 Block::Html { html, line } => {
                     let shown: String = html.trim().chars().take(60).collect();
@@ -1564,7 +1542,6 @@ impl<'p> Renderer<'_, '_, 'p> {
                 .and_then(|s| w_attr(tree, s, "val"))
                 .map(str::to_string)
         };
-        // (paragraph, its style, the space the node above leaves below it)
         let mut targets = Vec::new();
         {
             let tree = self.txn.tree(part)?;
@@ -1609,7 +1586,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(())
     }
 
-    /// A new detached paragraph with `props`.
     fn new_paragraph(&mut self, part: &str, scope: NodeId, props: &ParaProps) -> Result<NodeId> {
         let tree = self.txn.tree_mut(part)?;
         let p = w_el(tree, scope, "p")?;
@@ -1771,7 +1747,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         ctx: Ctx,
     ) -> Result<Vec<NodeId>> {
         let level = depth.min(8) as i64;
-        // Lists inside quotes, footnotes and definitions keep that look.
         let role = match ctx.paragraph_role {
             Some(role @ (Role::BlockQuote | Role::FootnoteText | Role::Definition)) => role,
             _ if tight => Role::Compact,
@@ -1781,8 +1756,6 @@ impl<'p> Renderer<'_, '_, 'p> {
             ctx.paragraph_role,
             Some(Role::BlockQuote | Role::FootnoteText | Role::Definition)
         );
-        // The reference document's own list look wins for the levels it
-        // defines; deeper levels use the converter's definitions.
         let template = {
             let lists = self.lists()?;
             if start.is_some() {
@@ -1976,9 +1949,9 @@ impl<'p> Renderer<'_, '_, 'p> {
                 }
                 set_w(tree, look, "val", &format!("{bits:04X}"))?;
             }
-            // Full text width in twips, with the computed columns kept as
-            // drawn. A percentage width (`pct`) would also fill the page in
-            // desktop Word, but Word for the web mis-lays such tables.
+            // Fixed layout at the full text width: a percentage width
+            // (`pct`) would also fill the page in desktop Word, but Word for
+            // the web mis-lays such tables.
             if let Some(tbl_pr) = w_child(tree, tbl, "tblPr") {
                 if let Some(tbl_w) = w_child(tree, tbl_pr, "tblW") {
                     set_w(tree, tbl_w, "type", "dxa")?;
@@ -2091,8 +2064,6 @@ impl<'p> Renderer<'_, '_, 'p> {
             let content: &[Block] = index
                 .and_then(|index| all_rows[row_index].get(index))
                 .map_or(&[], Vec::as_slice);
-            // The cell's own paragraph takes leading inline content; any
-            // further blocks (paragraphs, lists) follow it in the cell.
             let (first, own_align, rest): (&[Inline], Option<Align>, &[Block]) =
                 match content.split_first() {
                     Some((block, rest)) => match unaligned(block) {
@@ -2165,8 +2136,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(tbl)
     }
 
-    // ----------------------------------------------------------- inlines
-
     fn run_props(&mut self, fmt: &Fmt) -> Result<RunProps> {
         let style = if fmt.code {
             self.style(Role::InlineCode)?
@@ -2175,8 +2144,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         } else {
             None
         };
-        // An editor highlight in one of Word's highlighter colours is a
-        // highlight; any other colour is run shading.
         let (highlight, shading) = match &fmt.style.highlight {
             Some(rgb) => match HIGHLIGHTS.iter().find(|(hex, _)| hex == rgb) {
                 Some((_, name)) => (Some(*name), None),
@@ -2402,7 +2369,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         for node in content {
             append(tree, note, node)?;
         }
-        // The note's own mark, then a space, open its first paragraph.
         let mark_props = RunProps {
             style: reference_style.clone(),
             vert_align: reference_style.is_none().then_some("superscript"),
@@ -2417,7 +2383,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         let at = usize::from(w_child(tree, first, "pPr").is_some());
         tree.insert(first, at, mark)?;
         tree.insert(first, at + 1, space)?;
-        // The reference in the text.
         let tree = self.txn.tree_mut(part)?;
         let r = new_run(tree, parent, &mark_props)?;
         let reference = w_el(tree, r, "footnoteReference")?;
@@ -2426,21 +2391,14 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(())
     }
 
-    // ----------------------------------------------------------- pictures
-
-    /// The picture bytes a reference names, and the file name its media
-    /// part may take. Bytes supplied in `images` come first, then a `data:`
-    /// URI, then a file, read only when a `resource_dir` is set and only
-    /// from inside it (see [`resolve_in`]). Remote URLs are never fetched,
-    /// and nothing larger than the package's `max_part_bytes` is taken.
+    /// The picture bytes a reference names, and the file name its media part
+    /// may take: `images` first, then a `data:` URI, then a file inside
+    /// `resource_dir` (see [`resolve_in`]); remote URLs are never fetched.
     /// Warnings quote the reference as written, never a resolved path or an
     /// operating system error.
     fn load_image(&mut self, url: &str, line: usize) -> Option<(Cow<'p, [u8]>, Option<String>)> {
         let options: &'p MarkdownOptions = self.options;
         let limit = self.txn.document().package().limits().max_part_bytes;
-        // Supplied bytes first, keyed by the reference as written (a path,
-        // an id or a URL, which is never fetched); `./a.png` and `a%20b.png`
-        // find `a.png` and `a b.png`, and the other way round.
         let key = image_key(url);
         let supplied = options.images.get(url).or_else(|| {
             options
@@ -2607,8 +2565,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             height = (height as f64 * max_width as f64 / width as f64).round() as i64;
             width = max_width;
         }
-        // A size no drawing can hold (a damaged header, or an absurd
-        // editor size) is not laid out.
+        // A size no drawing can hold: a damaged header or an absurd editor size.
         if !(0..=MAX_EXTENT).contains(&height) || !(0..=MAX_EXTENT).contains(&width) {
             self.image_unreadable(&shown, line);
             return Ok(false);
@@ -2685,8 +2642,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(())
     }
 
-    // ------------------------------------------------------- numbering
-
     fn lists(&mut self) -> Result<&mut Lists> {
         if self.lists.is_none() {
             let part = get_or_create_numbering(self.txn)?;
@@ -2718,12 +2673,11 @@ impl<'p> Renderer<'_, '_, 'p> {
     /// `n` of the base style's numbering.
     fn template_list(&mut self, numbering: &str, name: &str) -> Result<Option<TemplateList>> {
         let styles_part = crate::parts::ensure_styles_part(self.txn)?;
-        // (style id, numId, ilvl) for the base style and each level style.
         let mut bound: BTreeMap<i64, (Option<String>, i64, i64)> = BTreeMap::new();
         // Without such styles, the list paragraphs of the template's own
-        // sample body (Word's list buttons, or a custom style such as
-        // "Bullet Points" that binds numbering): (style, numId, ilvl) in
-        // document order, read from the document as opened.
+        // sample body (Word's list buttons, or a custom style that binds
+        // numbering), read from the document as opened, before the body was
+        // replaced.
         let mut samples: Vec<(Option<String>, i64, i64)> = Vec::new();
         {
             let tree = self.txn.tree(&styles_part)?;
@@ -2737,7 +2691,6 @@ impl<'p> Renderer<'_, '_, 'p> {
                         .is_some_and(|v| v.eq_ignore_ascii_case(wanted))
                 })
             };
-            // numId and ilvl through the basedOn chain (nearest wins).
             let binding = |style: NodeId| {
                 let (mut num_id, mut ilvl) = (None, None);
                 let mut current = Some(style);
@@ -2770,7 +2723,6 @@ impl<'p> Renderer<'_, '_, 'p> {
                 }
                 num_id.filter(|n| *n != 0).map(|n| (n, ilvl.unwrap_or(0)))
             };
-            // Whether a style (through its basedOn chain) is a heading.
             let outlined = |style: NodeId| {
                 let mut current = Some(style);
                 for _ in 0..16 {
@@ -2884,7 +2836,6 @@ impl<'p> Renderer<'_, '_, 'p> {
             return Ok(None);
         };
         let root = tree.root();
-        // abstractNumId and defined levels (ilvl → (indent, hanging)).
         let instance = |num_id: i64| -> Option<(i64, LevelIndents)> {
             let num = w_children(tree, root, "num").find(|n| {
                 w_attr(tree, *n, "numId").and_then(|v| v.parse::<i64>().ok()) == Some(num_id)
@@ -2974,8 +2925,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 Some(source) => {
                     levels.insert(level, source);
                 }
-                // Deeper than the template goes: keep its deepest look and
-                // continue its indent step.
+                // Deeper than the template goes: its deepest look, its indent step continued.
                 None => {
                     let deepest: Vec<&LevelSource> = levels.values().collect();
                     if let [.., previous, last] | [previous @ last] = deepest.as_slice() {
@@ -3064,8 +3014,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         self.add_num(abstract_id, Some((level, start)))
     }
 
-    // ------------------------------------------------- front matter, TOC
-
     fn title_block(&mut self, scope: NodeId, metadata: &Metadata) -> Result<Vec<NodeId>> {
         let main = self.main.clone();
         let ctx = Ctx {
@@ -3152,19 +3100,16 @@ impl<'p> Renderer<'_, '_, 'p> {
             ctx,
         )?;
         append(self.txn.tree_mut(&main)?, content, heading)?;
-        // The field's result is built here from the headings, so every
-        // reader shows the entries (linked to their headings) without
-        // updating fields. Page numbers need layout: the entries carry none,
-        // and Word's own update of the field (which asks for no `\n`
-        // switch) fills them in; with `toc_page_numbers` Word updates on
-        // open after asking.
+        // The field's result is built from the headings, so every reader
+        // shows the entries without updating fields; page numbers need
+        // layout, which Word's own update of the field (the instruction has
+        // no `\n` switch) supplies.
         let numbers = self.options.toc_page_numbers;
         let instruction = format!(" TOC \\o \"1-{depth}\" \\h \\z \\u ");
         let entries: Vec<(u8, String, String)> = self
             .toc_entries
             .iter()
-            // A heading with no text (only whitespace or line breaks) gets
-            // no entry: Word's own update leaves it out.
+            // Word's own update lists no heading without text.
             .filter(|(level, text, _)| i64::from(*level) <= depth && !text.trim().is_empty())
             .cloned()
             .collect();
@@ -3338,8 +3283,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(())
     }
 
-    /// A centred PAGE field in a new default footer, unless the final
-    /// section already has a footer (a template's footer is never changed).
     /// Apply [`MarkdownOptions::cover_page`]: a page break before the
     /// content when the first page stays a cover, or the distinct first page
     /// turned off.
@@ -3368,7 +3311,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         let Some(title_pg) = title_pg else {
             return Ok(Vec::new());
         };
-        // The tallest drawing in the first-page header, against the page.
         let graphic = match first_header {
             Some(r_id) => {
                 let target = self
@@ -3430,6 +3372,8 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(vec![p])
     }
 
+    /// A centred PAGE field in a new default footer, unless the final
+    /// section already has a footer (a template's footer is never changed).
     fn page_number_footer(&mut self, main: &str, body_node: NodeId) -> Result<()> {
         let sect_pr = {
             let tree = self.txn.tree(main)?;
@@ -3490,7 +3434,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(())
     }
 
-    /// Write the front matter's document properties; returns the ones set.
     fn core_properties(&mut self, metadata: &Metadata) -> Result<Vec<CoreProperty>> {
         let mut changes: Vec<(CoreProperty, String)> = Vec::new();
         if let Some(title) = &metadata.title {
@@ -3532,16 +3475,11 @@ impl<'p> Renderer<'_, '_, 'p> {
     }
 
     /// The template's document properties describe the template, often a
-    /// finished client document: who wrote it, its title, its statistics,
-    /// its SharePoint metadata. None of it may ship in every export. Core
-    /// properties lose their people, descriptive text and print date (but
-    /// what the front matter `set`), and are stamped as created and
-    /// modified now at revision 1; extended properties lose their
-    /// statistics, manager, part titles and hyperlink list (company,
-    /// template and application stay); custom properties stay only when a
-    /// `DOCPROPERTY` field in the kept body, headers, footers or notes
-    /// reads them, and the part goes when none is left. Each property
-    /// cleared is reported as `core:`/`app:`/`custom:` plus its name.
+    /// finished client document: its people, title, statistics and
+    /// SharePoint metadata, none of which may ship in every export. Core and
+    /// extended properties lose those (but what the front matter `set`);
+    /// custom properties stay only while a `DOCPROPERTY` field in a kept
+    /// story reads them.
     fn clear_template_properties(&mut self, main: &str, set: &[CoreProperty]) -> Result<()> {
         let fields = kept_field_instructions(self.txn, main)?;
         let read_property: HashSet<String> = fields
@@ -3639,8 +3577,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 cleared.push(format!("custom:{name}"));
             }
             if kept == 0 {
-                // Unrelated, the part is then left out with the others
-                // nothing reaches.
+                // Unrelated, the part goes with the others nothing reaches.
                 let ids: Vec<String> = self
                     .txn
                     .relationships("/")?
@@ -3733,7 +3670,6 @@ fn image_key(reference: &str) -> String {
         .to_string()
 }
 
-/// An image reference as a warning quotes it (a `data:` URI is not quoted).
 fn image_name(url: &str) -> String {
     if url.starts_with("data:") {
         "(a data: image)".into()
@@ -3742,7 +3678,6 @@ fn image_name(url: &str) -> String {
     }
 }
 
-/// Why a local image was not read.
 #[derive(Debug, PartialEq, Eq)]
 enum Unread {
     /// Not a relative path that stays inside the resource directory.
@@ -3753,14 +3688,11 @@ enum Unread {
     TooLarge,
 }
 
-/// The file `reference` (percent-decoded) names inside `dir`. Absolute
-/// paths, drive and UNC prefixes (`C:`, `\\server`, `//server`) and
-/// `file:` URLs are refused, as is a `..` that climbs above `dir`, all
-/// before the file system is touched, so nothing outside answers whether
-/// it exists. What is left is joined onto `dir` and both are canonicalised:
-/// the file must lie inside `dir` with symbolic links resolved. A missing
-/// file under a link that leads out of `dir` counts as outside, not
-/// missing, so the link cannot be used to probe for files elsewhere.
+/// The file `reference` names inside `dir`. Absolute paths, drive and UNC
+/// prefixes, `file:` URLs and a `..` that climbs above `dir` are refused
+/// before the file system is asked, so nothing outside answers whether it
+/// exists; what is left is canonicalised and must lie inside `dir` with
+/// symbolic links resolved.
 fn resolve_in(dir: &Path, reference: &str) -> std::result::Result<PathBuf, Unread> {
     use std::path::Component;
     let lower = reference.get(..5).map(str::to_ascii_lowercase);
@@ -3789,10 +3721,10 @@ fn resolve_in(dir: &Path, reference: &str) -> std::result::Result<PathBuf, Unrea
     let joined = root.join(relative);
     let path = match std::fs::canonicalize(&joined) {
         Ok(path) => path,
-        // Nothing there. Whether the answer is "missing" or "outside" comes
-        // from the nearest ancestor that does exist: past a symbolic link
-        // leading out of `dir`, every path is "outside", so the two
-        // warnings never tell whether a file outside exists.
+        // Whether the answer is "missing" or "outside" comes from the nearest
+        // ancestor that exists: past a symbolic link leading out of `dir`,
+        // every path is "outside", so the two warnings never tell whether a
+        // file outside exists.
         Err(_) => {
             let mut ancestor = joined.parent();
             while let Some(candidate) = ancestor {
@@ -3814,7 +3746,6 @@ fn resolve_in(dir: &Path, reference: &str) -> std::result::Result<PathBuf, Unrea
     Ok(path)
 }
 
-/// A regular file's bytes, at most `limit` of them.
 fn read_within(path: &Path, limit: u64) -> std::result::Result<Vec<u8>, Unread> {
     use std::io::Read;
     let file = std::fs::File::open(path).map_err(|_| Unread::Missing)?;
@@ -3835,9 +3766,9 @@ fn read_within(path: &Path, limit: u64) -> std::result::Result<Vec<u8>, Unread> 
     Ok(bytes)
 }
 
-/// Column widths in twips filling `total`. The editor's widths in
-/// proportion when it sized every column; weights from the text when it
-/// sized none (the first `header_rows` rows are headers). In between, a sized column keeps its pixels (a percentage
+/// Column widths in twips filling `total`: the editor's widths in
+/// proportion when it sized every column, weights from the text when it
+/// sized none. In between, a sized column keeps its pixels (a percentage
 /// is of the text width) and the others share what is left by their text,
 /// none narrower than the editor's minimum column; the whole is scaled
 /// down only when the sized columns and those minimums do not fit.
@@ -3870,8 +3801,7 @@ fn column_widths(
         let mut widths: Vec<f64> = given.iter().map(|w| w.map_or(0.0, twips)).collect();
         let mut open: Vec<usize> = (0..cols).filter(|c| given[*c].is_none()).collect();
         let mut left = total as f64 - widths.iter().sum::<f64>();
-        // A column the sharing would put under the floor takes the floor and
-        // leaves the sharing to the others.
+        // A column the sharing would put under the floor takes the floor; the others share the rest.
         loop {
             let weight: f64 = open.iter().map(|c| text[*c]).sum();
             let short: Vec<usize> = open
@@ -3944,7 +3874,6 @@ fn text_weights(
         .collect()
 }
 
-/// Length of the longest word in `blocks`' paragraphs.
 fn longest_word(blocks: &[Block]) -> i64 {
     let mut longest = 0;
     for block in blocks {
@@ -3960,7 +3889,6 @@ fn longest_word(blocks: &[Block]) -> i64 {
     longest
 }
 
-/// Length of the longest paragraph of `blocks` (column width weight).
 fn longest_line(blocks: &[Block]) -> usize {
     blocks
         .iter()
@@ -3984,7 +3912,6 @@ fn longest_line(blocks: &[Block]) -> usize {
         .unwrap_or(0)
 }
 
-/// Indent for paragraphs nested in quotes beyond the first level.
 fn quote_indent(depth: u8) -> Option<i64> {
     (depth >= 2).then(|| LIST_INDENT * i64::from(depth))
 }
@@ -4003,7 +3930,6 @@ fn table_caption(inlines: &[Inline]) -> Option<Vec<Inline>> {
     Some(caption)
 }
 
-/// A paragraph that holds nothing but one image.
 fn lone_image(inlines: &[Inline]) -> Option<&Inline> {
     let meaningful: Vec<&Inline> = inlines
         .iter()
@@ -4019,7 +3945,6 @@ fn lone_image(inlines: &[Inline]) -> Option<&Inline> {
     }
 }
 
-/// Link pieces with the link formatting removed.
 fn unlinked(pieces: &[Piece]) -> Vec<Piece> {
     pieces
         .iter()
@@ -4219,7 +4144,6 @@ fn write_rpr(tree: &mut XmlTree, r: NodeId, props: &RunProps) -> Result<()> {
     Ok(())
 }
 
-/// A run appended to `parent` with `props`.
 fn new_run(tree: &mut XmlTree, parent: NodeId, props: &RunProps) -> Result<NodeId> {
     let r = w_el(tree, parent, "r")?;
     append(tree, parent, r)?;
@@ -4272,7 +4196,6 @@ pub(crate) fn reference_toc_title(txn: &Txn<'_>, main: &str) -> Result<Option<St
         .filter(|text| !text.is_empty() && text.chars().count() <= 80))
 }
 
-/// Whether the paragraph holds a TOC field, complex or simple.
 fn has_toc_field(tree: &XmlTree, p: NodeId) -> bool {
     tree.descendants(p).any(|node| {
         let instruction = if tree.is(node, W, "instrText") {
@@ -4286,8 +4209,6 @@ fn has_toc_field(tree: &XmlTree, p: NodeId) -> bool {
     })
 }
 
-/// Whether the paragraph is in the `TOCHeading` style or one named
-/// "TOC Heading".
 fn is_toc_heading(tree: &XmlTree, styles: Option<&XmlTree>, p: NodeId) -> bool {
     let Some(id) = w_child(tree, p, "pPr")
         .and_then(|ppr| w_child(tree, ppr, "pStyle"))

@@ -208,8 +208,6 @@ pub(crate) fn place(spans: &[Vec<CellSpan>]) -> (Vec<Vec<Slot>>, usize) {
     (out, columns)
 }
 
-/// A cell's `(colspan, rowspan)` once placed at `col` with `rows_left` rows
-/// from its own to the table's end (see [`place`]).
 fn clamped_span(span: &CellSpan, col: usize, rows_left: usize) -> (usize, usize) {
     if col >= MAX_TABLE_COLUMNS {
         return (1, 1);
@@ -375,7 +373,6 @@ pub(crate) fn options(smart_punctuation: bool) -> Options {
     options
 }
 
-/// Open container while folding events.
 enum Frame {
     Root,
     Paragraph,
@@ -413,7 +410,6 @@ enum Frame {
     TableRow(Vec<Vec<Block>>),
     TableCell,
     Metadata(MetadataKind, String),
-    /// Inline span (emphasis, link, …): children collect into `inlines`.
     Span(SpanKind),
     Image {
         url: String,
@@ -449,14 +445,10 @@ enum SpanKind {
     Subscript,
     Underline,
     Highlight,
-    /// `<kbd>`, `<code>`, `<samp>`, `<tt>`: inline code.
     Code,
     /// `<b>`/`<i>`-style raw HTML spans close on their own tag.
     Html(&'static str, Box<SpanKind>),
-    /// Editor formatting of a `<span>`, `<font>` or `<mark>`.
     Format(Box<super::html::SpanFormat>),
-    /// An element browsers do not display (`<script>`, `<style>`, …): its
-    /// content is dropped.
     Hidden,
     Link {
         url: String,
@@ -576,7 +568,6 @@ pub(crate) fn parse_html(source: &str) -> Result<Parsed> {
     Ok(parsed)
 }
 
-/// File what an HTML conversion starting on `line` could not map.
 fn record_unmapped(
     unmapped: super::html::Unmapped,
     line: usize,
@@ -615,7 +606,6 @@ pub(crate) fn skipped_message(tag: &str) -> String {
 
 pub(crate) const TABLE_CLAMPED_MESSAGE: &str = "a table is wider than Word's 63 columns; spans past the last column were cut back and cells past it were merged into the last column";
 
-/// `\newpage`, `\pagebreak` and `[TOC]` paragraphs become their blocks.
 fn special_paragraph(block: Block) -> Block {
     match &block {
         Block::Paragraph(content) => match content.as_slice() {
@@ -723,8 +713,7 @@ fn scripts(inlines: Vec<Inline>) -> Vec<Inline> {
     out
 }
 
-/// `~x~` → subscript, `^x^` → superscript: non-empty, no whitespace, and
-/// not part of a `~~` run.
+/// `~x~` is a subscript and `^x^` a superscript: non-empty, no whitespace, not in a `~~` run.
 fn split_scripts(text: &str) -> Vec<Inline> {
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -793,7 +782,6 @@ pub(crate) fn inline_text(inlines: &[Inline]) -> String {
     plain_text(inlines)
 }
 
-/// A recognized inline HTML tag: `(name, closing)`.
 fn html_tag(html: &str) -> Option<(String, bool)> {
     let inner = html.trim().strip_prefix('<')?.strip_suffix('>')?;
     let inner = inner.trim().trim_end_matches('/').trim();
@@ -909,8 +897,6 @@ impl Folder<'_> {
         }
     }
 
-    /// Inline content of a tight list item (or stray inline content in a
-    /// block container) becomes a block before the next block starts.
     fn flush_inlines(&mut self) {
         self.close_html_spans();
         let level = self.top();
@@ -936,7 +922,6 @@ impl Folder<'_> {
     }
 
     fn event(&mut self, event: Event<'_>, line: usize) {
-        // Text inside a code block, HTML block or metadata block is raw.
         match (&mut self.top().frame, &event) {
             (Frame::Code { text, .. }, Event::Text(chunk)) => {
                 text.push_str(chunk);
@@ -964,7 +949,6 @@ impl Folder<'_> {
             Event::DisplayMath(math) => {
                 self.check_math(&math);
                 match self.top().frame {
-                    // Display math inside a paragraph splits it.
                     Frame::Paragraph => {
                         let inlines = std::mem::take(&mut self.top().inlines);
                         let level = self.stack.len() - 2;
@@ -985,13 +969,11 @@ impl Folder<'_> {
                             .blocks
                             .push(Block::DisplayMath(math.into_string()));
                     }
-                    // Inside a span, heading or cell, which hold no blocks:
-                    // kept in line.
+                    // A span, heading or cell holds no blocks: kept in line.
                     _ => self.push_inline(Inline::Math(math.into_string())),
                 }
             }
             Event::Html(html) => {
-                // Html outside an HtmlBlock frame: treat as a block of its own.
                 self.flush_inlines();
                 self.html_block(html.into_string(), line);
             }
@@ -1030,16 +1012,15 @@ impl Folder<'_> {
             return;
         }
         if closing {
-            // Close the innermost matching raw-HTML span, if any. An
-            // unmatched end tag needs no report: its start tag (if any) was
-            // already reported or was a transparent wrapper.
+            // An unmatched end tag needs no report: its start tag was reported
+            // or was a transparent wrapper.
             let Some(index) = self.stack.iter().rposition(
                 |level| matches!(&level.frame, Frame::Span(SpanKind::Html(tag, _)) if *tag == name),
             ) else {
                 return;
             };
-            // Only spans can be open inside it. With an image open there
-            // the end tag waits for the image's container to close it.
+            // With an image open inside it the end tag waits for the image's
+            // container to close it.
             if self.stack[index + 1..]
                 .iter()
                 .any(|level| !matches!(level.frame, Frame::Span(_)))
@@ -1077,7 +1058,6 @@ impl Folder<'_> {
             }
             return;
         }
-        // Spans carrying editor formatting (`style`, `<mark data-color>`).
         if let ("span" | "font" | "mark", Some(format)) =
             (name.as_str(), super::html::tag_format(html))
         {
@@ -1117,7 +1097,6 @@ impl Folder<'_> {
         }
     }
 
-    /// Record the refusal that stops folding (the first one wins).
     fn fail(&mut self, error: Error) {
         if self.error.is_none() {
             self.error = Some(error);
@@ -1257,7 +1236,6 @@ impl Folder<'_> {
     }
 
     fn end(&mut self, end: TagEnd) {
-        // Raw-HTML spans left open inside this container close with it.
         self.close_html_spans();
         if matches!(end, TagEnd::List(_) | TagEnd::Item | TagEnd::BlockQuote(_)) {
             self.flush_inlines();
@@ -1265,8 +1243,6 @@ impl Folder<'_> {
         self.close();
     }
 
-    /// Pop the top level and attach what it built to its parent. The root
-    /// stays.
     fn close(&mut self) {
         if self.stack.len() < 2 {
             return;

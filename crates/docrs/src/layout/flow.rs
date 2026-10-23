@@ -142,7 +142,6 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
             para.left
         }
     };
-    // Current line state.
     let mut x = start_x(true);
     let mut text = Extent::default();
     // Width of the spaces between words on the line so far.
@@ -188,7 +187,6 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
                     0.0
                 };
                 if !is_space && x + w > right_limit + EPSILON + shrink && has_content {
-                    // Wrap: at the last opportunity, else before this char.
                     let restart = match last_break {
                         Some(b) if b > line_start => b,
                         _ if index > line_start => index,
@@ -599,7 +597,6 @@ impl<'m> Flow<'m> {
         let mut first = true;
         let mut index = 0;
         while index < lines.len() {
-            // How many of the remaining lines fit.
             let mut fit = 0;
             let mut y = self.y;
             for line in &lines[index..] {
@@ -1026,7 +1023,6 @@ mod tests {
         assert_eq!(lines(&para(10, 18.0), &METRICS, 100.0, 36.0).len(), 2);
         // One word of four 62.5-point characters breaks between them.
         assert_eq!(lines(&para(1, 250.0), &METRICS, 100.0, 36.0).len(), 4);
-        // An empty paragraph is one line of its mark.
         assert_eq!(lines(&para(0, 0.0), &METRICS, 100.0, 36.0).len(), 1);
     }
 

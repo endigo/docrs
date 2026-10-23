@@ -38,8 +38,6 @@ pub const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relat
 
 const PICTURE_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 
-// ------------------------------------------------------------- handles
-
 /// Freshness evidence shared by every live authoring handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Handle {
@@ -225,8 +223,6 @@ pub enum BreakType {
     LineClearAll,
 }
 
-// --------------------------------------------------------- lxml helpers
-
 /// lxml `parent.insert(0, child)`: before the first non-text child, i.e.
 /// after the parent's leading text.
 pub(crate) fn insert_first(tree: &mut XmlTree, parent: NodeId, child: NodeId) -> Result<()> {
@@ -366,8 +362,6 @@ pub(crate) fn add_w(
     Ok(child)
 }
 
-// ------------------------------------------------------------- text views
-
 fn run_child_text(tree: &XmlTree, node: NodeId) -> Option<String> {
     if tree.ns_uri(node) != Some(W) {
         return None;
@@ -406,8 +400,6 @@ pub(crate) fn paragraph_text(tree: &XmlTree, p: NodeId) -> String {
     }
     out
 }
-
-// --------------------------------------------------------------- lengths
 
 /// `Emu(value).twips`: `int(round(emu / 635.0))`.
 fn twips(emu: i64) -> i64 {
@@ -500,8 +492,6 @@ fn parse_universal_measure(value: &str) -> Result<i64> {
     };
     Ok((quantity * multiplier).round_ties_even() as i64)
 }
-
-// ---------------------------------------------------------------- styles
 
 /// Style type (`WD_STYLE_TYPE`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -640,8 +630,6 @@ pub(crate) fn resolve_style_id(
     Ok(w_attr(tree, style, "styleId").map(str::to_string))
 }
 
-// ----------------------------------------------------- shared XML effects
-
 /// `CT_R.text = text` (`clear_content` + `_RunContentAppender`).
 fn set_run_text(tree: &mut XmlTree, r: NodeId, text: &str) -> Result<()> {
     clear_except(tree, r, "rPr")?;
@@ -777,8 +765,6 @@ pub(crate) fn staged_handle(txn: &Txn<'_>, part: &str, element: NodeId) -> Resul
     let tree = txn.tree(part)?;
     Ok(Handle::capture(txn.document(), part, tree, element))
 }
-
-// ----------------------------------------------------------- pictures
 
 /// Upstream `ImageParts`: image parts reached by `IMAGE` relationships in a
 /// depth-first walk of the relationship graph, in first-encounter order.
@@ -1037,8 +1023,6 @@ pub(crate) fn add_picture_named(
     })
 }
 
-// ------------------------------------------------------------- sections
-
 pub(crate) fn section_properties(tree: &XmlTree) -> Result<Vec<NodeId>> {
     let body = body(tree)?;
     let mut out = Vec::new();
@@ -1102,8 +1086,6 @@ pub(crate) const SECT_PR_SEQ: &[&str] = &[
     "printerSettings",
     "sectPrChange",
 ];
-
-// ------------------------------------------------------------- Document
 
 impl Document {
     /// Body paragraphs (`Document.paragraphs`: direct `w:body/w:p`).
@@ -1503,8 +1485,6 @@ fn table_cells(tree: &XmlTree, tbl: NodeId) -> Result<Vec<NodeId>> {
     }
     Ok(cells)
 }
-
-// ------------------------------------------------------------- Paragraph
 
 /// Paragraph alignment tokens (`WD_PARAGRAPH_ALIGNMENT` XML values).
 pub const ALIGNMENTS: &[&str] = &[
@@ -2116,8 +2096,6 @@ impl Paragraph {
     }
 }
 
-// ------------------------------------------------------------------- Run
-
 /// Underline value (`Font.underline`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Underline {
@@ -2275,7 +2253,6 @@ fn rpr_get_or_add(tree: &mut XmlTree, rpr: NodeId, local: &str) -> Result<NodeId
     get_or_add(tree, rpr, local, RPR_SEQ)
 }
 
-/// Validate the value of one font change before anything is written.
 fn validate_font_change(change: &FontChange) -> Result<()> {
     match change {
         FontChange::Flag(name, _) if !FONT_FLAGS.iter().any(|(n, _)| n == name) => {
@@ -2701,8 +2678,6 @@ impl Run {
     }
 }
 
-// ----------------------------------------------------------------- Table
-
 impl Table {
     fn live<'d>(&self, doc: &'d Document) -> Result<&'d XmlTree> {
         self.h.check(doc, "tbl", "table")
@@ -2843,8 +2818,6 @@ fn style_of(
 ) -> Result<Option<crate::styles::Style>> {
     Ok(doc.styles()?.get_by_id(style_id, style_type).cloned())
 }
-
-// ------------------------------------------------------- block containers
 
 /// What a [`BlockContainer`] wraps (upstream `BlockItemContainer`
 /// subclasses).
@@ -3086,8 +3059,6 @@ impl Document {
     }
 }
 
-// ----------------------------------------------------------- value types
-
 /// Upstream `Length` (an EMU count) with its unit constructors (`Inches`,
 /// `Cm`, `Mm`, `Pt`, `Twips`, `Emu`: `int(value * emus_per_unit)`) and
 /// read-only unit accessors.
@@ -3220,8 +3191,6 @@ impl std::fmt::Display for RgbColor {
     }
 }
 
-// ------------------------------------------------- table, row, column, cell
-
 /// `WD_TABLE_ALIGNMENT` XML tokens.
 pub const TABLE_ALIGNMENTS: &[&str] = &["left", "center", "right"];
 /// `WD_CELL_VERTICAL_ALIGNMENT` XML tokens.
@@ -3324,7 +3293,6 @@ fn move_append(tree: &mut XmlTree, parent: NodeId, child: NodeId) -> Result<()> 
     Ok(())
 }
 
-/// The layout grid of `tbl` (as [`table_cells`]) and its column count.
 fn grid(tree: &XmlTree, tbl: NodeId) -> Result<(Vec<NodeId>, usize)> {
     let cols = w_children(tree, tbl_grid(tree, tbl)?, "gridCol").count();
     Ok((table_cells(tree, tbl)?, cols))
@@ -3595,7 +3563,6 @@ fn grow_to(
     } else {
         Some("restart")
     };
-    // `_span_to_width`
     move_content_to(tree, tc, top_tc)?;
     loop {
         let span = MergeGeometry { tree, tbl }.grid_span(tc)?;
@@ -4156,8 +4123,6 @@ impl Cell {
     }
 }
 
-// -------------------------------------------------------- inline shapes
-
 const CHART_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 const DIAGRAM_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
 const MAX_POSITIVE_COORDINATE: i128 = 27_273_042_316_900;
@@ -4362,8 +4327,6 @@ impl InlineShapeRef {
         self.set_extent(doc, cy, "cy")
     }
 }
-
-// ------------------------------------------------------------- tab stops
 
 /// `WD_TAB_ALIGNMENT` XML tokens.
 pub const TAB_ALIGNMENTS: &[&str] = &[
@@ -4615,8 +4578,6 @@ impl TabStop {
     }
 }
 
-// --------------------------------------------------- comment ranges, paths
-
 impl Run {
     /// Upstream `Run.mark_comment_range(last_run, comment_id)`: a
     /// `w:commentRangeStart` before this run and `w:commentRangeEnd` plus a
@@ -4723,8 +4684,6 @@ impl Document {
     }
 }
 
-// ------------------------------------------------ paragraph / run content
-
 /// A live `w:hyperlink` handle (upstream `Hyperlink`, read side).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HyperlinkRef {
@@ -4794,7 +4753,6 @@ fn is_run_inner(tree: &XmlTree, node: NodeId) -> bool {
             .is_some_and(|l| RUN_INNER.contains(&l))
 }
 
-/// Text and run texts of the children `items` of a (virtual) paragraph.
 fn fragment(tree: &XmlTree, items: &[FragmentItem]) -> ParagraphFragment {
     let mut text = String::new();
     let mut runs = Vec::new();

@@ -88,7 +88,6 @@ fn borrowed(pairs: &[(String, String)]) -> Vec<(&str, &str)> {
         .collect()
 }
 
-/// `ext.p2_fieldcode(function, instruction, ...)`.
 fn fieldcode_op(_doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let function = step.arg(0).as_str().unwrap_or("");
     let instruction = step.arg(1).as_str().unwrap_or("").to_string();

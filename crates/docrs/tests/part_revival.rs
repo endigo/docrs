@@ -61,7 +61,6 @@ fn readding_a_member_starts_a_new_incarnation() {
     readd_header_unchanged(&mut doc);
     assert_eq!(doc.package().part(HEADER).unwrap().incarnation(), 1);
     assert_eq!(doc.package().xml(HEADER).unwrap().incarnation(), 1);
-    // The body is untouched.
     assert_eq!(
         doc.package()
             .xml("word/document.xml")
@@ -69,7 +68,6 @@ fn readding_a_member_starts_a_new_incarnation() {
             .incarnation(),
         0
     );
-    // A save and reopen starts the count over for the saved file.
     let reopened = Document::open_bytes(&bytes(&doc), &Limits::default()).unwrap();
     assert_eq!(reopened.package().xml(HEADER).unwrap().incarnation(), 0);
 }
@@ -91,7 +89,6 @@ fn spans_into_the_old_member_are_stale() {
     assert_eq!(err.refusal_kind(), Some(RefusalKind::TargetNotFound));
     assert_eq!(err.reason(), "story_replaced", "{err}");
     assert_eq!(bytes(&doc), before);
-    // A span found afresh works.
     let fresh = doc
         .find_text("Header text", &FindOptions::default())
         .unwrap()

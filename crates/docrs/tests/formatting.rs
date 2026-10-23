@@ -151,7 +151,6 @@ fn style_chain_resolution() {
     let character = run_format(&doc, "char styled");
     assert_eq!(character["size_pt"].value, num(8.0));
     assert_eq!(character["size_pt"].source, "character_style:Emph");
-    // A basedOn cycle must not recurse forever.
     assert_eq!(run_format(&doc, "cyclic")["size_pt"].value, num(20.0));
 }
 
@@ -238,7 +237,6 @@ fn paragraph_and_span_targets() {
     assert_eq!(paragraph["alignment"].value.as_str(), Some("center"));
     assert_eq!(paragraph["alignment"].source, "direct");
     assert_eq!(paragraph["style_name"].value.as_str(), Some("Normal"));
-    // The same paragraph addressed as a live block and as exact text.
     let block = doc
         .blocks(View::Current)
         .unwrap()
@@ -321,7 +319,6 @@ fn rejects_unsupported_and_stale_targets() {
         .format_of(FormatTarget::Paragraph(BlockTarget::Block(&table)))
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidArgument);
-    // A paragraph inside a cell is addressed through a span.
     let cell = span(&doc, "in a cell");
     assert!(
         doc.format_of(FormatTarget::Paragraph(BlockTarget::Span(&cell)))
@@ -375,7 +372,6 @@ fn no_styles_part_reads_bundled_defaults() {
     assert!(heading["style_name"].value.is_null());
     assert_eq!(heading["style_name"].source, "paragraph_style:Heading1");
     assert_eq!(heading["size_pt"].value, num(12.0));
-    // Reading never changed the package.
     let (out, patch) = doc.patch_bytes().unwrap();
     assert_eq!(patch.to_json()["changed_parts"], serde_json::json!([]));
     assert_eq!(out, bytes);

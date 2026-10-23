@@ -45,7 +45,6 @@ fn document_with_text(text: &str) -> Document {
     Document::open_bytes(&minimal_package_with(&xml), &Limits::default()).unwrap()
 }
 
-/// One step of a random edit sequence.
 #[derive(Debug, Clone)]
 enum Edit {
     AddParagraph(String),
@@ -198,7 +197,6 @@ proptest! {
                 }
             }
         }
-        // The composition source is never modified.
         prop_assert_eq!(source.patch_bytes().unwrap().0, source_before);
     }
 

@@ -11,7 +11,6 @@ use docrs::markdown::{
 use docrs::{Document, Error, ErrorKind, Limits, RefusalKind};
 use proptest::prelude::*;
 
-/// A conversion, exported and reopened under the default limits.
 struct Converted {
     doc: Document,
     report: MarkdownReport,
@@ -25,7 +24,6 @@ impl Converted {
         .unwrap()
     }
 
-    /// The text of every `w:t` in the body, in order.
     fn texts(&self) -> Vec<String> {
         let body = self.body();
         let mut out = Vec::new();
@@ -89,7 +87,6 @@ fn truncated(source: &str) -> String {
     source.chars().take(60).collect()
 }
 
-/// The refusal for nesting past the cap; the document is left unchanged.
 fn assert_too_deep(result: docrs::Result<(Document, MarkdownReport)>, what: &str) {
     let err: Error = match result {
         Ok(_) => panic!("{what}: nesting past the cap was converted"),
@@ -111,7 +108,6 @@ fn assert_depth_cap(what: &str, build: impl Fn(usize) -> String, is_html: bool) 
         }
     };
     let at_cap = reopen(run(MAX_NESTING_DEPTH), &format!("{what} at the cap"));
-    // In body text, or in an equation.
     assert!(
         at_cap.text().contains('x') || at_cap.body().contains(">x</m:t>"),
         "{what}: the text survives"
@@ -119,8 +115,6 @@ fn assert_depth_cap(what: &str, build: impl Fn(usize) -> String, is_html: bool) 
     assert_too_deep(run(MAX_NESTING_DEPTH + 1), &format!("{what} one over"));
     assert_too_deep(run(50_000), &format!("{what} 50k deep"));
 }
-
-// ------------------------------------------------------------- nesting
 
 #[test]
 fn nested_block_quotes_stop_at_the_cap() {
@@ -255,8 +249,8 @@ fn deep_equations_count_their_word_structure() {
         convert(&roots(fits + 1), None, &MarkdownOptions::default()),
         "roots",
     );
-    // Operators taking operators, without braces, are counted too.
-    // (Math braces must balance for the parser to read `$…$` as math.)
+    // Operators taking operators without braces count too; braces must
+    // balance for the parser to read `$…$` as math.
     for (open, close) in [
         ("\\sqrt", ""),
         ("\\sum", ""),
@@ -291,8 +285,6 @@ fn a_refused_conversion_leaves_the_document_unchanged() {
     assert_eq!(err.reason(), "markdown_nesting_too_deep");
     assert_eq!(doc.patch_bytes().unwrap().0, before);
 }
-
-// --------------------------------------------------------- inline HTML
 
 #[test]
 fn inline_html_closing_across_emphasis_keeps_the_text() {
@@ -334,12 +326,10 @@ fn unclosed_inline_html_ends_with_its_block() {
     let converted = markdown("- <b>a\n  - b\n");
     assert_eq!(converted.texts(), vec!["a", "b"]);
     assert_eq!(converted.report.counts.list_items, 2);
-    // The tag does not leak into the next item or block.
     let converted = markdown("- <u>a\n- b\n\n> <i>q\n\nafter\n");
     assert_eq!(converted.text(), "abqafter");
     let body = converted.body();
     assert_eq!(body.matches("<w:u ").count(), 1, "{body}");
-    // Display math inside an unclosed span or emphasis is kept.
     let converted = markdown("<b>x $$y$$ z\n\n*a $$b$$ c*\n");
     let body = converted.body();
     for word in ["x", "z", "a", "c"] {
@@ -351,8 +341,6 @@ fn unclosed_inline_html_ends_with_its_block() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Any mix of Markdown delimiters and inline HTML converts, and every
-    /// `x` written survives.
     #[test]
     fn misnested_inline_html_never_panics_or_loses_text(
         pieces in prop::collection::vec(
@@ -368,10 +356,9 @@ proptest! {
         let source: String = pieces.concat();
         let converted = markdown(&source);
         let written = source.matches('x').count();
-        // Inside a code span, `x` stays; image descriptions become alt text
-        // (not body text) and a fence's info string is not text at all
-        // (```x opens a code block named x), so only check sources without
-        // images or fences.
+        // Image descriptions become alt text, not body text, and a fence's
+        // info string is not text at all (```x opens a code block named x),
+        // so those sources are not checked.
         if !source.contains("![") && !source.contains("```") && !source.contains("~~~") {
             prop_assert_eq!(
                 converted.text().matches('x').count(),
@@ -383,8 +370,6 @@ proptest! {
         }
     }
 }
-
-// --------------------------------------------------------- front matter
 
 #[test]
 fn front_matter_indented_with_non_ascii_spaces_converts() {
@@ -405,8 +390,6 @@ fn front_matter_indented_with_non_ascii_spaces_converts() {
     );
 }
 
-// --------------------------------------------------------------- tables
-
 #[test]
 fn wide_colspans_are_cut_to_word_columns() {
     let cells: String = (0..300)
@@ -416,12 +399,10 @@ fn wide_colspans_are_cut_to_word_columns() {
     let body = converted.body();
     assert_eq!(body.matches("<w:gridCol ").count(), 63);
     assert_eq!(converted.warnings("table_columns_clamped"), 1);
-    // Every cell's text is kept, merged into the last column.
     let text = converted.text();
     for i in 0..300 {
         assert!(text.contains(&format!("c{i}")), "c{i} lost");
     }
-    // Strict conversion refuses the loss.
     let mut doc = Document::new();
     let strict = MarkdownOptions {
         strict: true,
@@ -460,7 +441,6 @@ fn row_spans_and_ragged_rows_stay_within_word_columns() {
     assert_eq!(body.matches("<w:gridCol ").count(), 63);
     assert!(body.matches("<w:tc>").count() <= 63 * 2_001);
     assert!(converted.text().contains("l1999"));
-    // A spanning header over a narrow table is unchanged.
     let converted = html(
         "<table><tr><th colspan=\"3\">h</th></tr><tr><td>a</td><td>b</td><td>c</td></tr></table>",
     );
@@ -480,8 +460,6 @@ fn wide_markdown_tables_are_narrowed_too() {
     assert!(text.contains("h69") && text.contains("c69"), "{text}");
 }
 
-// ------------------------------------------------------- hidden elements
-
 #[test]
 fn html_elements_browsers_do_not_display_are_dropped() {
     let converted =
@@ -489,8 +467,8 @@ fn html_elements_browsers_do_not_display_are_dropped() {
     assert_eq!(converted.texts(), vec!["hi"]);
     assert_eq!(converted.warnings("html_element_skipped"), 3);
     assert_eq!(converted.warnings("raw_html_dropped"), 0);
-    // A whole document: the head goes with everything in it; one warning
-    // per element kind; script text is not read as markup.
+    // The head goes with everything in it, one warning per element kind, and
+    // script text is not read as markup.
     let converted = html(
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>T</title>\
          <style>p { color: red }</style></head><body><p>one</p>\
@@ -507,7 +485,6 @@ fn html_elements_browsers_do_not_display_are_dropped() {
         .map(|w| w.message.as_str())
         .collect();
     assert_eq!(skipped.len(), 4, "{skipped:?}");
-    // In Markdown: an HTML block and inline tags.
     let converted = markdown(
         "<script>\nalert(1)\n</script>\n\na <style>p{}</style>b <meta name=\"x\"> c\n\n<style>\nq{}\n</style>\n",
     );
@@ -528,13 +505,10 @@ fn a_long_row_over_many_short_rows_is_narrowed_cheaply() {
     assert!(text.contains("c4999"), "the folded cells' text was lost");
 }
 
-// ------------------------------------------- characters XML cannot carry
-
 #[test]
 fn characters_xml_cannot_carry_are_dropped_with_a_warning() {
-    // NUL, a C0 control and the U+FFFE non-character in text, code, a link
-    // address and title, an equation and a heading id. Tab, line breaks and
-    // the characters XML allows but discourages (U+007F, U+FEFF) stay.
+    // Tab, line breaks and the characters XML allows but discourages (U+007F,
+    // U+FEFF) stay.
     let markdown_source = "# T\u{0}itle\n\na\u{0}b\u{1}c\ttab \u{7f}\u{feff}[d\u{fffe}](https://e.org/x \"t\")\n\n```\nx\u{0}y\n```\n\n$a\u{1f}b$\n\nf[^n]\n\n[^n]: no\u{0}te\n";
     let html_source = "<h1 id=\"i\u{1}d\">T&#0;itle</h1><p>a&#0;b\u{1}c\ttab \u{7f}\u{feff}<a href=\"https://e.org/\u{0}x\" title=\"t\u{0}\">d\u{fffe}</a></p><pre>x\u{0}y</pre>";
     let tiptap_source = "{\"type\":\"doc\",\"content\":[\

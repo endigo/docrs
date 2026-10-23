@@ -47,7 +47,6 @@ fn deepest_paragraph(tree: &XmlTree, top: NodeId) -> NodeId {
         .unwrap()
 }
 
-/// Copies are allocated in document order.
 fn assert_preorder_ids(tree: &XmlTree, top: NodeId) {
     let ids: Vec<u32> = tree.descendants(top).map(NodeId::index).collect();
     assert_eq!(ids.len(), 2 * PAIRS + 4);
@@ -142,8 +141,6 @@ fn import_subtree_skips_prefixes_declared_inside_the_subtree() {
 
 #[test]
 fn replace_canonicalizes_deep_run_properties() {
-    // Unknown run-property markup nested 50k deep: replacing part of the
-    // run's text canonicalizes and copies the run properties.
     let mut rpr = String::from("<w:rPr><w:b/>");
     for _ in 0..2 * PAIRS {
         rpr.push_str("<x:e>");

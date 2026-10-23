@@ -347,7 +347,6 @@ fn preflight(archive: &[u8], limits: &Limits) -> Result<(u64, u64, u64)> {
     }
     Limits::check("max_entries", limits.max_entries, total_entries)?;
 
-    // Record-structure scan (fixed fields only).
     let mut cursor = central_offset;
     let mut count = 0u64;
     while cursor < central_end {

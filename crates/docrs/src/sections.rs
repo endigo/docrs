@@ -37,7 +37,6 @@ use crate::{Document, Error, RefusalKind, Result};
 const DEFAULT_HEADER: &[u8] = include_bytes!("../assets/default-header.xml");
 const DEFAULT_FOOTER: &[u8] = include_bytes!("../assets/default-footer.xml");
 
-/// Office relationships (`r:`).
 const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /// Page orientation (`WD_ORIENTATION`).
@@ -205,8 +204,6 @@ pub struct HeaderFooter {
     kind: HeaderFooterType,
 }
 
-// ----------------------------------------------------------- reading
-
 fn main_part(doc: &Document) -> String {
     doc.package().main_part_name().to_string()
 }
@@ -279,8 +276,6 @@ fn preceding_sect_pr(tree: &XmlTree, sect: NodeId) -> Option<NodeId> {
     }
     last
 }
-
-// ----------------------------------------------------------- writing
 
 fn validate_change(change: &SectionChange) -> Result<()> {
     match *change {
@@ -393,12 +388,9 @@ fn add_definition(
 }
 
 /// `Part.drop_rel(rId)`: remove the relationship when fewer than two
-/// `r:id` references to it remain in the part.
-///
-/// Upstream drops it even when one reference remains (another section
-/// sharing the definition), which leaves that reference dangling; Rust
-/// keeps a relationship that is still referenced (deviation, see the P7
-/// progress note).
+/// `r:id` references to it remain in the part. Upstream drops it even when
+/// another section still references the definition, leaving that reference
+/// dangling; this keeps a relationship that is still referenced.
 fn drop_rel(txn: &mut Txn<'_>, source: &str, r_id: &str) -> Result<()> {
     let references = {
         let tree = txn.tree(source)?;
@@ -456,8 +448,6 @@ fn referenced_part(txn: &Txn<'_>, reference_el: NodeId) -> Result<String> {
             )
         })
 }
-
-// ----------------------------------------------------------- public API
 
 impl Document {
     /// Upstream `Document.sections`: `w:body/w:p/w:pPr/w:sectPr` and

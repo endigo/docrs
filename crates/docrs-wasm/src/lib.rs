@@ -89,7 +89,6 @@ fn limits_of(options: &Options) -> Result<(Limits, InputLimits), Error> {
     profile(options.limits.as_deref())
 }
 
-/// The budgets of the `limits` option `name`.
 fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
     match name {
         None | Some("default") => Ok((
@@ -330,8 +329,6 @@ pub fn styles_of(reference: Option<&[u8]>, options: &Options) -> Result<serde_js
     ))
 }
 
-// ------------------------------------------------------------ JavaScript
-
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** Options of `fromMarkdown`; every field is optional. */
@@ -545,9 +542,6 @@ fn to_js(value: &serde_json::Value) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
-/// The size of a JavaScript value: a string's UTF-16 code units, else its
-/// `length` (a `Uint8Array`'s or an array's elements) or `byteLength`; 0
-/// when it has neither.
 fn js_length(value: &JsValue) -> u64 {
     if let Some(text) = value.dyn_ref::<js_sys::JsString>() {
         return u64::from(text.length());
@@ -846,9 +840,8 @@ extern "C" {
     fn console_error(message: &str);
 }
 
-/// Runs when the module is instantiated. The build aborts on a panic (a bug):
-/// the instance traps with `RuntimeError: unreachable` and is unusable
-/// afterwards, and the package's entry point (`js/index.js`) replaces it
+/// The build aborts on a panic: the instance traps with `RuntimeError:
+/// unreachable` and the package's entry point (`js/index.js`) replaces it
 /// with a fresh one. Say what panicked on `console.error` first.
 #[wasm_bindgen(start)]
 fn start() {
@@ -963,8 +956,6 @@ mod tests {
             .iter()
             .map(|name| name.as_str().unwrap().to_string())
             .collect();
-        // Every listed name deserializes; a field missing from the list
-        // would be refused before reaching serde.
         for name in &fields {
             let value = match name.as_str() {
                 "styles" | "images" => serde_json::json!({}),
@@ -1009,7 +1000,6 @@ mod tests {
         let warnings = converted.report["warnings"].to_string();
         assert!(warnings.contains("remote_image_skipped"), "{warnings}");
         assert!(!warnings.contains("missing-client-name"), "{warnings}");
-        // Budgets on what the caller passes in.
         let big = "x".repeat((384 << 10) + 1);
         let err = convert(
             &big,
@@ -1108,7 +1098,6 @@ mod tests {
             limits: Some("serverless".into()),
             ..Options::default()
         };
-        // Sizes alone refuse; the bytes are never parsed.
         let big = vec![0u8; (8 << 20) + 1];
         for err in [
             styles_of(Some(&big), &serverless).unwrap_err(),
@@ -1126,8 +1115,8 @@ mod tests {
         ] {
             assert_eq!(err.reason(), "max_archive_bytes", "{err}");
         }
-        // The default budgets read the same bytes (and refuse them as a
-        // malformed package, not by size).
+        // The default budgets read the same bytes and refuse them as a malformed
+        // package, not by size.
         assert!(
             styles_of(Some(&big), &Options::default())
                 .unwrap_err()

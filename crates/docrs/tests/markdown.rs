@@ -41,7 +41,6 @@ impl Export {
         self.part("word/document.xml")
     }
 
-    /// `(style name, text)` of every body paragraph.
     fn paragraphs(&self) -> Vec<(String, String)> {
         self.doc
             .paragraphs()
@@ -63,7 +62,6 @@ impl Export {
     }
 }
 
-/// Convert into `reference` (or the bundled blank document), export, reopen.
 fn export_with(
     name: &str,
     markdown: &str,
@@ -127,8 +125,6 @@ fn base64(bytes: &[u8]) -> String {
     }
     out
 }
-
-// ------------------------------------------------------------- blocks
 
 #[test]
 fn headings_take_heading_styles_and_bookmarks() {
@@ -320,7 +316,6 @@ fn bullet_lists_nest_through_levels() {
         ]
     );
     assert_eq!(out.report.styles["list_bullet"].name, "List Bullet");
-    // Without template lists, the converter's own definitions are used.
     let options = MarkdownOptions {
         template_lists: false,
         ..MarkdownOptions::default()
@@ -349,7 +344,6 @@ fn ordered_lists_start_where_written_and_restart() {
     let numbering = out.part("word/numbering.xml");
     assert!(numbering.contains("<w:startOverride w:val=\"3\"/>"));
     assert_eq!(count(&numbering, "<w:startOverride w:val=\"1\"/>"), 2);
-    // Three ordered lists, three restarted instances.
     assert_eq!(count(&numbering, "<w:startOverride "), 3);
     assert!(numbering.contains("PaperMarkdownDecimal"));
 }
@@ -371,7 +365,6 @@ fn loose_list_items_keep_continuation_paragraphs_indented() {
     assert_eq!(paragraphs[0].0, "List Number");
     assert_eq!(paragraphs[1], ("Body Text".into(), "more".into()));
     assert_eq!(paragraphs[3], ("Source Code".into(), "code".into()));
-    // Continuations line up with the list level's text indent.
     let body = out.body();
     let indents: Vec<&str> = body
         .split("<w:ind w:left=\"")
@@ -441,23 +434,20 @@ fn tables_have_header_rows_alignment_widths_and_captions() {
     let body = out.body();
     assert_eq!(count(&body, "<w:tblHeader/>"), 2);
     assert!(body.contains("<w:jc w:val=\"right\"/>"));
-    // Full A4 text width (11906 - 2 * 1247 twips) in twips, not a
-    // percentage (Word for the web mis-lays those), columns as computed,
-    // cells in the compact cell style.
+    // The full A4 text width, 11906 - 2 * 1247 twips, in twips and not a
+    // percentage: Word for the web mis-lays percentages.
     assert_eq!(count(&body, "<w:tblW w:type=\"dxa\" w:w=\"9412\"/>"), 2);
     assert_eq!(count(&body, "<w:tblLayout w:type=\"fixed\"/>"), 2);
     assert!(body.contains("<w:pStyle w:val=\"TableContents\"/>"));
     let styles = out.part("word/styles.xml");
     assert!(styles.contains("<w:name w:val=\"Table Contents\"/>"));
     assert!(body.contains("<w:jc w:val=\"center\"/>"));
-    // Caption before the table, and a separator paragraph keeps the two
-    // tables from merging.
+    // Word joins tables that touch; a paragraph keeps the two apart.
     let paragraphs = out.paragraphs();
     assert_eq!(paragraphs[0], ("Table Caption".into(), "Results.".into()));
     assert_eq!(paragraphs.len(), 2);
     let between = &body[body.find("</w:tbl>").unwrap()..body.rfind("<w:tbl>").unwrap()];
     assert!(between.contains("<w:p"), "{between}");
-    // Column widths add up to exactly that width.
     let grid: i64 = body[body.find("<w:tblGrid>").unwrap()..body.find("</w:tblGrid>").unwrap()]
         .split("w:w=\"")
         .skip(1)
@@ -501,7 +491,6 @@ fn images_embed_scale_caption_and_fall_back() {
     let body = out.body();
     assert!(body.contains("descr=\"A dot\""));
     assert!(body.contains("title=\"Dot\""));
-    // Distinct drawing ids.
     let mut ids: Vec<&str> = body
         .split("<wp:docPr id=\"")
         .skip(1)
@@ -519,8 +508,8 @@ fn images_embed_scale_caption_and_fall_back() {
         .map(|s| s[..s.find('"').unwrap()].parse().unwrap())
         .collect();
     assert!(widths.contains(&5_976_620), "{widths:?}");
-    // Identical bytes share one media part; the reference document's own
-    // sample-body image is gone with the sample body.
+    // Identical bytes share one media part; the reference document's sample
+    // image went with its body.
     assert_eq!(
         out.doc
             .package()
@@ -607,7 +596,6 @@ fn local_images_stay_inside_the_resource_directory() {
             .all(|w| !w.message.contains("secret"))
     );
 
-    // Editor HTML pictures go through the same check.
     let html = export_html(
         "15-images-confined-html",
         "<p><img src=\"../secret.png\" alt=\"up\"><img src=\"img/dot.png\" alt=\"in\"></p>",
@@ -615,7 +603,6 @@ fn local_images_stay_inside_the_resource_directory() {
     );
     assert_eq!(html.report.counts.images, 1);
     assert_eq!(html.warning_codes(), ["image_outside_resource_dir"]);
-    // Strict refuses.
     let strict = MarkdownOptions {
         strict: true,
         ..options
@@ -638,7 +625,6 @@ fn without_a_resource_directory_no_file_is_read() {
         ..MarkdownOptions::default()
     };
     let out = export_with("15-images-no-dir", &markdown, None, &options);
-    // The supplied picture and the data: URI; nothing from disk.
     assert_eq!(out.report.counts.images, 2);
     assert_eq!(out.warning_codes(), ["image_not_found", "image_not_found"]);
     assert!(
@@ -805,7 +791,6 @@ fn links_keep_only_web_mail_phone_and_relative_targets() {
     ] {
         assert!(!rels.contains(gone), "{gone}: {rels}");
     }
-    // The text stays.
     let text = &out.paragraphs()[0].1;
     for label in ["a", "b", "c", "d", "e", "f"] {
         assert!(text.contains(label));
@@ -817,7 +802,7 @@ fn links_keep_only_web_mail_phone_and_relative_targets() {
     let err = convert("[a](javascript:alert(1))\n", None, &strict).unwrap_err();
     assert_eq!(err.reason(), "markdown_not_faithful");
 
-    // Editor HTML links follow the same policy, control characters stripped.
+    // Control characters in the address are stripped.
     let html = export_html(
         "05-links-schemes-html",
         "<p><a href=\"javascript:alert(1)\">a</a> <a href=\"java&#9;script:alert(2)\">b</a> \
@@ -833,7 +818,6 @@ fn links_keep_only_web_mail_phone_and_relative_targets() {
 
 #[test]
 fn deeply_nested_quotes_convert() {
-    // As deep as the nesting cap allows; deeper sources are refused (tests/markdown_parse.rs).
     let markdown = format!("{} deep\n", ">".repeat(docrs::markdown::MAX_NESTING_DEPTH));
     let out = export_with(
         "06-deep-quotes",
@@ -872,7 +856,6 @@ fn reference_toc_block() -> String {
     format!("{TOC_BLOCK}Contents</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val=\"TOC1\"/>")
 }
 
-/// A horizontal rule: an empty paragraph with a bottom border.
 const RULE: &str = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/><w:rPr><w:sz w:val=\"2\"/><w:szCs w:val=\"2\"/></w:rPr></w:pPr></w:p>";
 
 #[test]
@@ -882,12 +865,10 @@ fn rules_page_breaks_and_toc() {
         "[TOC]\n\n# A\n\nx\n\n## A.1\n\n---\n\n\\newpage\n\n<!-- pagebreak -->\n\n# B\n",
     );
     let body = out.body();
-    // One flat line, no shape.
     assert_eq!(count(&body, RULE), 1, "{body}");
     for shape in ["<v:rect", "o:hr=", "<w:pict>"] {
         assert!(!body.contains(shape), "{shape} in {body}");
     }
-    // The same from the bundled blank document: no template style is needed.
     let blank = export_with(
         "17f-rule-blank",
         "a\n\n---\n\nb\n",
@@ -896,9 +877,8 @@ fn rules_page_breaks_and_toc() {
     );
     assert_eq!(count(&blank.body(), RULE), 1, "{}", blank.body());
     assert_eq!(count(&body, "<w:br w:type=\"page\"/>"), 2);
-    // The contents is written out (linked entries with estimated page
-    // numbers), so it needs no field update and Word opens it without
-    // asking; the field keeps page numbers, so Word's own update redoes them.
+    // Written out with estimated page numbers, the contents needs no field
+    // update, so Word opens it without asking; the field stays for Word's own.
     assert!(body.contains(" TOC \\o \"1-3\" \\h \\z \\u </w:instrText>"));
     // A [TOC] marker in the text adds no page break of its own.
     assert!(!body.contains("pageBreakBefore"));
@@ -945,7 +925,6 @@ fn content_after_the_toc_option_starts_a_new_page() {
         .expect("a page break before the body");
     assert!(first > body.find("w:fldCharType=\"end\"").unwrap());
     assert_eq!(count(&body, "pageBreakBefore"), 1);
-    // A body that opens with its own page break gets no second one.
     let own = export_with(
         "17d-toc-own-break",
         "\\newpage\n\n# A\n",
@@ -954,7 +933,6 @@ fn content_after_the_toc_option_starts_a_new_page() {
     );
     assert!(!own.body().contains("pageBreakBefore"));
     assert_eq!(count(&own.body(), "<w:br w:type=\"page\"/>"), 1);
-    // A body that opens with a table gets a page-break paragraph.
     let table = export_with(
         "17e-toc-table",
         "| a |\n|---|\n| b |\n",
@@ -1001,9 +979,8 @@ fn toc_entries_show_computed_page_numbers() {
         &options,
     );
     let body = out.body();
-    // Each entry ends in a dotted right tab and a PAGEREF to its heading,
-    // its result the estimated number: contents on 1, A on 2 (the page
-    // break after the contents), B on 3, C on 5.
+    // Estimated pages: the contents on 1, A on 2 (the page break after the
+    // contents), B on 3, C on 5.
     assert!(
         body.contains("<w:tab w:val=\"right\" w:leader=\"dot\""),
         "{body}"
@@ -1022,7 +999,6 @@ fn toc_entries_show_computed_page_numbers() {
     assert!(toc.missing_fonts.is_empty(), "{toc:?}");
     assert!(!out.part("word/settings.xml").contains("updateFields"));
 
-    // Off: the entries carry no numbers and there is no report.
     let plain = export_with(
         "17h-toc-no-numbers",
         "# A\n",
@@ -1212,8 +1188,6 @@ fn html_blocks_convert_and_unknown_tags_are_reported() {
     assert!(out.report.warnings[0].message.contains("<video>"));
 }
 
-/// Editor HTML (the shapes a rich-text editor emits), converted
-/// with HTML as the source.
 fn export_html(name: &str, html: &str, options: &MarkdownOptions) -> Export {
     let mut doc = reference();
     let report = docrs::markdown::insert_html(&mut doc, html, options)
@@ -1263,14 +1237,12 @@ fn editor_html_maps_every_construct() {
     let out = export_html("21-editor-html", html, &options);
     assert!(out.report.warnings.is_empty(), "{:?}", out.report.warnings);
     let body = out.body();
-    // Colours, font and highlights as direct run formatting.
     assert!(body.contains("<w:color w:val=\"DC2626\"/>"), "{body}");
     assert!(body.contains(
         "<w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\" w:cs=\"Courier New\"/>"
     ));
     assert!(body.contains("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FEF08A\"/>"));
     assert!(body.contains("<w:highlight w:val=\"yellow\"/>"));
-    // Alignment on headings and paragraphs.
     for jc in ["center", "right", "both"] {
         assert!(body.contains(&format!("<w:jc w:val=\"{jc}\"/>")), "{jc}");
     }
@@ -1284,7 +1256,6 @@ fn editor_html_maps_every_construct() {
         paragraphs.iter().any(|(_, text)| text.is_empty()),
         "the empty paragraph stays"
     );
-    // Merged cells and editor widths over the full text width.
     let width: i64 = {
         let start = body.find("<w:tblW w:type=\"dxa\" w:w=\"").unwrap() + 26;
         body[start..start + body[start..].find('"').unwrap()]
@@ -1316,7 +1287,7 @@ fn editor_html_maps_every_construct() {
     assert!(body.contains("<w:br w:type=\"page\"/>"));
     assert_eq!(count(&body, RULE), 1, "{body}");
     assert!(!body.contains("CaptionedFigure\"/><w:jc w:val=\"center\"/></w:pPr><w:r><w:t"));
-    // Nothing is dropped silently: unknown CSS is reported by property.
+    // Unknown CSS is reported by property.
     let out = export_html(
         "21-editor-html-dropped",
         "<p style=\"line-height: 2\"><span style=\"letter-spacing: 1px\">x</span></p>",
@@ -1326,7 +1297,6 @@ fn editor_html_maps_every_construct() {
         out.warning_codes(),
         ["html_style_dropped", "html_style_dropped"]
     );
-    // An aligned list nested in an item keeps its level.
     let out = export_html(
         "21-editor-html-nested",
         "<ul><li><p>a</p><ul style=\"text-align: center\"><li><p>b</p></li></ul></li></ul>",
@@ -1361,10 +1331,8 @@ fn inspection_reports_what_a_conversion_takes() {
     // The reference's own contents, a TOC field under a TOC Heading paragraph.
     assert_eq!(inspection["toc_title"], "Contents");
     assert_eq!(inspection["roles"]["heading1"]["name"], "Heading 1");
-    // Read-only: inspecting changes nothing.
     let before = doc.patch_bytes().unwrap().0;
     assert_eq!(before, reference().patch_bytes().unwrap().0);
-    // A plain Word template: the styles a conversion adds are problems.
     let blank = docrs::Document::new();
     let inspection = docrs::markdown::inspect(&blank, &MarkdownOptions::default()).unwrap();
     let problems = inspection["problems"].as_array().unwrap();
@@ -1374,11 +1342,8 @@ fn inspection_reports_what_a_conversion_takes() {
     );
 }
 
-// --------------------------------- an HTML-converted export style
-//
-// `html-converted-template.docx` (tools/markdown/make_html_converted_template.py)
-// has the shape of an integrator's template-comparison case: a finished advice
-// document converted from HTML, its look in direct formatting.
+// `html-converted-template.docx` (tools/markdown/make_html_converted_template.py):
+// a finished advice document converted from HTML, its look in direct formatting.
 
 fn html_converted() -> Document {
     Document::open_path(
@@ -1440,7 +1405,6 @@ fn template_sample_media_comments_and_custom_xml_do_not_ship() {
         assert!(!names.contains(&gone), "{gone} shipped");
         assert!(out.report.removed_parts.iter().any(|p| p == gone), "{gone}");
     }
-    // The footer and its logo stay.
     assert!(names.contains(&"word/footer1.xml"));
     assert!(names.contains(&"word/media/logo.png"));
     let rels = out.part("word/_rels/document.xml.rels");
@@ -1448,7 +1412,6 @@ fn template_sample_media_comments_and_custom_xml_do_not_ship() {
         !rels.contains("media/image") && !rels.contains("comments") && !rels.contains("customXml")
     );
     assert!(!out.part("[Content_Types].xml").contains("comments"));
-    // Nothing of the sample content is left in any part.
     for name in &names {
         if name.ends_with(".xml") {
             let xml = out.part(name);
@@ -1493,12 +1456,10 @@ fn table_look_comes_from_typical_body_cells_with_row_lines() {
     assert!(
         table.contains("<w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"0\" w:color=\"D0D0D0\"/>")
     );
-    // Row lines are table borders, not a whole-table cell border.
     let whole_tcpr =
         &table[table.find("</w:tblPr>").unwrap()..table.find("<w:tblStylePr").unwrap()];
     assert!(!whole_tcpr.contains("tcBorders"), "{table}");
     assert!(table.contains("<w:tblCellMar><w:top w:w=\"100\""));
-    // The header row keeps its cyan fill and white bold text.
     assert!(table.contains("w:fill=\"40C7F2\""));
     assert!(table.contains("<w:color w:val=\"FFFFFF\"/>"));
 }
@@ -1519,7 +1480,6 @@ fn headings_take_the_look_the_template_shows() {
         h2.contains("<w:color w:val=\"FAA436\"/>") && h2.contains("<w:sz w:val=\"24\"/>"),
         "{h2}"
     );
-    // Heading paragraphs carry no direct formatting.
     assert!(!out.body().contains("<w:pStyle w:val=\"Heading2\"/></w:pPr><w:bookmarkStart w:id=\"2\" w:name=\"part\"/><w:r><w:rPr>"));
     let inspection =
         docrs::markdown::inspect(&html_converted(), &MarkdownOptions::default()).unwrap();
@@ -1554,8 +1514,6 @@ fn a_missing_toc_heading_follows_heading_1() {
     assert!(toc.contains("<w:outlineLvl w:val=\"9\"/>"));
 }
 
-/// The HTML-converted template with one footer field's instruction
-/// replaced.
 fn html_converted_with_footer_field(field: &str) -> Document {
     let bytes =
         std::fs::read(repo().join("tests/fixtures/markdown/html-converted-template.docx")).unwrap();
@@ -1604,8 +1562,8 @@ fn template_document_properties_do_not_ship() {
     ] {
         assert!(!core.contains(gone), "{gone} in {core}");
     }
-    // The language stays; the document is new, made now.
     assert!(core.contains("<dc:language>en-AU</dc:language>"));
+    // The document is new, made now.
     let now = docrs::clock::Timestamp::from_unix(ADVICE_NOW).to_xml();
     assert!(
         core.contains(&format!("W3CDTF\">{now}</dcterms:created>")),
@@ -1707,7 +1665,6 @@ fn a_paragraph_after_a_list_gets_space_above() {
 #[test]
 fn added_toc_levels_follow_toc_1() {
     let out = advice_export("39-toc-levels");
-    // The template's own TOC 1 is used as it is.
     assert!(!out.report.created_styles.iter().any(|s| s == "TOC 1"));
     let toc2 = style_of(&out, "TOC2");
     assert!(toc2.contains("<w:basedOn w:val=\"TOC1\"/>"), "{toc2}");
@@ -1742,8 +1699,6 @@ fn smart_punctuation_is_optional() {
     );
 }
 
-// ------------------------------------------------------ reference document
-
 #[test]
 fn reference_styles_and_layout_are_used_unchanged() {
     let reference_doc = reference();
@@ -1755,10 +1710,8 @@ fn reference_styles_and_layout_are_used_unchanged() {
         "23-reference",
         "# Heading\n\nText with `code` and [a link](https://example.com).\n",
     );
-    // Every role was found, so the styles part is untouched.
     assert!(out.report.created_styles.is_empty());
     assert_eq!(out.part("word/styles.xml"), reference_styles);
-    // Page setup and the header/footer references survive in the sectPr.
     let body = out.body();
     assert!(body.contains("<w:pgSz w:w=\"11906\" w:h=\"16838\"/>"));
     assert!(body.contains("<w:headerReference "));
@@ -1771,10 +1724,9 @@ fn reference_styles_and_layout_are_used_unchanged() {
         .iter()
         .map(String::as_str)
         .collect();
-    // Body, its relationships, the footnotes part losing the sample
-    // body's footnote, the content types losing the removed parts, the
-    // package relationships losing the thumbnail, and the template's
-    // document properties cleared.
+    // The footnotes part loses the sample footnote, the content types the
+    // removed parts, the package relationships the thumbnail, and the
+    // document properties are cleared.
     assert_eq!(
         changed,
         [
@@ -1787,9 +1739,8 @@ fn reference_styles_and_layout_are_used_unchanged() {
             "word/footnotes.xml"
         ]
     );
-    // The sample body's picture, the custom XML no content control is
-    // bound to and the thumbnail of the template's first page leave the
-    // package; the header, footer and their parts stay.
+    // The sample body's picture, the custom XML no content control is bound
+    // to and the first page's thumbnail leave; the header and footer stay.
     assert_eq!(
         out.report.removed_parts,
         [
@@ -1915,8 +1866,6 @@ fn starter_reference_has_every_role_style() {
     }
 }
 
-// ------------------------------------------------------------ placement
-
 #[test]
 fn append_keeps_the_existing_body() {
     let mut base = Document::new();
@@ -1973,8 +1922,6 @@ fn placeholder_problems_refuse_without_changes() {
         assert_eq!(doc.patch_bytes().unwrap().0, before);
     }
 }
-
-// ------------------------------------------------------------ guarantees
 
 #[test]
 fn strict_mode_refuses_on_any_loss_and_changes_nothing() {
@@ -2041,8 +1988,6 @@ fn empty_markdown_leaves_a_valid_empty_body() {
     assert_eq!(out.paragraphs(), [("Normal".into(), String::new())]);
 }
 
-// ------------------------------------------- real-world template shapes
-
 fn fixture(name: &str) -> PathBuf {
     repo().join("tests/fixtures/markdown/templates").join(name)
 }
@@ -2071,12 +2016,10 @@ fn branded_list_templates_keep_their_numbering() {
         body.contains("<w:ind w:left=\"1136\" w:hanging=\"284\"/>"),
         "{body}"
     );
-    // The converter's own definitions are not needed.
     assert!(
         !out.part("word/numbering.xml")
             .contains("<w:numId w:val=\"6\"/><w:ilvl w:val=\"3\"/>")
     );
-    // The HTML table keeps its bulleted cell.
     let table = &out.doc.tables().unwrap()[0];
     assert_eq!(
         table.cell(&out.doc, 1, 1).unwrap().text(&out.doc).unwrap(),
@@ -2132,7 +2075,6 @@ fn v2(name: &str) -> Document {
 #[test]
 fn branding_shown_only_in_sample_content_is_lifted() {
     let markdown = "# Heading\n\nBody text.\n\n- one\n- two\n\n| A | B |\n|---|---|\n| 1 | 2 |\n";
-    // Headings drawn with direct outline levels become Heading 1-3.
     let out = export_with(
         "32-v2-outline-level-headings",
         markdown,
@@ -2147,7 +2089,6 @@ fn branding_shown_only_in_sample_content_is_lifted() {
         !heading.contains("2F5496"),
         "lifted, not the converter's default: {heading}"
     );
-    // A hand-formatted sample table becomes the Table style.
     let out = export_with(
         "33-v2-direct-formatted-table",
         markdown,
@@ -2161,7 +2102,6 @@ fn branding_shown_only_in_sample_content_is_lifted() {
         table.contains("<w:tblBorders>") && table.contains("firstRow"),
         "{table}"
     );
-    // A Word gallery table style used by the sample table is reused.
     let out = export_with(
         "34-v2-builtin-table-style-only",
         markdown,
@@ -2170,7 +2110,6 @@ fn branding_shown_only_in_sample_content_is_lifted() {
     );
     assert_ne!(out.report.styles["table"].name, "Table");
     assert!(!out.report.styles["table"].created);
-    // Body text formatted by hand: its font becomes Body Text's.
     let out = export_with(
         "35-v2-direct-run-formatting",
         markdown,
@@ -2181,7 +2120,6 @@ fn branding_shown_only_in_sample_content_is_lifted() {
     let styles = out.part("word/styles.xml");
     let body_text = &styles[styles.find("w:styleId=\"BodyText\"").unwrap()..];
     assert!(body_text[..body_text.find("</w:style>").unwrap()].contains("Arial"));
-    // Bullets made with Word's bullet button keep their look.
     let out = export_with(
         "36-v2-list-paragraph-bullets",
         markdown,
@@ -2189,7 +2127,6 @@ fn branding_shown_only_in_sample_content_is_lifted() {
         &MarkdownOptions::default(),
     );
     assert!(out.report.styles.contains_key("list_bullet"));
-    // A custom style with a heading outline level is the heading.
     let out = export_with(
         "37-v2-paragraph-style",
         markdown,
@@ -2239,20 +2176,16 @@ fn every_v2_template_converts_cleanly() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Synthetic templates in the shapes practices upload (observed in real
-// export templates; built here from scratch, no customer content).
+// Synthetic templates in the shapes practices upload: observed in real export
+// templates, built here from scratch, no customer content.
 
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 #[derive(Default)]
 struct Synthetic<'a> {
-    /// `w:style` elements after Normal.
     styles: &'a str,
-    /// Body children before the final section properties.
     body: &'a str,
-    /// `w:abstractNum` and `w:num` elements.
     numbering: &'a str,
     /// A distinct first page whose header holds a picture this tall (EMU).
     cover_height: Option<i64>,
@@ -2378,8 +2311,6 @@ fn style_xml<'a>(styles: &'a str, id: &str) -> &'a str {
     &rest[..rest.find("</w:style>").unwrap()]
 }
 
-/// A table row of `cells`, each with cell properties `tc_pr` and run
-/// properties `r_pr`.
 fn row(cells: &[&str], tc_pr: &str, r_pr: &str) -> String {
     let mut xml = String::from("<w:tr>");
     for cell in cells {
@@ -2421,8 +2352,6 @@ const TABLE_MARKDOWN: &str = "| Client | Age |\n|---|---|\n| Jane | 57 |\n| John
 
 #[test]
 fn a_hand_formatted_sample_table_beats_an_empty_table_style() {
-    // Header fill and white bold header text applied by hand on a Table Grid
-    // sample, next to an empty "Table" style; body text is grey.
     let rows = [
         row(
             &["Head", "Head"],
@@ -2551,7 +2480,6 @@ fn alternating_row_fills_become_banding() {
     );
     let first = &table[table.find("w:type=\"firstRow\"").expect(table)..];
     assert!(first.contains("1F3864"), "{table}");
-    // The table asks for horizontal banding.
     assert!(out.body().contains("w:noHBand=\"0\""));
 }
 
@@ -2576,8 +2504,6 @@ fn custom_bullet_styles_bound_to_numbering_are_the_lists() {
         level(1, "decimal", "%1.%2", 0),
         level(2, "decimal", "%1.%2.%3", 0),
     );
-    // Bullets in custom styles that bind numbering; numbered headings that
-    // must not be mistaken for a numbered list.
     let styles = "<w:style w:type=\"paragraph\" w:customStyle=\"1\" w:styleId=\"BulletPoints\"><w:name w:val=\"Bullet Points\"/><w:basedOn w:val=\"Normal\"/>\
         <w:pPr><w:numPr><w:numId w:val=\"2\"/></w:numPr><w:spacing w:before=\"120\" w:after=\"120\"/></w:pPr></w:style>\
         <w:style w:type=\"paragraph\" w:customStyle=\"1\" w:styleId=\"SecondBulletPoint\"><w:name w:val=\"Second Bullet Point\"/><w:basedOn w:val=\"Normal\"/>\
@@ -2647,7 +2573,6 @@ fn a_cover_drawn_in_the_first_page_header_keeps_page_one() {
         let first = &first[..first.find("</w:p>").unwrap()];
         first.contains("<w:br w:type=\"page\"/>")
     };
-    // Detected: the content starts on page 2.
     let out = export_with(
         "46-synthetic-cover",
         "# Advice\n\nBody.\n",
@@ -2738,8 +2663,6 @@ fn tolerated_reference_packages_convert() {
     assert_eq!(out.report.counts.tables, 1);
 }
 
-// ------------------------------------------------ the contents' title
-
 /// A TOC field as Word writes one, with a stale result.
 const TOC_FIELD: &str = "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> TOC \\o \"1-3\" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>Old entry</w:t></w:r><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>";
 
@@ -2770,7 +2693,6 @@ fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
     let source = |out: &Export| out.report.toc_title_source.clone();
     let inspect =
         |doc: &Document| docrs::markdown::inspect(doc, &MarkdownOptions::default()).unwrap();
-    // Word's own block in the template, in every placement.
     let block = word_toc("Index of Advice");
     let word = || {
         synthetic(Synthetic {
@@ -2810,7 +2732,6 @@ fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
     );
     assert_eq!(written_title(&placed, "TOCHeading"), "Index of Advice");
     assert_eq!(source(&placed).as_deref(), Some("reference"));
-    // The option, then the front matter, beat the template.
     let chosen = export_with(
         "51-toc-title-option",
         "# A\n",
@@ -2830,8 +2751,6 @@ fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
     );
     assert_eq!(written_title(&fronted, "TOCHeading"), "From Front Matter");
     assert_eq!(source(&fronted).as_deref(), Some("front_matter"));
-    // A bare field under a TOC Heading paragraph, found by style id or by
-    // name, its text trimmed, an empty paragraph between them skipped.
     let named = "<w:style w:type=\"paragraph\" w:styleId=\"Heading0\"><w:name w:val=\"TOC Heading\"/></w:style>";
     for (styles, style) in [(TOC_HEADING_STYLE, "TOCHeading"), (named, "Heading0")] {
         let body = format!(
@@ -2852,8 +2771,6 @@ fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
         assert_eq!(written_title(&out, style), "Advice Contents");
         assert_eq!(source(&out).as_deref(), Some("reference"));
     }
-    // A field under an ordinary paragraph, a blank or over-long title, no
-    // contents at all: nothing is lifted and the default stands.
     let long = word_toc(&"x".repeat(81));
     let plain = format!("<w:p><w:r><w:t>Not a heading</w:t></w:r></w:p>{TOC_FIELD}");
     let blank = word_toc(" ");
@@ -2877,7 +2794,6 @@ fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
         );
         assert_eq!(source(&out).as_deref(), Some("default"), "{name}");
     }
-    // Without a contents the report says nothing about a title.
     let none = export("51-toc-title-no-toc", "# A\n");
     assert_eq!(none.report.toc_title_source, None);
 }
