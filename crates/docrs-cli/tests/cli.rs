@@ -606,7 +606,7 @@ fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
         String::from_utf8_lossy(&output.stdout)
     );
     let report = json_of(&output);
-    assert_eq!(report["markdown"]["counts"]["tables"], 1);
+    assert_eq!(report["markdown"]["counts"]["tables"], 2);
     assert_eq!(
         report["markdown"]["warnings"][0]["code"],
         "remote_image_skipped"

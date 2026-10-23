@@ -1299,8 +1299,8 @@ impl Converter {
 /// The table block of `rows` as an editor wrote them: leading header rows
 /// repeat, spans are placed on the grid (narrowed to Word's 63 columns),
 /// each cell's `colwidth` fills the grid columns `widths` (from `colgroup`)
-/// left open, and percentage widths are of `table_width`. Also whether the
-/// table was narrowed.
+/// left open, and percentage widths are of `table_width` when the table
+/// has one. Also whether the table was narrowed.
 pub(crate) fn assemble_table(
     mut rows: Vec<HtmlRow>,
     mut widths: Vec<Option<f64>>,
@@ -1329,14 +1329,11 @@ pub(crate) fn assemble_table(
             }
         }
     }
-    // Percentages are of the table's width; without one they are
-    // proportions like any other.
-    for width in widths.iter_mut().flatten() {
-        if *width < 0.0 {
-            *width = match table_width {
-                Some(table) => -*width / 100.0 * table,
-                None => -*width,
-            };
+    if let Some(table) = table_width {
+        for width in widths.iter_mut().flatten() {
+            if *width < 0.0 {
+                *width = -*width / 100.0 * table;
+            }
         }
     }
     let table = Block::Table {
@@ -1350,7 +1347,6 @@ pub(crate) fn assemble_table(
             spans,
             header_rows,
             widths,
-            table_width,
         })),
     };
     (table, narrowed)
@@ -1669,20 +1665,24 @@ mod tests {
         };
         let layout = layout.as_ref().unwrap();
         assert_eq!(layout.widths, vec![Some(240.0), None, Some(140.0)]);
-        let (percent, _) = read(
-            "<table><colgroup><col style=\"width:70%\"><col width=\"30%\"></colgroup><tr><td>a</td><td>b</td></tr></table>",
-        );
-        let [
-            Block::Table {
-                layout: Some(percent),
-                ..
-            },
-        ] = percent.as_slice()
-        else {
-            panic!("{percent:?}")
-        };
-        assert_eq!(percent.widths, vec![Some(70.0), Some(30.0)]);
-        assert_eq!(layout.table_width, Some(520.0));
+        for (table, widths) in [
+            ("<table style=\"width: 400px\">", [Some(280.0), Some(120.0)]),
+            ("<table>", [Some(-70.0), Some(-30.0)]),
+        ] {
+            let (percent, _) = read(&format!(
+                "{table}<colgroup><col style=\"width:70%\"><col width=\"30%\"></colgroup><tr><td>a</td><td>b</td></tr></table>",
+            ));
+            let [
+                Block::Table {
+                    layout: Some(percent),
+                    ..
+                },
+            ] = percent.as_slice()
+            else {
+                panic!("{percent:?}")
+            };
+            assert_eq!(percent.widths, widths);
+        }
         let (grid, columns) = place(&layout.spans);
         assert_eq!(columns, 3);
         assert!(

@@ -76,6 +76,9 @@ const core = [
   '<img src="https://store.example/logo.png?token=t" alt="Logo" title="The logo" width="200" height="80">',
   '<img src="https://store.example/seal.png?token=s" alt="Seal" width="120" height="120" style="text-align: center">',
   '<p>a line<br>break</p>',
+  '<table><colgroup><col style="width: 120px"><col><col></colgroup><tbody>',
+  '<tr><th colwidth="120"><p>Asset</p></th><th><p>Description</p></th><th><p>Value</p></th></tr>',
+  '<tr><td colwidth="120"><p>Home</p></td><td><p>Family home, owned jointly</p></td><td><p>$1,200,000</p></td></tr></tbody></table>',
   "<h2>After</h2>",
 ].join("");
 
