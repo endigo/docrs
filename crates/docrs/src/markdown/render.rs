@@ -39,8 +39,6 @@ const EMU_PER_PX: f64 = 9525.0;
 const TWIPS_PER_PX: f64 = EMU_PER_PX / EMU_PER_TWIP as f64;
 /// The editor's narrowest column (Tiptap's `cellMinWidth`).
 const MIN_COLUMN_PX: f64 = 25.0;
-const VML_NS: &str = "urn:schemas-microsoft-com:vml";
-const OFFICE_NS: &str = "urn:schemas-microsoft-com:office:office";
 /// Left indent per list level, in twips (with a 360 hanging indent).
 const LIST_INDENT: i64 = 720;
 const BULLET_NAME: &str = "PaperMarkdownBullet";
@@ -217,6 +215,8 @@ struct ParaProps {
     /// Hanging indent with `indent_left` (list items).
     hanging: Option<i64>,
     align: Option<&'static str>,
+    /// A horizontal rule: a bottom border under an otherwise empty line.
+    rule: bool,
 }
 
 /// Run properties written in `CT_RPr` order.
@@ -1480,27 +1480,13 @@ impl<'p> Renderer<'_, '_, 'p> {
                     self.math(part, p, math, true)?;
                     out.push(p);
                 }
-                // Word's own horizontal line (a thin grey standard rule on a
-                // line of its own), as pandoc writes it: no style, so no
-                // body-text spacing or border.
                 Block::Rule => {
                     let props = ParaProps {
                         indent_left: ctx.indent,
+                        rule: true,
                         ..ParaProps::default()
                     };
-                    let p = self.new_paragraph(part, scope, &props)?;
-                    let tree = self.txn.tree_mut(part)?;
-                    let r = w_el(tree, p, "r")?;
-                    append(tree, p, r)?;
-                    let pict = w_el(tree, r, "pict")?;
-                    append(tree, r, pict)?;
-                    let rect = tree.create_element(pict, VML_NS, "rect")?;
-                    tree.set_attr(rect, None, "style", "width:0;height:1.5pt")?;
-                    for (name, value) in [("hralign", "center"), ("hrstd", "t"), ("hr", "t")] {
-                        tree.set_attr(rect, Some(OFFICE_NS), name, value)?;
-                    }
-                    append(tree, pict, rect)?;
-                    out.push(p);
+                    out.push(self.new_paragraph(part, scope, &props)?);
                 }
                 Block::PageBreak => {
                     let props = ParaProps {
@@ -4064,7 +4050,8 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
         || props.keep_next
         || props.numbering.is_some()
         || props.indent_left.is_some()
-        || props.align.is_some();
+        || props.align.is_some()
+        || props.rule;
     if !has_any {
         return Ok(());
     }
@@ -4093,6 +4080,20 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
         set_w(tree, num, "val", &num_id.to_string())?;
         append(tree, num_pr, num)?;
     }
+    if props.rule {
+        let borders = child(tree, "pBdr", &[])?;
+        let bottom = w_el(tree, borders, "bottom")?;
+        for (name, value) in [
+            ("val", "single"),
+            ("sz", "6"),
+            ("space", "1"),
+            ("color", "auto"),
+        ] {
+            set_w(tree, bottom, name, value)?;
+        }
+        append(tree, borders, bottom)?;
+        child(tree, "spacing", &[("before", "120"), ("after", "120")])?;
+    }
     if let Some(left) = props.indent_left {
         match props.hanging {
             Some(hanging) => child(
@@ -4108,6 +4109,15 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
     }
     if let Some(align) = props.align {
         child(tree, "jc", &[("val", align)])?;
+    }
+    if props.rule {
+        // A 1 pt paragraph mark keeps the empty line thin.
+        let rpr = child(tree, "rPr", &[])?;
+        for local in ["sz", "szCs"] {
+            let size = w_el(tree, rpr, local)?;
+            set_w(tree, size, "val", "2")?;
+            append(tree, rpr, size)?;
+        }
     }
     Ok(())
 }

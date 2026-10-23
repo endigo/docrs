@@ -24,7 +24,7 @@ column names the warning a loss raises.
 | `heading` | `level`, `id`, `textAlign` | Heading 1 to 9 (`level` clamped) with a bookmark for `id`, so links to `#id` work; alignment as for paragraphs | |
 | `blockquote` | | the block-quote style, nested quotes indented further | |
 | `codeBlock` | `language` | the code-block style, one line per `hardBreak` or newline, whitespace kept; `language` has no Word equivalent and is not reported (as in Markdown) | |
-| `horizontalRule` | | a rule | |
+| `horizontalRule` | | one flat line across the text: an empty paragraph with a thin bottom border, no shape | |
 | `bulletList`, `orderedList` | `start`, `type` | the template's list numbering, nested through levels; `start` restarts an ordered list | `type` other than `1` (letters, roman): `tiptap_attribute_dropped` |
 | `taskList` / `taskItem` | `checked` | a bullet list whose items begin with ☒ or ☐ | |
 | `listItem`, `taskItem` outside a list | | drawn as bullets; consecutive ones form one list | |

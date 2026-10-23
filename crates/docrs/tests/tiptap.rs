@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 use docrs::markdown::{
-    MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, insert_html, insert_tiptap,
+    MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, insert_html, insert_markdown, insert_tiptap,
 };
 use docrs::{Document, ErrorKind, Limits};
 
@@ -578,6 +578,44 @@ fn links_follow_the_scheme_policy_and_pictures_the_resource_policy() {
 }
 
 // ------------------------------------------------------------- refusals
+
+#[test]
+fn a_rule_is_one_plain_line_from_every_source() {
+    let border = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/>";
+    let mark = "<w:rPr><w:sz w:val=\"2\"/><w:szCs w:val=\"2\"/></w:rPr></w:pPr></w:p>";
+    let options = MarkdownOptions::default();
+    let json = tiptap(
+        "40-rule",
+        &doc(concat!(
+            "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"a\"}]},",
+            "{\"type\":\"horizontalRule\"},",
+            "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"b\"}]}"
+        )),
+    );
+    let html = html_with("40-rule-html", "<p>a</p><hr><p>b</p>", &options);
+    let markdown = export_with("40-rule-md", |doc| {
+        insert_markdown(doc, "a\n\n---\n\nb\n", &options)
+    });
+    assert_eq!(json.body(), html.body());
+    assert_eq!(json.body(), markdown.body());
+    let body = json.body();
+    assert_eq!(count(&body, &format!("{border}{mark}")), 1, "{body}");
+    for shape in ["<v:rect", "o:hr=", "<w:pict>", "<w:drawing>"] {
+        assert!(!body.contains(shape), "{shape} in {body}");
+    }
+    // Inside a list item the line starts at the item's indent.
+    let nested = tiptap(
+        "40-rule-in-item",
+        &doc(concat!(
+            "{\"type\":\"bulletList\",\"content\":[{\"type\":\"listItem\",\"content\":[",
+            "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"item\"}]},",
+            "{\"type\":\"horizontalRule\"}]}]}"
+        )),
+    );
+    let body = nested.body();
+    let indented = format!("{border}<w:ind w:left=\"360\"/>{mark}");
+    assert_eq!(count(&body, &indented), 1, "{body}");
+}
 
 #[test]
 fn what_is_not_a_document_is_refused_with_nothing_changed() {

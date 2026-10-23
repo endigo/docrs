@@ -863,6 +863,9 @@ fn definition_lists_use_term_and_definition_styles() {
     );
 }
 
+/// A horizontal rule: an empty paragraph with a bottom border.
+const RULE: &str = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/><w:rPr><w:sz w:val=\"2\"/><w:szCs w:val=\"2\"/></w:rPr></w:pPr></w:p>";
+
 #[test]
 fn rules_page_breaks_and_toc() {
     let out = export(
@@ -870,23 +873,19 @@ fn rules_page_breaks_and_toc() {
         "[TOC]\n\n# A\n\nx\n\n## A.1\n\n---\n\n\\newpage\n\n<!-- pagebreak -->\n\n# B\n",
     );
     let body = out.body();
-    // Word's own horizontal line, as pandoc writes it: no style, no border.
-    assert!(body.contains("<w:p><w:r><w:pict><v:rect "), "{body}");
-    assert!(body.contains(
-        "style=\"width:0;height:1.5pt\" o:hralign=\"center\" o:hrstd=\"t\" o:hr=\"t\"/></w:pict></w:r></w:p>"
-    ));
-    // A document that does not declare the VML prefixes gets them on the shape.
+    // One flat line, no shape.
+    assert_eq!(count(&body, RULE), 1, "{body}");
+    for shape in ["<v:rect", "o:hr=", "<w:pict>"] {
+        assert!(!body.contains(shape), "{shape} in {body}");
+    }
+    // The same from the bundled blank document: no template style is needed.
     let blank = export_with(
         "17f-rule-blank",
         "a\n\n---\n\nb\n",
         None,
         &MarkdownOptions::default(),
     );
-    let blank_body = blank.body();
-    let declared = blank_body.contains("xmlns:v=\"urn:schemas-microsoft-com:vml\"")
-        && blank_body.contains("xmlns:o=\"urn:schemas-microsoft-com:office:office\"");
-    assert!(declared && blank_body.contains("<v:rect "), "{blank_body}");
-    assert!(!body.contains("<w:pBdr>"));
+    assert_eq!(count(&blank.body(), RULE), 1, "{}", blank.body());
     assert_eq!(count(&body, "<w:br w:type=\"page\"/>"), 2);
     // The contents is written out (linked entries with estimated page
     // numbers), so it needs no field update and Word opens it without
@@ -1293,6 +1292,7 @@ fn editor_html_maps_every_construct() {
     );
     assert_eq!(count(&body, "descr=\"Logo\""), 1);
     assert!(body.contains("<w:br w:type=\"page\"/>"));
+    assert_eq!(count(&body, RULE), 1, "{body}");
     assert!(!body.contains("CaptionedFigure\"/><w:jc w:val=\"center\"/></w:pPr><w:r><w:t"));
     // Nothing is dropped silently: unknown CSS is reported by property.
     let out = export_html(
