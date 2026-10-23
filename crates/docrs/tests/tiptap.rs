@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 use docrs::markdown::{
-    MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, insert_html, insert_tiptap,
+    MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, insert_html, insert_markdown, insert_tiptap,
 };
 use docrs::{Document, ErrorKind, Limits};
 
@@ -578,6 +578,96 @@ fn links_follow_the_scheme_policy_and_pictures_the_resource_policy() {
 }
 
 // ------------------------------------------------------------- refusals
+
+#[test]
+fn a_rule_is_one_plain_line_from_every_source() {
+    let border = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/>";
+    let mark = "<w:rPr><w:sz w:val=\"2\"/><w:szCs w:val=\"2\"/></w:rPr></w:pPr></w:p>";
+    let options = MarkdownOptions::default();
+    let json = tiptap(
+        "40-rule",
+        &doc(concat!(
+            "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"a\"}]},",
+            "{\"type\":\"horizontalRule\"},",
+            "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"b\"}]}"
+        )),
+    );
+    let html = html_with("40-rule-html", "<p>a</p><hr><p>b</p>", &options);
+    let markdown = export_with("40-rule-md", |doc| {
+        insert_markdown(doc, "a\n\n---\n\nb\n", &options)
+    });
+    assert_eq!(json.body(), html.body());
+    assert_eq!(json.body(), markdown.body());
+    let body = json.body();
+    assert_eq!(count(&body, &format!("{border}{mark}")), 1, "{body}");
+    for shape in ["<v:rect", "o:hr=", "<w:pict>", "<w:drawing>"] {
+        assert!(!body.contains(shape), "{shape} in {body}");
+    }
+    // Inside a list item the line starts at the item's indent.
+    let nested = tiptap(
+        "40-rule-in-item",
+        &doc(concat!(
+            "{\"type\":\"bulletList\",\"content\":[{\"type\":\"listItem\",\"content\":[",
+            "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"item\"}]},",
+            "{\"type\":\"horizontalRule\"}]}]}"
+        )),
+    );
+    let body = nested.body();
+    let indented = format!("{border}<w:ind w:left=\"360\"/>{mark}");
+    assert_eq!(count(&body, &indented), 1, "{body}");
+}
+
+#[test]
+fn a_table_of_contents_is_words_content_control() {
+    // Titled as the example reference document's own contents is.
+    let open = "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val=\"TOCHeading\"/></w:pPr><w:r><w:t>Contents</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val=\"TOC1\"/>";
+    let headings = concat!(
+        "{\"type\":\"heading\",\"attrs\":{\"level\":1},\"content\":[{\"type\":\"text\",\"text\":\"One\"}]},",
+        "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]},",
+        "{\"type\":\"heading\",\"attrs\":{\"level\":2},\"content\":[{\"type\":\"text\",\"text\":\"Two\"}]}"
+    );
+    // The node, where it stands: heading, entries and the whole field
+    // inside the one block, nothing of the field outside it.
+    let node = tiptap(
+        "41-toc-node",
+        &doc(&format!("{{\"type\":\"tableOfContents\"}},{headings}")),
+    );
+    let body = node.body();
+    assert_eq!(count(&body, "<w:sdt>"), 1, "{body}");
+    assert!(body.contains(open), "{body}");
+    let close = body
+        .find("</w:sdtContent></w:sdt>")
+        .expect("the block closes");
+    let block = &body[..close];
+    assert!(
+        block.contains(" TOC \\o \"1-3\" \\h \\z \\u </w:instrText>"),
+        "{block}"
+    );
+    assert_eq!(count(block, "w:fldCharType=\"begin\""), 3);
+    assert_eq!(count(block, "w:fldCharType=\"end\""), 3);
+    assert_eq!(count(block, " PAGEREF "), 2);
+    assert!(block.contains("<w:pStyle w:val=\"TOC2\"/>"), "{block}");
+    assert!(!body[close..].contains("fldChar"), "{body}");
+    assert!(!body.contains("pageBreakBefore"), "{body}");
+    // The option, from the JSON and from the HTML alike: the block, then
+    // the content on a new page.
+    let options = MarkdownOptions {
+        toc: Some(true),
+        ..MarkdownOptions::default()
+    };
+    let json = tiptap_with("41-toc-option", &doc(headings), &options);
+    let html = html_with(
+        "41-toc-option-html",
+        "<h1>One</h1><p>x</p><h2>Two</h2>",
+        &options,
+    );
+    assert_eq!(json.body(), html.body());
+    let body = json.body();
+    assert_eq!(count(&body, "<w:sdt>"), 1, "{body}");
+    assert!(body.contains(open), "{body}");
+    let close = body.find("</w:sdtContent></w:sdt>").unwrap();
+    assert!(body[close..].contains("<w:pageBreakBefore/>"), "{body}");
+}
 
 #[test]
 fn what_is_not_a_document_is_refused_with_nothing_changed() {

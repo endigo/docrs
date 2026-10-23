@@ -24,7 +24,7 @@ column names the warning a loss raises.
 | `heading` | `level`, `id`, `textAlign` | Heading 1 to 9 (`level` clamped) with a bookmark for `id`, so links to `#id` work; alignment as for paragraphs | |
 | `blockquote` | | the block-quote style, nested quotes indented further | |
 | `codeBlock` | `language` | the code-block style, one line per `hardBreak` or newline, whitespace kept; `language` has no Word equivalent and is not reported (as in Markdown) | |
-| `horizontalRule` | | a rule | |
+| `horizontalRule` | | one flat line across the text: an empty paragraph with a thin bottom border, no shape | |
 | `bulletList`, `orderedList` | `start`, `type` | the template's list numbering, nested through levels; `start` restarts an ordered list | `type` other than `1` (letters, roman): `tiptap_attribute_dropped` |
 | `taskList` / `taskItem` | `checked` | a bullet list whose items begin with ☒ or ☐ | |
 | `listItem`, `taskItem` outside a list | | drawn as bullets; consecutive ones form one list | |
@@ -32,7 +32,7 @@ column names the warning a loss raises.
 | `image` (block or inline) | `src`, `alt`, `title`, `width`, `height`, `textAlign` | a picture from the bytes given for `src` (`images`, a `data:` URI, or `resource_dir`), at the editor's size in pixels (numbers or CSS lengths such as `200px`), capped at the text width; `alt` becomes the description; `textAlign` (the TextAlign extension configured for `image`) aligns the paragraph a picture stands alone in, with the values of a paragraph's `textAlign`, the same as the editor's HTML gives (`text-align` on the `img`, or an app's `<div data-image-align>` around it) | no bytes for a remote `src`: `remote_image_skipped`; an unreadable size or `textAlign`, or an alignment the picture cannot follow because it shares its paragraph with other content or with another alignment: `tiptap_attribute_dropped` |
 | `hardBreak` | | a line break | |
 | `inlineMath`, `blockMath` | `latex` | an inline or displayed Word equation | LaTeX it cannot read: `math_unknown_command` |
-| `tableOfContents` | | a table of contents at that place, with computed page numbers | inside a cell or note: `toc_outside_body` |
+| `tableOfContents` | | Word's table-of-contents block at that place (heading and entries in one content control), with computed page numbers | inside a cell or note: `toc_outside_body` |
 | `pageBreak` (also `page-break`, `page_break`, any case) | | a page break | |
 | `details`, `detailsSummary`, `detailsContent` | | the summary as a bold paragraph, then the content, always expanded | |
 | `youtube` | `src` | a paragraph holding a link to the video | |

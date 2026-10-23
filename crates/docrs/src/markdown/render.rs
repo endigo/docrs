@@ -39,10 +39,10 @@ const EMU_PER_PX: f64 = 9525.0;
 const TWIPS_PER_PX: f64 = EMU_PER_PX / EMU_PER_TWIP as f64;
 /// The editor's narrowest column (Tiptap's `cellMinWidth`).
 const MIN_COLUMN_PX: f64 = 25.0;
-const VML_NS: &str = "urn:schemas-microsoft-com:vml";
-const OFFICE_NS: &str = "urn:schemas-microsoft-com:office:office";
 /// Left indent per list level, in twips (with a 360 hanging indent).
 const LIST_INDENT: i64 = 720;
+/// Title above the table of contents, what Word's own insertion gives.
+const TOC_TITLE: &str = "Table of Contents";
 const BULLET_NAME: &str = "PaperMarkdownBullet";
 const DECIMAL_NAME: &str = "PaperMarkdownDecimal";
 
@@ -217,6 +217,8 @@ struct ParaProps {
     /// Hanging indent with `indent_left` (list items).
     hanging: Option<i64>,
     align: Option<&'static str>,
+    /// A horizontal rule: a bottom border under an otherwise empty line.
+    rule: bool,
 }
 
 /// Run properties written in `CT_RPr` order.
@@ -329,6 +331,9 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     /// Each contents entry's page number text (`w:t`) and the bookmark of
     /// its heading.
     toc_numbers: Vec<(NodeId, String)>,
+    /// The title above the contents, and where it came from (the report's code).
+    toc_title: String,
+    toc_title_source: &'static str,
 }
 
 /// Render `parsed` into the transaction's main document.
@@ -341,6 +346,15 @@ pub(crate) fn render(
     report: &mut MarkdownReport,
 ) -> Result<()> {
     let main = txn.document().package().main_part_name().to_string();
+    let (toc_title, toc_title_source) = if let Some(title) = &options.toc_title {
+        (title.clone(), "option")
+    } else if let Some(title) = &metadata.toc_title {
+        (title.clone(), "front_matter")
+    } else if let Some(title) = reference_toc_title(txn, &main)? {
+        (title, "reference")
+    } else {
+        (TOC_TITLE.to_string(), "default")
+    };
     let (body_node, anchor, width, blank_first_page) = {
         let tree = txn.tree_mut(&main)?;
         let body_node = body(tree)?;
@@ -376,6 +390,8 @@ pub(crate) fn render(
         line_breaks: false,
         block_width: width,
         toc_numbers: Vec::new(),
+        toc_title,
+        toc_title_source,
     };
     if matches!(options.placement, Placement::ReplaceBody) {
         drop_replaced_body_leftovers(renderer.txn, &main)?;
@@ -405,12 +421,7 @@ pub(crate) fn render(
             .or(metadata.toc_depth)
             .unwrap_or(3)
             .clamp(1, 9);
-        let title = options
-            .toc_title
-            .clone()
-            .or_else(|| metadata.toc_title.clone())
-            .unwrap_or_else(|| "Contents".to_string());
-        nodes.extend(renderer.toc(body_node, depth, &title)?);
+        nodes.extend(renderer.toc(body_node, depth)?);
     }
     let body_start = nodes.len();
     nodes.extend(renderer.blocks(&main, body_node, &parsed.blocks, ctx)?);
@@ -1480,27 +1491,13 @@ impl<'p> Renderer<'_, '_, 'p> {
                     self.math(part, p, math, true)?;
                     out.push(p);
                 }
-                // Word's own horizontal line (a thin grey standard rule on a
-                // line of its own), as pandoc writes it: no style, so no
-                // body-text spacing or border.
                 Block::Rule => {
                     let props = ParaProps {
                         indent_left: ctx.indent,
+                        rule: true,
                         ..ParaProps::default()
                     };
-                    let p = self.new_paragraph(part, scope, &props)?;
-                    let tree = self.txn.tree_mut(part)?;
-                    let r = w_el(tree, p, "r")?;
-                    append(tree, p, r)?;
-                    let pict = w_el(tree, r, "pict")?;
-                    append(tree, r, pict)?;
-                    let rect = tree.create_element(pict, VML_NS, "rect")?;
-                    tree.set_attr(rect, None, "style", "width:0;height:1.5pt")?;
-                    for (name, value) in [("hralign", "center"), ("hrstd", "t"), ("hr", "t")] {
-                        tree.set_attr(rect, Some(OFFICE_NS), name, value)?;
-                    }
-                    append(tree, pict, rect)?;
-                    out.push(p);
+                    out.push(self.new_paragraph(part, scope, &props)?);
                 }
                 Block::PageBreak => {
                     let props = ParaProps {
@@ -1525,12 +1522,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                         );
                     } else {
                         let depth = self.options.toc_depth.unwrap_or(3).clamp(1, 9);
-                        let title = self
-                            .options
-                            .toc_title
-                            .clone()
-                            .unwrap_or_else(|| "Contents".to_string());
-                        out.extend(self.toc(scope, depth, &title)?);
+                        out.extend(self.toc(scope, depth)?);
                     }
                 }
                 // Unwrapped above.
@@ -3118,8 +3110,27 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(out)
     }
 
-    fn toc(&mut self, scope: NodeId, depth: i64, title: &str) -> Result<Vec<NodeId>> {
+    fn toc(&mut self, scope: NodeId, depth: i64) -> Result<Vec<NodeId>> {
         let main = self.main.clone();
+        self.report.toc_title_source = Some(self.toc_title_source.to_string());
+        // Word's table-of-contents block: heading and entries in one content
+        // control, so Word offers Update Table and replaces them together.
+        let (sdt, content) = {
+            let tree = self.txn.tree_mut(&main)?;
+            let sdt = w_el(tree, scope, "sdt")?;
+            let pr = w_el(tree, sdt, "sdtPr")?;
+            append(tree, sdt, pr)?;
+            let part = w_el(tree, pr, "docPartObj")?;
+            append(tree, pr, part)?;
+            let gallery = w_el(tree, part, "docPartGallery")?;
+            set_w(tree, gallery, "val", "Table of Contents")?;
+            append(tree, part, gallery)?;
+            let unique = w_el(tree, part, "docPartUnique")?;
+            append(tree, part, unique)?;
+            let content = w_el(tree, sdt, "sdtContent")?;
+            append(tree, sdt, content)?;
+            (sdt, content)
+        };
         let heading_props = ParaProps {
             style: self.style(Role::TocHeading)?,
             ..ParaProps::default()
@@ -3137,9 +3148,10 @@ impl<'p> Renderer<'_, '_, 'p> {
             &main,
             scope,
             &heading_props,
-            &[Inline::Text(title.to_string())],
+            &[Inline::Text(self.toc_title.clone())],
             ctx,
         )?;
+        append(self.txn.tree_mut(&main)?, content, heading)?;
         // The field's result is built here from the headings, so every
         // reader shows the entries (linked to their headings) without
         // updating fields. Page numbers need layout: the entries carry none,
@@ -3156,7 +3168,6 @@ impl<'p> Renderer<'_, '_, 'p> {
             .filter(|(level, text, _)| i64::from(*level) <= depth && !text.trim().is_empty())
             .cloned()
             .collect();
-        let mut out = vec![heading];
         let count = entries.len().max(1);
         let width_twips = self.block_width / EMU_PER_TWIP;
         let mut numbers_out = Vec::new();
@@ -3234,13 +3245,13 @@ impl<'p> Renderer<'_, '_, 'p> {
                 let end = fld_char_run(tree, p, "end", false)?;
                 append(tree, p, end)?;
             }
-            out.push(p);
+            append(tree, content, p)?;
         }
         if numbers {
             set_update_fields_on_open(self.txn)?;
         }
         self.toc_numbers = numbers_out;
-        Ok(out)
+        Ok(vec![sdt])
     }
 
     /// Write each contents entry's page number: lay the finished document
@@ -4064,7 +4075,8 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
         || props.keep_next
         || props.numbering.is_some()
         || props.indent_left.is_some()
-        || props.align.is_some();
+        || props.align.is_some()
+        || props.rule;
     if !has_any {
         return Ok(());
     }
@@ -4093,6 +4105,20 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
         set_w(tree, num, "val", &num_id.to_string())?;
         append(tree, num_pr, num)?;
     }
+    if props.rule {
+        let borders = child(tree, "pBdr", &[])?;
+        let bottom = w_el(tree, borders, "bottom")?;
+        for (name, value) in [
+            ("val", "single"),
+            ("sz", "6"),
+            ("space", "1"),
+            ("color", "auto"),
+        ] {
+            set_w(tree, bottom, name, value)?;
+        }
+        append(tree, borders, bottom)?;
+        child(tree, "spacing", &[("before", "120"), ("after", "120")])?;
+    }
     if let Some(left) = props.indent_left {
         match props.hanging {
             Some(hanging) => child(
@@ -4108,6 +4134,15 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
     }
     if let Some(align) = props.align {
         child(tree, "jc", &[("val", align)])?;
+    }
+    if props.rule {
+        // A 1 pt paragraph mark keeps the empty line thin.
+        let rpr = child(tree, "rPr", &[])?;
+        for local in ["sz", "szCs"] {
+            let size = w_el(tree, rpr, local)?;
+            set_w(tree, size, "val", "2")?;
+            append(tree, rpr, size)?;
+        }
     }
     Ok(())
 }
@@ -4190,6 +4225,84 @@ fn new_run(tree: &mut XmlTree, parent: NodeId, props: &RunProps) -> Result<NodeI
     append(tree, parent, r)?;
     write_rpr(tree, r, props)?;
     Ok(r)
+}
+
+/// The title of the reference document's own table of contents: the first
+/// text before the TOC field in its table-of-contents block (the content
+/// control Word and LibreOffice write), or the TOC Heading paragraph just
+/// before a bare TOC field. Trimmed; none when blank or over 80 characters.
+pub(crate) fn reference_toc_title(txn: &Txn<'_>, main: &str) -> Result<Option<String>> {
+    let tree = txn.tree(main)?;
+    let body = body(tree)?;
+    let block = w_children(tree, body, "sdt").find(|sdt| {
+        w_child(tree, *sdt, "sdtPr")
+            .and_then(|pr| w_child(tree, pr, "docPartObj"))
+            .and_then(|object| w_child(tree, object, "docPartGallery"))
+            .and_then(|gallery| w_attr(tree, gallery, "val"))
+            == Some("Table of Contents")
+    });
+    let title = match block {
+        Some(sdt) => w_child(tree, sdt, "sdtContent")
+            .into_iter()
+            .flat_map(|content| w_children(tree, content, "p"))
+            .take_while(|p| !has_toc_field(tree, *p))
+            .map(|p| paragraph_text(tree, p))
+            .find(|text| !text.trim().is_empty()),
+        None => {
+            let paragraphs: Vec<NodeId> = w_children(tree, body, "p").collect();
+            let Some(field) = paragraphs.iter().position(|p| has_toc_field(tree, *p)) else {
+                return Ok(None);
+            };
+            let styles = txn.part_related_by(main, rt::STYLES)?;
+            let styles = match &styles {
+                Some(part) => Some(txn.tree(part)?),
+                None => None,
+            };
+            paragraphs[..field]
+                .iter()
+                .rev()
+                .map(|p| (*p, paragraph_text(tree, *p)))
+                .find(|(_, text)| !text.trim().is_empty())
+                .filter(|(p, _)| is_toc_heading(tree, styles, *p))
+                .map(|(_, text)| text)
+        }
+    };
+    Ok(title
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty() && text.chars().count() <= 80))
+}
+
+/// Whether the paragraph holds a TOC field, complex or simple.
+fn has_toc_field(tree: &XmlTree, p: NodeId) -> bool {
+    tree.descendants(p).any(|node| {
+        let instruction = if tree.is(node, W, "instrText") {
+            Some(tree.text_content(node))
+        } else if tree.is(node, W, "fldSimple") {
+            w_attr(tree, node, "instr").map(str::to_string)
+        } else {
+            None
+        };
+        instruction.is_some_and(|instruction| instruction.split_whitespace().next() == Some("TOC"))
+    })
+}
+
+/// Whether the paragraph is in the `TOCHeading` style or one named
+/// "TOC Heading".
+fn is_toc_heading(tree: &XmlTree, styles: Option<&XmlTree>, p: NodeId) -> bool {
+    let Some(id) = w_child(tree, p, "pPr")
+        .and_then(|ppr| w_child(tree, ppr, "pStyle"))
+        .and_then(|style| w_attr(tree, style, "val"))
+    else {
+        return false;
+    };
+    id == "TOCHeading"
+        || styles.is_some_and(|styles| {
+            w_children(styles, styles.root(), "style")
+                .find(|style| w_attr(styles, *style, "styleId") == Some(id))
+                .and_then(|style| w_child(styles, style, "name"))
+                .and_then(|name| w_attr(styles, name, "val"))
+                .is_some_and(|name| name.eq_ignore_ascii_case("TOC Heading"))
+        })
 }
 
 #[cfg(test)]

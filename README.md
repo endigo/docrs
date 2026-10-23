@@ -118,9 +118,13 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   links, HTML elements, math groups) is refused with `resource_limit`
   (`markdown_nesting_too_deep`) before anything changes.
 * Tables span the full text width; cells use a compact Table Contents
-  style. The table of contents is written out with links to each heading
-  and page numbers computed by estimating Word for Mac's layout, so it needs
-  no field update (`--no-toc-numbers` leaves the numbers out;
+  style. The table of contents is Word's table-of-contents block (heading
+  and entries in one content control, so Word offers Update Table), titled
+  as the template's own contents is, else "Table of Contents", unless
+  `--toc-title` says otherwise, and written
+  out with links to each heading and page numbers computed by estimating
+  Word for Mac's layout, so it needs no field update (`--no-toc-numbers`
+  leaves the numbers out;
   `--toc-page-numbers` asks Word to recompute them on open).
   `--page-numbers` adds a page-number footer when the template has none.
 * Branding a template only shows in its sample content (hand-formatted
