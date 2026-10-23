@@ -55,7 +55,6 @@ impl Export {
         self.part("word/document.xml")
     }
 
-    /// `(style name, text)` of every body paragraph.
     fn paragraphs(&self) -> Vec<(String, String)> {
         self.doc
             .paragraphs()
@@ -86,8 +85,6 @@ impl Export {
     }
 }
 
-/// Convert into the example reference document, export and reopen (saving
-/// a copy under `DOCRS_MARKDOWN_EXPORT` when set).
 fn export_with(
     name: &str,
     insert: impl FnOnce(&mut Document) -> docrs::Result<MarkdownReport>,
@@ -119,7 +116,6 @@ fn html_with(name: &str, html: &str, options: &MarkdownOptions) -> Export {
     export_with(name, |doc| insert_html(doc, html, options))
 }
 
-/// A document of `blocks` (JSON node objects).
 fn doc(blocks: &str) -> String {
     format!("{{\"type\":\"doc\",\"content\":[{blocks}]}}")
 }
@@ -128,7 +124,6 @@ fn count(haystack: &str, needle: &str) -> usize {
     haystack.matches(needle).count()
 }
 
-/// The body paragraph (`<w:p>…</w:p>`) holding `needle`.
 fn paragraph_holding<'a>(body: &'a str, needle: &str) -> &'a str {
     let at = body
         .find(needle)
@@ -138,8 +133,6 @@ fn paragraph_holding<'a>(body: &'a str, needle: &str) -> &'a str {
     &body[start..end]
 }
 
-/// The options the editor's page converts with: no captions, bytes for its
-/// pictures.
 fn page_options() -> MarkdownOptions {
     MarkdownOptions {
         figure_captions: false,
@@ -157,8 +150,6 @@ fn page_options() -> MarkdownOptions {
         ..MarkdownOptions::default()
     }
 }
-
-// ------------------------------------------------------- the editor's page
 
 #[test]
 fn the_json_renders_the_same_document_as_the_editors_html() {
@@ -277,8 +268,6 @@ fn nodes_the_html_only_hints_at_come_through_from_the_json() {
     assert!(out.messages().contains("\"emoji\""), "{}", out.messages());
 }
 
-// ------------------------------------------------------------- the mapping
-
 #[test]
 fn the_editors_default_alignment_is_left_to_the_template() {
     let out = tiptap(
@@ -357,8 +346,6 @@ fn a_picture_standing_alone_aligns_its_paragraph_by_its_own_text_align() {
     let picture = paragraph_holding(&body, "<w:drawing>");
     assert!(picture.contains("<w:jc w:val=\"center\"/>"), "{picture}");
 
-    // An alignment the paragraph cannot follow, or one that cannot be read,
-    // is reported; the picture and the paragraph's own alignment stay.
     let out = tiptap_with(
         "32-tiptap-picture-dropped",
         &doc(&format!(
@@ -433,7 +420,7 @@ fn unknown_nodes_marks_and_attributes_are_reported_and_the_text_kept() {
         assert!(messages.contains(needle), "{needle}: {messages}");
     }
     // An unknown attribute that is not formatting (`letterSpacing`) is an
-    // app's own and not reported; the picture keeps its height.
+    // app's own and not reported.
     assert!(!messages.contains("letterSpacing"), "{messages}");
     assert_eq!(out.report.counts.images, 1);
     assert!(out.body().contains("cy=\"190500\""), "20px high");
@@ -505,7 +492,6 @@ fn lists_tables_images_and_breaks_map_from_hand_written_nodes() {
         );
     }
     let body = out.body();
-    // Two columns: the header spans both; widths 1:3 from `colwidth`.
     assert_eq!(count(&body, "<w:gridCol "), 2, "{body}");
     assert_eq!(count(&body, "<w:gridSpan w:val=\"2\"/>"), 1);
     assert_eq!(count(&body, "<w:vMerge w:val=\"restart\"/>"), 1);
@@ -577,8 +563,6 @@ fn links_follow_the_scheme_policy_and_pictures_the_resource_policy() {
     );
 }
 
-// ------------------------------------------------------------- refusals
-
 #[test]
 fn a_rule_is_one_plain_line_from_every_source() {
     let border = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/>";
@@ -626,8 +610,6 @@ fn a_table_of_contents_is_words_content_control() {
         "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]},",
         "{\"type\":\"heading\",\"attrs\":{\"level\":2},\"content\":[{\"type\":\"text\",\"text\":\"Two\"}]}"
     );
-    // The node, where it stands: heading, entries and the whole field
-    // inside the one block, nothing of the field outside it.
     let node = tiptap(
         "41-toc-node",
         &doc(&format!("{{\"type\":\"tableOfContents\"}},{headings}")),
@@ -649,8 +631,6 @@ fn a_table_of_contents_is_words_content_control() {
     assert!(block.contains("<w:pStyle w:val=\"TOC2\"/>"), "{block}");
     assert!(!body[close..].contains("fldChar"), "{body}");
     assert!(!body.contains("pageBreakBefore"), "{body}");
-    // The option, from the JSON and from the HTML alike: the block, then
-    // the content on a new page.
     let options = MarkdownOptions {
         toc: Some(true),
         ..MarkdownOptions::default()
@@ -772,10 +752,6 @@ fn wide_tables_are_narrowed_with_a_warning() {
     }
 }
 
-// ------------------------------------------------- partly resized tables
-
-/// The editor's table of `rows` with `widths` per column (`colwidth` on the
-/// sized ones), as its HTML and as its JSON.
 fn resized_table(rows: &[&[&str]], widths: &[Option<u32>]) -> (String, String) {
     let cols: String = widths
         .iter()
@@ -822,7 +798,6 @@ fn resized_table(rows: &[&[&str]], widths: &[Option<u32>]) -> (String, String) {
     (html, doc(&json))
 }
 
-/// The tables' widths and grid columns in `body`, in twips.
 fn grids(body: &str) -> (Vec<i64>, Vec<i64>) {
     let numbers = |after: &str| -> Vec<i64> {
         body.match_indices(after)
@@ -910,11 +885,10 @@ fn a_partly_resized_table_keeps_the_widths_the_editor_set() {
 
 #[test]
 fn a_header_several_rows_deep_keeps_its_spans_and_the_resized_columns() {
-    // `nested.{json,html}`: a rowspan cell over five header rows, three
-    // eight-column spans, two four-column spans, eight leaf columns; the
-    // first column dragged to 180 px and the fourth to 140 px, which the
-    // editor writes onto every cell of those columns, as zero-filled lists
-    // on the spanning ones.
+    // `nested.{json,html}`: a five-row header over eight leaf columns, the
+    // first dragged to 180 px and the fourth to 140 px, which the editor
+    // writes onto every cell of those columns, as zero-filled lists on the
+    // spanning ones.
     let json = tiptap("39-tiptap-nested", &fixture("nested.json"));
     let html = html_with(
         "39-tiptap-nested-html",

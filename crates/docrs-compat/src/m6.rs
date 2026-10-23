@@ -158,10 +158,6 @@ pub fn run(python: &Path) -> Result<bool, String> {
     Ok(failures.is_empty())
 }
 
-// ---------------------------------------------------------------------------
-// Compare parity
-// ---------------------------------------------------------------------------
-
 use docrs::compare::{CompareOptions, Granularity, compare};
 use docrs::package::{zip_read, zip_write};
 use docrs::xml::{self as pxml, NodeData, NodeId, XmlTree};
@@ -207,7 +203,6 @@ fn text_nodes(tree: &XmlTree, within: NodeId) -> Vec<NodeId> {
         .collect()
 }
 
-/// Revised variants of one document: (label, bytes).
 fn variants(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
     let mut out = vec![("identical".to_string(), bytes.to_vec())];
     let Ok(doc) = Document::open_bytes(bytes, &Limits::default()) else {

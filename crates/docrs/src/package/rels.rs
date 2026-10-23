@@ -208,7 +208,6 @@ pub fn relationships_from_tree(tree: &xml::XmlTree, base: &str) -> Result<Vec<Re
         ));
     }
     let mut out: Vec<Relationship> = Vec::new();
-    // Id → position in `out`.
     let mut ids: HashMap<&str, usize> = HashMap::new();
     for child in tree.children(root) {
         let NodeData::Element(_) = tree.data(*child) else {

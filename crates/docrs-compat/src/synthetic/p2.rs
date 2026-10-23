@@ -11,7 +11,6 @@ const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationsh
 const REL_BASE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const CT_BASE: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml";
 
-/// An extra part related from the main document.
 struct Extra<'a> {
     name: &'a str,
     content_type: &'a str,
@@ -156,7 +155,6 @@ fn header(body: &str) -> Extra<'static> {
     }
 }
 
-/// The section properties referencing the header at relationship `rId{n}`.
 fn sect_for(header_rid: usize) -> String {
     SECT.replace("rId9", &format!("rId{header_rid}"))
 }

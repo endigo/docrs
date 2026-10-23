@@ -125,10 +125,6 @@ fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
 }
 
-// ---------------------------------------------------------------------------
-// Revision vocabulary
-// ---------------------------------------------------------------------------
-
 /// Tags upstream `Document.revisions` enumerates (`_REVISION_TYPES`).
 const REVISION_TAGS: &[&str] = &[
     "ins",
@@ -171,10 +167,6 @@ fn is_markup(tree: &XmlTree, node: NodeId) -> bool {
             REVISION_TAGS.contains(&local) || MARKUP_SCAN_EXTRA.contains(&local)
         })
 }
-
-// ---------------------------------------------------------------------------
-// Raw package validation
-// ---------------------------------------------------------------------------
 
 struct RawPackage {
     parts: BTreeMap<String, Vec<u8>>,
@@ -405,10 +397,6 @@ fn refuse_unsupported_package_differences(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Canonical story bytes (upstream `_canonical_story_bytes`)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 enum CNode {
     Elem {
@@ -594,7 +582,6 @@ fn mergeable(left: &CNode, right: &CNode) -> bool {
 }
 
 fn canonicalize(node: &mut CNode) {
-    // 1. drop w:proofErr; 2. drop empty pPr/rPr (bottom-up over the clone).
     fn strip(node: &mut CNode) {
         if let CNode::Elem { children, .. } = node {
             children.retain(|c| !c.is("proofErr"));
@@ -614,7 +601,6 @@ fn canonicalize(node: &mut CNode) {
         }
     }
     strip(node);
-    // 3. merge adjacent mergeable runs (any parent), 4. merge adjacent w:t.
     fn merge(node: &mut CNode) {
         if let CNode::Elem { children, .. } = node {
             let mut index = 0;
@@ -674,7 +660,6 @@ fn canonicalize(node: &mut CNode) {
         }
     }
     merge(node);
-    // 5. xml:space follows edge whitespace on every w:t.
     fn spaces(node: &mut CNode) {
         let is_t = node.is("t");
         if let CNode::Elem {
@@ -776,10 +761,6 @@ fn textless_story_bytes(tree: &XmlTree, node: NodeId) -> String {
     blank(&mut node);
     canonical_cnode(node)
 }
-
-// ---------------------------------------------------------------------------
-// Story comparison
-// ---------------------------------------------------------------------------
 
 struct Ctx<'d> {
     document: &'d Document,
@@ -1824,10 +1805,6 @@ fn compare_story(ctx: &mut Ctx<'_>, tree: &mut XmlTree, revised: &XmlTree) -> Re
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 fn numbering_ids(document: &Document) -> HashSet<i64> {
     // Upstream `_numbering_ids`: definitions from `list_numbering`, and any

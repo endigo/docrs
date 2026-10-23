@@ -189,7 +189,6 @@ fn update_cell_routes_through_replacement_with_exact_budget() {
     assert_eq!(json["added_parts"], serde_json::json!([]));
     let reopened = open(&bytes);
     assert_eq!(grid(&reopened, "updated value")[0][1], "updated value");
-    // The handle stays live across this module's own edits.
     assert_eq!(doc.table_grid(&table).unwrap()[0][1], "updated value");
 }
 
@@ -234,7 +233,6 @@ fn tracked_update_authors_deletion_and_insertion_as_upstream() {
          w:date=\"2024-01-02T03:04:05Z\"><w:r><w:delText>10</w:delText></w:r></w:del><w:ins w:id=\"2\" \
          w:author=\"Carol QA\" w:date=\"2024-01-02T03:04:05Z\"><w:r><w:t>99</w:t></w:r></w:ins></w:p>"
     ));
-    // Next ids continue above every existing revision id.
     let report = doc
         .update_cell(&table, 0, 0, "cell 0X", &tracked("Carol QA"))
         .unwrap();
@@ -406,7 +404,6 @@ fn structure_refusals_leave_the_package_byte_identical() {
             assert_eq!(err.refusal_kind(), Some(kind), "{marker}: {err}");
             assert_eq!(snapshot(&doc), before, "{marker}");
         }
-        // The handle is still live after refusals.
         doc.update_cell(&table, 0, 0, "neighbour", &UpdateCellOptions::default())
             .unwrap();
     }
@@ -632,7 +629,6 @@ fn table_handles_are_document_bound_and_go_stale() {
         assert_eq!(err.refusal_kind(), Some(RefusalKind::TargetNotFound));
     }
     assert_eq!(snapshot(&doc), before);
-    // A fresh handle works.
     let fresh = doc.find_table("cell 10", MatchPolicy::Exact).unwrap();
     doc.delete_row(&fresh, 0).unwrap();
 }

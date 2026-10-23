@@ -90,8 +90,6 @@ fn tokenize(html: &str) -> Vec<Token> {
             let inner = inner.trim_end_matches('/');
             let name_end = inner.find(char::is_whitespace).unwrap_or(inner.len());
             let name = inner[..name_end].to_ascii_lowercase();
-            // Script, style and title text is not markup: it runs to the
-            // element's end tag.
             let raw = !self_closing && RAW_TEXT.contains(&name.as_str());
             tokens.push(Token::Open {
                 attrs: attributes(&inner[name_end..]),
@@ -117,7 +115,6 @@ fn tokenize(html: &str) -> Vec<Token> {
 /// Elements whose content is text up to their end tag.
 const RAW_TEXT: &[&str] = &["script", "style", "title"];
 
-/// Byte offset of the first ASCII-case-insensitive match of `needle`.
 fn find_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
     haystack
         .as_bytes()
@@ -161,8 +158,7 @@ fn attributes(text: &str) -> Vec<(String, String)> {
     attrs
 }
 
-/// An element still open while building the tree: name, attributes,
-/// children so far.
+/// An open element: name, attributes, children so far.
 type OpenElement = (String, Vec<(String, String)>, Vec<Node>);
 
 const VOID: &[&str] = &[
@@ -187,7 +183,6 @@ pub(crate) fn hidden_tag(name: &str) -> Option<&'static str> {
     HIDDEN.iter().find(|hidden| **hidden == name).copied()
 }
 
-/// A parsed element tree.
 #[derive(Debug, Clone)]
 enum Node {
     Element {
@@ -201,7 +196,6 @@ enum Node {
 /// The element tree of `tokens`, nested inside `depth` levels of the
 /// surrounding document; refused past [`MAX_NESTING_DEPTH`].
 fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
-    // Stack of open elements; the root collects top-level nodes.
     let mut stack: Vec<OpenElement> = vec![(String::new(), Vec::new(), Vec::new())];
     for token in tokens {
         match token {
@@ -211,8 +205,8 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
                 attrs,
                 self_closing,
             } => {
-                // Implied end tags: a new <p>, <li>, <tr>, <td>, <th> closes
-                // an open sibling of the same family.
+                // HTML's implied end tags: a new <p>, <li>, <tr>, <td> or <th>
+                // closes an open sibling.
                 let closes: &[&str] = match name.as_str() {
                     "p" => &["p"],
                     "li" => &["li", "p"],
@@ -282,18 +276,12 @@ fn close_top(stack: &mut Vec<OpenElement>) {
     });
 }
 
-/// Conversion state: what had no mapping.
 #[derive(Default)]
 struct Converter {
-    /// Tag names with no Word equivalent (their text is kept).
     unknown: Vec<String>,
-    /// CSS declarations with no Word equivalent, as `property on <tag>`.
     styles: Vec<String>,
-    /// Elements browsers do not display, dropped with their content.
     skipped: Vec<String>,
-    /// A table was narrowed to Word's column limit.
     narrowed_table: bool,
-    /// Source line of the HTML (for image warnings).
     line: usize,
 }
 
@@ -316,7 +304,6 @@ fn attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-/// `style` declarations as `(property, value)`, the property lower-cased.
 fn declarations(attrs: &[(String, String)]) -> Vec<(String, String)> {
     let Some(style) = attr(attrs, "style") else {
         return Vec::new();
@@ -504,9 +491,7 @@ fn css_valign(value: &str) -> Option<VAlign> {
     }
 }
 
-/// Which sides of an element ask for a page break: the editor's
-/// `data-page-break` marker, CSS `page-break-before/after: always` and
-/// `break-before/after: page`. `(before, after)`.
+/// `(before, after)`: the sides on which an element asks for a page break.
 fn page_break_sides(attrs: &[(String, String)]) -> (bool, bool) {
     let mut sides = (attr(attrs, "data-page-break").is_some(), false);
     for (property, value) in declarations(attrs) {
@@ -532,7 +517,6 @@ fn image_align(attrs: &[(String, String)]) -> Option<Align> {
         .next_back()
 }
 
-/// The attributes of every `img` among `nodes`, inside inline elements too.
 fn pictures<'a>(nodes: &'a [Node], out: &mut Vec<&'a [(String, String)]>) {
     for node in nodes {
         if let Node::Element {
@@ -550,7 +534,6 @@ fn pictures<'a>(nodes: &'a [Node], out: &mut Vec<&'a [(String, String)]>) {
     }
 }
 
-/// Whether `nodes` hold no text (only whitespace and line breaks).
 fn is_blank(nodes: &[Node]) -> bool {
     nodes.iter().all(|node| match node {
         Node::Text(text) => text.trim().is_empty(),
@@ -730,8 +713,6 @@ impl Converter {
         }
     }
 
-    /// Whether `name` is an element browsers do not display; it is noted
-    /// as skipped.
     fn skip(&mut self, name: &str) -> bool {
         let Some(tag) = hidden_tag(name) else {
             return false;
@@ -749,8 +730,6 @@ impl Converter {
         }
     }
 
-    /// The alignment a block element asks for (`style="text-align: …"`,
-    /// `align`); declarations other than `handled` ones are reported.
     fn block_align(
         &mut self,
         tag: &str,
@@ -769,9 +748,6 @@ impl Converter {
         align
     }
 
-    /// The alignment of a paragraph made of `nodes`: `own` (its element's)
-    /// or, for a picture standing alone, the picture's `text-align`. A
-    /// picture's alignment the paragraph cannot follow is reported.
     fn picture_align(&mut self, own: Option<Align>, nodes: &[Node]) -> Option<Align> {
         let mut align = own;
         let alone = nodes
@@ -912,8 +888,6 @@ impl Converter {
         out
     }
 
-    /// Block content of `nodes`; loose inline runs become paragraphs (or
-    /// plain blocks when `plain`).
     fn blocks(&mut self, nodes: &[Node], plain: bool) -> Vec<Block> {
         let mut out = Vec::new();
         let mut pending: Vec<Node> = Vec::new();
@@ -1072,7 +1046,6 @@ impl Converter {
         out
     }
 
-    /// Preformatted text: whitespace kept.
     fn inlines_raw(&mut self, nodes: &[Node]) -> Vec<Inline> {
         let mut out = Vec::new();
         for node in nodes {
@@ -1137,7 +1110,6 @@ impl Converter {
         }
     }
 
-    /// A table, preceded by its `caption` (as a `Table:` caption paragraph).
     fn table(&mut self, attrs: &[(String, String)], children: &[Node]) -> Vec<Block> {
         let mut rows: Vec<HtmlRow> = Vec::new();
         let mut widths: Vec<Option<f64>> = Vec::new();
@@ -1198,8 +1170,6 @@ impl Converter {
                             _ => self.note_style("col", &property),
                         }
                     }
-                    // A span widens the table no further than Word's last
-                    // column.
                     let room = MAX_TABLE_COLUMNS.saturating_sub(widths.len()).max(1);
                     let span = attr(attrs, "span")
                         .and_then(|s| s.trim().parse::<usize>().ok())
@@ -1208,7 +1178,6 @@ impl Converter {
                     widths.extend(std::iter::repeat_n(width, span));
                 }
                 "tr" => {
-                    // Cells inherit the row's alignment.
                     let row_align = self.block_align(name, attrs, &[]);
                     let mut cells = Vec::new();
                     let mut all_th = true;
@@ -1314,7 +1283,6 @@ pub(crate) fn assemble_table(
         .collect();
     let (placed, columns) = place(&spans);
     widths.resize(columns, None);
-    // TipTap's `colwidth` fills the columns `colgroup` left open.
     for (row, slots) in rows.iter().zip(&placed) {
         for slot in slots {
             let Slot::Cell { index, col, .. } = *slot else {
@@ -1352,17 +1320,14 @@ pub(crate) fn assemble_table(
     (table, narrowed)
 }
 
-/// Fit a table into Word's 63 columns: spans reaching past the last column
-/// are cut back (as [`place`] places them), and cells that would start past
-/// it move their content into the cell before them in the row, or into the
-/// cell covering that column from a row above. Returns whether anything
-/// changed.
+/// Fit a table into Word's 63 columns: a cell starting past the last column
+/// moves its content into the cell before it, or into the cell covering that
+/// column from a row above. Returns whether anything changed.
 fn narrow(rows: &mut [HtmlRow]) -> bool {
     let mut changed = false;
-    // A row's 64th cell and later start past the last column whatever the
-    // spans before them do, so they move into the 63rd before the grid is
-    // laid out: a long row over many short ones then costs rows × 63
-    // slots, not rows × cells.
+    // Cells past the 63rd start past the last column whatever the spans
+    // before them do; moving them first keeps the grid at rows × 63 slots,
+    // not rows × cells.
     for row in rows.iter_mut() {
         if row.cells.len() > MAX_TABLE_COLUMNS {
             let overflow: Vec<Block> = row
@@ -1379,7 +1344,6 @@ fn narrow(rows: &mut [HtmlRow]) -> bool {
         .map(|row| row.cells.iter().map(|cell| cell.span).collect())
         .collect();
     let (placed, _) = place(&spans);
-    // `(row, cell index)` moves into `(row, cell index)`.
     let mut moves: Vec<((usize, usize), (usize, usize))> = Vec::new();
     for (row, slots) in placed.iter().enumerate() {
         let mut target = None;
@@ -1392,7 +1356,6 @@ fn narrow(rows: &mut [HtmlRow]) -> bool {
                     target = Some((row, index));
                 }
                 Slot::Continue { col, .. } if col < MAX_TABLE_COLUMNS => {
-                    // The cell above that starts this column's span.
                     target = (0..row).rev().find_map(|above| {
                         placed[above].iter().find_map(|slot| match *slot {
                             Slot::Cell { index, col: c, .. } if c == col => Some((above, index)),
@@ -1550,7 +1513,6 @@ mod tests {
         let (blocks, unmapped) = read("<details><summary>s</summary>body</details>");
         assert_eq!(unmapped.tags, vec!["details", "summary"]);
         assert!(!blocks.is_empty());
-        // A trailing line break draws nothing.
         let (blocks, _) = read("<p>a<br></p><p><br></p>");
         assert_eq!(
             blocks,
@@ -1620,8 +1582,6 @@ mod tests {
         assert_eq!(blocks[3], Block::PageBreak);
         assert_eq!(blocks[4], Block::PageBreak);
         assert!(matches!(&blocks[5], Block::Paragraph(_)));
-        // Tiptap's own HTML for an aligned picture: `text-align` on the `img`,
-        // at the top level (block image) or alone in its paragraph.
         for (block, align) in [
             (&blocks[6], Align::Center),
             (&blocks[7], Align::Right),
@@ -1635,8 +1595,6 @@ mod tests {
         }
         assert_eq!(blocks.len(), 9);
 
-        // A picture among text, or asking for another alignment than its
-        // paragraph, cannot be followed.
         let (blocks, unmapped) = read(
             "<p>t <img style=\"text-align: center;\" src=\"e.png\" alt=\"E\"> u</p>\
              <p style=\"text-align: right;\"><a href=\"https://x.example\"><img style=\"text-align: center;\" src=\"f.png\" alt=\"F\"></a></p>",
@@ -1697,7 +1655,6 @@ mod tests {
                 ..
             }
         ));
-        // A ragged row is padded to the grid.
         let (grid, columns) = place(&[vec![CellSpan::default(); 3], vec![CellSpan::default()]]);
         assert_eq!(columns, 3);
         assert!(matches!(grid[1][2], Slot::Empty { col: 2 }));

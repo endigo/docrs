@@ -52,7 +52,6 @@ fn image_bytes(doc: &Document, name: &str) -> Vec<u8> {
         .into_owned()
 }
 
-/// Drop every relationship from the main part that targets `IMAGE`.
 fn unrelate_image(txn: &mut Txn<'_>) {
     let rels = txn.resolve("word/_rels/document.xml.rels").unwrap();
     let tree = txn.tree_mut(&rels).unwrap();
@@ -129,7 +128,6 @@ fn remove_commit_then_readd_in_a_later_transaction() {
     assert!(doc.package().part(IMAGE).is_none());
     assert!(doc.package().resolve_member(IMAGE).is_none());
 
-    // The removal alone saves and reopens without the member.
     let (removed_only, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.removed_parts, vec![IMAGE.to_string()]);
     assert!(open(&removed_only).package().part(IMAGE).is_none());
@@ -156,7 +154,6 @@ fn remove_commit_then_readd_in_a_later_transaction() {
     assert_eq!(image_bytes(&reopened, IMAGE), PNG_B);
     assert!(reopened.package().part(IMAGE).unwrap().is_reachable());
 
-    // A further remove/re-add cycle keeps working on the revived slot.
     commit(&mut doc, |txn| {
         txn.remove_part(IMAGE).unwrap();
         txn.add_binary_part(IMAGE, "image/png", PNG_A.to_vec())
@@ -216,7 +213,6 @@ fn case_folded_collision_with_a_live_part_is_still_refused() {
         .unwrap_err();
     assert_eq!(err.reason(), "duplicate_part");
 
-    // Two new parts that fold together are refused too.
     let mut txn = Txn::new(&doc);
     txn.add_binary_part("word/media/image2.png", "image/png", PNG_B.to_vec())
         .unwrap();

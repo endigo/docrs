@@ -24,7 +24,6 @@ fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
 }
 
-/// Which note kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Footnote,

@@ -17,9 +17,6 @@ use crate::hostile::build::{RawMember, build_zip, minimal_package_with};
 
 const MINIMAL: &str = "generated/minimal-clean/minimal.docx";
 
-/// `minimal.docx` with `body` replacing the body content (the `w:sectPr` is
-/// kept) and `styles` appended to `word/styles.xml` (or replacing the whole
-/// part when `replace_styles` is set).
 fn from_minimal(body: &str, styles: &str, replace_styles: bool) -> Vec<u8> {
     let bytes = std::fs::read(crate::hostile::fixtures_dir().join(MINIMAL))
         .expect("minimal.docx fixture is vendored");
@@ -65,7 +62,6 @@ fn r(text: &str) -> String {
     format!("<w:r><w:t{space}>{}</w:t></w:r>", esc(text))
 }
 
-/// A run with direct properties.
 fn rp(props: &str, text: &str) -> String {
     let space = if text.trim() != text {
         " xml:space=\"preserve\""
@@ -111,7 +107,6 @@ fn tbl(columns: usize, rows: &[String]) -> String {
     )
 }
 
-/// A one-row, two-column table: marker cell plus `cell`.
 fn marked(marker: &str, cell: &str) -> String {
     tbl(2, &[tr(&[tc(&pt(marker)), cell.to_string()])])
 }
@@ -562,7 +557,6 @@ fn row_documents() -> Vec<(String, Vec<u8>)> {
     for (_, row) in markers {
         tables.push(tbl(1, &[row]));
     }
-    // Nonrectangular templates (gridBefore / gridAfter with omitted cells).
     for (name, property) in [("start", "gridBefore"), ("end", "gridAfter")] {
         tables.push(tbl(
             3,

@@ -94,7 +94,6 @@ fn control_state(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     }))
 }
 
-/// `ext.p1_control_set_value`: `Control.set_value` on a selected control.
 fn control_set_value(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let control = select(doc, step)?;
     let value = control_value(step.param("value", 0))?;

@@ -17,7 +17,6 @@ const root = join(here, "..", "..", "..");
 const pkg = process.env.DOCRS_WASM_PKG ?? join(here, "..", "pkg");
 const require = createRequire(import.meta.url);
 const lib = require(pkg);
-// The memory of an instance that has done nothing yet.
 const freshSize = lib.__wasm.memory.buffer.byteLength;
 const templates = join(root, "tests", "fixtures", "markdown", "templates");
 const readBytes = (path) => new Uint8Array(readFileSync(path));
@@ -38,7 +37,6 @@ test("every synthetic template converts the sample record of advice", () => {
     assert.ok(docx instanceof Uint8Array && isZip(docx), name);
     assert.deepEqual(report.warnings, [], name);
     assert.ok(report.counts.tables > 0, name);
-    // The output reads back as a reference document.
     assert.equal(lib.markdownStyles(docx).length, 40, name);
   }
 });
@@ -48,7 +46,6 @@ test("options are optional and the result is deterministic for a given time", ()
   const second = lib.fromMarkdown("# Title\n\nText.\n", { now: 1_700_000_000_000 });
   assert.deepEqual(first.docx, second.docx);
   assert.ok(isZip(lib.fromMarkdown("plain").docx));
-  // Forwarded optional values may be undefined or null.
   assert.ok(isZip(lib.fromMarkdown("plain", { toc: undefined, pageNumbers: null, reference: undefined }).docx));
 });
 
@@ -130,7 +127,7 @@ const PNG = Uint8Array.from(
 );
 
 const LOGO = { "https://store.example/logo.png?token=t": PNG };
-// A source over the serverless budget (384 KiB) by one byte.
+// A source one byte over the serverless budget (384 KiB).
 const OVER_BUDGET = "x".repeat((384 << 10) + 1);
 
 // The editor HTML contract (the shapes a rich-text editor emits), synthetic.
@@ -146,7 +143,6 @@ const EDITOR_HTML =
   '<div data-page-break="" class="rich-text-page-break not-prose"></div><h2>After</h2>';
 
 const documentXml = (docx) => {
-  // Stored or deflated: find word/document.xml through the package reader.
   const { inflateRawSync } = require("node:zlib");
   const buf = Buffer.from(docx);
   let at = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
@@ -189,7 +185,6 @@ test("editor HTML maps colours, alignment, spans, widths, images and page breaks
   ]) {
     assert.ok(xml.includes(needle), needle);
   }
-  // No caption paragraph under the picture.
   assert.ok(!xml.includes(">Logo<"));
 });
 
@@ -268,7 +263,6 @@ test("oversized inputs are refused before they are copied in", () => {
     (err) => err.code === "resource_limit" && err.limit.limit === "max_input_bytes",
   );
   assert.ok(process.memoryUsage().rss - before < 256 << 20, "the reference was copied");
-  // A source over budget by its UTF-16 length alone.
   assert.throws(
     () => lib.fromMarkdown(OVER_BUDGET, { limits: "serverless", redact: true }),
     (err) => err.limit.limit === "max_source_bytes",
@@ -313,7 +307,6 @@ test("TipTap JSON renders the same document as the editor's HTML", () => {
   assert.deepEqual(fromText.report.counts, fromHtml.report.counts);
   assert.equal(documentXml(fromText.docx), documentXml(fromHtml.docx));
   assert.deepEqual(fromObject.docx, fromText.docx);
-  // The 0.3.0 name stays.
   assert.deepEqual(lib.fromTiptap(tiptap("core.json"), options).docx, fromText.docx);
   const xml = documentXml(fromText.docx);
   for (const needle of ['<w:color w:val="DC2626"/>', 'w:fill="BBF7D0"', '<w:highlight w:val="yellow"/>', '<w:jc w:val="both"/>', '<w:gridSpan w:val="2"/>', 'descr="Logo"']) {
@@ -363,7 +356,6 @@ test("a trap replaces the instance and the next call runs on a fresh one", () =>
   assert.notEqual(lib.__wasm, poisoned);
   assert.equal(lib.__wasm.memory.buffer.byteLength, freshSize);
   assert.deepEqual(sample(), baseline);
-  // Every function that takes options is guarded the same way.
   for (const call of [
     () => lib.fromMarkdown("x", trapping),
     () => lib.fromJson('{"type":"doc"}', trapping),
@@ -375,7 +367,6 @@ test("a trap replaces the instance and the next call runs on a fresh one", () =>
     assert.throws(call, WebAssembly.RuntimeError);
     assert.notEqual(lib.__wasm, before);
   }
-  // Through the raw exports too.
   const marked = lib.__wasm;
   assert.throws(() => marked.__wbindgen_malloc(0xfffffff0, 1), WebAssembly.RuntimeError);
   assert.notEqual(lib.__wasm, marked);

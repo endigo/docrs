@@ -34,7 +34,6 @@ fn add(out: &mut Needles, needle: String, view: View, policy: MatchPolicy) {
     }
 }
 
-/// Deterministic needle set for one document.
 fn needles(doc: &Document, budget: usize) -> Vec<Value> {
     let mut out: Needles = BTreeSet::new();
     let fixed = [

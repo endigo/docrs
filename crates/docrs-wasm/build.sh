@@ -2,8 +2,7 @@
 # Build the Node.js package into crates/docrs-wasm/pkg:
 #   crates/docrs-wasm/build.sh [--pack]
 # Needs the wasm32-unknown-unknown target and wasm-bindgen-cli at the
-# version Cargo.lock pins for the wasm-bindgen crate. The npm version is the
-# crate's. --pack also runs `npm pack` and prints the tarball, which installs
+# version Cargo.lock pins. --pack also runs `npm pack`: the tarball installs
 # exactly what npm would serve.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)

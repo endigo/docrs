@@ -186,10 +186,6 @@ fn inject_before_commit() -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
 fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
 }
@@ -209,10 +205,6 @@ fn ambiguous_affix() -> Error {
          change (for example, 'payment' with 'settlement')",
     )
 }
-
-// ---------------------------------------------------------------------------
-// Census (shared by a replace_all batch)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 struct BookmarkRange {
@@ -285,10 +277,6 @@ impl Census {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
-// Freshness
-// ---------------------------------------------------------------------------
 
 pub(crate) fn validate_fresh(
     document: &Document,
@@ -381,10 +369,6 @@ pub(crate) fn validate_fresh(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Argument validation
-// ---------------------------------------------------------------------------
-
 fn is_xml_representable(c: char) -> bool {
     matches!(c as u32, 0x09 | 0x0A | 0x0D | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
 }
@@ -421,10 +405,6 @@ pub(crate) fn validate_writable_text(value: &str, argument: &str) -> Result<()> 
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Structure helpers
-// ---------------------------------------------------------------------------
 
 fn chars(text: &str) -> Vec<char> {
     text.chars().collect()
@@ -507,7 +487,6 @@ fn canonical_rec(tree: &XmlTree, node: NodeId, out: &mut String) {
 
 type Evidence = (String, Vec<NodeId>);
 
-/// Complete run-property and inline-ancestry evidence for one atom.
 fn destination_evidence(tree: &XmlTree, atom: &Atom) -> Result<Evidence> {
     let (Some(run), Some(paragraph)) = (atom.run, atom.paragraph) else {
         return Err(unsupported(
@@ -948,10 +927,6 @@ fn clear_placeholder_state(tree: &mut XmlTree, sdt: NodeId) -> Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Planning
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 struct TextAssignment {
@@ -2031,7 +2006,6 @@ fn apply_tracked(tree: &mut XmlTree, plan: &TrackedPlan) -> Result<()> {
     if let (Some(element), Some(text)) = (plan.last_element, plan.last_text.as_deref()) {
         set_preserved_text(tree, element, text)?;
     }
-    // Run content after the matched text node moves past the revision.
     let mut past = false;
     let mut trailing = Vec::new();
     for child in tree.children(plan.first_run).to_vec() {

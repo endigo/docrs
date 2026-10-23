@@ -84,10 +84,6 @@ impl Default for FindOptions {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Atoms
-// ---------------------------------------------------------------------------
-
 /// One text node in search space with its structural context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Atom {
@@ -327,10 +323,6 @@ pub(crate) fn slice_chars(text: &str, start: usize, end: usize) -> String {
         .take(end.saturating_sub(start))
         .collect()
 }
-
-// ---------------------------------------------------------------------------
-// Spans and freshness evidence
-// ---------------------------------------------------------------------------
 
 static NEXT_SPAN_TOKEN: AtomicU64 = AtomicU64::new(1);
 
@@ -584,10 +576,6 @@ impl Span {
             .collect()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Search
-// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn spans_for_story(

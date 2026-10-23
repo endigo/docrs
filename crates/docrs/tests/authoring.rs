@@ -39,7 +39,6 @@ fn add_paragraph_with_text_and_style() {
     // The default paragraph style resolves to None but still adds w:pPr.
     doc.add_paragraph("plain", Some("Normal")).unwrap();
     assert!(document_xml(&doc).contains("<w:p><w:pPr/><w:r><w:t>plain</w:t></w:r></w:p>"));
-    // Only the main part changed.
     let (_, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.changed_parts, vec!["word/document.xml".to_string()]);
     assert!(report.added_parts.is_empty());
@@ -283,24 +282,20 @@ fn handles_are_local_and_fresh() {
     let mut doc = Document::new();
     let p = doc.add_paragraph("", None).unwrap();
     let run = p.add_run(&mut doc, Some("x"), None).unwrap();
-    // Unrelated edits keep handles fresh.
     doc.add_paragraph("other", None).unwrap();
     p.insert_paragraph_before(&mut doc, Some("before"), None)
         .unwrap();
     run.add_tab(&mut doc).unwrap();
-    // Clearing the paragraph removes the run: its handle goes stale.
     p.clear(&mut doc).unwrap();
     let before = bytes(&doc);
     let stale = run.set_text(&mut doc, "y").unwrap_err();
     assert_eq!(stale.refusal_kind(), Some(RefusalKind::TargetNotFound));
     assert_eq!(stale.reason(), "stale_handle");
     assert_eq!(bytes(&doc), before);
-    // A handle from another document is refused.
     let mut other = Document::new();
     let err = p.add_run(&mut other, Some("z"), None).unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::BoundaryViolation));
     assert_eq!(err.reason(), "foreign_handle");
-    // Reacquired handles work.
     let fresh = doc.paragraphs().unwrap();
     fresh[1].add_run(&mut doc, Some("ok"), None).unwrap();
     assert_eq!(fresh[1].text(&doc).unwrap(), "ok");
@@ -308,8 +303,8 @@ fn handles_are_local_and_fresh() {
 
 #[test]
 fn styles_part_is_created_on_demand() {
-    // A package without a styles part: like upstream, a style lookup creates
-    // the default styles part; a failed lookup leaves the package alone.
+    // Like upstream, a style lookup creates the default styles part; a failed
+    // lookup leaves the package alone.
     let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>"#;
     let mut doc = Document::open_bytes(&build(xml), &docrs::Limits::default()).unwrap();

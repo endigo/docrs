@@ -106,10 +106,6 @@ pub(crate) fn py_repr(text: &str) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// Values
-// ---------------------------------------------------------------------------
-
 /// A value to set (or a value read back).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlValue {
@@ -251,10 +247,6 @@ impl Stamp {
         )
     }
 }
-
-// ---------------------------------------------------------------------------
-// Reading
-// ---------------------------------------------------------------------------
 
 /// Identity and current state of one content control (upstream
 /// `ControlInfo`).
@@ -764,10 +756,6 @@ impl Document {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Checks shared with links and notes
-// ---------------------------------------------------------------------------
-
 /// Upstream `_validate_span_surface_edit`.
 pub(crate) fn validate_span_surface_edit(tree: &XmlTree, sdt: NodeId) -> Result<()> {
     let sdt_pr = w_child(tree, sdt, "sdtPr");
@@ -852,10 +840,6 @@ pub(crate) fn refuse_control_surface(tree: &XmlTree, span: &Span, what: &str) ->
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Writing
-// ---------------------------------------------------------------------------
 
 /// Python `int(raw, 16)`: optional sign, optional `0x`, `_` separators,
 /// surrounding whitespace.
@@ -1279,10 +1263,6 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
     crate::oxml::add_t(tree, run, text)?;
     clear_placeholder_state(tree, sdt)
 }
-
-// ---------------------------------------------------------------------------
-// Data binding
-// ---------------------------------------------------------------------------
 
 /// `[\w.-]` of a Python `str` regex.
 fn is_name_tail(c: char) -> bool {

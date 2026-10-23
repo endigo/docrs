@@ -105,7 +105,6 @@ pub struct Txn<'d> {
     trees: BTreeMap<String, XmlTree>,
     new_parts: Vec<(String, String)>,
     binaries: BTreeMap<String, Vec<u8>>,
-    /// Existing members removed by this transaction.
     removed: BTreeSet<String>,
 }
 

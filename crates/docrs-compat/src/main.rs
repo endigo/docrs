@@ -249,7 +249,6 @@ fn main() -> ExitCode {
     }
 }
 
-/// Run every gate, report each verdict, and pass only when all pass.
 fn check(python: &Path, upstream_rev: &str, require_libreoffice: bool) -> Result<bool, String> {
     type Gate<'a> = (&'static str, Box<dyn Fn() -> Result<bool, String> + 'a>);
     let gates: Vec<Gate<'_>> = vec![
@@ -323,7 +322,6 @@ fn rust_open(bytes: &[u8]) -> Value {
     }
 }
 
-/// Classify the pair of outcomes.
 fn compare_open(name: &str, rust: &Value, python: &Value) -> &'static str {
     let r_ok = rust["outcome"] == "ok";
     let p_ok = python["outcome"] == "ok";
@@ -416,8 +414,6 @@ fn kernel_parity(
         items.push((format!("fixture:{rel}"), hostile::fixtures_dir().join(&rel)));
     }
 
-    // Requests: open + diagnose for everything; no-op patch save for every
-    // input Rust opens; diffs for edited and reserialized variants of fixtures.
     let mut requests: Vec<Value> = Vec::new();
     let mut plan: Vec<(String, &'static str, Value)> = Vec::new();
     for (index, (name, path)) in items.iter().enumerate() {

@@ -54,7 +54,6 @@ fn text_run(value: &Value) -> Result<TextRun> {
     })
 }
 
-/// Decode one `$new` block.
 fn rich_block(value: &Value) -> Result<RichBlock> {
     let fields = &value["fields"];
     match value["$new"].as_str() {

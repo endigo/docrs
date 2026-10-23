@@ -46,8 +46,6 @@ thread_local! {
     static SOURCES: RefCell<Cache> = RefCell::new(Cache::default());
 }
 
-/// `{"$source": fixture, "steps"?}` (a bare fixture string is accepted
-/// inside `"source"` fields).
 fn normalized_spec(value: &Value) -> Result<Value> {
     match value {
         Value::String(fixture) => Ok(json!({"$source": fixture})),
@@ -67,8 +65,6 @@ fn materialized_dir() -> std::path::PathBuf {
     crate::oracle::repo_root().join("target").join("p6-sources")
 }
 
-/// Bytes of a fixture name, materializing synthetic and blank documents
-/// for the oracle.
 fn fixture_bytes(fixture: &str) -> Result<Vec<u8>> {
     let (name, bytes) = if fixture == "new" {
         let (bytes, _) = Document::new().patch_bytes()?;
@@ -112,7 +108,6 @@ fn build_source(spec: &Value) -> Result<Document> {
     Ok(document)
 }
 
-/// Index of the cached source for `spec` (built on first use).
 fn source_index(destination: &Document, value: &Value) -> Result<usize> {
     let spec = normalized_spec(value)?;
     let key = spec.to_string();
@@ -158,7 +153,6 @@ fn mentioned_sources(value: &Value) -> Vec<&Value> {
     Vec::new()
 }
 
-/// Decode a source-side anchor against the cached sources.
 fn source_target(
     destination: &Document,
     entries: &[Entry],
@@ -201,7 +195,6 @@ fn str_kw<'a>(step: &'a Step<'_>, name: &str, default: &'a str) -> Result<&'a st
     }
 }
 
-/// Prepare every source an op mentions; returns `(key, index)` pairs.
 fn prepare(doc: &Document, values: &[&Value]) -> Result<Vec<(String, usize)>> {
     let mut keys = Vec::new();
     for value in values {
@@ -298,8 +291,6 @@ fn copy_letterhead(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     })
 }
 
-/// `ext.p6_source_unchanged(source)`: the source package is unchanged
-/// since it was built.
 fn source_unchanged(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let keys = prepare(doc, &[step.arg(0)])?;
     let index = keys

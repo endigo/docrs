@@ -101,9 +101,7 @@ pub fn smoke(require: bool, files: &[PathBuf]) -> Result<bool, String> {
     Ok(ok)
 }
 
-/// Outputs of every shipped workflow on frozen fixtures (no-op save,
-/// replacement, tracked replacement, comment, accept-all, compare redline,
-/// append), written to `dir` for conversion.
+/// One output of every shipped workflow on frozen fixtures.
 fn representative_outputs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     use docrs::composition::AppendOptions;
     use docrs::{Document, FindOptions, Limits, ReplaceOptions};

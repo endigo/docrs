@@ -43,7 +43,6 @@ fn bmp(r: u8, g: u8, b: u8) -> Vec<u8> {
     out
 }
 
-/// A package being assembled from a compact base.
 struct Pkg {
     members: Vec<(String, Vec<u8>)>,
 }
@@ -75,7 +74,6 @@ impl Pkg {
         Pkg::from_bytes(&bytes)
     }
 
-    /// `generated/minimal-clean/minimal.docx`.
     fn minimal() -> Pkg {
         let path = crate::hostile::fixtures_dir().join("generated/minimal-clean/minimal.docx");
         Pkg::from_bytes(&std::fs::read(path).expect("minimal fixture"))
@@ -109,7 +107,6 @@ impl Pkg {
         self.put(name, text)
     }
 
-    /// Replace the body content before the final `w:sectPr`.
     fn body(self, content: &str) -> Pkg {
         self.edit("word/document.xml", |doc| {
             let start = doc.find("<w:body>").expect("body") + "<w:body>".len();
@@ -118,7 +115,6 @@ impl Pkg {
         })
     }
 
-    /// Append `content` to the body before the final `w:sectPr`.
     fn body_append(self, content: &str) -> Pkg {
         self.edit("word/document.xml", |doc| {
             let sect = doc.rfind("<w:sectPr").expect("sectPr");
@@ -126,7 +122,6 @@ impl Pkg {
         })
     }
 
-    /// Insert `content` at the start of the final `w:sectPr`.
     fn sect_prepend(self, content: &str) -> Pkg {
         self.edit("word/document.xml", |doc| {
             let sect = doc.rfind("<w:sectPr").expect("sectPr");
@@ -196,8 +191,6 @@ impl Pkg {
         })
     }
 
-    /// A header (`header`) or footer part related as `id`, referenced from
-    /// the final section as `kind` (`default`/`even`/`first`).
     fn hdrftr(self, header: bool, number: u32, id: &str, kind: &str, content: &str) -> Pkg {
         let (tag, file, ct, rel, reference) = if header {
             (

@@ -23,10 +23,6 @@ use crate::{Document, Error, Result};
 /// The default styles part (upstream `templates/default-styles.xml`).
 const DEFAULT_STYLES: &[u8] = include_bytes!("../assets/default-styles.xml");
 
-// ---------------------------------------------------------------------------
-// BabelFish
-// ---------------------------------------------------------------------------
-
 /// Special-case UI ↔ internal style names (upstream `BabelFish`).
 pub const STYLE_ALIASES: &[(&str, &str)] = &[
     ("Caption", "caption"),
@@ -75,10 +71,6 @@ pub fn style_id_from_name(name: &str) -> String {
         _ => name.replace(' ', ""),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Style types and simple-type parsing
-// ---------------------------------------------------------------------------
 
 /// `WD_STYLE_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -167,10 +159,6 @@ fn decimal(value: &str, what: &str) -> Result<i64> {
 fn on_off_child(tree: &XmlTree, parent: NodeId, local: &str) -> Option<bool> {
     w_child(tree, parent, local).map(|child| w_attr(tree, child, "val").is_none_or(on_off))
 }
-
-// ---------------------------------------------------------------------------
-// Snapshot model
-// ---------------------------------------------------------------------------
 
 /// One `w:style` definition (python-docx `BaseStyle` and subclasses).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -391,10 +379,6 @@ impl Styles {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Reading
-// ---------------------------------------------------------------------------
-
 fn read_style(tree: &XmlTree, element: NodeId, index: usize) -> Result<Style> {
     let raw_type = w_attr(tree, element, "type");
     let style_type = match raw_type {
@@ -503,10 +487,6 @@ impl Document {
         styles(self)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Element readers shared with the writing packages
-// ---------------------------------------------------------------------------
 
 /// Member of the styles part related to the main document, if any.
 pub(crate) fn styles_part(document: &Document) -> Result<Option<String>> {

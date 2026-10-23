@@ -324,7 +324,6 @@ fn data_descriptors_must_agree() {
 fn content_types_validated_before_other_members_inflate() {
     let mut members = minimal_members();
     members[0] = RawMember::new("[Content_Types].xml", b"<Types xmlns='wrong'/>");
-    // A later member is also corrupt, but the content-types defect wins.
     members[2].crc_override = Some(1);
     assert_eq!(reason_of(&build_zip(&members)), "content_types_root");
 }

@@ -113,9 +113,8 @@ fn invalid(message: String) -> Error {
     Error::invalid_argument("tiptap_json_invalid", message)
 }
 
-/// The deepest nesting of arrays and objects in `source`; brackets inside
-/// strings do not count. Cheap enough to run before parsing, and the parser
-/// (serde_json) refuses the same depth on its own.
+/// The deepest nesting of arrays and objects in `source`. Cheap enough to run
+/// before parsing, and serde_json refuses the same depth on its own.
 fn nesting(source: &str) -> usize {
     let (mut depth, mut deepest) = (0usize, 0usize);
     let (mut in_string, mut escaped) = (false, false);
@@ -164,7 +163,6 @@ fn kind_of(value: &Value) -> &'static str {
     }
 }
 
-/// `value` as a node; `place` says where it was for the refusal.
 fn read<'a>(value: &'a Value, place: &str) -> Result<Node<'a>> {
     let Some(object) = value.as_object() else {
         return Err(invalid(format!(
@@ -190,7 +188,6 @@ fn read<'a>(value: &'a Value, place: &str) -> Result<Node<'a>> {
     })
 }
 
-/// The children of a node of type `kind`, for refusals.
 fn inside(kind: &str) -> String {
     format!("inside a {kind:?} node")
 }
@@ -209,7 +206,6 @@ impl<'a> Node<'a> {
         self.attr(name)?.as_str()
     }
 
-    /// A numeric attribute, written as a number or a numeric string.
     fn number_attr(&self, name: &str) -> Option<f64> {
         match self.attr(name)? {
             Value::Number(number) => number.as_f64(),
@@ -262,9 +258,8 @@ fn paragraph(inlines: Vec<Inline>, plain: bool) -> Block {
     }
 }
 
-/// Add `inline` to `out`, joining text onto text and a link onto an equal
-/// link before it (an editor writes one link as a text node per change of
-/// formatting).
+/// Join a link onto an equal link before it: an editor writes one link as a
+/// text node per change of formatting.
 fn push(out: &mut Vec<Inline>, inline: Inline) {
     match (out.last_mut(), inline) {
         (Some(Inline::Text(last)), Inline::Text(text)) => last.push_str(&text),
@@ -288,16 +283,11 @@ fn push(out: &mut Vec<Inline>, inline: Inline) {
     }
 }
 
-/// Conversion state: what had no mapping.
 #[derive(Default)]
 struct Converter {
-    /// Node types with no Word equivalent (their text is kept).
     unknown_nodes: Vec<String>,
-    /// Mark types with no Word equivalent (their text is kept).
     unknown_marks: Vec<String>,
-    /// Formatting attributes ignored, as `attribute on type`.
     dropped: Vec<String>,
-    /// A table was narrowed to Word's column limit.
     narrowed_table: bool,
 }
 
@@ -338,11 +328,8 @@ impl Converter {
         }
     }
 
-    /// The alignment of a paragraph holding `content`: `own` (the
-    /// paragraph's attribute) or, for a picture standing alone, the
-    /// picture's `textAlign` (Tiptap's TextAlign extension configured for
-    /// `image`). A picture's alignment the paragraph cannot follow is
-    /// reported as dropped.
+    /// `own`, or for a picture standing alone its own `textAlign` (Tiptap's
+    /// TextAlign extension configured for `image`).
     fn with_pictures(
         &mut self,
         own: Option<Align>,
@@ -368,9 +355,8 @@ impl Converter {
         align
     }
 
-    /// Block content of `nodes`; inline nodes among them form paragraphs
-    /// (or plain blocks when `plain`, inside list items and cells). A
-    /// picture with an alignment of its own is a paragraph of its own.
+    /// A picture with an alignment of its own (Tiptap's block image) is a
+    /// paragraph of its own.
     fn blocks(&mut self, nodes: &[Value], plain: bool, parent: &str) -> Result<Vec<Block>> {
         let mut out = Vec::new();
         let mut pending: Vec<&Value> = Vec::new();
@@ -537,7 +523,6 @@ impl Converter {
         Ok(())
     }
 
-    /// Preformatted text: the text nodes as written, a line per hard break.
     fn raw_text(&mut self, nodes: &[Value], parent: &str) -> Result<String> {
         let mut text = String::new();
         for value in nodes {

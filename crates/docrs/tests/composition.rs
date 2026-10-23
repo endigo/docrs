@@ -388,7 +388,6 @@ fn imports_and_renames_styles() {
         .body("<w:p><w:pPr><w:pStyle w:val=\"HouseTerm\"/></w:pPr><w:r><w:t>Large-type clause.</w:t></w:r></w:p>")
         .style(&style("32"))
         .open();
-    // a missing style is imported under its own id
     let mut doc = destination();
     let report = insert(
         &mut doc,
@@ -399,7 +398,6 @@ fn imports_and_renames_styles() {
     )
     .unwrap();
     assert_eq!(report.imported_styles, ["HouseTerm"]);
-    // a colliding, different definition is cloned on request
     let mut doc = Pkg::base()
         .body(&p("Destination anchor"))
         .style(&style("18"))
@@ -426,7 +424,6 @@ fn imports_and_renames_styles() {
     assert!(
         part_xml(&doc, "word/document.xml").contains("<w:pStyle w:val=\"HouseTermImported\"/>")
     );
-    // match_by_name keeps the destination definition
     let mut doc = Pkg::base()
         .body(&p("Destination anchor"))
         .style(&style("18"))
@@ -542,7 +539,6 @@ fn copies_images_as_new_deduplicated_parts() {
         ]
     );
     assert_eq!(added, ["word/media/image1.png"]);
-    // the same image again reuses the part and the relationship
     let report = insert(
         &mut doc,
         &source,
@@ -685,8 +681,6 @@ fn destination_handles_stay_fresh_and_foreign_handles_refuse() {
         texts(&doc),
         ["Destination anchor", "Source block", "Source block"]
     );
-    // a source span is a foreign destination anchor, a destination span a
-    // foreign source anchor
     let source_span = source
         .find_one("Source block", &FindOptions::default())
         .unwrap();
@@ -710,7 +704,6 @@ fn destination_handles_stay_fresh_and_foreign_handles_refuse() {
         .unwrap_err();
     assert_eq!(refusal_kind(&err), Some(RefusalKind::BoundaryViolation));
     assert_eq!(bytes(&doc), before);
-    // historical destination targets refuse; historical source anchors work
     let historical = doc
         .find_one(
             "Destination anchor",

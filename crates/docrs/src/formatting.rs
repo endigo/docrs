@@ -211,10 +211,6 @@ pub enum FormatTarget<'a> {
     RunAt(&'a Span),
 }
 
-// ---------------------------------------------------------------------------
-// Layers
-// ---------------------------------------------------------------------------
-
 struct StyleSource<'t> {
     tree: &'t XmlTree,
     index: HashMap<String, NodeId>,
@@ -287,7 +283,6 @@ fn tri_state(tree: &XmlTree, container: Option<NodeId>, tag: &str) -> Option<boo
     })
 }
 
-/// A layer element lives either in the styles tree or the story tree.
 #[derive(Clone, Copy)]
 struct Trees<'a> {
     styles: &'a XmlTree,

@@ -98,7 +98,6 @@ fn add_style_and_setters_write_upstream_xml() {
     assert_eq!(base, code);
     // next_paragraph_style falls back to the style itself.
     assert_eq!(normal.next_paragraph_style(&doc).unwrap(), normal);
-    // Turning the flags off removes the elements.
     normal
         .set(
             &mut doc,
@@ -133,7 +132,6 @@ fn builtin_styles_use_the_python_docx_id_and_babel_fish() {
         .add_style("List Bullet", StyleType::Numbering, true)
         .unwrap();
     assert_eq!(list.style_type(&doc).unwrap(), StyleType::Numbering);
-    // Lookup by UI name, then by id.
     assert_eq!(doc.style("Heading 1").unwrap(), heading);
     assert_eq!(doc.style("Heading1").unwrap(), heading);
 }
@@ -200,7 +198,6 @@ fn delete_makes_the_handle_stale_and_leaves_others_fresh() {
     assert_eq!(bytes(&doc), before);
     assert_eq!(b.info(&doc).unwrap().name.as_deref(), Some("B"));
     assert_eq!(doc.styles().unwrap().len(), 2);
-    // A handle from another document is foreign.
     let other = with_styles(NORMAL);
     let foreign = other.style("Normal").unwrap();
     let err = foreign.info(&doc).unwrap_err();
@@ -261,7 +258,6 @@ fn missing_parts_and_elements_are_created_like_upstream() {
     assert!(body(&doc).starts_with(
         "<w:docDefaults/><w:latentStyles><w:lsdException w:name=\"Quote\"/></w:latentStyles><w:style"
     ));
-    // No styles part: lookups refuse, additions create the default part.
     let mut bare =
         Document::open_bytes(&build_zip(&minimal_members()), &Limits::default()).unwrap();
     assert_eq!(bare.style("Normal").unwrap_err().reason(), "no_styles_part");

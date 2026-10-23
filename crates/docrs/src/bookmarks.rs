@@ -358,10 +358,6 @@ pub fn create_bookmark(
     Ok(info)
 }
 
-// ---------------------------------------------------------------------------
-// Field references (upstream `_fieldcode.bookmark_operands`)
-// ---------------------------------------------------------------------------
-
 const FIELD_COMMANDS: &[&str] = &[
     "ADDRESSBLOCK",
     "ADVANCE",
@@ -514,6 +510,7 @@ fn tokens(instruction: &str) -> Result<Vec<Operand>> {
     Ok(out)
 }
 
+/// Upstream `_fieldcode.bookmark_operands`.
 fn command_operand(tokens: &[Operand], command: &str) -> Option<Operand> {
     if tokens.len() < 2 || tokens[0].quoted || upper(&tokens[0].value) != upper(command) {
         return None;

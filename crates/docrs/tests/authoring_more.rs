@@ -137,11 +137,9 @@ fn fonts_read_theme_colors_and_validate_first() {
     assert_eq!(font.color.rgb.as_deref(), Some("000000"));
     assert_eq!(font.color.theme_color.as_deref(), Some("accent2"));
     assert_eq!(font.highlight.as_deref(), Some("darkCyan"));
-    // An RGB value replaces the theme color element.
     run.set_font(&mut doc, &[FontChange::Color(Some((0x12, 0x34, 0x56)))])
         .unwrap();
     assert!(document_xml(&doc).contains("<w:color w:val=\"123456\"/>"));
-    // A bad token anywhere in the batch changes nothing.
     let before = bytes(&doc);
     let err = run
         .set_font(
@@ -212,7 +210,6 @@ fn inline_shapes_resize_extent_and_transform() {
     let before = bytes(&doc);
     assert!(shapes[0].set_width(&mut doc, -1).is_err());
     assert_eq!(bytes(&doc), before);
-    // A chart has no picture to resize: nothing changes.
     let mut chart = open_body(
         "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"100\" cy=\"100\"/><wp:docPr id=\"1\" name=\"c\"/><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"/></a:graphic></wp:inline></w:drawing></w:r></w:p>",
     );
@@ -246,8 +243,7 @@ fn merging_cells_spans_and_moves_content() {
         "{xml}"
     );
     assert!(xml.contains("<w:gridSpan w:val=\"2\"/><w:vMerge/>"));
-    // Widths of swallowed cells are added.
-    // (6in block width / 3 columns = 2880 twips per cell)
+    // Widths of swallowed cells are added: 6 in / 3 columns = 2880 twips per cell.
     assert_eq!(merged.width(&doc).unwrap(), Some(2 * 1_828_800));
     let texts: Vec<String> = table
         .row_cells(&doc, 1)
@@ -256,19 +252,16 @@ fn merging_cells_spans_and_moves_content() {
         .map(|c| c.text(&doc).unwrap())
         .collect();
     assert_eq!(texts, vec!["a\nb\nc\nd", "a\nb\nc\nd", ""]);
-    // The swallowed cells are gone: their handles are stale.
     assert_eq!(
         d.text(&doc).unwrap_err().refusal_kind(),
         Some(RefusalKind::TargetNotFound)
     );
-    // A span that cuts through the merged cell refuses with nothing changed
-    // (same top, different bottoms: upstream's inverted-L check).
+    // Same top, different bottoms: upstream's inverted-L check refuses the span.
     let before = bytes(&doc);
     let top_right = table.cell(&doc, 0, 2).unwrap();
     let err = merged.merge(&mut doc, &top_right).unwrap_err();
     assert_eq!(err.reason(), "invalid_span");
     assert_eq!(bytes(&doc), before);
-    // Cells of another table refuse.
     let other = doc.add_table(1, 1, None).unwrap();
     let foreign = other.cell(&doc, 0, 0).unwrap();
     let before = bytes(&doc);
@@ -376,7 +369,6 @@ fn pictures_from_a_path_use_the_file_name() {
     let shape = doc.add_picture_file(&path, Some(INCH), None).unwrap();
     assert_eq!(shape.image_part, "word/media/image1.PNG");
     assert!(document_xml(&doc).contains("name=\"logo.picture.PNG\""));
-    // The same bytes again reuse the part and get the generic name.
     let p = doc.add_paragraph("", None).unwrap();
     let run = p.add_run(&mut doc, None, None).unwrap();
     let again = run.add_picture_file(&mut doc, &path, None, None).unwrap();
@@ -422,7 +414,6 @@ fn inner_content_hyperlinks_and_page_break_fragments() {
         .unwrap();
     assert_eq!(following.text, "afterlink\t");
     assert_eq!(following.runs, vec!["after".to_string(), "\t".to_string()]);
-    // Reading changed nothing.
     assert!(!doc.package().is_modified());
     let _ = &mut doc;
 }
@@ -512,7 +503,6 @@ fn hyperlink_address_retargets_and_clears_the_fragment() {
     assert_eq!(link.address(&doc).unwrap(), "http://new.example/");
     assert_eq!(link.fragment(&doc).unwrap(), "");
     assert_eq!(link.url(&doc).unwrap(), "http://new.example/");
-    // Retargeting again drops the now-unreferenced relationship.
     link.set_address(&mut doc, "http://other.example/").unwrap();
     let rels = doc
         .package()

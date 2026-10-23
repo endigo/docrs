@@ -117,7 +117,6 @@ fn assigns_new_values_to_every_property() {
     assert_eq!(props.version, "Version");
     let (_, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.changed_parts, vec!["docProps/core.xml".to_string()]);
-    // Reopened, the values persist.
     let reopened = Document::open_bytes(&bytes(&doc), &Limits::default()).unwrap();
     assert_eq!(reopened.core_properties().unwrap(), props);
 }
@@ -261,7 +260,6 @@ fn default_part_is_created_on_first_write() {
     assert_eq!(read.last_modified_by, "python-docx");
     assert_eq!(read.revision, 1);
     assert_eq!(read.modified, None);
-    // Reading changed nothing.
     assert!(doc.patch_bytes().unwrap().1.changed_parts.is_empty());
     let now = ts("2024-01-02T03:04:05Z");
     let props = doc.set_core_properties(&[], Some(now)).unwrap();
@@ -365,7 +363,6 @@ fn refusals_change_nothing() {
         )
         .unwrap();
     assert_eq!(props.version, "42");
-    // A refused write on a package without core properties adds no part.
     let mut bare =
         Document::open_bytes(&build_zip(&minimal_members()), &Limits::default()).unwrap();
     let before = bytes(&bare);

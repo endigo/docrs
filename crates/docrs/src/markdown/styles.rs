@@ -345,7 +345,6 @@ impl Role {
         names.iter().map(|n| n.to_string()).collect()
     }
 
-    /// Body-text roles end at the default paragraph style.
     fn falls_back_to_default(self) -> bool {
         matches!(self, Role::Body | Role::FirstParagraph | Role::Compact)
     }
@@ -362,7 +361,6 @@ pub struct RoleStyle {
     pub created: bool,
 }
 
-/// A style element by (case-insensitive) internal name and type.
 fn find_style(tree: &XmlTree, name: &str, kind: Kind) -> Option<NodeId> {
     let wanted = ui_to_internal(name).to_lowercase();
     w_children(tree, tree.root(), "style").find(|style| {
@@ -425,7 +423,6 @@ pub(crate) struct Resolver {
     /// Add each role's own (first-candidate) style even when a fallback
     /// exists, so a starter reference document has every style separately.
     pub(crate) prefer_own: bool,
-    /// What the reference document's own sample body shows (read once).
     sample: Option<Sample>,
     pub(crate) resolved: BTreeMap<Role, RoleStyle>,
     pub(crate) missing: Vec<String>,
@@ -511,11 +508,9 @@ impl Resolver {
                         .find_map(|name| find_style(tree, name, role.kind()))
                 };
                 let found_style = if role == Role::Table && !self.prefer_own {
-                    // What the template's own sample tables show beats the
-                    // style names: advisers cannot make a style called
-                    // "Table" in Word, so theirs is often an empty
-                    // leftover while the sample carries the look. A
-                    // sample formatted by hand is lifted below.
+                    // The sample tables beat the style names: Word lets nobody
+                    // create a style called "Table", so a template's is often
+                    // an empty leftover while its sample tables carry the look.
                     let sample_style = sample.table_style.as_deref().and_then(|id| {
                         w_children(tree, tree.root(), "style").find(|s| {
                             w_attr(tree, *s, "styleId") == Some(id)
@@ -733,8 +728,6 @@ const STYLE_SEQ: &[&str] = &[
     "tblStylePr",
 ];
 
-/// Write the run properties in `look` into style `id`, replacing the ones
-/// it sets.
 fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
     let tree = txn.tree_mut(part)?;
     let root = tree.root();
@@ -793,18 +786,16 @@ pub(crate) struct Lifted {
 #[derive(Debug, Default)]
 pub(crate) struct Sample {
     headings: BTreeMap<u8, Lifted>,
-    /// The run look most sample paragraphs in an existing Heading N style
-    /// set by hand (when at least 60% of them share it): the look the
-    /// template shows for that heading, whatever its style says.
+    /// The run look at least 60% of a Heading N style's sample paragraphs set
+    /// by hand: what the template shows for that heading, whatever its style
+    /// says.
     heading_looks: BTreeMap<u8, String>,
     body_rpr: Option<String>,
     table_style: Option<String>,
     table: Option<Lifted>,
-    /// The representative sample table's `w:tblLook` flags.
     table_look: Vec<(String, bool)>,
 }
 
-/// `w:` children of `node` (other namespaces dropped), minus `skip`.
 fn w_xml(tree: &XmlTree, node: NodeId, skip: &[&str]) -> String {
     let mut out = String::new();
     for child in tree.child_elements(node) {
@@ -849,7 +840,6 @@ fn write_w(tree: &XmlTree, node: NodeId, out: &mut String) {
     out.push_str(&format!("</w:{local}>"));
 }
 
-/// Run properties that carry a look (font, size, colour, emphasis).
 const LOOK_RPR: &[&str] = &[
     "rFonts",
     "b",
@@ -878,7 +868,6 @@ fn look_rpr(tree: &XmlTree, rpr: NodeId, skip: &[&str]) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
-/// Font, size and colour a lifted run look sets, for a report.
 fn describe_rpr(rpr: &str) -> Value {
     let attr = |element: &str, name: &str| -> Option<String> {
         let start = rpr.find(&format!("<w:{element} "))?;
@@ -887,7 +876,6 @@ fn describe_rpr(rpr: &str) -> Value {
         let at = tag.find(&key)? + key.len();
         Some(tag[at..at + tag[at..].find('"')?].to_string())
     };
-    // On, off, or not set here (the style decides).
     let toggle = |element: &str| -> Value {
         if rpr.contains(&format!("<w:{element}/>")) {
             return Value::Bool(true);
@@ -939,8 +927,6 @@ impl Sample {
         };
         let mut body_candidates: Vec<String> = Vec::new();
         let mut tables: Vec<SampleTable> = Vec::new();
-        // Heading level of each paragraph style that is a heading (by name
-        // or by its own outline level).
         let mut heading_styles: BTreeMap<String, u8> = BTreeMap::new();
         if let Some(styles) =
             package.part_related_by(package.main_part_name(), crate::package::rels::rt::STYLES)?
@@ -1018,8 +1004,7 @@ impl Sample {
                     });
                 }
                 None if !styled && !listed => {
-                    // Body text formatted by hand: its font, size and colour.
-                    // Text over 14 pt or all bold is a title, not body.
+                    // Text over 14 pt or bold is a title, not body text.
                     let candidate = first_rpr.filter(|r| {
                         let size = w_child(tree, *r, "sz")
                             .and_then(|s| w_attr(tree, s, "val"))
@@ -1036,10 +1021,8 @@ impl Sample {
                 _ => {}
             }
         }
-        // The table style most sample tables use (the first on a tie;
-        // tables without one count together); among those, the header look
-        // most of them share (layout tables and one-offs lose to the
-        // practice's data tables); the look that group adds by hand.
+        // Among the tables of the commonest style, the group sharing a header
+        // look wins: layout tables and one-offs lose to the data tables.
         let style = most_common(tables.iter().map(|t| t.style.clone()));
         if let Some(style) = style {
             let same_style: Vec<&SampleTable> =
@@ -1075,7 +1058,6 @@ impl Sample {
                 }
             }
         }
-        // The look most body paragraphs share (the first on a tie).
         sample.body_rpr = body_candidates
             .iter()
             .max_by_key(|candidate| {
@@ -1091,13 +1073,9 @@ impl Sample {
     }
 }
 
-/// What a sample table shows: its style, table-level properties, the
-/// header row's look, every body cell's look, the first cells of its first
-/// rows (for banding) and its `w:tblLook` flags.
 #[derive(Debug, Clone)]
 struct SampleTable {
     style: Option<String>,
-    /// `tblBorders`, `shd`, `tblCellMar` of the table, as WordprocessingML.
     props: String,
     rows: usize,
     header: (String, String),
@@ -1108,7 +1086,6 @@ struct SampleTable {
     look: Vec<(String, bool)>,
 }
 
-/// The most frequent value (the first on a tie).
 fn most_common<T: PartialEq + Clone>(values: impl Iterator<Item = T>) -> Option<T> {
     let values: Vec<T> = values.collect();
     values
@@ -1148,12 +1125,8 @@ fn table_look(tree: &XmlTree, tbl: NodeId) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// Cell properties that carry a table's look.
 const LOOK_TCPR: &[&str] = &["tcBorders", "shd", "tcMar"];
 
-/// `(cell look, run look)` of a row: its first cell's borders, shading and
-/// margins, and its first run's font, colour and emphasis (the paragraph
-/// mark's when the cell is empty).
 fn row_look(tree: &XmlTree, tr: NodeId) -> (String, String) {
     match w_child(tree, tr, "tc") {
         Some(tc) => cell_look(tree, tc),
@@ -1161,7 +1134,8 @@ fn row_look(tree: &XmlTree, tr: NodeId) -> (String, String) {
     }
 }
 
-/// `(cell look, run look)` of one cell.
+/// `(cell look, run look)`: borders, shading and margins; font, colour and
+/// emphasis of the first run (the paragraph mark's when the cell is empty).
 fn cell_look(tree: &XmlTree, tc: NodeId) -> (String, String) {
     let mut cell = String::new();
     if let Some(tc_pr) = w_child(tree, tc, "tcPr") {
@@ -1188,8 +1162,6 @@ fn cell_look(tree: &XmlTree, tc: NodeId) -> (String, String) {
     (cell, run)
 }
 
-/// Whether WordprocessingML properties show something: a fill, a text
-/// colour, bold, or a drawn border.
 fn carries_look(xml: &str) -> bool {
     let value = |element: &str, attr: &str| {
         let key = format!("w:{attr}=\"");
@@ -1262,8 +1234,6 @@ fn read_table(tree: &XmlTree, tbl: NodeId) -> SampleTable {
     }
 }
 
-/// The border sides of a `w:tcBorders` (or `w:tblBorders`) element in
-/// `xml`, as `(side, element)`.
 fn border_sides(xml: &str, container: &str) -> Vec<(String, String)> {
     let open = format!("<w:{container}>");
     let close = format!("</w:{container}>");
@@ -1284,9 +1254,9 @@ fn border_sides(xml: &str, container: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Cell borders shared by every body cell, as table borders: Word draws a
-/// table style's row and column lines from `tblBorders` (`insideH`,
-/// `insideV` and the outer sides), not from a whole-table `tcBorders`.
+/// Word draws a table style's row and column lines from `tblBorders`
+/// (`insideH`, `insideV` and the outer sides), not from a whole-table
+/// `tcBorders`.
 fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
     let mut sides: Vec<(String, String)> = border_sides(table, "tblBorders");
     let mut set = |side: &str, attrs: &str| {
@@ -1330,10 +1300,8 @@ fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
     out
 }
 
-/// The look a group of alike sample tables adds by hand: table-level
-/// borders, shading and margins; the most common body-cell look (fill,
-/// font, row lines) as the whole table's; a header row that differs from
-/// it; alternating body-row shading. `None` when nothing is added.
+/// The look a group of alike sample tables adds by hand; `None` when nothing
+/// visible is added.
 fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
     let representative = group.first()?;
     let mut props = representative.props.clone();
@@ -1343,7 +1311,6 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
             .iter()
             .flat_map(|t| t.body_cells.iter().map(|c| c.0.clone())),
     );
-    // Runs from cells with text only; an empty cell has no run look.
     let body_run = most_common(group.iter().flat_map(|t| {
         t.body_cells
             .iter()
@@ -1360,7 +1327,6 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
         None => cell.to_string(),
     };
     let (whole_tcpr, whole_rpr, conditional) = match (body_cell, body_run) {
-        // One row: its look is the table's.
         (None, _) => (header.0.clone(), header.1.clone(), String::new()),
         (Some(body_cell), body_run) => {
             let body_run = body_run.unwrap_or_default();
@@ -1395,7 +1361,6 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
             (whole_tcpr, body_run, conditional)
         }
     };
-    // Row and column lines drawn on every body cell become table borders.
     let whole_tcpr = if whole_tcpr.contains("<w:tcBorders>") {
         let table_borders = cell_borders_as_table_borders(&whole_tcpr, &props);
         if let Some(start) = props.find("<w:tblBorders>") {
@@ -1415,8 +1380,7 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
     } else {
         whole_tcpr
     };
-    // Cell padding shared by the body cells is the table's cell margins:
-    // Word reads a table style's padding from `tblCellMar`.
+    // Word reads a table style's cell padding from `tblCellMar`, not `tcMar`.
     let whole_tcpr = match (whole_tcpr.find("<w:tcMar>"), whole_tcpr.find("</w:tcMar>")) {
         (Some(start), Some(end)) => {
             let end = end + "</w:tcMar>".len();
@@ -1435,8 +1399,7 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
         }
         _ => whole_tcpr,
     };
-    // CT_TblPrBase order: tblStyleRowBandSize, …, tblBorders, shd, …,
-    // tblCellMar; tblBorders was put first above, tblCellMar last.
+    // CT_TblPrBase order: tblStyleRowBandSize precedes tblBorders, shd and tblCellMar.
     if conditional.contains("Horz\"") {
         props.insert_str(0, "<w:tblStyleRowBandSize w:val=\"1\"/>");
     }
@@ -1507,9 +1470,6 @@ pub(crate) fn header_color_override(
     (!paragraph.eq_ignore_ascii_case(&header)).then_some(header)
 }
 
-/// Paragraph spacing for cell paragraphs: the table style's own (its
-/// whole-table conditional formatting first), else single-spaced with no
-/// space before or after.
 fn table_cell_spacing(tree: &XmlTree, table_style: Option<&str>) -> String {
     let style = table_style.and_then(|id| {
         w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
@@ -1733,7 +1693,6 @@ fn style_indent_left(tree: &XmlTree, id: &str) -> i64 {
         .unwrap_or(0)
 }
 
-/// Append a definition for `role` to the styles part.
 fn create(
     txn: &mut Txn<'_>,
     part: &str,
@@ -1767,8 +1726,6 @@ fn create(
     // (`FootnoteText`), which `style_id_from_name` gives for UI names.
     let id = unique_id(tree, &style_id_from_name(&ui_name(&internal)));
     let kind = role.kind();
-    // Paragraph styles inherit from the body-text style when the document
-    // has one, else from the default style of their type.
     let based_on = lifted_base.or(body).or_else(|| {
         default_style(tree, kind).and_then(|d| w_attr(tree, d, "styleId").map(str::to_string))
     });

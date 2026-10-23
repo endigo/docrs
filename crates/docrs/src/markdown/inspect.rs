@@ -45,7 +45,6 @@ fn twips(tree: &XmlTree, node: Option<NodeId>, attr: &str) -> Option<i64> {
         .map(|v| v as i64)
 }
 
-/// Images, fields, tables and text of a header or footer part.
 fn story_summary(tree: &XmlTree) -> Value {
     let root = tree.root();
     let mut images = 0;
@@ -151,7 +150,6 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     let tree = txn.tree(&main)?;
     let toc_title = render::reference_toc_title(&txn, &main)?;
 
-    // Sections: the output keeps the body's final one.
     let sections = section_properties(tree)?;
     let section = match sections.last() {
         None => {
@@ -201,7 +199,6 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         }
     };
 
-    // Settings: compatibility mode, odd/even headers.
     let mut compatibility = Value::Null;
     let mut even_and_odd = false;
     if let Some(settings) = txn.part_related_by(&main, rt::SETTINGS)? {
@@ -230,7 +227,6 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         compatibility = json!({ "mode": mode, "word": word_version(mode) });
     }
 
-    // The trial conversion.
     let sample = super::styles::Sample::read(&txn)?;
     let lifted = sample.summary();
     drop(txn);

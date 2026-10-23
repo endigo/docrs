@@ -67,7 +67,6 @@ type Writer = fn(&mut Document) -> Result<()>;
 
 fn writers() -> Vec<(&'static str, bool, Writer)> {
     vec![
-        // Document (body).
         ("Document::add_paragraph", false, |d| {
             d.add_paragraph("x", None).map(drop)
         }),
@@ -92,7 +91,6 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
         ("Document::clear_body_content", false, |d| {
             d.clear_body_content()
         }),
-        // Paragraph.
         ("Paragraph::add_run", false, |d| {
             para(d).add_run(d, Some("x"), None).map(drop)
         }),
@@ -139,7 +137,6 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
             let tab = para(d).tab_stops(d)?.remove(0);
             tab.set_leader(d, Some("dot"))
         }),
-        // Run.
         ("Run::set_text", false, |d| {
             para(d).runs(d)?[0].set_text(d, "x")
         }),
@@ -174,7 +171,6 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
             let runs = para(d).runs(d)?;
             runs[0].mark_comment_range(d, &runs[1], 7)
         }),
-        // Tables.
         ("Table::add_row", false, |d| table(d).add_row(d)),
         ("Table::add_column", false, |d| table(d).add_column(d, INCH)),
         ("Table::set_style", false, |d| table(d).set_style(d, None)),
@@ -221,14 +217,12 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
             let other = t.cell(d, 0, 1)?;
             t.cell(d, 0, 0)?.merge(d, &other).map(drop)
         }),
-        // Pictures.
         ("InlineShapeRef::set_width", false, |d| {
             d.inline_shapes()?[0].set_width(d, INCH)
         }),
         ("InlineShapeRef::set_height", false, |d| {
             d.inline_shapes()?[0].set_height(d, INCH)
         }),
-        // Sections, headers and footers.
         ("Section::set", false, |d| {
             d.sections()?[0].set(d, &[SectionChange::Gutter(Some(INCH))])
         }),
@@ -251,7 +245,6 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
             let header = d.sections()?[0].header().existing_definition(d)?.unwrap();
             header.add_table(d, 1, 1, INCH).map(drop)
         }),
-        // Styles.
         ("Document::add_style", false, |d| {
             d.add_style("Another", StyleType::Character, false)
                 .map(drop)
@@ -286,7 +279,6 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
             d.latent_style("Gate Latent")?
                 .set(d, &[LatentStyleChange::Locked(Some(true))])
         }),
-        // Core properties.
         ("Document::set_core_properties", false, |d| {
             let change =
                 CorePropertyChange::new(CoreProperty::Title, CoreValue::Text("Gated".into()));
@@ -339,7 +331,6 @@ fn ensure_styles_part_refuses_only_when_it_would_create_the_part() {
     doc.set_protection("readOnly").unwrap();
     let bytes = doc.patch_bytes().unwrap().0;
     let mut doc = open(&bytes);
-    // The part exists: nothing to write, nothing to refuse.
     assert_eq!(doc.ensure_styles_part().unwrap(), "word/styles.xml");
     assert_eq!(doc.patch_bytes().unwrap().0, bytes);
 

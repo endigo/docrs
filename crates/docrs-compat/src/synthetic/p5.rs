@@ -45,7 +45,6 @@ const W16CID_DECL: &str =
 const W16CEX_DECL: &str =
     "xmlns:w16cex=\"http://schemas.microsoft.com/office/word/2018/wordml/cex\"";
 
-/// One extra package part.
 struct Part {
     name: &'static str,
     content_type: Option<&'static str>,
@@ -188,7 +187,6 @@ fn reference(id: &str) -> String {
     )
 }
 
-/// A `w:comment` with one paragraph (`para_id` on it when given).
 fn comment_xml(id: &str, author: &str, text: &str, para_id: Option<&str>) -> String {
     let para = para_id
         .map(|v| format!(" w14:paraId=\"{v}\""))

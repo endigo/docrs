@@ -41,7 +41,6 @@ proptest! {
         }
     }
 
-    /// Arbitrary XML-ish text never panics the parser.
     #[test]
     fn arbitrary_xml_never_panics(text in "(<[a-z:]{0,4}( [a-z:]{1,3}=\"[^\"<]{0,4}\")?/?>|</[a-z:]{0,4}>|&[a-z#0-9]{0,4};|[a-z <>&\"'\\]]){0,40}") {
         let _ = docrs::xml::parse_str(&text);

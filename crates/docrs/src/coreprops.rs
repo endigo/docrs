@@ -275,8 +275,6 @@ impl CoreProperties {
     }
 }
 
-// ------------------------------------------------------------- reading
-
 fn child(tree: &XmlTree, property: CoreProperty) -> Option<NodeId> {
     let (ns, local) = property.element();
     tree.first_child_named(tree.root(), ns, local)
@@ -321,8 +319,6 @@ pub(crate) fn read_core_properties(tree: &XmlTree, part: Option<String>) -> Core
         version: text_of(tree, CoreProperty::Version),
     }
 }
-
-// ---------------------------------------------------------- W3CDTF dates
 
 /// A field of a `strptime` template: alternatives tried in order, each a
 /// sequence of character classes (CPython `_strptime` regexes).
@@ -479,8 +475,6 @@ pub fn parse_w3cdtf(text: &str) -> Option<Timestamp> {
     Some(Timestamp::from_unix(shifted))
 }
 
-// -------------------------------------------------------------- writing
-
 /// Text characters lxml accepts (XML 1.0 `Char`).
 fn xml_compatible(text: &str) -> bool {
     text.chars().all(|c| {
@@ -582,7 +576,6 @@ fn default_part(now: Timestamp) -> Result<XmlTree> {
     Ok(tree)
 }
 
-/// The related core-properties part, if any.
 fn existing_part(txn: &Txn<'_>) -> Result<Option<String>> {
     txn.part_related_by("/", rt::CORE_PROPERTIES)
 }

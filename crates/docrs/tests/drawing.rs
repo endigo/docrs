@@ -69,7 +69,6 @@ fn swaps_bytes_without_sharing_the_part() {
     assert_eq!(embed_of(&doc, 1), shared);
     assert_ne!(drawings[0].image(&doc).unwrap().sha1(), red_sha);
     assert_eq!(drawings[1].image(&doc).unwrap().sha1(), red_sha);
-    // Display size is untouched.
     let xml = String::from_utf8(docrs::xml::serialize(
         doc.package().xml("word/document.xml").unwrap(),
     ))

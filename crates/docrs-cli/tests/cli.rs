@@ -158,7 +158,6 @@ fn resolve_accepts_every_revision_like_the_ground_truth() {
         .output()
         .unwrap();
     assert_eq!(json_of(&after)["revisions"], serde_json::json!([]));
-    // Visible text equals the upstream accepted ground truth.
     let diff = bin()
         .args(["--json", "text-diff"])
         .arg(&out)
@@ -204,7 +203,6 @@ fn composition_refusals_preserve_an_existing_output_file() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.docx");
     std::fs::write(&out, b"sentinel bytes").unwrap();
-    // Ambiguous destination anchor.
     let ambiguous = bin()
         .args(["--json", "insert-from"])
         .arg(fixture("generated/minimal-clean/minimal.docx"))
@@ -215,7 +213,6 @@ fn composition_refusals_preserve_an_existing_output_file() {
         .unwrap();
     assert_eq!(ambiguous.status.code(), Some(3));
     assert_eq!(json_of(&ambiguous)["error"]["code"], "ambiguous_target");
-    // Protected destination without acknowledgment.
     let protected = bin()
         .args(["--json", "append"])
         .arg(fixture(
@@ -228,7 +225,6 @@ fn composition_refusals_preserve_an_existing_output_file() {
         .unwrap();
     assert_eq!(protected.status.code(), Some(3));
     assert_eq!(json_of(&protected)["error"]["code"], "document_protected");
-    // Invalid option token.
     let invalid = bin()
         .args(["append"])
         .arg(fixture("generated/minimal-clean/minimal.docx"))
@@ -282,7 +278,6 @@ fn from_markdown_converts_the_showcase_with_the_reference() {
         report["markdown"]["styles"]["code_block"]["name"],
         "Source Code"
     );
-    // The output reopens and reads back through the CLI.
     let outline = bin().args(["outline"]).arg(&out).output().unwrap();
     assert!(outline.status.success());
     assert!(String::from_utf8_lossy(&outline.stdout).contains("Quarterly Platform Review"));
@@ -433,7 +428,7 @@ fn from_markdown_sets_aside_package_quirks_word_tolerates() {
     let output = run(&["--strict-package"]);
     assert_eq!(output.status.code(), Some(3));
     assert!(!out.exists());
-    // Cover handling is selectable; this template has no distinct first page.
+    // This template has no distinct first page.
     let output = run(&["--cover-page"]);
     assert!(output.status.success());
     assert!(json_of(&output)["markdown"]["cover_page"].is_null());
@@ -464,8 +459,6 @@ fn replace_all_reports_the_count_and_refuses_when_nothing_matches() {
     assert_eq!(report["refused_count"], 0);
     assert_eq!(report["edit"]["replaced_count"], 1);
 
-    // No match: a refusal (exit 3) like a single replace, and an existing
-    // output file is left as it was.
     std::fs::write(&out, b"sentinel bytes").unwrap();
     for json in [true, false] {
         let mut command = bin();
@@ -507,12 +500,10 @@ fn argument_errors_are_json_under_json() {
         assert_eq!(error["error"]["code"], "invalid_argument", "{args:?}");
         assert_eq!(error["error"]["refusal"], false, "{args:?}");
     }
-    // Without --json, clap's own text on stderr.
     let output = bin().args(["replace", "--bogus"]).output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("--bogus"));
-    // Help and version still print to stdout and succeed.
     for flag in ["--help", "--version"] {
         let output = bin().args(["--json", flag]).output().unwrap();
         assert_eq!(output.status.code(), Some(0), "{flag}");
@@ -557,7 +548,6 @@ fn a_panic_is_an_internal_error() {
         message.contains("panic requested by DOCRS_TEST_PANIC"),
         "{message}"
     );
-    // The quiet hook: no "thread 'main' panicked" report.
     assert!(
         output.stderr.is_empty(),
         "{}",
@@ -589,7 +579,6 @@ fn tiptap_fixture(name: &str) -> PathBuf {
 #[test]
 fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
     let dir = tempfile::tempdir().unwrap();
-    // The fixture's picture is remote, so it is skipped with a warning.
     let out = dir.path().join("core.docx");
     let output = bin()
         .args(["--json", "from-markdown"])

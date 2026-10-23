@@ -157,7 +157,6 @@ fn outline_reports_blocks_and_blind_regions() {
     assert_eq!(outline.blocks[3].table.as_ref().unwrap().columns, 2);
     assert_eq!(outline.blind_region_counts["content_controls"], 1);
     assert_eq!(outline.blind_region_counts["hidden_text"], 1);
-    // Deterministic serialization.
     assert_eq!(
         outline.to_json(),
         doc.outline(View::Current).unwrap().to_json()

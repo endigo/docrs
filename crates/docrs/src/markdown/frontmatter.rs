@@ -178,7 +178,6 @@ pub(crate) fn parse_yaml(text: &str) -> BTreeMap<String, Value> {
         };
         let key = key.trim().trim_matches('"').trim_matches('\'').to_string();
         let rest = rest.trim();
-        // Indented continuation lines belong to this key.
         let start = index;
         while index < lines.len() && (lines[index].trim().is_empty() || indent_of(lines[index]) > 0)
         {
@@ -218,7 +217,6 @@ pub(crate) fn parse_yaml(text: &str) -> BTreeMap<String, Value> {
                 .filter(|i| !i.is_empty())
                 .collect();
             if items.is_empty() {
-                // Plain multi-line scalar.
                 let joined = block.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
                 Value::Scalar(joined.trim().to_string())
             } else {
@@ -226,7 +224,6 @@ pub(crate) fn parse_yaml(text: &str) -> BTreeMap<String, Value> {
             }
         } else {
             let mut scalar = unquote(rest);
-            // Continuation lines of a plain scalar fold with spaces.
             for l in block.iter().filter(|l| !l.trim().is_empty()) {
                 scalar.push(' ');
                 scalar.push_str(l.trim());
@@ -313,12 +310,9 @@ mod tests {
 
     #[test]
     fn indentation_is_ascii_spaces_only() {
-        // A no-break space is content: it ends the block scalar and its
-        // line, with no key, is ignored.
         let meta = metadata(MetadataKind::Yaml, "abstract: |\n x\n\u{a0}y\ntitle: T\n");
         assert_eq!(meta.abstract_.as_deref(), Some("x"));
         assert_eq!(meta.title.as_deref(), Some("T"));
-        // Inside the block it is kept, after the spaces.
         let meta = metadata(
             MetadataKind::Yaml,
             "abstract: >\n  one\n  \u{a0}two\n\u{3000}\n  three\n",

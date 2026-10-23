@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 
 use super::{OpFn, Step};
 
-/// Whether parameter `name` (or positional `index`) was supplied at all.
 fn supplied(step: &Step<'_>, name: &str, index: usize) -> bool {
     step.kwargs.contains_key(name) || step.args.len() > index
 }

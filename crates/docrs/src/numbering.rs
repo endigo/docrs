@@ -27,10 +27,6 @@ use crate::wml::{W, first_choice_children, is_w, leading_text, w_attr, w_child, 
 use crate::xml::{self, NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
-// ---------------------------------------------------------------------------
-// Report types
-// ---------------------------------------------------------------------------
-
 /// One level of a numbering definition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NumberingLevel {
@@ -90,10 +86,6 @@ impl NumberingReport {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
-// Small Python-compatible helpers shared by the P2 modules
-// ---------------------------------------------------------------------------
 
 /// Python `int(text)` for base-10 strings (surrounding whitespace, a sign,
 /// single underscores between digits).
@@ -233,10 +225,6 @@ fn import_node(
     }
     Ok(element)
 }
-
-// ---------------------------------------------------------------------------
-// Styles (read straight from the styles part; python-docx semantics)
-// ---------------------------------------------------------------------------
 
 const DEFAULT_STYLES: &[u8] = include_bytes!("../assets/default-styles.xml");
 
@@ -455,10 +443,6 @@ pub(crate) fn set_p_style(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Definitions and the report
-// ---------------------------------------------------------------------------
 
 fn level_of(tree: &XmlTree, lvl: NodeId, level: i64) -> NumberingLevel {
     let value = |local: &str| {
@@ -771,10 +755,6 @@ pub fn list_numbering(document: &Document) -> Result<NumberingReport> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Application
-// ---------------------------------------------------------------------------
-
 /// `CT_NumPr` child order.
 const NUMPR_SEQ: &[&str] = &["ilvl", "numId", "numberingChange", "ins"];
 
@@ -895,10 +875,6 @@ pub fn apply_list_style(
     let staged = txn.finish()?;
     document.commit(staged)
 }
-
-// ---------------------------------------------------------------------------
-// Minimal, guarded numbering authoring
-// ---------------------------------------------------------------------------
 
 /// Canonical definition kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

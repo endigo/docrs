@@ -83,7 +83,6 @@ fn twenty_thousand_chained_parts_open_under_trusted_limits() {
     );
     let package = doc.package();
     assert_eq!(package.parts().count(), 3 * steps + 4);
-    // Every part but the content types and relationships parts is reached.
     let unreached: Vec<&str> = package
         .parts()
         .filter(|part| !part.is_reachable())
@@ -97,7 +96,6 @@ fn twenty_thousand_chained_parts_open_under_trusted_limits() {
         let leaf = package.part(&format!("word/parts/l{i}.xml")).unwrap();
         assert_eq!(leaf.content_type(), Some(LEAF_CT));
     }
-    // Member order is archive order.
     let names: Vec<&str> = package.parts().map(|part| part.name()).collect();
     assert_eq!(
         names[..3],

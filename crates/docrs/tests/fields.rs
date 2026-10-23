@@ -56,7 +56,6 @@ fn authors_a_date_field_without_computing_a_date() {
     let body = xml(&doc, "word/document.xml");
     assert!(body.contains(r#"w:instr=" DATE \@ &quot;MMMM d, yyyy&quot; ""#));
     assert!(body.contains("<w:t>(date)</w:t>"));
-    // Self-consistency: the in-field guard recognizes our own field.
     let span = doc.find_one("(date)", &FindOptions::default()).unwrap();
     assert!(span.in_field());
     let err = doc

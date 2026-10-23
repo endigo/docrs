@@ -57,10 +57,6 @@ fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
 }
 
-// ---------------------------------------------------------------------------
-// Vocabulary
-// ---------------------------------------------------------------------------
-
 /// Upstream `_REVISION_TYPES` (tag → type), by `w:` local name.
 fn base_revision_type(local: &str) -> Option<&'static str> {
     Some(match local {
@@ -232,10 +228,6 @@ pub(crate) fn py_list(values: &[String]) -> String {
 pub(crate) fn py_opt_repr(value: Option<&str>) -> String {
     value.map(py_repr).unwrap_or_else(|| "None".to_string())
 }
-
-// ---------------------------------------------------------------------------
-// Python datetime.fromisoformat / isoformat
-// ---------------------------------------------------------------------------
 
 /// A parsed revision date, rendered like Python `datetime.isoformat()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -467,10 +459,6 @@ fn parse_date(value: Option<&str>) -> Option<RevisionDate> {
     RevisionDate::from_isoformat(&value.replace('Z', "+00:00"))
 }
 
-// ---------------------------------------------------------------------------
-// Trees and node references
-// ---------------------------------------------------------------------------
-
 /// Read access to (possibly staged) part trees.
 pub(crate) trait Trees {
     fn tree_of(&self, part: &str) -> Result<&XmlTree>;
@@ -503,10 +491,6 @@ impl NodeRef {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 /// Inert location evidence for a revision (`index` is `-1` for story-level
 /// section properties outside every block).
@@ -684,10 +668,6 @@ impl Document {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Enumeration
-// ---------------------------------------------------------------------------
-
 struct Raw {
     node: NodeRef,
     revision_type: &'static str,
@@ -839,7 +819,6 @@ fn snapshot(document: &Document) -> Result<Revisions> {
     snapshot_of(document, &story::stories(document), document.id())
 }
 
-/// The snapshot of `trees` (the document, or a transaction's staged state).
 fn snapshot_of(trees: &impl Trees, stories: &[Story], document: DocumentId) -> Result<Revisions> {
     let raws = enumerate(trees, stories, document)?;
     let signature = Arc::new(raws.iter().map(|raw| raw.node.clone()).collect::<Vec<_>>());
@@ -882,10 +861,6 @@ pub fn remaining_markup(document: &Document) -> Result<BTreeMap<String, usize>> 
     }
     Ok(counts)
 }
-
-// ---------------------------------------------------------------------------
-// Resolution context
-// ---------------------------------------------------------------------------
 
 pub(crate) struct Ctx<'a, 'd> {
     pub txn: Txn<'d>,
@@ -963,10 +938,6 @@ pub(crate) fn related_xml_part(
     }
     Ok(Some(part))
 }
-
-// ---------------------------------------------------------------------------
-// Moves
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 struct MoveSite {
@@ -1225,10 +1196,6 @@ fn validate_moves(ctx: &Ctx<'_, '_>, selected: &[Selected], author: Option<&str>
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Preflight
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 struct Selected {
@@ -1957,10 +1924,6 @@ fn preflight(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Cleanup
-// ---------------------------------------------------------------------------
-
 fn part_rel_ids(ctx: &Ctx<'_, '_>, part: &str) -> Result<Vec<String>> {
     Ok(ctx
         .txn
@@ -2208,10 +2171,6 @@ fn discard_element(ctx: &mut Ctx<'_, '_>, node: &NodeRef) -> Result<()> {
     cleanup_comment_anchors(ctx, &comment_ids)?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Resolution primitives
-// ---------------------------------------------------------------------------
 
 fn unwrap(tree: &mut XmlTree, node: NodeId) -> Result<()> {
     let parent = tree
@@ -2509,10 +2468,6 @@ fn resolve_one(ctx: &mut Ctx<'_, '_>, node: &NodeRef, accept: bool) -> Result<()
         resolve_deletion_reject(tree, node.id)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Entry points
-// ---------------------------------------------------------------------------
 
 fn foreign(what: &str) -> Error {
     Error::refusal(

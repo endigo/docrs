@@ -113,7 +113,6 @@ fn an_embedded_font_is_measured_before_the_bundled_table() {
     let pitch = estimate.placed[1].y - estimate.placed[0].y;
     assert!((pitch - 30.0).abs() < 1e-6, "{pitch}");
 
-    // A font file that does not parse falls back to the table.
     let doc = Document::open_bytes(&package(b"not a font"), &Limits::default()).unwrap();
     let txn = Txn::new(&doc);
     let estimate = layout(&txn, &main, Vec::new()).unwrap();

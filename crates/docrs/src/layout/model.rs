@@ -171,8 +171,6 @@ pub struct Model {
     pub default_tab: f64,
 }
 
-// ------------------------------------------------------------ properties
-
 #[derive(Debug, Clone, Default)]
 struct PPr {
     before: Option<f64>,
@@ -431,8 +429,6 @@ fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
     out
 }
 
-// ------------------------------------------------------------ styles
-
 struct StyleDef {
     based_on: Option<String>,
     ppr: PPr,
@@ -631,8 +627,6 @@ impl Styles {
     }
 }
 
-// ------------------------------------------------------------ numbering
-
 struct Level {
     format: String,
     text: String,
@@ -647,7 +641,6 @@ type Num = (String, HashMap<u8, Level>, HashMap<u8, i64>);
 
 #[derive(Default)]
 struct Numbering {
-    /// numId → (abstractNumId, level overrides)
     nums: HashMap<String, Num>,
     abstracts: HashMap<String, HashMap<u8, Level>>,
     counters: HashMap<String, [i64; 9]>,
@@ -819,8 +812,6 @@ fn roman(mut value: i64) -> String {
     }
     out
 }
-
-// ------------------------------------------------------------ builder
 
 struct Theme {
     major: Option<String>,
@@ -1023,7 +1014,6 @@ fn page_of(tree: &XmlTree, sect: Option<NodeId>) -> Page {
     }
 }
 
-/// Table context for resolving cell paragraphs.
 #[derive(Clone)]
 struct TableCtx {
     style: Option<String>,
@@ -1331,7 +1321,6 @@ impl Builder<'_> {
             ..Para::default()
         };
         para.tabs.sort_by(|a, b| a.0.total_cmp(&b.0));
-        // The list label.
         let num = direct.num.clone().or_else(|| ppr.num.clone());
         if let Some((id, ilvl)) = num.filter(|(id, _)| id != "0") {
             let ilvl = direct.ilvl.or(ilvl).or(ppr.ilvl).unwrap_or(0);

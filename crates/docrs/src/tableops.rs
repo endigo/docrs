@@ -38,10 +38,6 @@ use crate::wml::{
 use crate::xml::{NodeData, NodeId, XML_NS, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
 fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
 }
@@ -54,10 +50,6 @@ fn malformed_table(message: impl Into<String>) -> Error {
     // python-docx raises a plain ValueError for these shapes.
     Error::invalid_argument("malformed_table_grid", message)
 }
-
-// ---------------------------------------------------------------------------
-// The live handle
-// ---------------------------------------------------------------------------
 
 /// A live table handle (upstream `docx.table.Table` as returned by
 /// `find_table`). It stays valid across this module's own row and cell
@@ -98,7 +90,6 @@ impl Table {
     }
 }
 
-/// Validate a live handle against `document`; returns the `w:tbl` element.
 fn locate(document: &Document, table: &Table) -> Result<NodeId> {
     if table.document != document.id() {
         return Err(Error::refusal(
@@ -130,10 +121,6 @@ fn locate(document: &Document, table: &Table) -> Result<NodeId> {
     }
     Ok(element)
 }
-
-// ---------------------------------------------------------------------------
-// python-docx table model
-// ---------------------------------------------------------------------------
 
 fn tc_pr(tree: &XmlTree, tc: NodeId) -> Option<NodeId> {
     w_child(tree, tc, "tcPr")
@@ -320,10 +307,6 @@ fn body_tables(document: &Document) -> Result<(String, Vec<NodeId>)> {
     Ok((part, tables))
 }
 
-// ---------------------------------------------------------------------------
-// find_table
-// ---------------------------------------------------------------------------
-
 /// The table with one physical cell containing `near_text` (upstream
 /// `find_table`). Matching is literal by default; `Normalized` folds case,
 /// typography and whitespace. Paragraphs within one cell join with `"\n"`;
@@ -383,10 +366,6 @@ pub fn table_grid(document: &Document, table: &Table) -> Result<Vec<Vec<String>>
     let tbl = locate(document, table)?;
     grid_texts(document.package().xml(&table.part)?, tbl)
 }
-
-// ---------------------------------------------------------------------------
-// Shared guards
-// ---------------------------------------------------------------------------
 
 /// `_MARKUP_SCAN_TAGS` (revision markup of every kind).
 const MARKUP_SCAN_TAGS: &[&str] = &[
@@ -512,10 +491,6 @@ fn row_out_of_range(row: usize, count: usize) -> Error {
         format!("row {row} does not exist (0..{})", count as i64 - 1),
     )
 }
-
-// ---------------------------------------------------------------------------
-// update_cell
-// ---------------------------------------------------------------------------
 
 /// Options for [`update_cell`].
 #[derive(Debug, Clone, Default)]
@@ -877,11 +852,6 @@ fn fill_empty_cell(
     Ok(report)
 }
 
-// ---------------------------------------------------------------------------
-// Tracked cell replacement (upstream `Span._replace(tracked=True)` →
-// `_tracked_replace`, for the revision-free cell spans update_cell builds)
-// ---------------------------------------------------------------------------
-
 /// Upstream `_hollowed_bookmarks(atoms, end_offset)`.
 fn hollowed_bookmarks(tree: &XmlTree, span: &Span) -> Vec<String> {
     let Some(paragraph) = span.atoms.first().and_then(|a| a.paragraph) else {
@@ -1004,6 +974,7 @@ fn slice(text: &str, start: usize, end: usize) -> String {
         .collect()
 }
 
+/// Upstream `Span._replace(tracked=True)`.
 fn tracked_replace(
     document: &mut Document,
     span: &Span,
@@ -1218,10 +1189,6 @@ fn tracked_replace(
         changed: true,
     })
 }
-
-// ---------------------------------------------------------------------------
-// insert_row_after / delete_row
-// ---------------------------------------------------------------------------
 
 fn template_refusal(row: usize, column: usize, detail: &str) -> Error {
     unsupported(
@@ -1532,7 +1499,6 @@ pub fn insert_row_after<S: AsRef<str>>(
 
     let mut txn = Txn::new(document);
     let tree = txn.tree_mut(&part)?;
-    // Populate the copied row while detached.
     let new_tr = tree.deep_clone(template_tr);
     let new_cells = row_tcs(tree, new_tr);
     for (index, (new_tc, template_rpr)) in new_cells.iter().zip(template_rprs.iter()).enumerate() {
