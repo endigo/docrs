@@ -6,6 +6,8 @@
 
 - A horizontal rule (`---` in Markdown, `<hr>` in HTML, `horizontalRule` in TipTap JSON) is one flat line across the text: an empty paragraph with a thin single bottom border in the text colour (`w:pBdr`, ¾ pt), 6 pt of space above and below, and a 1 pt paragraph mark so the line takes no more room than that. Every source writes the same paragraph. It was Word's VML "standard" rule (`v:rect` with `o:hr`), which Word draws as a shaded bar, two grey lines with a lighter fill between them, and which reads as a double line. No VML is written any more. A reference document cannot restyle the rule: its look is on the paragraph, not in a style.
 
+- A table of contents (`toc: true`, front matter `toc`, `[TOC]`, TipTap's `tableOfContents`) is Word's table-of-contents block: the heading and every entry sit inside one content control (`w:sdt` with the `Table of Contents` document-part gallery), as Word and LibreOffice write one, so Word shows the TOC frame with its Update Table tab when the contents is clicked, treats it as the document's contents under References, and replaces heading and entries together. The field, its cached page numbers and the PAGEREF links are unchanged. The heading and entries are no longer direct body paragraphs: `Document::paragraphs` (python-docx's `document.paragraphs`) lists what follows them, as it does for a contents Word wrote.
+
 ## 0.3.3 (2026-10-23)
 
 ### Library

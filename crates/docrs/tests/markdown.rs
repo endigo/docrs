@@ -863,6 +863,9 @@ fn definition_lists_use_term_and_definition_styles() {
     );
 }
 
+/// The opening of Word's table-of-contents block, heading first.
+const TOC_BLOCK: &str = "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val=\"TOCHeading\"/></w:pPr><w:r><w:t>Contents</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val=\"TOC1\"/>";
+
 /// A horizontal rule: an empty paragraph with a bottom border.
 const RULE: &str = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/><w:rPr><w:sz w:val=\"2\"/><w:szCs w:val=\"2\"/></w:rPr></w:pPr></w:p>";
 
@@ -893,16 +896,24 @@ fn rules_page_breaks_and_toc() {
     assert!(body.contains(" TOC \\o \"1-3\" \\h \\z \\u </w:instrText>"));
     // A [TOC] marker in the text adds no page break of its own.
     assert!(!body.contains("pageBreakBefore"));
-    let paragraphs = out.paragraphs();
+    // Word's table-of-contents block: heading, entries and the field inside
+    // one content control; the body paragraphs python-docx lists follow it.
+    assert_eq!(count(&body, "<w:sdt>"), 1, "{body}");
+    assert!(body.contains(TOC_BLOCK), "{body}");
+    let close = body
+        .find("</w:sdtContent></w:sdt>")
+        .expect("the block closes");
+    let block = &body[..close];
+    assert_eq!(count(block, "w:fldCharType=\"begin\""), 4);
+    assert_eq!(count(block, "w:fldCharType=\"end\""), 4);
+    for text in ["A", "A.1", "B", "1", "3"] {
+        let entry = format!("<w:t>{text}</w:t>");
+        assert!(block.contains(&entry), "{entry} in {block}");
+    }
+    assert!(block.contains("<w:pStyle w:val=\"TOC2\"/>"), "{block}");
     assert_eq!(
-        paragraphs[..4],
-        [
-            ("TOC Heading".to_string(), "Contents".to_string()),
-            // python-docx shows Word's internal names for these built-ins.
-            ("toc 1".to_string(), "A\t1".to_string()),
-            ("toc 2".to_string(), "A.1\t1".to_string()),
-            ("toc 1".to_string(), "B\t3".to_string()),
-        ]
+        out.paragraphs()[0],
+        ("Heading 1".to_string(), "A".to_string())
     );
     assert!(
         body.contains("<w:hyperlink w:anchor=\"a1\" w:history=\"1\">"),
@@ -1033,13 +1044,13 @@ fn headings_without_text_get_no_contents_entry() {
     let body = out.body();
     assert_eq!(count(&body, " PAGEREF "), 2, "{body}");
     assert_eq!(out.report.toc.as_ref().map(|t| t.entries), Some(2));
-    let entries: Vec<String> = out
-        .paragraphs()
-        .into_iter()
-        .filter(|(style, _)| style.starts_with("toc "))
-        .map(|(_, text)| text)
-        .collect();
-    assert_eq!(entries, ["A\t2", "B\t2"]);
+    let block = &body[..body.find("</w:sdtContent></w:sdt>").unwrap()];
+    assert_eq!(count(block, "<w:pStyle w:val=\"TOC2\"/>"), 2, "{block}");
+    for text in ["A", "B", "2"] {
+        let entry = format!("<w:t>{text}</w:t>");
+        assert!(block.contains(&entry), "{entry} in {block}");
+    }
+    assert_eq!(count(block, "<w:t>2</w:t>"), 2, "{block}");
 }
 
 #[test]
@@ -1110,13 +1121,13 @@ fn front_matter_renders_a_title_block_and_sets_properties() {
         ("Author", "Bo"),
         ("Date", "2026-10-19"),
         ("Abstract", "Short summary."),
-        ("TOC Heading", "Contents"),
     ]
     .iter()
     .map(|(s, t)| (s.to_string(), t.to_string()))
     .collect();
-    assert_eq!(paragraphs[..7], expected[..]);
+    assert_eq!(paragraphs[..6], expected[..]);
     assert!(out.body().contains("TOC \\o \"1-2\""));
+    assert!(out.body().contains(TOC_BLOCK), "{}", out.body());
     let props = out.doc.core_properties().unwrap();
     assert_eq!(props.title, "The Title");
     assert_eq!(props.author, "Ann; Bo");

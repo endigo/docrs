@@ -3106,6 +3106,24 @@ impl<'p> Renderer<'_, '_, 'p> {
 
     fn toc(&mut self, scope: NodeId, depth: i64, title: &str) -> Result<Vec<NodeId>> {
         let main = self.main.clone();
+        // Word's table-of-contents block: heading and entries in one content
+        // control, so Word offers Update Table and replaces them together.
+        let (sdt, content) = {
+            let tree = self.txn.tree_mut(&main)?;
+            let sdt = w_el(tree, scope, "sdt")?;
+            let pr = w_el(tree, sdt, "sdtPr")?;
+            append(tree, sdt, pr)?;
+            let part = w_el(tree, pr, "docPartObj")?;
+            append(tree, pr, part)?;
+            let gallery = w_el(tree, part, "docPartGallery")?;
+            set_w(tree, gallery, "val", "Table of Contents")?;
+            append(tree, part, gallery)?;
+            let unique = w_el(tree, part, "docPartUnique")?;
+            append(tree, part, unique)?;
+            let content = w_el(tree, sdt, "sdtContent")?;
+            append(tree, sdt, content)?;
+            (sdt, content)
+        };
         let heading_props = ParaProps {
             style: self.style(Role::TocHeading)?,
             ..ParaProps::default()
@@ -3126,6 +3144,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             &[Inline::Text(title.to_string())],
             ctx,
         )?;
+        append(self.txn.tree_mut(&main)?, content, heading)?;
         // The field's result is built here from the headings, so every
         // reader shows the entries (linked to their headings) without
         // updating fields. Page numbers need layout: the entries carry none,
@@ -3142,7 +3161,6 @@ impl<'p> Renderer<'_, '_, 'p> {
             .filter(|(level, text, _)| i64::from(*level) <= depth && !text.trim().is_empty())
             .cloned()
             .collect();
-        let mut out = vec![heading];
         let count = entries.len().max(1);
         let width_twips = self.block_width / EMU_PER_TWIP;
         let mut numbers_out = Vec::new();
@@ -3220,13 +3238,13 @@ impl<'p> Renderer<'_, '_, 'p> {
                 let end = fld_char_run(tree, p, "end", false)?;
                 append(tree, p, end)?;
             }
-            out.push(p);
+            append(tree, content, p)?;
         }
         if numbers {
             set_update_fields_on_open(self.txn)?;
         }
         self.toc_numbers = numbers_out;
-        Ok(out)
+        Ok(vec![sdt])
     }
 
     /// Write each contents entry's page number: lay the finished document

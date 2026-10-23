@@ -618,6 +618,57 @@ fn a_rule_is_one_plain_line_from_every_source() {
 }
 
 #[test]
+fn a_table_of_contents_is_words_content_control() {
+    let open = "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val=\"TOCHeading\"/></w:pPr><w:r><w:t>Contents</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val=\"TOC1\"/>";
+    let headings = concat!(
+        "{\"type\":\"heading\",\"attrs\":{\"level\":1},\"content\":[{\"type\":\"text\",\"text\":\"One\"}]},",
+        "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]},",
+        "{\"type\":\"heading\",\"attrs\":{\"level\":2},\"content\":[{\"type\":\"text\",\"text\":\"Two\"}]}"
+    );
+    // The node, where it stands: heading, entries and the whole field
+    // inside the one block, nothing of the field outside it.
+    let node = tiptap(
+        "41-toc-node",
+        &doc(&format!("{{\"type\":\"tableOfContents\"}},{headings}")),
+    );
+    let body = node.body();
+    assert_eq!(count(&body, "<w:sdt>"), 1, "{body}");
+    assert!(body.contains(open), "{body}");
+    let close = body
+        .find("</w:sdtContent></w:sdt>")
+        .expect("the block closes");
+    let block = &body[..close];
+    assert!(
+        block.contains(" TOC \\o \"1-3\" \\h \\z \\u </w:instrText>"),
+        "{block}"
+    );
+    assert_eq!(count(block, "w:fldCharType=\"begin\""), 3);
+    assert_eq!(count(block, "w:fldCharType=\"end\""), 3);
+    assert_eq!(count(block, " PAGEREF "), 2);
+    assert!(block.contains("<w:pStyle w:val=\"TOC2\"/>"), "{block}");
+    assert!(!body[close..].contains("fldChar"), "{body}");
+    assert!(!body.contains("pageBreakBefore"), "{body}");
+    // The option, from the JSON and from the HTML alike: the block, then
+    // the content on a new page.
+    let options = MarkdownOptions {
+        toc: Some(true),
+        ..MarkdownOptions::default()
+    };
+    let json = tiptap_with("41-toc-option", &doc(headings), &options);
+    let html = html_with(
+        "41-toc-option-html",
+        "<h1>One</h1><p>x</p><h2>Two</h2>",
+        &options,
+    );
+    assert_eq!(json.body(), html.body());
+    let body = json.body();
+    assert_eq!(count(&body, "<w:sdt>"), 1, "{body}");
+    assert!(body.contains(open), "{body}");
+    let close = body.find("</w:sdtContent></w:sdt>").unwrap();
+    assert!(body[close..].contains("<w:pageBreakBefore/>"), "{body}");
+}
+
+#[test]
 fn what_is_not_a_document_is_refused_with_nothing_changed() {
     let mut document = reference();
     let before = document.patch_bytes().unwrap().0;
