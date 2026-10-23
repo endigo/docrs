@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4 (2026-10-23)
+
+### Library
+
+- A horizontal rule (`---` in Markdown, `<hr>` in HTML, `horizontalRule` in TipTap JSON) is one flat line across the text: an empty paragraph with a thin single bottom border in the text colour (`w:pBdr`, ¾ pt), 6 pt of space above and below, and a 1 pt paragraph mark so the line takes no more room than that. Every source writes the same paragraph. It was Word's VML "standard" rule (`v:rect` with `o:hr`), which Word draws as a shaded bar, two grey lines with a lighter fill between them, and which reads as a double line. No VML is written any more. A reference document cannot restyle the rule: its look is on the paragraph, not in a style.
+
 ## 0.3.3 (2026-10-23)
 
 ### Library
