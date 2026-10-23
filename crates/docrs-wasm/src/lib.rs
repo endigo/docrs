@@ -348,7 +348,7 @@ export interface FromMarkdownOptions {
   strict?: boolean;
   toc?: boolean;
   tocDepth?: number;
-  /** Title above the table of contents (default "Table of Contents", as Word inserts one). */
+  /** Title above the table of contents (default: the title of the template's own contents, else "Table of Contents"). */
   tocTitle?: string;
   tocPageNumbers?: boolean;
   /** Page numbers computed by estimating Word for Mac's layout (default true). */
@@ -404,6 +404,8 @@ export interface ReferenceInspection {
   compatibility: { mode: number; word: string } | null;
   cover_page: string | null;
   page_numbers: string | null;
+  /** The title of the template's own table of contents, which a conversion uses unless `tocTitle` is given; null when it has none. */
+  toc_title: string | null;
   protected: boolean;
   /** Plain-language problems a practice can fix in Word. */
   problems: { code: string; message: string }[];
@@ -445,6 +447,8 @@ export interface MarkdownReport {
   cleared_properties: string[];
   page_numbers: string | null;
   cover_page: string | null;
+  /** Where the contents' title came from; null without a contents. */
+  toc_title_source: "option" | "front_matter" | "reference" | "default" | null;
   /** Computed contents page numbers; null without a contents or with `tocNumbers: false`. */
   toc: {
     entries: number;

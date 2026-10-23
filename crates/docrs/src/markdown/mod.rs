@@ -102,8 +102,9 @@ pub struct MarkdownOptions {
     pub toc: Option<bool>,
     /// Heading levels the table of contents lists (1–9, default 3).
     pub toc_depth: Option<i64>,
-    /// Title above the table of contents (default `Table of Contents`, as
-    /// Word inserts one, or the front matter's `toc-title`).
+    /// Title above the table of contents; without it, the front matter's
+    /// `toc-title`, then the title of the reference document's own table
+    /// of contents, then `Table of Contents` (as Word inserts one).
     pub toc_title: Option<String>,
     /// Added to every heading level (`-1` makes `##` a Heading 1).
     pub heading_offset: i8,
@@ -235,6 +236,11 @@ pub struct MarkdownReport {
     /// `cover_removed` (the distinct first page was turned off); absent when
     /// neither applied.
     pub cover_page: Option<String>,
+    /// Where the contents' title came from: `option` (`toc_title`),
+    /// `front_matter` (`toc-title`), `reference` (the title of the reference
+    /// document's own table of contents) or `default`; absent without a
+    /// contents.
+    pub toc_title_source: Option<String>,
     /// The contents' computed page numbers; absent without a contents (or
     /// with `toc_numbers` off).
     pub toc: Option<TocReport>,

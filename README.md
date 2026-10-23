@@ -120,7 +120,8 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
 * Tables span the full text width; cells use a compact Table Contents
   style. The table of contents is Word's table-of-contents block (heading
   and entries in one content control, so Word offers Update Table), titled
-  "Table of Contents" unless `--toc-title` says otherwise, and written
+  as the template's own contents is, else "Table of Contents", unless
+  `--toc-title` says otherwise, and written
   out with links to each heading and page numbers computed by estimating
   Word for Mac's layout, so it needs no field update (`--no-toc-numbers`
   leaves the numbers out;

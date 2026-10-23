@@ -331,6 +331,9 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     /// Each contents entry's page number text (`w:t`) and the bookmark of
     /// its heading.
     toc_numbers: Vec<(NodeId, String)>,
+    /// The title above the contents, and where it came from (the report's code).
+    toc_title: String,
+    toc_title_source: &'static str,
 }
 
 /// Render `parsed` into the transaction's main document.
@@ -343,6 +346,15 @@ pub(crate) fn render(
     report: &mut MarkdownReport,
 ) -> Result<()> {
     let main = txn.document().package().main_part_name().to_string();
+    let (toc_title, toc_title_source) = if let Some(title) = &options.toc_title {
+        (title.clone(), "option")
+    } else if let Some(title) = &metadata.toc_title {
+        (title.clone(), "front_matter")
+    } else if let Some(title) = reference_toc_title(txn, &main)? {
+        (title, "reference")
+    } else {
+        (TOC_TITLE.to_string(), "default")
+    };
     let (body_node, anchor, width, blank_first_page) = {
         let tree = txn.tree_mut(&main)?;
         let body_node = body(tree)?;
@@ -378,6 +390,8 @@ pub(crate) fn render(
         line_breaks: false,
         block_width: width,
         toc_numbers: Vec::new(),
+        toc_title,
+        toc_title_source,
     };
     if matches!(options.placement, Placement::ReplaceBody) {
         drop_replaced_body_leftovers(renderer.txn, &main)?;
@@ -407,12 +421,7 @@ pub(crate) fn render(
             .or(metadata.toc_depth)
             .unwrap_or(3)
             .clamp(1, 9);
-        let title = options
-            .toc_title
-            .clone()
-            .or_else(|| metadata.toc_title.clone())
-            .unwrap_or_else(|| TOC_TITLE.to_string());
-        nodes.extend(renderer.toc(body_node, depth, &title)?);
+        nodes.extend(renderer.toc(body_node, depth)?);
     }
     let body_start = nodes.len();
     nodes.extend(renderer.blocks(&main, body_node, &parsed.blocks, ctx)?);
@@ -1513,12 +1522,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                         );
                     } else {
                         let depth = self.options.toc_depth.unwrap_or(3).clamp(1, 9);
-                        let title = self
-                            .options
-                            .toc_title
-                            .clone()
-                            .unwrap_or_else(|| TOC_TITLE.to_string());
-                        out.extend(self.toc(scope, depth, &title)?);
+                        out.extend(self.toc(scope, depth)?);
                     }
                 }
                 // Unwrapped above.
@@ -3106,8 +3110,9 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(out)
     }
 
-    fn toc(&mut self, scope: NodeId, depth: i64, title: &str) -> Result<Vec<NodeId>> {
+    fn toc(&mut self, scope: NodeId, depth: i64) -> Result<Vec<NodeId>> {
         let main = self.main.clone();
+        self.report.toc_title_source = Some(self.toc_title_source.to_string());
         // Word's table-of-contents block: heading and entries in one content
         // control, so Word offers Update Table and replaces them together.
         let (sdt, content) = {
@@ -3143,7 +3148,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             &main,
             scope,
             &heading_props,
-            &[Inline::Text(title.to_string())],
+            &[Inline::Text(self.toc_title.clone())],
             ctx,
         )?;
         append(self.txn.tree_mut(&main)?, content, heading)?;
@@ -4220,6 +4225,84 @@ fn new_run(tree: &mut XmlTree, parent: NodeId, props: &RunProps) -> Result<NodeI
     append(tree, parent, r)?;
     write_rpr(tree, r, props)?;
     Ok(r)
+}
+
+/// The title of the reference document's own table of contents: the first
+/// text before the TOC field in its table-of-contents block (the content
+/// control Word and LibreOffice write), or the TOC Heading paragraph just
+/// before a bare TOC field. Trimmed; none when blank or over 80 characters.
+pub(crate) fn reference_toc_title(txn: &Txn<'_>, main: &str) -> Result<Option<String>> {
+    let tree = txn.tree(main)?;
+    let body = body(tree)?;
+    let block = w_children(tree, body, "sdt").find(|sdt| {
+        w_child(tree, *sdt, "sdtPr")
+            .and_then(|pr| w_child(tree, pr, "docPartObj"))
+            .and_then(|object| w_child(tree, object, "docPartGallery"))
+            .and_then(|gallery| w_attr(tree, gallery, "val"))
+            == Some("Table of Contents")
+    });
+    let title = match block {
+        Some(sdt) => w_child(tree, sdt, "sdtContent")
+            .into_iter()
+            .flat_map(|content| w_children(tree, content, "p"))
+            .take_while(|p| !has_toc_field(tree, *p))
+            .map(|p| paragraph_text(tree, p))
+            .find(|text| !text.trim().is_empty()),
+        None => {
+            let paragraphs: Vec<NodeId> = w_children(tree, body, "p").collect();
+            let Some(field) = paragraphs.iter().position(|p| has_toc_field(tree, *p)) else {
+                return Ok(None);
+            };
+            let styles = txn.part_related_by(main, rt::STYLES)?;
+            let styles = match &styles {
+                Some(part) => Some(txn.tree(part)?),
+                None => None,
+            };
+            paragraphs[..field]
+                .iter()
+                .rev()
+                .map(|p| (*p, paragraph_text(tree, *p)))
+                .find(|(_, text)| !text.trim().is_empty())
+                .filter(|(p, _)| is_toc_heading(tree, styles, *p))
+                .map(|(_, text)| text)
+        }
+    };
+    Ok(title
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty() && text.chars().count() <= 80))
+}
+
+/// Whether the paragraph holds a TOC field, complex or simple.
+fn has_toc_field(tree: &XmlTree, p: NodeId) -> bool {
+    tree.descendants(p).any(|node| {
+        let instruction = if tree.is(node, W, "instrText") {
+            Some(tree.text_content(node))
+        } else if tree.is(node, W, "fldSimple") {
+            w_attr(tree, node, "instr").map(str::to_string)
+        } else {
+            None
+        };
+        instruction.is_some_and(|instruction| instruction.split_whitespace().next() == Some("TOC"))
+    })
+}
+
+/// Whether the paragraph is in the `TOCHeading` style or one named
+/// "TOC Heading".
+fn is_toc_heading(tree: &XmlTree, styles: Option<&XmlTree>, p: NodeId) -> bool {
+    let Some(id) = w_child(tree, p, "pPr")
+        .and_then(|ppr| w_child(tree, ppr, "pStyle"))
+        .and_then(|style| w_attr(tree, style, "val"))
+    else {
+        return false;
+    };
+    id == "TOCHeading"
+        || styles.is_some_and(|styles| {
+            w_children(styles, styles.root(), "style")
+                .find(|style| w_attr(styles, *style, "styleId") == Some(id))
+                .and_then(|style| w_child(styles, style, "name"))
+                .and_then(|name| w_attr(styles, name, "val"))
+                .is_some_and(|name| name.eq_ignore_ascii_case("TOC Heading"))
+        })
 }
 
 #[cfg(test)]

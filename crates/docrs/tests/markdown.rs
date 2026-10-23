@@ -863,8 +863,14 @@ fn definition_lists_use_term_and_definition_styles() {
     );
 }
 
-/// The opening of Word's table-of-contents block, heading first.
-const TOC_BLOCK: &str = "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val=\"TOCHeading\"/></w:pPr><w:r><w:t>Table of Contents</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val=\"TOC1\"/>";
+/// The opening of Word's table-of-contents block, up to the heading's text.
+const TOC_BLOCK: &str = "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val=\"TOCHeading\"/></w:pPr><w:r><w:t>";
+
+/// The block's opening with the title the example reference document's own
+/// contents carries, then the first entry.
+fn reference_toc_block() -> String {
+    format!("{TOC_BLOCK}Contents</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val=\"TOC1\"/>")
+}
 
 /// A horizontal rule: an empty paragraph with a bottom border.
 const RULE: &str = "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/><w:rPr><w:sz w:val=\"2\"/><w:szCs w:val=\"2\"/></w:rPr></w:pPr></w:p>";
@@ -899,7 +905,8 @@ fn rules_page_breaks_and_toc() {
     // Word's table-of-contents block: heading, entries and the field inside
     // one content control; the body paragraphs python-docx lists follow it.
     assert_eq!(count(&body, "<w:sdt>"), 1, "{body}");
-    assert!(body.contains(TOC_BLOCK), "{body}");
+    assert!(body.contains(&reference_toc_block()), "{body}");
+    assert_eq!(out.report.toc_title_source.as_deref(), Some("reference"));
     let close = body
         .find("</w:sdtContent></w:sdt>")
         .expect("the block closes");
@@ -1127,7 +1134,11 @@ fn front_matter_renders_a_title_block_and_sets_properties() {
     .collect();
     assert_eq!(paragraphs[..6], expected[..]);
     assert!(out.body().contains("TOC \\o \"1-2\""));
-    assert!(out.body().contains(TOC_BLOCK), "{}", out.body());
+    assert!(
+        out.body().contains(&reference_toc_block()),
+        "{}",
+        out.body()
+    );
     let props = out.doc.core_properties().unwrap();
     assert_eq!(props.title, "The Title");
     assert_eq!(props.author, "Ann; Bo");
@@ -1347,6 +1358,8 @@ fn inspection_reports_what_a_conversion_takes() {
         "{section}"
     );
     assert_eq!(inspection["page_numbers"], "template_footer_kept");
+    // The reference's own contents, a TOC field under a TOC Heading paragraph.
+    assert_eq!(inspection["toc_title"], "Contents");
     assert_eq!(inspection["roles"]["heading1"]["name"], "Heading 1");
     // Read-only: inspecting changes nothing.
     let before = doc.patch_bytes().unwrap().0;
@@ -2723,4 +2736,148 @@ fn tolerated_reference_packages_convert() {
         &MarkdownOptions::default(),
     );
     assert_eq!(out.report.counts.tables, 1);
+}
+
+// ------------------------------------------------ the contents' title
+
+/// A TOC field as Word writes one, with a stale result.
+const TOC_FIELD: &str = "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> TOC \\o \"1-3\" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>Old entry</w:t></w:r><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>";
+
+const TOC_HEADING_STYLE: &str = "<w:style w:type=\"paragraph\" w:styleId=\"TOCHeading\"><w:name w:val=\"TOC Heading\"/></w:style>";
+
+/// Word's table-of-contents block with `title` above the field.
+fn word_toc(title: &str) -> String {
+    format!(
+        "<w:sdt><w:sdtPr><w:id w:val=\"7\"/><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val=\"TOCHeading\"/></w:pPr><w:r><w:t>{title}</w:t></w:r></w:p>{TOC_FIELD}</w:sdtContent></w:sdt>"
+    )
+}
+
+/// The title the conversion wrote above its contents (the last heading in
+/// `style`, after any the template kept).
+fn written_title(out: &Export, style: &str) -> String {
+    let body = out.body();
+    let marker = format!("<w:pStyle w:val=\"{style}\"/></w:pPr><w:r><w:t>");
+    let start = body.rfind(&marker).expect("a contents heading") + marker.len();
+    body[start..start + body[start..].find("</w:t>").unwrap()].to_string()
+}
+
+#[test]
+fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
+    let toc = MarkdownOptions {
+        toc: Some(true),
+        ..MarkdownOptions::default()
+    };
+    let source = |out: &Export| out.report.toc_title_source.clone();
+    let inspect =
+        |doc: &Document| docrs::markdown::inspect(doc, &MarkdownOptions::default()).unwrap();
+    // Word's own block in the template, in every placement.
+    let block = word_toc("Index of Advice");
+    let word = || {
+        synthetic(Synthetic {
+            styles: TOC_HEADING_STYLE,
+            body: &block,
+            ..Synthetic::default()
+        })
+    };
+    assert_eq!(inspect(&word())["toc_title"], "Index of Advice");
+    let out = export_with("51-toc-title-word", "# A\n", Some(word()), &toc);
+    assert_eq!(written_title(&out, "TOCHeading"), "Index of Advice");
+    assert_eq!(source(&out).as_deref(), Some("reference"));
+    let appended = export_with(
+        "51-toc-title-append",
+        "# A\n",
+        Some(word()),
+        &MarkdownOptions {
+            placement: Placement::Append,
+            ..toc.clone()
+        },
+    );
+    assert_eq!(written_title(&appended, "TOCHeading"), "Index of Advice");
+    assert_eq!(count(&appended.body(), "<w:sdt>"), 2);
+    let with_marker = format!("{block}<w:p><w:r><w:t>{{{{BODY}}}}</w:t></w:r></w:p>");
+    let placed = export_with(
+        "51-toc-title-placeholder",
+        "# A\n",
+        Some(synthetic(Synthetic {
+            styles: TOC_HEADING_STYLE,
+            body: &with_marker,
+            ..Synthetic::default()
+        })),
+        &MarkdownOptions {
+            placement: Placement::Placeholder("{{BODY}}".into()),
+            ..toc.clone()
+        },
+    );
+    assert_eq!(written_title(&placed, "TOCHeading"), "Index of Advice");
+    assert_eq!(source(&placed).as_deref(), Some("reference"));
+    // The option, then the front matter, beat the template.
+    let chosen = export_with(
+        "51-toc-title-option",
+        "# A\n",
+        Some(word()),
+        &MarkdownOptions {
+            toc_title: Some("Mine".into()),
+            ..toc.clone()
+        },
+    );
+    assert_eq!(written_title(&chosen, "TOCHeading"), "Mine");
+    assert_eq!(source(&chosen).as_deref(), Some("option"));
+    let fronted = export_with(
+        "51-toc-title-front-matter",
+        "---\ntoc-title: From Front Matter\n---\n\n# A\n",
+        Some(word()),
+        &toc,
+    );
+    assert_eq!(written_title(&fronted, "TOCHeading"), "From Front Matter");
+    assert_eq!(source(&fronted).as_deref(), Some("front_matter"));
+    // A bare field under a TOC Heading paragraph, found by style id or by
+    // name, its text trimmed, an empty paragraph between them skipped.
+    let named = "<w:style w:type=\"paragraph\" w:styleId=\"Heading0\"><w:name w:val=\"TOC Heading\"/></w:style>";
+    for (styles, style) in [(TOC_HEADING_STYLE, "TOCHeading"), (named, "Heading0")] {
+        let body = format!(
+            "<w:p><w:pPr><w:pStyle w:val=\"{style}\"/></w:pPr><w:r><w:t xml:space=\"preserve\"> Advice Contents </w:t></w:r></w:p><w:p/>{TOC_FIELD}"
+        );
+        let bare = synthetic(Synthetic {
+            styles,
+            body: &body,
+            ..Synthetic::default()
+        });
+        assert_eq!(inspect(&bare)["toc_title"], "Advice Contents");
+        let out = export_with(
+            &format!("51-toc-title-bare-{style}"),
+            "# A\n",
+            Some(bare),
+            &toc,
+        );
+        assert_eq!(written_title(&out, style), "Advice Contents");
+        assert_eq!(source(&out).as_deref(), Some("reference"));
+    }
+    // A field under an ordinary paragraph, a blank or over-long title, no
+    // contents at all: nothing is lifted and the default stands.
+    let long = word_toc(&"x".repeat(81));
+    let plain = format!("<w:p><w:r><w:t>Not a heading</w:t></w:r></w:p>{TOC_FIELD}");
+    let blank = word_toc(" ");
+    for (name, styles, body) in [
+        ("51-toc-title-plain", TOC_HEADING_STYLE, plain.as_str()),
+        ("51-toc-title-blank", TOC_HEADING_STYLE, blank.as_str()),
+        ("51-toc-title-long", TOC_HEADING_STYLE, long.as_str()),
+        ("51-toc-title-none", "", ""),
+    ] {
+        let template = synthetic(Synthetic {
+            styles,
+            body,
+            ..Synthetic::default()
+        });
+        assert!(inspect(&template)["toc_title"].is_null(), "{name}");
+        let out = export_with(name, "# A\n", Some(template), &toc);
+        assert_eq!(
+            written_title(&out, "TOCHeading"),
+            "Table of Contents",
+            "{name}"
+        );
+        assert_eq!(source(&out).as_deref(), Some("default"), "{name}");
+    }
+    // Without a contents the report says nothing about a title.
+    let none = export("51-toc-title-no-toc", "# A\n");
+    assert_eq!(none.report.toc_title_source, None);
 }

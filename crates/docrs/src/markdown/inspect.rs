@@ -149,6 +149,7 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     let main = package.main_part_name().to_string();
     let txn = Txn::new(document);
     let tree = txn.tree(&main)?;
+    let toc_title = render::reference_toc_title(&txn, &main)?;
 
     // Sections: the output keeps the body's final one.
     let sections = section_properties(tree)?;
@@ -302,6 +303,7 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         "compatibility": compatibility,
         "cover_page": report.cover_page,
         "page_numbers": report.page_numbers,
+        "toc_title": toc_title,
         "protected": protection.blocks_paper_edits(),
         "problems": problems,
     }))
