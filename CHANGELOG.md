@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 (2026-10-23)
+
+### Library
+
+- A partly resized table keeps the widths the editor set. In an HTML or TipTap JSON table where some columns carry a `colwidth` and others do not (Tiptap's column resizing writes one onto the dragged column only), a sized column is now as wide as the editor shows it (its pixels at 96 dpi; a percentage is of the text width) and the columns without one share the rest of the text width by their text, the measure a table with no widths already uses. When the sized columns alone are wider than the text, every column is scaled down in proportion, the unsized ones from the editor's 25 px minimum. A spanning cell with no `colwidth` sizes no column; one with a `colwidth` list sizes each column it spans, as before. A table with every column sized (proportions over the text width) or none (by their text) renders as before. Such a table came out as equal columns, the one width the editor set dropped along with the sizing by content.
+
 ## 0.3.2 (2026-10-22)
 
 ### Node.js
