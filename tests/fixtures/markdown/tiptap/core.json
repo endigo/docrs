@@ -733,6 +733,163 @@
    ]
   },
   {
+   "type": "table",
+   "content": [
+    {
+     "type": "tableRow",
+     "content": [
+      {
+       "type": "tableHeader",
+       "attrs": {
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": [
+         120
+        ],
+        "align": null
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "attrs": {
+          "textAlign": null
+         },
+         "content": [
+          {
+           "type": "text",
+           "text": "Asset"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableHeader",
+       "attrs": {
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": null,
+        "align": null
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "attrs": {
+          "textAlign": null
+         },
+         "content": [
+          {
+           "type": "text",
+           "text": "Description"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableHeader",
+       "attrs": {
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": null,
+        "align": null
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "attrs": {
+          "textAlign": null
+         },
+         "content": [
+          {
+           "type": "text",
+           "text": "Value"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "tableRow",
+     "content": [
+      {
+       "type": "tableCell",
+       "attrs": {
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": [
+         120
+        ],
+        "align": null
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "attrs": {
+          "textAlign": null
+         },
+         "content": [
+          {
+           "type": "text",
+           "text": "Home"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableCell",
+       "attrs": {
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": null,
+        "align": null
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "attrs": {
+          "textAlign": null
+         },
+         "content": [
+          {
+           "type": "text",
+           "text": "Family home, owned jointly"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableCell",
+       "attrs": {
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": null,
+        "align": null
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "attrs": {
+          "textAlign": null
+         },
+         "content": [
+          {
+           "type": "text",
+           "text": "$1,200,000"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "type": "heading",
    "attrs": {
     "textAlign": null,

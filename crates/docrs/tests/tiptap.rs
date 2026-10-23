@@ -172,7 +172,7 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
         json.part("word/_rels/document.xml.rels"),
         html.part("word/_rels/document.xml.rels")
     );
-    assert_eq!(json.report.counts.tables, html.report.counts.tables);
+    assert_eq!(json.report.counts.tables, 2);
     assert_eq!(json.report.counts.images, 2);
     assert_eq!(json.report.counts.links, 1);
 
@@ -245,6 +245,12 @@ fn the_json_renders_the_same_document_as_the_editors_html() {
     assert!(texts.iter().any(|t| t.starts_with("Plain bold italic underlined struck code sub sup a bold link red mono large shaded yellow pale.")), "{texts:?}");
     let numbering = json.part("word/numbering.xml");
     assert!(numbering.contains("<w:startOverride w:val=\"3\"/>"));
+    // The second table: the column the editor sized at 120 px keeps it;
+    // the two it left alone share the rest by their text.
+    let (_, grid) = grids(&body);
+    assert_eq!(grid.len(), 6, "{grid:?}");
+    assert!((grid[3] - 1800).abs() <= 1, "{grid:?}");
+    assert!(grid[4] > 2 * grid[5], "{grid:?}");
 }
 
 #[test]
@@ -674,4 +680,198 @@ fn wide_tables_are_narrowed_with_a_warning() {
     for i in 0..70 {
         assert!(body.contains(&format!(">c{i}<")), "c{i} lost");
     }
+}
+
+// ------------------------------------------------- partly resized tables
+
+/// The editor's table of `rows` with `widths` per column (`colwidth` on the
+/// sized ones), as its HTML and as its JSON.
+fn resized_table(rows: &[&[&str]], widths: &[Option<u32>]) -> (String, String) {
+    let cols: String = widths
+        .iter()
+        .map(|width| match width {
+            Some(px) => format!("<col style=\"width: {px}px;\">"),
+            None => "<col style=\"min-width: 25px;\">".to_string(),
+        })
+        .collect();
+    let min: u32 = widths.iter().map(|width| width.unwrap_or(25)).sum();
+    let mut html =
+        format!("<table style=\"min-width: {min}px;\"><colgroup>{cols}</colgroup><tbody>");
+    let mut json = String::from("{\"type\":\"table\",\"content\":[");
+    for (r, row) in rows.iter().enumerate() {
+        let (tag, kind) = if r == 0 {
+            ("th", "tableHeader")
+        } else {
+            ("td", "tableCell")
+        };
+        html.push_str("<tr>");
+        if r > 0 {
+            json.push(',');
+        }
+        json.push_str("{\"type\":\"tableRow\",\"content\":[");
+        for (c, (text, width)) in row.iter().zip(widths).enumerate() {
+            let attr = width
+                .map(|px| format!(" colwidth=\"{px}\""))
+                .unwrap_or_default();
+            html.push_str(&format!(
+                "<{tag} colspan=\"1\" rowspan=\"1\"{attr}><p>{text}</p></{tag}>"
+            ));
+            let colwidth = width.map_or("null".to_string(), |px| format!("[{px}]"));
+            if c > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"type\":\"{kind}\",\"attrs\":{{\"colspan\":1,\"rowspan\":1,\"colwidth\":{colwidth}}},\"content\":[{{\"type\":\"paragraph\",\"content\":[{{\"type\":\"text\",\"text\":\"{text}\"}}]}}]}}"
+            ));
+        }
+        html.push_str("</tr>");
+        json.push_str("]}");
+    }
+    html.push_str("</tbody></table>");
+    json.push_str("]}");
+    (html, doc(&json))
+}
+
+/// The tables' widths and grid columns in `body`, in twips.
+fn grids(body: &str) -> (Vec<i64>, Vec<i64>) {
+    let numbers = |after: &str| -> Vec<i64> {
+        body.match_indices(after)
+            .map(|(at, m)| {
+                let rest = &body[at + m.len()..];
+                rest[..rest.find('"').unwrap()].parse().unwrap()
+            })
+            .collect()
+    };
+    (
+        numbers("<w:tblW w:type=\"dxa\" w:w=\""),
+        numbers("<w:gridCol w:w=\""),
+    )
+}
+
+#[test]
+fn a_partly_resized_table_keeps_the_widths_the_editor_set() {
+    const ASSETS: [&[&str]; 2] = [
+        &["Asset", "Description", "Value"],
+        &["Home", "Family home, owned jointly", "$1,200,000"],
+    ];
+    let render = |name: &str, html: &str, json: &str| -> (i64, Vec<i64>) {
+        let from_html = html_with(&format!("{name}-html"), html, &MarkdownOptions::default());
+        let from_json = tiptap_with(name, json, &MarkdownOptions::default());
+        assert!(
+            from_html.report.warnings.is_empty(),
+            "{}",
+            from_html.messages()
+        );
+        assert!(
+            from_json.report.warnings.is_empty(),
+            "{}",
+            from_json.messages()
+        );
+        assert_eq!(
+            from_json.body(),
+            from_html.body(),
+            "{name}: the two sources alike"
+        );
+        let (widths, grid) = grids(&from_json.body());
+        assert_eq!(grid.iter().sum::<i64>(), widths[0], "{name}: {grid:?}");
+        (widths[0], grid)
+    };
+    let resized = |name: &str, widths: &[Option<u32>]| {
+        let (html, json) = resized_table(&ASSETS, widths);
+        render(name, &html, &json)
+    };
+    // The first column dragged to 120 px stays 120 px (1800 twips); the
+    // others share the rest by their text.
+    let (width, first) = resized("38-tiptap-first-column", &[Some(120), None, None]);
+    assert!((first[0] - 1800).abs() <= 1, "{first:?}");
+    assert!(first[1] > 2 * first[2], "{first:?}");
+    let (_, middle) = resized("38-tiptap-middle-column", &[None, Some(200), None]);
+    assert!((middle[1] - 3000).abs() <= 1, "{middle:?}");
+    assert!(middle[0] < middle[2], "{middle:?}");
+    // Sized columns wider than the text: everything scaled down in
+    // proportion, the unsized column from the editor's 25 px minimum.
+    let (_, over) = resized("38-tiptap-over-width", &[Some(600), Some(400), None]);
+    assert!(over[0] < 9000, "{over:?}");
+    assert!((over[0] * 2 - over[1] * 3).abs() <= 3, "{over:?}");
+    assert!(over[2] > 0 && over[2] < 375, "{over:?}");
+    // Every column sized, or none, renders as before.
+    let (_, all) = resized("38-tiptap-all-columns", &[Some(120), Some(420), Some(160)]);
+    assert_eq!(all, [1613, 5647, 2152]);
+    let (_, none) = resized("38-tiptap-no-columns", &[None, None, None]);
+    assert_eq!(none, [1464, 5438, 2510]);
+    // A spanning cell with no `colwidth` sizes nothing: the column keeps
+    // the width a cell below it carries.
+    let (_, spanned) = render(
+        "38-tiptap-null-span",
+        concat!(
+            "<table style=\"min-width: 50px;\"><colgroup><col style=\"min-width: 25px;\"><col style=\"min-width: 25px;\"></colgroup><tbody>",
+            "<tr><th colspan=\"2\" rowspan=\"1\"><p>Both</p></th></tr>",
+            "<tr><td colspan=\"1\" rowspan=\"1\" colwidth=\"120\"><p>Home</p></td><td colspan=\"1\" rowspan=\"1\"><p>Family home, owned jointly</p></td></tr></tbody></table>",
+        ),
+        &doc(concat!(
+            "{\"type\":\"table\",\"content\":[",
+            "{\"type\":\"tableRow\",\"content\":[{\"type\":\"tableHeader\",\"attrs\":{\"colspan\":2,\"rowspan\":1,\"colwidth\":null},\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Both\"}]}]}]},",
+            "{\"type\":\"tableRow\",\"content\":[{\"type\":\"tableCell\",\"attrs\":{\"colspan\":1,\"rowspan\":1,\"colwidth\":[120]},\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Home\"}]}]},",
+            "{\"type\":\"tableCell\",\"attrs\":{\"colspan\":1,\"rowspan\":1,\"colwidth\":null},\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Family home, owned jointly\"}]}]}]}]}",
+        )),
+    );
+    assert_eq!(spanned, [1800, width - 1800]);
+}
+
+#[test]
+fn a_header_several_rows_deep_keeps_its_spans_and_the_resized_columns() {
+    // `nested.{json,html}`: a rowspan cell over five header rows, three
+    // eight-column spans, two four-column spans, eight leaf columns; the
+    // first column dragged to 180 px and the fourth to 140 px, which the
+    // editor writes onto every cell of those columns, as zero-filled lists
+    // on the spanning ones.
+    let json = tiptap("39-tiptap-nested", &fixture("nested.json"));
+    let html = html_with(
+        "39-tiptap-nested-html",
+        &fixture("nested.html"),
+        &MarkdownOptions::default(),
+    );
+    assert!(json.report.warnings.is_empty(), "{}", json.messages());
+    assert!(html.report.warnings.is_empty(), "{}", html.messages());
+    let body = json.body();
+    assert_eq!(body, html.body(), "the two sources alike");
+    assert_eq!(count(&body, "<w:gridSpan w:val=\"8\"/>"), 3);
+    assert_eq!(count(&body, "<w:gridSpan w:val=\"4\"/>"), 2);
+    assert_eq!(count(&body, "<w:vMerge w:val=\"restart\"/>"), 1);
+    assert_eq!(count(&body, "<w:vMerge/>"), 4);
+    assert_eq!(count(&body, "<w:tblHeader/>"), 5);
+    let (widths, grid) = grids(&body);
+    assert_eq!(grid.len(), 9, "{grid:?}");
+    assert_eq!(grid.iter().sum::<i64>(), widths[0], "{grid:?}");
+    assert!((grid[0] - 2700).abs() <= 1, "{grid:?}");
+    assert!((grid[3] - 2100).abs() <= 1, "{grid:?}");
+    // The other seven share the rest by their text, a header by its
+    // longest word: "Residents" over "Total", none down at the floor.
+    assert!(grid[1] > grid[4], "{grid:?}");
+    assert_eq!(grid[1], grid[5], "{grid:?}");
+    assert!(grid[1] < grid[0], "{grid:?}");
+    assert!(grid.iter().all(|w| *w > 375), "{grid:?}");
+    // The same table before any column was dragged: by text alone, the
+    // control points' column is the widest.
+    fn unsize(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(width) = map.get_mut("colwidth") {
+                    *width = serde_json::Value::Null;
+                }
+                map.values_mut().for_each(unsize);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(unsize),
+            _ => {}
+        }
+    }
+    let mut undragged: serde_json::Value = serde_json::from_str(&fixture("nested.json")).unwrap();
+    unsize(&mut undragged);
+    let out = tiptap("39-tiptap-nested-unsized", &undragged.to_string());
+    assert!(out.report.warnings.is_empty(), "{}", out.messages());
+    let (widths, grid) = grids(&out.body());
+    assert_eq!(grid.len(), 9, "{grid:?}");
+    assert_eq!(grid.iter().sum::<i64>(), widths[0], "{grid:?}");
+    assert!(grid.iter().all(|w| *w <= grid[0]), "{grid:?}");
+    assert!(grid[1] > grid[4], "{grid:?}");
 }

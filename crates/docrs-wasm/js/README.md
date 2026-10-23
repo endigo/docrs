@@ -31,7 +31,8 @@ const { docx, report } = fromHtml(editorHtml, {
 ```
 
 It keeps the editor's text colours, highlight colours, fonts, paragraph and
-cell alignment, column widths, merged cells (`colspan`/`rowspan`), picture
+cell alignment, column widths (a resized column keeps its width and the
+rest share what is left), merged cells (`colspan`/`rowspan`), picture
 sizes and alignment, and page breaks. CSS it cannot map is reported
 (`html_style_dropped`).
 

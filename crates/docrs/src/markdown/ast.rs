@@ -108,17 +108,16 @@ impl Default for CellSpan {
 }
 
 /// What an HTML table says beyond its cells: spans, header rows and the
-/// editor's column widths (CSS pixels; only their proportions matter).
+/// editor's column widths.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct TableLayout {
     /// Per row (head first, then body rows), per cell.
     pub spans: Vec<Vec<CellSpan>>,
     /// Leading rows that repeat as the header (head first, then body).
     pub header_rows: usize,
-    /// Width of each grid column, when the editor gave one.
+    /// Width of each grid column when the editor gave one: CSS pixels, or
+    /// a percentage of the text width as a negative number.
     pub widths: Vec<Option<f64>>,
-    /// The table's own width (`style="width: 520px"`).
-    pub table_width: Option<f64>,
 }
 
 /// A grid position of a table row once spans are placed.

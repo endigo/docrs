@@ -36,6 +36,9 @@ use crate::{Error, RefusalKind, Result};
 const FALLBACK_BLOCK_WIDTH: i64 = 5_486_400;
 const EMU_PER_TWIP: i64 = 635;
 const EMU_PER_PX: f64 = 9525.0;
+const TWIPS_PER_PX: f64 = EMU_PER_PX / EMU_PER_TWIP as f64;
+/// The editor's narrowest column (Tiptap's `cellMinWidth`).
+const MIN_COLUMN_PX: f64 = 25.0;
 const VML_NS: &str = "urn:schemas-microsoft-com:vml";
 const OFFICE_NS: &str = "urn:schemas-microsoft-com:office:office";
 /// Left indent per list level, in twips (with a 360 hanging indent).
@@ -1945,7 +1948,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         let cell_style = self.style(Role::TableContents)?;
         self.report.counts.tables += 1;
         let total_twips = width / EMU_PER_TWIP;
-        let col_twips = column_widths(&all_rows, &grid, cols, layout, total_twips);
+        let col_twips = column_widths(&all_rows, &grid, cols, header_rows, layout, total_twips);
         let (tbl, cells) = {
             let tree = self.txn.tree_mut(part)?;
             let tbl = new_tbl(tree, scope, all_rows.len(), cols, width)?;
@@ -3821,55 +3824,63 @@ fn read_within(path: &Path, limit: u64) -> std::result::Result<Vec<u8>, Unread> 
     Ok(bytes)
 }
 
-/// Column widths in twips filling `total`: the editor's widths in
-/// proportion when it gave them (columns without one share what the
-/// table's own width leaves, or take the average), else weights from the
-/// longest text in each column.
+/// Column widths in twips filling `total`. The editor's widths in
+/// proportion when it sized every column; weights from the text when it
+/// sized none (the first `header_rows` rows are headers). In between, a sized column keeps its pixels (a percentage
+/// is of the text width) and the others share what is left by their text,
+/// none narrower than the editor's minimum column; the whole is scaled
+/// down only when the sized columns and those minimums do not fit.
 fn column_widths(
     rows: &[&[Vec<Block>]],
     grid: &[Vec<Slot>],
     cols: usize,
+    header_rows: usize,
     layout: Option<&TableLayout>,
     total: i64,
 ) -> Vec<i64> {
-    let given: Vec<Option<f64>> = layout
-        .map(|layout| layout.widths.clone())
-        .unwrap_or_default();
-    let known: Vec<f64> = given.iter().take(cols).flatten().copied().collect();
-    let weights: Vec<f64> = if known.is_empty() {
-        (0..cols)
-            .map(|c| {
-                grid.iter()
-                    .zip(rows)
-                    .flat_map(|(slots, row)| {
-                        slots.iter().filter_map(move |slot| match *slot {
-                            Slot::Cell {
-                                index, col, span, ..
-                            } if col == c && span.colspan == 1 => row.get(index),
-                            _ => None,
-                        })
-                    })
-                    // Long text wants room, within limits; no column is
-                    // narrower than its longest word.
-                    .map(|cell| {
-                        (longest_line(cell) as i64)
-                            .clamp(4, 40)
-                            .max(longest_word(cell) + 2)
-                    })
-                    .max()
-                    .unwrap_or(4) as f64
-            })
-            .collect()
+    let given: Vec<Option<f64>> = (0..cols)
+        .map(|c| layout.and_then(|layout| layout.widths.get(c).copied().flatten()))
+        .collect();
+    let sized = given.iter().flatten().count();
+    let weights: Vec<f64> = if sized == cols {
+        given.iter().flatten().map(|w| w.abs()).collect()
+    } else if sized == 0 {
+        text_weights(rows, grid, cols, header_rows)
     } else {
-        let sum: f64 = known.iter().sum();
-        let open = cols - known.len();
-        let share = match layout.and_then(|layout| layout.table_width) {
-            Some(width) if width > sum && open > 0 => (width - sum) / open as f64,
-            _ => sum / known.len() as f64,
+        let twips = |w: f64| {
+            if w < 0.0 {
+                total as f64 * -w / 100.0
+            } else {
+                w * TWIPS_PER_PX
+            }
         };
-        (0..cols)
-            .map(|c| given.get(c).copied().flatten().unwrap_or(share))
-            .collect()
+        let text = text_weights(rows, grid, cols, header_rows);
+        let floor = MIN_COLUMN_PX * TWIPS_PER_PX;
+        let mut widths: Vec<f64> = given.iter().map(|w| w.map_or(0.0, twips)).collect();
+        let mut open: Vec<usize> = (0..cols).filter(|c| given[*c].is_none()).collect();
+        let mut left = total as f64 - widths.iter().sum::<f64>();
+        // A column the sharing would put under the floor takes the floor and
+        // leaves the sharing to the others.
+        loop {
+            let weight: f64 = open.iter().map(|c| text[*c]).sum();
+            let short: Vec<usize> = open
+                .iter()
+                .copied()
+                .filter(|c| left * text[*c] / weight < floor)
+                .collect();
+            if short.is_empty() {
+                for c in &open {
+                    widths[*c] = left * text[*c] / weight;
+                }
+                break;
+            }
+            for c in &short {
+                widths[*c] = floor;
+            }
+            open.retain(|c| !short.contains(c));
+            left -= short.len() as f64 * floor;
+        }
+        widths
     };
     let sum: f64 = weights.iter().sum::<f64>().max(f64::MIN_POSITIVE);
     let mut widths: Vec<i64> = weights
@@ -3882,6 +3893,44 @@ fn column_widths(
         *last += total - drawn;
     }
     widths
+}
+
+/// Each column's weight from its text: long body text wants room, within
+/// limits, a header wraps between its words, and no column is narrower
+/// than its longest word.
+fn text_weights(
+    rows: &[&[Vec<Block>]],
+    grid: &[Vec<Slot>],
+    cols: usize,
+    header_rows: usize,
+) -> Vec<f64> {
+    (0..cols)
+        .map(|c| {
+            grid.iter()
+                .zip(rows)
+                .enumerate()
+                .flat_map(|(r, (slots, row))| {
+                    slots.iter().filter_map(move |slot| match *slot {
+                        Slot::Cell {
+                            index, col, span, ..
+                        } if col == c && span.colspan == 1 => {
+                            row.get(index).map(|cell| (r < header_rows, cell))
+                        }
+                        _ => None,
+                    })
+                })
+                .map(|(header, cell)| {
+                    let word = longest_word(cell) + 2;
+                    if header {
+                        word.max(4)
+                    } else {
+                        (longest_line(cell) as i64).clamp(4, 40).max(word)
+                    }
+                })
+                .max()
+                .unwrap_or(4) as f64
+        })
+        .collect()
 }
 
 /// Length of the longest word in `blocks`' paragraphs.
