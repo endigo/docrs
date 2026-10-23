@@ -845,11 +845,12 @@ fn a_header_several_rows_deep_keeps_its_spans_and_the_resized_columns() {
     assert_eq!(grid.iter().sum::<i64>(), widths[0], "{grid:?}");
     assert!((grid[0] - 2700).abs() <= 1, "{grid:?}");
     assert!((grid[3] - 2100).abs() <= 1, "{grid:?}");
-    // The other seven share the rest by their text: "Hong Kong Residents"
-    // over "Total".
-    assert!(grid[1] > 2 * grid[4], "{grid:?}");
+    // The other seven share the rest by their text, a header by its
+    // longest word: "Residents" over "Total", none down at the floor.
+    assert!(grid[1] > grid[4], "{grid:?}");
     assert_eq!(grid[1], grid[5], "{grid:?}");
     assert!(grid[1] < grid[0], "{grid:?}");
+    assert!(grid.iter().all(|w| *w > 375), "{grid:?}");
     // The same table before any column was dragged: by text alone, the
     // control points' column is the widest.
     fn unsize(value: &mut serde_json::Value) {
@@ -872,5 +873,5 @@ fn a_header_several_rows_deep_keeps_its_spans_and_the_resized_columns() {
     assert_eq!(grid.len(), 9, "{grid:?}");
     assert_eq!(grid.iter().sum::<i64>(), widths[0], "{grid:?}");
     assert!(grid.iter().all(|w| *w <= grid[0]), "{grid:?}");
-    assert!(grid[1] > 2 * grid[4], "{grid:?}");
+    assert!(grid[1] > grid[4], "{grid:?}");
 }

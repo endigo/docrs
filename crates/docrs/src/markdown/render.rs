@@ -1948,7 +1948,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         let cell_style = self.style(Role::TableContents)?;
         self.report.counts.tables += 1;
         let total_twips = width / EMU_PER_TWIP;
-        let col_twips = column_widths(&all_rows, &grid, cols, layout, total_twips);
+        let col_twips = column_widths(&all_rows, &grid, cols, header_rows, layout, total_twips);
         let (tbl, cells) = {
             let tree = self.txn.tree_mut(part)?;
             let tbl = new_tbl(tree, scope, all_rows.len(), cols, width)?;
@@ -3826,7 +3826,7 @@ fn read_within(path: &Path, limit: u64) -> std::result::Result<Vec<u8>, Unread> 
 
 /// Column widths in twips filling `total`. The editor's widths in
 /// proportion when it sized every column; weights from the text when it
-/// sized none. In between, a sized column keeps its pixels (a percentage
+/// sized none (the first `header_rows` rows are headers). In between, a sized column keeps its pixels (a percentage
 /// is of the text width) and the others share what is left by their text,
 /// none narrower than the editor's minimum column; the whole is scaled
 /// down only when the sized columns and those minimums do not fit.
@@ -3834,6 +3834,7 @@ fn column_widths(
     rows: &[&[Vec<Block>]],
     grid: &[Vec<Slot>],
     cols: usize,
+    header_rows: usize,
     layout: Option<&TableLayout>,
     total: i64,
 ) -> Vec<i64> {
@@ -3844,7 +3845,7 @@ fn column_widths(
     let weights: Vec<f64> = if sized == cols {
         given.iter().flatten().map(|w| w.abs()).collect()
     } else if sized == 0 {
-        text_weights(rows, grid, cols)
+        text_weights(rows, grid, cols, header_rows)
     } else {
         let twips = |w: f64| {
             if w < 0.0 {
@@ -3853,9 +3854,9 @@ fn column_widths(
                 w * TWIPS_PER_PX
             }
         };
-        let text = text_weights(rows, grid, cols);
+        let text = text_weights(rows, grid, cols, header_rows);
         let floor = MIN_COLUMN_PX * TWIPS_PER_PX;
-        let mut widths: Vec<f64> = given.iter().map(|w| w.map_or(0.0, &twips)).collect();
+        let mut widths: Vec<f64> = given.iter().map(|w| w.map_or(0.0, twips)).collect();
         let mut open: Vec<usize> = (0..cols).filter(|c| given[*c].is_none()).collect();
         let mut left = total as f64 - widths.iter().sum::<f64>();
         // A column the sharing would put under the floor takes the floor and
@@ -3894,25 +3895,37 @@ fn column_widths(
     widths
 }
 
-/// Each column's weight from its text: long text wants room, within
-/// limits, and no column is narrower than its longest word.
-fn text_weights(rows: &[&[Vec<Block>]], grid: &[Vec<Slot>], cols: usize) -> Vec<f64> {
+/// Each column's weight from its text: long body text wants room, within
+/// limits, a header wraps between its words, and no column is narrower
+/// than its longest word.
+fn text_weights(
+    rows: &[&[Vec<Block>]],
+    grid: &[Vec<Slot>],
+    cols: usize,
+    header_rows: usize,
+) -> Vec<f64> {
     (0..cols)
         .map(|c| {
             grid.iter()
                 .zip(rows)
-                .flat_map(|(slots, row)| {
+                .enumerate()
+                .flat_map(|(r, (slots, row))| {
                     slots.iter().filter_map(move |slot| match *slot {
                         Slot::Cell {
                             index, col, span, ..
-                        } if col == c && span.colspan == 1 => row.get(index),
+                        } if col == c && span.colspan == 1 => {
+                            row.get(index).map(|cell| (r < header_rows, cell))
+                        }
                         _ => None,
                     })
                 })
-                .map(|cell| {
-                    (longest_line(cell) as i64)
-                        .clamp(4, 40)
-                        .max(longest_word(cell) + 2)
+                .map(|(header, cell)| {
+                    let word = longest_word(cell) + 2;
+                    if header {
+                        word.max(4)
+                    } else {
+                        (longest_line(cell) as i64).clamp(4, 40).max(word)
+                    }
                 })
                 .max()
                 .unwrap_or(4) as f64
