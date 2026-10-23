@@ -8,6 +8,8 @@
 
 - A table of contents (`toc: true`, front matter `toc`, `[TOC]`, TipTap's `tableOfContents`) is Word's table-of-contents block: the heading and every entry sit inside one content control (`w:sdt` with the `Table of Contents` document-part gallery), as Word and LibreOffice write one, so Word shows the TOC frame with its Update Table tab when the contents is clicked, treats it as the document's contents under References, and replaces heading and entries together. The field, its cached page numbers and the PAGEREF links are unchanged. The heading and entries are no longer direct body paragraphs: `Document::paragraphs` (python-docx's `document.paragraphs`) lists what follows them, as it does for a contents Word wrote.
 
+- The default title above the table of contents is "Table of Contents", what Microsoft 365's References > Table of Contents inserts; it was "Contents". `toc_title` (CLI `--toc-title`, Node `tocTitle`, front matter `toc-title`) still overrides it.
+
 ## 0.3.3 (2026-10-23)
 
 ### Library

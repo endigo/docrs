@@ -41,6 +41,8 @@ const TWIPS_PER_PX: f64 = EMU_PER_PX / EMU_PER_TWIP as f64;
 const MIN_COLUMN_PX: f64 = 25.0;
 /// Left indent per list level, in twips (with a 360 hanging indent).
 const LIST_INDENT: i64 = 720;
+/// Title above the table of contents, what Word's own insertion gives.
+const TOC_TITLE: &str = "Table of Contents";
 const BULLET_NAME: &str = "PaperMarkdownBullet";
 const DECIMAL_NAME: &str = "PaperMarkdownDecimal";
 
@@ -409,7 +411,7 @@ pub(crate) fn render(
             .toc_title
             .clone()
             .or_else(|| metadata.toc_title.clone())
-            .unwrap_or_else(|| "Contents".to_string());
+            .unwrap_or_else(|| TOC_TITLE.to_string());
         nodes.extend(renderer.toc(body_node, depth, &title)?);
     }
     let body_start = nodes.len();
@@ -1515,7 +1517,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                             .options
                             .toc_title
                             .clone()
-                            .unwrap_or_else(|| "Contents".to_string());
+                            .unwrap_or_else(|| TOC_TITLE.to_string());
                         out.extend(self.toc(scope, depth, &title)?);
                     }
                 }

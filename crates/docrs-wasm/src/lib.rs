@@ -348,6 +348,7 @@ export interface FromMarkdownOptions {
   strict?: boolean;
   toc?: boolean;
   tocDepth?: number;
+  /** Title above the table of contents (default "Table of Contents", as Word inserts one). */
   tocTitle?: string;
   tocPageNumbers?: boolean;
   /** Page numbers computed by estimating Word for Mac's layout (default true). */

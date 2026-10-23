@@ -264,7 +264,7 @@ pub enum Command {
         /// Heading levels in the table of contents (1-9).
         #[arg(long)]
         toc_depth: Option<i64>,
-        /// Title above the table of contents.
+        /// Title above the table of contents (default: Table of Contents)
         #[arg(long)]
         toc_title: Option<String>,
         /// Add N to every heading level (-1 makes `##` a Heading 1).

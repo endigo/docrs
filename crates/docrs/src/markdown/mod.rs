@@ -102,8 +102,8 @@ pub struct MarkdownOptions {
     pub toc: Option<bool>,
     /// Heading levels the table of contents lists (1–9, default 3).
     pub toc_depth: Option<i64>,
-    /// Title above the table of contents (default `Contents`, or the
-    /// front matter's `toc-title`).
+    /// Title above the table of contents (default `Table of Contents`, as
+    /// Word inserts one, or the front matter's `toc-title`).
     pub toc_title: Option<String>,
     /// Added to every heading level (`-1` makes `##` a Heading 1).
     pub heading_offset: i8,
