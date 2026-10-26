@@ -538,7 +538,7 @@ impl Resolver {
                                 == Some(&(level - 1).to_string())
                     })
                 });
-                let lift_body = role == Role::Body && sample.body_rpr.is_some();
+                let lift_body = role == Role::Body && sample.body_looks.contains_key(&None);
                 match found_style {
                     Some(style) => Some(found(tree, style, default)),
                     None if lift_body && self.policy == StylePolicy::Create => None,
@@ -584,7 +584,7 @@ impl Resolver {
                     let sample = self.sample.as_ref().expect("sample read above");
                     let mut body = body;
                     let lifted = match role {
-                        Role::Body => sample.body_rpr.clone().map(|rpr| Lifted {
+                        Role::Body => sample.body_looks.get(&None).cloned().map(|rpr| Lifted {
                             rpr,
                             ..Lifted::default()
                         }),
@@ -682,18 +682,17 @@ impl Resolver {
                 }
             },
         };
-        // An existing heading style whose sample paragraphs all show
-        // another look by hand takes that look, so the converted headings
-        // look like the template's own.
-        if let (Some(level), Some(id), false) =
-            (role.heading_level(), style.style_id.clone(), style.created)
-        {
-            let look = self
-                .sample
-                .as_ref()
-                .and_then(|sample| sample.heading_looks.get(&level).cloned());
-            if let Some(look) = look.filter(|_| !self.prefer_own) {
-                restyle(txn, &part, &id, &look)?;
+        // An existing style whose sample paragraphs show another look by hand
+        // takes that look, so the converted text looks like the template's own.
+        if !style.created && !self.prefer_own {
+            let sample = self.sample.as_ref().expect("sample read above");
+            let look = match role.heading_level() {
+                Some(level) => sample.heading_looks.get(&level),
+                None if role == Role::Body => sample.body_looks.get(&style.style_id),
+                None => None,
+            };
+            if let (Some(look), Some(id)) = (look.cloned(), style.style_id.as_deref()) {
+                restyle(txn, &part, id, &look)?;
             }
         }
         let id = style.style_id.clone();
@@ -740,7 +739,32 @@ fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
     let wrapper = import_fragment(tree, rpr, &format!("<w:rPr xmlns:w=\"{W}\">{look}</w:rPr>"))?;
     for child in tree.child_elements(wrapper).collect::<Vec<_>>() {
         let local = tree.local_name(child).unwrap_or("").to_string();
-        if let Some(old) = w_child(tree, rpr, &local) {
+        let attrs: Vec<(String, String)> = tree
+            .element(child)
+            .map(|element| {
+                element
+                    .attrs
+                    .iter()
+                    .filter(|attr| attr.ns.map(|ns| tree.uri(ns)) == Some(W))
+                    .map(|attr| (attr.name.local.to_string(), attr.value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let old = w_child(tree, rpr, &local);
+        // The sample's attributes override the style's one by one; the rest
+        // stay. A font or colour set by name drops the theme attribute Word
+        // would otherwise prefer, and the other way round.
+        if let (Some(old), false) = (old, attrs.is_empty()) {
+            for (name, value) in &attrs {
+                tree.set_attr(old, Some(W), name, value)?;
+                for shadowed in shadowed_by(&local, name) {
+                    tree.remove_attr(old, Some(W), shadowed);
+                }
+            }
+            tree.detach(child)?;
+            continue;
+        }
+        if let Some(old) = old {
             crate::authoring::remove(tree, old)?;
         }
         tree.detach(child)?;
@@ -752,6 +776,23 @@ fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+fn shadowed_by(element: &str, attribute: &str) -> &'static [&'static str] {
+    match (element, attribute) {
+        ("rFonts", "ascii") => &["asciiTheme"],
+        ("rFonts", "asciiTheme") => &["ascii"],
+        ("rFonts", "hAnsi") => &["hAnsiTheme"],
+        ("rFonts", "hAnsiTheme") => &["hAnsi"],
+        ("rFonts", "eastAsia") => &["eastAsiaTheme"],
+        ("rFonts", "eastAsiaTheme") => &["eastAsia"],
+        ("rFonts", "cs") => &["cstheme"],
+        ("rFonts", "cstheme") => &["cs"],
+        ("color", "val") | ("u", "color") => &["themeColor", "themeTint", "themeShade"],
+        ("color", "themeColor") => &["val"],
+        ("u", "themeColor") => &["color"],
+        _ => &[],
+    }
 }
 
 fn found(tree: &XmlTree, style: NodeId, default: Option<NodeId>) -> RoleStyle {
@@ -790,7 +831,10 @@ pub(crate) struct Sample {
     /// by hand: what the template shows for that heading, whatever its style
     /// says.
     heading_looks: BTreeMap<u8, String>,
-    body_rpr: Option<String>,
+    /// The run look at least 60% of the characters of a style's sample
+    /// paragraphs set by hand, by style id (`None`: the default style),
+    /// emphasis left out.
+    body_looks: BTreeMap<Option<String>, String>,
     table_style: Option<String>,
     table: Option<Lifted>,
     table_look: Vec<(String, bool)>,
@@ -895,10 +939,11 @@ fn describe_rpr(rpr: &str) -> Value {
 }
 
 impl Sample {
-    /// What a conversion lifts from the sample content, for a report.
-    pub(crate) fn summary(&self) -> Value {
+    /// What a conversion lifts from the sample content, for a report;
+    /// `body_style` is the existing style the body takes (`None`: the default).
+    pub(crate) fn summary(&self, body_style: Option<&str>) -> Value {
         serde_json::json!({
-            "body": self.body_rpr.as_deref().map(describe_rpr),
+            "body": self.body_looks.get(&body_style.map(str::to_string)).map(|rpr| describe_rpr(rpr)),
             "headings": self
                 .headings
                 .iter()
@@ -925,7 +970,8 @@ impl Sample {
         let Some(body) = w_child(tree, tree.root(), "body") else {
             return Ok(sample);
         };
-        let mut body_candidates: Vec<String> = Vec::new();
+        let mut body_runs: BTreeMap<Option<String>, Vec<(String, usize)>> = BTreeMap::new();
+        let mut default_style: Option<String> = None;
         let mut tables: Vec<SampleTable> = Vec::new();
         let mut heading_styles: BTreeMap<String, u8> = BTreeMap::new();
         if let Some(styles) =
@@ -936,6 +982,11 @@ impl Sample {
                 let Some(id) = w_attr(styles, style, "styleId") else {
                     continue;
                 };
+                if matches!(w_attr(styles, style, "default"), Some("1" | "true" | "on"))
+                    && w_attr(styles, style, "type").unwrap_or("paragraph") == "paragraph"
+                {
+                    default_style = Some(id.to_string());
+                }
                 let by_name = w_child(styles, style, "name")
                     .and_then(|n| w_attr(styles, n, "val"))
                     .and_then(|name| {
@@ -964,11 +1015,15 @@ impl Sample {
                 continue;
             }
             let ppr = w_child(tree, block, "pPr");
-            let styled = ppr.and_then(|p| w_child(tree, p, "pStyle")).is_some();
+            let style_id = ppr
+                .and_then(|p| w_child(tree, p, "pStyle"))
+                .and_then(|s| w_attr(tree, s, "val"))
+                .filter(|id| Some(*id) != default_style.as_deref())
+                .map(str::to_string);
             let listed = ppr.and_then(|p| w_child(tree, p, "numPr")).is_some();
-            let first_rpr = w_children(tree, block, "r")
-                .find(|r| !crate::authoring::run_text(tree, *r).trim().is_empty())
-                .and_then(|r| w_child(tree, r, "rPr"));
+            let first_run = w_children(tree, block, "r")
+                .find(|r| !crate::authoring::run_text(tree, *r).trim().is_empty());
+            let first_rpr = first_run.and_then(|r| w_child(tree, r, "rPr"));
             let outline = ppr
                 .and_then(|p| w_child(tree, p, "outlineLvl"))
                 .and_then(|o| w_attr(tree, o, "val"))
@@ -978,9 +1033,7 @@ impl Sample {
                 .and_then(|s| w_attr(tree, s, "val"))
                 .and_then(|id| heading_styles.get(id).copied());
             if let (Some(level), true) = (heading_level, outline.is_none()) {
-                let has_text = w_children(tree, block, "r")
-                    .any(|r| !crate::authoring::run_text(tree, r).trim().is_empty());
-                if has_text {
+                if first_run.is_some() {
                     heading_runs.entry(level).or_default().push(
                         first_rpr
                             .and_then(|r| look_rpr(tree, r, &[]))
@@ -1003,7 +1056,7 @@ impl Sample {
                         ..Lifted::default()
                     });
                 }
-                None if !styled && !listed => {
+                None if !listed && first_run.is_some() => {
                     // Text over 14 pt or bold is a title, not body text.
                     let candidate = first_rpr.filter(|r| {
                         let size = w_child(tree, *r, "sz")
@@ -1014,9 +1067,13 @@ impl Sample {
                             && size.is_none_or(|s| s <= 28)
                             && !has("b")
                     });
-                    if let Some(rpr) = candidate.and_then(|r| look_rpr(tree, r, EMPHASIS_RPR)) {
-                        body_candidates.push(rpr);
-                    }
+                    let look = candidate
+                        .and_then(|r| look_rpr(tree, r, EMPHASIS_RPR))
+                        .unwrap_or_default();
+                    let chars = w_children(tree, block, "r")
+                        .map(|r| crate::authoring::run_text(tree, r).chars().count())
+                        .sum();
+                    body_runs.entry(style_id).or_default().push((look, chars));
                 }
                 _ => {}
             }
@@ -1058,17 +1115,22 @@ impl Sample {
                 }
             }
         }
-        sample.body_rpr = body_candidates
-            .iter()
-            .max_by_key(|candidate| {
-                let count = body_candidates.iter().filter(|c| c == candidate).count();
-                let first = body_candidates
-                    .iter()
-                    .position(|c| c == *candidate)
-                    .unwrap_or(0);
-                (count, std::cmp::Reverse(first))
-            })
-            .cloned();
+        for (style, runs) in body_runs {
+            let total: usize = runs.iter().map(|(_, chars)| chars).sum();
+            let mut weights: Vec<(&str, usize)> = Vec::new();
+            for (look, chars) in &runs {
+                match weights.iter_mut().find(|(seen, _)| seen == look) {
+                    Some(weight) => weight.1 += chars,
+                    None => weights.push((look, *chars)),
+                }
+            }
+            if let Some((look, weight)) = weights.iter().rev().max_by_key(|(_, weight)| *weight)
+                && !look.is_empty()
+                && weight * 5 >= total * 3
+            {
+                sample.body_looks.insert(style, look.to_string());
+            }
+        }
         Ok(sample)
     }
 }
