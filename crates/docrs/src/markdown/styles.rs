@@ -8,7 +8,7 @@
 //! default paragraph style, so they never need either. Roles resolve on
 //! first use, so a conversion only touches the styles it needs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -502,10 +502,25 @@ impl Resolver {
                     &candidates[..]
                 };
                 let sample = self.sample.as_ref().expect("sample read above");
+                let prefer_own = self.prefer_own;
+                let resolved = &self.resolved;
                 let by_name = |names: &[String]| {
-                    names
-                        .iter()
-                        .find_map(|name| find_style(tree, name, role.kind()))
+                    names.iter().find_map(|name| {
+                        let style = find_style(tree, name, role.kind())?;
+                        // A body-text style the template writes no text in
+                        // while its default style carries the prose (a
+                        // converter's spacer style) is not the template's body.
+                        let unused = role.falls_back_to_default()
+                            && !prefer_own
+                            && Some(style) != default
+                            && w_attr(tree, style, "styleId").is_some_and(|id| {
+                                sample.unused(id)
+                                    && !resolved
+                                        .values()
+                                        .any(|r| r.created && r.style_id.as_deref() == Some(id))
+                            });
+                        (!unused).then_some(style)
+                    })
                 };
                 let found_style = if role == Role::Table && !self.prefer_own {
                     // The sample tables beat the style names: Word lets nobody
@@ -542,13 +557,22 @@ impl Resolver {
                 match found_style {
                     Some(style) => Some(found(tree, style, default)),
                     None if lift_body && self.policy == StylePolicy::Create => None,
-                    None if role.falls_back_to_default() && !self.prefer_own => Some(RoleStyle {
-                        name: default
-                            .map(|d| display_name(tree, d))
-                            .unwrap_or_else(|| "Normal".to_string()),
-                        style_id: None,
-                        created: false,
-                    }),
+                    None if role.falls_back_to_default() && !self.prefer_own => Some(
+                        self.resolved
+                            .get(&Role::Body)
+                            .filter(|_| role != Role::Body)
+                            .map(|body| RoleStyle {
+                                created: false,
+                                ..body.clone()
+                            })
+                            .unwrap_or_else(|| RoleStyle {
+                                name: default
+                                    .map(|d| display_name(tree, d))
+                                    .unwrap_or_else(|| "Normal".to_string()),
+                                style_id: None,
+                                created: false,
+                            }),
+                    ),
                     None => None,
                 }
             }
@@ -586,6 +610,14 @@ impl Resolver {
                     let lifted = match role {
                         Role::Body => sample.body_looks.get(&None).cloned().map(|rpr| Lifted {
                             rpr,
+                            // Named apart from a Body Text the template keeps unused.
+                            name: txn
+                                .tree(&part)
+                                .ok()
+                                .filter(|tree| {
+                                    find_style(tree, "Body Text", Kind::Paragraph).is_some()
+                                })
+                                .map(|_| "Template Body Text".to_string()),
                             ..Lifted::default()
                         }),
                         Role::Table => sample.table.clone().map(|mut lifted| {
@@ -687,11 +719,13 @@ impl Resolver {
         if !style.created && !self.prefer_own {
             let sample = self.sample.as_ref().expect("sample read above");
             let look = match role.heading_level() {
-                Some(level) => sample.heading_looks.get(&level),
-                None if role == Role::Body => sample.body_looks.get(&style.style_id),
+                Some(level) => sample.heading_looks.get(&level).cloned(),
+                None if role.falls_back_to_default() => {
+                    self.body_role_look(txn.tree(&part)?, role, &style)
+                }
                 None => None,
             };
-            if let (Some(look), Some(id)) = (look.cloned(), style.style_id.as_deref()) {
+            if let (Some(look), Some(id)) = (look, style.style_id.as_deref()) {
                 restyle(txn, &part, id, &look)?;
             }
         }
@@ -699,6 +733,68 @@ impl Resolver {
         self.resolved.insert(role, style);
         Ok(id)
     }
+
+    /// The look an existing style of a body-text role takes: the one its own
+    /// sample paragraphs show, or, for a variant (First Paragraph, Compact)
+    /// wearing only the default style's look, the body's.
+    fn body_role_look(&self, tree: &XmlTree, role: Role, style: &RoleStyle) -> Option<String> {
+        let sample = self.sample.as_ref()?;
+        let id = style.style_id.as_deref()?;
+        if let Some(look) = sample.body_looks.get(&style.style_id) {
+            return Some(look.clone());
+        }
+        if role == Role::Body {
+            return None;
+        }
+        let body = self.resolved.get(&Role::Body)?;
+        let body_id = body.style_id.as_deref();
+        if body_id == Some(id) || !wears_default_look(tree, id, body_id) {
+            return None;
+        }
+        let key = if body.created {
+            None
+        } else {
+            body.style_id.clone()
+        };
+        sample.body_looks.get(&key).cloned()
+    }
+}
+
+fn style_by_id(tree: &XmlTree, id: &str) -> Option<NodeId> {
+    w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
+}
+
+/// Whether a paragraph style's run look is only the default style's: no
+/// font, size or colour of its own or of a parent short of the default, and
+/// not a descendant of `body`, which hands its look down anyway.
+fn wears_default_look(tree: &XmlTree, id: &str, body: Option<&str>) -> bool {
+    let default = default_style(tree, Kind::Paragraph);
+    let mut seen: Vec<String> = Vec::new();
+    let mut next = Some(id.to_string());
+    while let Some(id) = next.take() {
+        if Some(id.as_str()) == body || seen.contains(&id) {
+            return false;
+        }
+        let Some(style) = style_by_id(tree, &id) else {
+            break;
+        };
+        if Some(style) == default {
+            break;
+        }
+        let own = w_child(tree, style, "rPr").is_some_and(|rpr| {
+            ["rFonts", "sz", "color"]
+                .iter()
+                .any(|local| w_child(tree, rpr, local).is_some())
+        });
+        if own {
+            return false;
+        }
+        seen.push(id);
+        next = w_child(tree, style, "basedOn")
+            .and_then(|b| w_attr(tree, b, "val"))
+            .map(str::to_string);
+    }
+    true
 }
 
 /// `CT_Style` child order.
@@ -729,10 +825,7 @@ const STYLE_SEQ: &[&str] = &[
 
 fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
     let tree = txn.tree_mut(part)?;
-    let root = tree.root();
-    let Some(style) =
-        w_children(tree, root, "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
-    else {
+    let Some(style) = style_by_id(tree, id) else {
         return Ok(());
     };
     let rpr = crate::oxml::get_or_add(tree, style, "rPr", STYLE_SEQ)?;
@@ -831,10 +924,13 @@ pub(crate) struct Sample {
     /// by hand: what the template shows for that heading, whatever its style
     /// says.
     heading_looks: BTreeMap<u8, String>,
-    /// The run look at least 60% of the characters of a style's sample
-    /// paragraphs set by hand, by style id (`None`: the default style),
+    /// The run look carrying the most characters of a style's sample
+    /// paragraphs, by style id (`None`: the default style), when it is set
+    /// by hand and beats every other look, the style's own included;
     /// emphasis left out.
     body_looks: BTreeMap<Option<String>, String>,
+    /// Styles of the top-level paragraphs that carry text.
+    text_styles: BTreeSet<Option<String>>,
     table_style: Option<String>,
     table: Option<Lifted>,
     table_look: Vec<(String, bool)>,
@@ -939,6 +1035,12 @@ fn describe_rpr(rpr: &str) -> Value {
 }
 
 impl Sample {
+    /// Whether the template writes its text in the default style and none
+    /// in this one.
+    fn unused(&self, id: &str) -> bool {
+        self.text_styles.contains(&None) && !self.text_styles.contains(&Some(id.to_string()))
+    }
+
     /// What a conversion lifts from the sample content, for a report;
     /// `body_style` is the existing style the body takes (`None`: the default).
     pub(crate) fn summary(&self, body_style: Option<&str>) -> Value {
@@ -1024,6 +1126,9 @@ impl Sample {
             let first_run = w_children(tree, block, "r")
                 .find(|r| !crate::authoring::run_text(tree, *r).trim().is_empty());
             let first_rpr = first_run.and_then(|r| w_child(tree, r, "rPr"));
+            if first_run.is_some() {
+                sample.text_styles.insert(style_id.clone());
+            }
             let outline = ppr
                 .and_then(|p| w_child(tree, p, "outlineLvl"))
                 .and_then(|o| w_attr(tree, o, "val"))
@@ -1116,7 +1221,6 @@ impl Sample {
             }
         }
         for (style, runs) in body_runs {
-            let total: usize = runs.iter().map(|(_, chars)| chars).sum();
             let mut weights: Vec<(&str, usize)> = Vec::new();
             for (look, chars) in &runs {
                 match weights.iter_mut().find(|(seen, _)| seen == look) {
@@ -1124,9 +1228,12 @@ impl Sample {
                     None => weights.push((look, *chars)),
                 }
             }
-            if let Some((look, weight)) = weights.iter().rev().max_by_key(|(_, weight)| *weight)
+            weights.sort_by_key(|(_, weight)| std::cmp::Reverse(*weight));
+            // A plurality by characters: a tie, or plain text in the lead,
+            // leaves the style as it is.
+            if let [(look, most), rest @ ..] = weights.as_slice()
                 && !look.is_empty()
-                && weight * 5 >= total * 3
+                && rest.first().is_none_or(|(_, second)| second < most)
             {
                 sample.body_looks.insert(style, look.to_string());
             }
