@@ -3137,3 +3137,157 @@ fn a_body_text_style_the_template_writes_no_text_in_is_not_the_body() {
         3
     );
 }
+
+// ------------------------------------------------- spacing shown by hand
+
+fn style_ppr(out: &Export, id: &str) -> String {
+    let style = style_of(out, id);
+    match (style.find("<w:pPr>"), style.find("</w:pPr>")) {
+        (Some(start), Some(end)) => style[start..end + "</w:pPr>".len()].to_string(),
+        _ => String::new(),
+    }
+}
+
+fn spaced_paragraph(style: Option<&str>, text: &str, spacing: &str) -> String {
+    let style = style
+        .map(|id| format!("<w:pStyle w:val=\"{id}\"/>"))
+        .unwrap_or_default();
+    format!("<w:p><w:pPr>{style}{spacing}</w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>")
+}
+
+const TIGHT: &str = "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/>";
+const LOOSE: &str =
+    "<w:spacing w:before=\"0\" w:after=\"240\" w:line=\"360\" w:lineRule=\"auto\"/>";
+
+#[test]
+fn the_body_style_takes_the_spacing_the_prose_shows() {
+    // Body Text says 6 pt after at 1.5 lines; every body paragraph is set
+    // by hand to none at single lines.
+    let template = || fixture_template("body-spacing-by-hand.docx");
+    let out = export_with(
+        "71-body-spacing-by-hand",
+        SECTIONS,
+        Some(template()),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(
+        style_ppr(&out, "BodyText"),
+        format!("<w:pPr>{TIGHT}</w:pPr>")
+    );
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    assert!(!out.report.styles["body"].created);
+    assert!(!style_of(&out, "Normal").contains("<w:spacing"));
+    assert!(!out.body().contains("<w:spacing"), "{}", out.body());
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["lifted"]["spacing"]["before_pt"], 0.0);
+    assert_eq!(inspection["lifted"]["spacing"]["after_pt"], 0.0);
+    assert_eq!(inspection["lifted"]["spacing"]["line"], 1.0);
+    assert_eq!(inspection["lifted"]["spacing"]["line_rule"], "auto");
+    // The gap above a paragraph after a table stays: the style now leaves
+    // none, so the conversion's 6 pt fallback goes on the paragraph.
+    let out = export_with(
+        "72-body-spacing-by-hand-after-a-table",
+        "| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter the table.\n",
+        Some(template()),
+        &MarkdownOptions::default(),
+    );
+    let body = out.body();
+    let after = &body[body.find("</w:tbl>").unwrap()..];
+    assert!(after.contains("<w:spacing w:before=\"120\"/>"), "{after}");
+}
+
+#[test]
+fn the_body_spacing_follows_the_prose_in_normal() {
+    // The prose is Normal (10 pt after, 1.15 lines by style); Body Text
+    // (6 pt after, single) holds one short sample line.
+    let template = || fixture_template("body-spacing-in-normal.docx");
+    let out = export_with(
+        "73-body-spacing-in-normal",
+        SECTIONS,
+        Some(template()),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(
+        style_ppr(&out, "BodyText"),
+        "<w:pPr><w:spacing w:before=\"0\" w:after=\"200\" w:line=\"276\" w:lineRule=\"auto\"/></w:pPr>"
+    );
+    assert_eq!(
+        style_ppr(&out, "Normal"),
+        "<w:pPr><w:spacing w:after=\"200\" w:line=\"276\" w:lineRule=\"auto\"/></w:pPr>"
+    );
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"BodyText\"/>"), 3);
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["lifted"]["spacing"]["after_pt"], 10.0);
+    assert_eq!(inspection["lifted"]["spacing"]["line"], 1.15);
+    assert!(inspection["lifted"]["body"].is_null());
+}
+
+#[test]
+fn body_spacing_is_added_followed_and_left_alone() {
+    let long = "A body paragraph spaced by hand, long enough to carry the spacing.";
+    let export = |name: &str, styles: &str, body: &str| {
+        let template = synthetic(Synthetic {
+            styles,
+            body,
+            ..Synthetic::default()
+        });
+        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
+    };
+    // Unstyled prose spaced by hand, no run look: the Body Text added for
+    // it carries the spacing and nothing else.
+    let out = export(
+        "74-unstyled-prose-spaced-by-hand",
+        "",
+        &format!(
+            "{}{}",
+            spaced_paragraph(None, long, LOOSE),
+            spaced_paragraph(None, long, LOOSE)
+        ),
+    );
+    assert!(out.report.styles["body"].created);
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    let style = style_of(&out, "BodyText");
+    assert!(
+        style.contains(LOOSE) && !style.contains("<w:rPr>"),
+        "{style}"
+    );
+    // A First Paragraph with no spacing of its own follows the body; one
+    // with its own keeps it.
+    let prose = format!(
+        "{}{}",
+        spaced_paragraph(Some("BodyText"), long, LOOSE),
+        spaced_paragraph(Some("BodyText"), long, LOOSE)
+    );
+    let out = export(
+        "75-first-paragraph-follows-the-body-spacing",
+        &format!("{BOOKMAN_BODY_TEXT}{}", first_paragraph_style("")),
+        &prose,
+    );
+    assert_eq!(
+        style_ppr(&out, "BodyText"),
+        format!("<w:pPr>{LOOSE}</w:pPr>")
+    );
+    assert_eq!(
+        style_ppr(&out, "FirstParagraph"),
+        format!("<w:pPr>{LOOSE}</w:pPr>")
+    );
+    let own = "<w:pPr><w:spacing w:after=\"480\"/></w:pPr>";
+    let out = export(
+        "76-first-paragraph-with-spacing-of-its-own",
+        &format!("{BOOKMAN_BODY_TEXT}{}", first_paragraph_style(own)),
+        &prose,
+    );
+    assert_eq!(style_ppr(&out, "FirstParagraph"), own);
+    // Half and half: no spacing leads, the style stays as it is.
+    let out = export(
+        "77-body-spacing-split",
+        BOOKMAN_BODY_TEXT,
+        &format!(
+            "{}{}",
+            spaced_paragraph(Some("BodyText"), long, LOOSE),
+            spaced_paragraph(Some("BodyText"), long, TIGHT)
+        ),
+    );
+    assert_eq!(style_ppr(&out, "BodyText"), "");
+}

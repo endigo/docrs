@@ -424,6 +424,8 @@ pub(crate) struct Resolver {
     /// exists, so a starter reference document has every style separately.
     pub(crate) prefer_own: bool,
     sample: Option<Sample>,
+    /// The spacing lifted onto the body style, for the variants that follow it.
+    body_spacing: Option<Spacing>,
     pub(crate) resolved: BTreeMap<Role, RoleStyle>,
     pub(crate) missing: Vec<String>,
 }
@@ -445,6 +447,7 @@ impl Resolver {
             policy,
             prefer_own: false,
             sample: None,
+            body_spacing: None,
             resolved: BTreeMap::new(),
             missing: Vec::new(),
         }
@@ -553,7 +556,7 @@ impl Resolver {
                                 == Some(&(level - 1).to_string())
                     })
                 });
-                let lift_body = role == Role::Body && sample.body_looks.contains_key(&None);
+                let lift_body = role == Role::Body && sample.unstyled_body(tree).is_some();
                 match found_style {
                     Some(style) => Some(found(tree, style, default)),
                     None if lift_body && self.policy == StylePolicy::Create => None,
@@ -607,19 +610,13 @@ impl Resolver {
                     };
                     let sample = self.sample.as_ref().expect("sample read above");
                     let mut body = body;
+                    let mut body_spacing = None;
                     let lifted = match role {
-                        Role::Body => sample.body_looks.get(&None).cloned().map(|rpr| Lifted {
-                            rpr,
-                            // Named apart from a Body Text the template keeps unused.
-                            name: txn
-                                .tree(&part)
-                                .ok()
-                                .filter(|tree| {
-                                    find_style(tree, "Body Text", Kind::Paragraph).is_some()
-                                })
-                                .map(|_| "Template Body Text".to_string()),
-                            ..Lifted::default()
-                        }),
+                        Role::Body => {
+                            let tree = txn.tree(&part)?;
+                            body_spacing = sample.body_spacing(tree, None);
+                            sample.unstyled_body(tree)
+                        }
                         Role::Table => sample.table.clone().map(|mut lifted| {
                             let tree = txn.tree(&part).ok();
                             let exists = |name: &str| {
@@ -710,7 +707,11 @@ impl Resolver {
                             .filter(|b| b.created)
                             .and_then(|b| b.style_id.clone());
                     }
-                    create(txn, &part, role, body, next, lifted)?
+                    let created = create(txn, &part, role, body, next, lifted)?;
+                    if role == Role::Body {
+                        self.body_spacing = body_spacing;
+                    }
+                    created
                 }
             },
         };
@@ -728,10 +729,35 @@ impl Resolver {
             if let (Some(look), Some(id)) = (look, style.style_id.as_deref()) {
                 restyle(txn, &part, id, &look)?;
             }
+            if let (true, Some(id)) = (role.falls_back_to_default(), style.style_id.as_deref())
+                && let Some(spacing) = self.body_role_spacing(txn.tree(&part)?, role, &style)
+            {
+                respace(txn, &part, id, &spacing)?;
+                if role == Role::Body {
+                    self.body_spacing = Some(spacing);
+                }
+            }
         }
         let id = style.style_id.clone();
         self.resolved.insert(role, style);
         Ok(id)
+    }
+
+    /// The spacing an existing style of a body-text role takes: for the
+    /// body, the prose's; for a variant wearing only the default style's
+    /// spacing, what the body took.
+    fn body_role_spacing(&self, tree: &XmlTree, role: Role, style: &RoleStyle) -> Option<Spacing> {
+        let sample = self.sample.as_ref()?;
+        let id = style.style_id.as_deref()?;
+        if role == Role::Body {
+            return sample.body_spacing(tree, Some(id));
+        }
+        let body = self.resolved.get(&Role::Body)?;
+        let body_id = body.style_id.as_deref();
+        if body_id == Some(id) || !wears_default(tree, id, body_id, own_spacing) {
+            return None;
+        }
+        self.body_spacing.clone()
     }
 
     /// The look an existing style of a body-text role takes: the one its own
@@ -748,7 +774,7 @@ impl Resolver {
         }
         let body = self.resolved.get(&Role::Body)?;
         let body_id = body.style_id.as_deref();
-        if body_id == Some(id) || !wears_default_look(tree, id, body_id) {
+        if body_id == Some(id) || !wears_default(tree, id, body_id, own_look) {
             return None;
         }
         let key = if body.created {
@@ -764,10 +790,16 @@ fn style_by_id(tree: &XmlTree, id: &str) -> Option<NodeId> {
     w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
 }
 
-/// Whether a paragraph style's run look is only the default style's: no
-/// font, size or colour of its own or of a parent short of the default, and
-/// not a descendant of `body`, which hands its look down anyway.
-fn wears_default_look(tree: &XmlTree, id: &str, body: Option<&str>) -> bool {
+/// Whether a paragraph style shows only the default style's look in the
+/// respect `own` tests: neither it nor a parent short of the default has
+/// one of its own, and it does not descend from `body`, which hands its
+/// look down anyway.
+fn wears_default(
+    tree: &XmlTree,
+    id: &str,
+    body: Option<&str>,
+    own: fn(&XmlTree, NodeId) -> bool,
+) -> bool {
     let default = default_style(tree, Kind::Paragraph);
     let mut seen: Vec<String> = Vec::new();
     let mut next = Some(id.to_string());
@@ -781,12 +813,7 @@ fn wears_default_look(tree: &XmlTree, id: &str, body: Option<&str>) -> bool {
         if Some(style) == default {
             break;
         }
-        let own = w_child(tree, style, "rPr").is_some_and(|rpr| {
-            ["rFonts", "sz", "color"]
-                .iter()
-                .any(|local| w_child(tree, rpr, local).is_some())
-        });
-        if own {
+        if own(tree, style) {
             return false;
         }
         seen.push(id);
@@ -795,6 +822,158 @@ fn wears_default_look(tree: &XmlTree, id: &str, body: Option<&str>) -> bool {
             .map(str::to_string);
     }
     true
+}
+
+/// A font, size or colour in the style's own run properties.
+fn own_look(tree: &XmlTree, style: NodeId) -> bool {
+    w_child(tree, style, "rPr").is_some_and(|rpr| {
+        ["rFonts", "sz", "color"]
+            .iter()
+            .any(|local| w_child(tree, rpr, local).is_some())
+    })
+}
+
+/// Paragraph spacing in the style's own paragraph properties.
+fn own_spacing(tree: &XmlTree, style: NodeId) -> bool {
+    w_child(tree, style, "pPr").is_some_and(|ppr| w_child(tree, ppr, "spacing").is_some())
+}
+
+/// Paragraph spacing as Word resolves it, in twips; `line` is in 240ths
+/// of a line under the `auto` rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spacing {
+    before: String,
+    after: String,
+    line: String,
+    line_rule: String,
+}
+
+impl Default for Spacing {
+    fn default() -> Spacing {
+        Spacing {
+            before: "0".to_string(),
+            after: "0".to_string(),
+            line: "240".to_string(),
+            line_rule: "auto".to_string(),
+        }
+    }
+}
+
+impl Spacing {
+    /// Lays one `w:spacing` element over this spacing; a `line` brings its
+    /// rule along (`auto` when it names none).
+    fn apply(&mut self, tree: &XmlTree, spacing: Option<NodeId>) {
+        let Some(spacing) = spacing else {
+            return;
+        };
+        if let Some(before) = w_attr(tree, spacing, "before") {
+            self.before = before.to_string();
+        }
+        if let Some(after) = w_attr(tree, spacing, "after") {
+            self.after = after.to_string();
+        }
+        if let Some(line) = w_attr(tree, spacing, "line") {
+            self.line = line.to_string();
+            self.line_rule = w_attr(tree, spacing, "lineRule")
+                .unwrap_or("auto")
+                .to_string();
+        }
+    }
+
+    fn xml(&self) -> String {
+        format!(
+            "<w:spacing w:before=\"{}\" w:after=\"{}\" w:line=\"{}\" w:lineRule=\"{}\"/>",
+            xml_escape(&self.before),
+            xml_escape(&self.after),
+            xml_escape(&self.line),
+            xml_escape(&self.line_rule)
+        )
+    }
+
+    fn describe(&self) -> Value {
+        let twips = |value: &str| value.parse::<f64>().ok();
+        serde_json::json!({
+            "before_pt": twips(&self.before).map(|t| t / 20.0),
+            "after_pt": twips(&self.after).map(|t| t / 20.0),
+            "line": twips(&self.line).map(|l| if self.line_rule == "auto" { l / 240.0 } else { l / 20.0 }),
+            "line_rule": self.line_rule,
+        })
+    }
+}
+
+/// The spacing a paragraph style gives: the document defaults under the
+/// style's ancestors, the style itself last (`None`: the defaults alone).
+fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
+    let mut spacing = Spacing::default();
+    spacing.apply(
+        styles,
+        w_child(styles, styles.root(), "docDefaults")
+            .and_then(|d| w_child(styles, d, "pPrDefault"))
+            .and_then(|d| w_child(styles, d, "pPr"))
+            .and_then(|p| w_child(styles, p, "spacing")),
+    );
+    let mut chain = Vec::new();
+    let mut current = style;
+    while let Some(node) = current.filter(|node| !chain.contains(node)) {
+        chain.push(node);
+        current = w_child(styles, node, "basedOn")
+            .and_then(|b| w_attr(styles, b, "val"))
+            .and_then(|id| style_by_id(styles, id));
+    }
+    for node in chain.into_iter().rev() {
+        spacing.apply(
+            styles,
+            w_child(styles, node, "pPr").and_then(|p| w_child(styles, p, "spacing")),
+        );
+    }
+    spacing
+}
+
+/// Writes `spacing` into the style's paragraph properties in full, so no
+/// inherited value shows through.
+fn respace(txn: &mut Txn<'_>, part: &str, id: &str, spacing: &Spacing) -> Result<()> {
+    let tree = txn.tree_mut(part)?;
+    let Some(style) = style_by_id(tree, id) else {
+        return Ok(());
+    };
+    let ppr = crate::oxml::get_or_add(tree, style, "pPr", STYLE_SEQ)?;
+    if let Some(old) = w_child(tree, ppr, "spacing") {
+        crate::authoring::remove(tree, old)?;
+    }
+    let wrapper = import_fragment(
+        tree,
+        ppr,
+        &format!("<w:pPr xmlns:w=\"{W}\">{}</w:pPr>", spacing.xml()),
+    )?;
+    let element = tree
+        .child_elements(wrapper)
+        .next()
+        .expect("the spacing element");
+    tree.detach(element)?;
+    crate::oxml::insert_before_successors(
+        tree,
+        ppr,
+        element,
+        crate::oxml::successors(crate::oxml::PPR_SEQ, "spacing"),
+    )
+}
+
+/// The value carrying the most weight, when one beats every other.
+fn plurality<T: PartialEq + Clone>(values: impl Iterator<Item = (T, usize)>) -> Option<T> {
+    let mut weights: Vec<(T, usize)> = Vec::new();
+    for (value, weight) in values {
+        match weights.iter_mut().find(|(seen, _)| *seen == value) {
+            Some(seen) => seen.1 += weight,
+            None => weights.push((value, weight)),
+        }
+    }
+    weights.sort_by_key(|(_, weight)| std::cmp::Reverse(*weight));
+    match weights.as_slice() {
+        [(value, most), rest @ ..] if rest.first().is_none_or(|(_, second)| second < most) => {
+            Some(value.clone())
+        }
+        _ => None,
+    }
 }
 
 /// `CT_Style` child order.
@@ -929,6 +1108,9 @@ pub(crate) struct Sample {
     /// by hand and beats every other look, the style's own included;
     /// emphasis left out.
     body_looks: BTreeMap<Option<String>, String>,
+    /// The spacing each prose paragraph shows, as Word resolves it, with
+    /// the paragraph's characters, by style id (`None`: the default style).
+    body_spacings: BTreeMap<Option<String>, Vec<(Spacing, usize)>>,
     /// Styles of the top-level paragraphs that carry text.
     text_styles: BTreeSet<Option<String>>,
     table_style: Option<String>,
@@ -1041,11 +1223,54 @@ impl Sample {
         self.text_styles.contains(&None) && !self.text_styles.contains(&Some(id.to_string()))
     }
 
+    /// The spacing the body style takes from the prose, the unstyled
+    /// paragraphs' and the style's own, when it differs from what the style
+    /// gives; `body_style` `None` is the default style, or a style to be
+    /// created on it.
+    fn body_spacing(&self, styles: &XmlTree, body_style: Option<&str>) -> Option<Spacing> {
+        let node = match body_style {
+            Some(id) => Some(style_by_id(styles, id)?),
+            None => default_style(styles, Kind::Paragraph),
+        };
+        let own = style_spacing(styles, node);
+        let buckets = [None, body_style.map(str::to_string)];
+        let prose = buckets
+            .iter()
+            .take(if body_style.is_some() { 2 } else { 1 })
+            .filter_map(|style| self.body_spacings.get(style))
+            .flatten()
+            .map(|(spacing, chars)| (spacing.clone(), *chars));
+        plurality(prose).filter(|spacing| *spacing != own)
+    }
+
+    /// What the unstyled paragraphs show that the default style does not,
+    /// for a Body Text added on it: their look and their spacing.
+    fn unstyled_body(&self, styles: &XmlTree) -> Option<Lifted> {
+        let rpr = self.body_looks.get(&None).cloned();
+        let spacing = self.body_spacing(styles, None);
+        if rpr.is_none() && spacing.is_none() {
+            return None;
+        }
+        Some(Lifted {
+            rpr: rpr.unwrap_or_default(),
+            ppr: spacing.map(|spacing| spacing.xml()).unwrap_or_default(),
+            // Named apart from a Body Text the template keeps unused.
+            name: find_style(styles, "Body Text", Kind::Paragraph)
+                .is_some()
+                .then(|| "Template Body Text".to_string()),
+            ..Lifted::default()
+        })
+    }
+
     /// What a conversion lifts from the sample content, for a report;
-    /// `body_style` is the existing style the body takes (`None`: the default).
-    pub(crate) fn summary(&self, body_style: Option<&str>) -> Value {
+    /// `body_style` is the existing style the body takes (`None`: the
+    /// default, or the style added on it).
+    pub(crate) fn summary(&self, styles: Option<&XmlTree>, body_style: Option<&str>) -> Value {
         serde_json::json!({
             "body": self.body_looks.get(&body_style.map(str::to_string)).map(|rpr| describe_rpr(rpr)),
+            "spacing": styles
+                .and_then(|styles| self.body_spacing(styles, body_style))
+                .map(|spacing| spacing.describe()),
             "headings": self
                 .headings
                 .iter()
@@ -1076,10 +1301,13 @@ impl Sample {
         let mut default_style: Option<String> = None;
         let mut tables: Vec<SampleTable> = Vec::new();
         let mut heading_styles: BTreeMap<String, u8> = BTreeMap::new();
-        if let Some(styles) =
-            package.part_related_by(package.main_part_name(), crate::package::rels::rt::STYLES)?
+        let styles_tree = match package
+            .part_related_by(package.main_part_name(), crate::package::rels::rt::STYLES)?
         {
-            let styles = package.xml(&styles)?;
+            Some(name) => Some(package.xml(&name)?),
+            None => None,
+        };
+        if let Some(styles) = styles_tree {
             for style in w_children(styles, styles.root(), "style") {
                 let Some(id) = w_attr(styles, style, "styleId") else {
                     continue;
@@ -1178,6 +1406,21 @@ impl Sample {
                     let chars = w_children(tree, block, "r")
                         .map(|r| crate::authoring::run_text(tree, r).chars().count())
                         .sum();
+                    let mut spacing = styles_tree
+                        .map(|styles| {
+                            let node = style_id
+                                .as_deref()
+                                .or(default_style.as_deref())
+                                .and_then(|id| style_by_id(styles, id));
+                            style_spacing(styles, node)
+                        })
+                        .unwrap_or_default();
+                    spacing.apply(tree, ppr.and_then(|p| w_child(tree, p, "spacing")));
+                    sample
+                        .body_spacings
+                        .entry(style_id.clone())
+                        .or_default()
+                        .push((spacing, chars));
                     body_runs.entry(style_id).or_default().push((look, chars));
                 }
                 _ => {}
@@ -1220,22 +1463,11 @@ impl Sample {
                 }
             }
         }
+        // A plurality by characters: a tie, or plain text in the lead,
+        // leaves the style as it is.
         for (style, runs) in body_runs {
-            let mut weights: Vec<(&str, usize)> = Vec::new();
-            for (look, chars) in &runs {
-                match weights.iter_mut().find(|(seen, _)| seen == look) {
-                    Some(weight) => weight.1 += chars,
-                    None => weights.push((look, *chars)),
-                }
-            }
-            weights.sort_by_key(|(_, weight)| std::cmp::Reverse(*weight));
-            // A plurality by characters: a tie, or plain text in the lead,
-            // leaves the style as it is.
-            if let [(look, most), rest @ ..] = weights.as_slice()
-                && !look.is_empty()
-                && rest.first().is_none_or(|(_, second)| second < most)
-            {
-                sample.body_looks.insert(style, look.to_string());
+            if let Some(look) = plurality(runs.into_iter()).filter(|look| !look.is_empty()) {
+                sample.body_looks.insert(style, look);
             }
         }
         Ok(sample)
