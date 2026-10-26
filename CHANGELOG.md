@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5 (2026-10-26)
+
+### Library
+
+- A look lifted from the template's sample paragraphs onto an existing style merges into the style's run properties attribute by attribute instead of replacing each element. A heading run carrying only `<w:rFonts w:cs="Arial"/>` (what Word leaves after complex-script edits) no longer drops the style's `w:ascii` and `w:hAnsi`, so the headings keep the style's Arial instead of falling back to the theme font. A font or colour the sample sets by name drops the theme attribute Word would otherwise prefer (`asciiTheme`, `cstheme`, `themeColor`, …), and the other way round.
+
+- The body style the conversion uses (Body Text, Paragraph, or the template's own) takes the look its sample paragraphs show by hand, as headings do: the run look carrying at least 60% of the characters of the template's top-level paragraphs in that style, table cells and list items left out, emphasis left out, a bold or over-14 pt first run read as a title. A template whose Body Text style says Bookman Old Style 10 pt while every body paragraph is formatted directly as Calibri 11 pt grey now exports body text as Calibri 11 pt grey. The default style is never restyled: when the template's unstyled paragraphs show a look, a Body Text style is added with it as before, the look now chosen by characters rather than by paragraph count. `inspectReference` and `markdown-inspect` report the look the body style takes in `lifted.body`.
+
 ## 0.3.4 (2026-10-23)
 
 ### Library

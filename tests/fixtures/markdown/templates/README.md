@@ -10,5 +10,7 @@ synthetic test data; no customer templates or client documents.
 | `docx-template-missing-pandoc-styles.normalised.docx` | The same template after an upload normaliser added the styles Pandoc expects. |
 | `list-style-template.docx` | Branded List Bullet / List Number styles that only hold `w:numPr`; glyphs, colours and indents in `numbering.xml`, with a `w:lvlOverride`. Modelled on a real customer template shape. |
 | `existing-template.docx` | A Word file with no `styles.xml` ("typed in Word, never styled"). |
+| `heading-cs-font.docx` | Heading styles in Arial whose sample headings carry only `<w:rFonts w:cs="Arial"/>`, as Word leaves after complex-script edits; the theme fonts are Aptos. From the fidelity comparison of 2026-10-26 (synthetic). |
+| `body-direct-formatting.docx` | A Body Text style saying Bookman Old Style 10 pt while every body paragraph is formatted by hand as Calibri 11 pt, colour 404040. Same origin. |
 | `list-shapes.md` | Nested lists deeper than the template defines, continuations, mixed list kinds, an HTML table with a list in a cell. |
 | `record-of-advice.md` | A full Record of Advice as users edit it: repeated tables, `<u>`, `<br>` in cells, empty `<p></p>`, links. Messy on purpose. |

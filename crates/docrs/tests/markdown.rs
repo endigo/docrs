@@ -2797,3 +2797,164 @@ fn the_contents_title_comes_from_the_option_the_template_or_the_default() {
     let none = export("51-toc-title-no-toc", "# A\n");
     assert_eq!(none.report.toc_title_source, None);
 }
+
+// ------------------------------------------------- looks shown by hand
+
+fn styled_paragraph(style: &str, text: &str, rpr: &str) -> String {
+    format!(
+        "<w:p><w:pPr><w:pStyle w:val=\"{style}\"/></w:pPr><w:r>{rpr}<w:t>{text}</w:t></w:r></w:p>"
+    )
+}
+
+fn style_rpr(out: &Export, id: &str) -> String {
+    let style = style_of(out, id);
+    match style.find("<w:rPr>") {
+        Some(start) => style[start..].to_string(),
+        None => String::new(),
+    }
+}
+
+const BOOKMAN_BODY_TEXT: &str = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/><w:basedOn w:val=\"Normal\"/>\
+    <w:rPr><w:rFonts w:ascii=\"Bookman Old Style\" w:hAnsi=\"Bookman Old Style\"/><w:sz w:val=\"20\"/></w:rPr></w:style>";
+
+const CALIBRI: &str = "<w:rPr><w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\" w:cs=\"Calibri\"/><w:color w:val=\"404040\"/><w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/></w:rPr>";
+const GEORGIA: &str =
+    "<w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"24\"/></w:rPr>";
+const VERDANA: &str = "<w:rPr><w:rFonts w:ascii=\"Verdana\" w:hAnsi=\"Verdana\"/></w:rPr>";
+
+const HEADINGS_AND_BODY: &str =
+    "# Heading one\n\nBody paragraph.\n\n## Heading two\n\nMore body.\n";
+
+#[test]
+fn a_heading_look_merges_into_the_style_font() {
+    let out = export_with(
+        "60-heading-cs-font",
+        HEADINGS_AND_BODY,
+        Some(fixture_template("heading-cs-font.docx")),
+        &MarkdownOptions::default(),
+    );
+    for id in ["Heading1", "Heading2"] {
+        let style = style_of(&out, id);
+        let fonts = &style[style.find("<w:rFonts").unwrap()..];
+        let fonts = &fonts[..fonts.find("/>").unwrap()];
+        for attribute in [
+            "w:ascii=\"Arial\"",
+            "w:hAnsi=\"Arial\"",
+            "w:eastAsiaTheme=\"majorEastAsia\"",
+            "w:cs=\"Arial\"",
+        ] {
+            assert!(fonts.contains(attribute), "{id}: {fonts}");
+        }
+        assert!(!fonts.contains("cstheme"), "{id}: {fonts}");
+        assert_eq!(count(&style, "<w:rFonts"), 1, "{style}");
+        assert!(
+            style.contains("<w:b/><w:color w:val=\"003A64\"/>"),
+            "{style}"
+        );
+    }
+    assert!(!out.body().contains("<w:rFonts"));
+}
+
+#[test]
+fn the_body_style_takes_the_look_the_template_shows() {
+    let out = export_with(
+        "61-body-direct-formatting",
+        HEADINGS_AND_BODY,
+        Some(fixture_template("body-direct-formatting.docx")),
+        &MarkdownOptions::default(),
+    );
+    let rpr = style_rpr(&out, "BodyText");
+    for property in [
+        "w:ascii=\"Calibri\"",
+        "w:hAnsi=\"Calibri\"",
+        "w:cs=\"Calibri\"",
+        "<w:color w:val=\"404040\"/>",
+        "<w:sz w:val=\"22\"/>",
+        "<w:szCs w:val=\"22\"/>",
+    ] {
+        assert!(rpr.contains(property), "{rpr}");
+    }
+    assert!(!rpr.contains("Bookman"), "{rpr}");
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    assert!(!out.report.styles["body"].created);
+    assert!(style_of(&out, "Heading1").contains("w:ascii=\"Arial\""));
+    assert!(!style_of(&out, "Normal").contains("Calibri"));
+    let body = out.body();
+    assert!(
+        !body.contains("Calibri") && !body.contains("404040"),
+        "{body}"
+    );
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("body-direct-formatting.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection["lifted"]["body"]["font"], "Calibri");
+    assert_eq!(inspection["lifted"]["body"]["size_pt"], 11.0);
+    assert_eq!(inspection["lifted"]["body"]["color"], "404040");
+}
+
+#[test]
+fn the_body_look_is_weighed_by_characters_outside_tables() {
+    let cell = format!(
+        "<w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/></w:tcPr>{}</w:tc>",
+        styled_paragraph(
+            "BodyText",
+            "A label in Verdana long enough to outweigh every body paragraph",
+            VERDANA
+        )
+    );
+    let table = format!(
+        "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/><w:tblW w:w=\"0\" w:type=\"auto\"/></w:tblPr>\
+         <w:tblGrid><w:gridCol w:w=\"3000\"/><w:gridCol w:w=\"3000\"/></w:tblGrid>\
+         <w:tr>{cell}{cell}</w:tr><w:tr>{cell}{cell}</w:tr></w:tbl>"
+    );
+    let long = "A single paragraph in Georgia that carries most of the characters.";
+    let export = |name: &str, body: &str| {
+        let template = synthetic(Synthetic {
+            styles: &format!("{BOOKMAN_BODY_TEXT}{TABLE_GRID}"),
+            body,
+            ..Synthetic::default()
+        });
+        export_with(name, "Body.\n", Some(template), &MarkdownOptions::default())
+    };
+    let out = export(
+        "62-body-look-by-characters",
+        &format!(
+            "{}{}{}{table}",
+            styled_paragraph("BodyText", "Short.", CALIBRI),
+            styled_paragraph("BodyText", "Short.", CALIBRI),
+            styled_paragraph("BodyText", long, GEORGIA),
+        ),
+    );
+    let rpr = style_rpr(&out, "BodyText");
+    assert!(
+        rpr.contains("w:ascii=\"Georgia\"") && rpr.contains("<w:sz w:val=\"24\"/>"),
+        "{rpr}"
+    );
+    assert!(
+        !rpr.contains("Verdana") && !rpr.contains("Calibri"),
+        "{rpr}"
+    );
+    // Half and half: no look is dominant, the style stays.
+    let out = export(
+        "63-body-look-split",
+        &format!(
+            "{}{}",
+            styled_paragraph("BodyText", long, CALIBRI),
+            styled_paragraph("BodyText", long, GEORGIA),
+        ),
+    );
+    assert!(style_rpr(&out, "BodyText").contains("Bookman"));
+    // Mostly plain: the style already shows what the template shows.
+    let out = export(
+        "64-body-look-mostly-plain",
+        &format!(
+            "{}{}",
+            styled_paragraph("BodyText", "Short.", CALIBRI),
+            styled_paragraph("BodyText", long, ""),
+        ),
+    );
+    let rpr = style_rpr(&out, "BodyText");
+    assert!(rpr.contains("Bookman") && !rpr.contains("Calibri"), "{rpr}");
+}

@@ -380,6 +380,7 @@ export interface ReferenceInspection {
   created_styles: string[];
   /** Branding lifted from the template's sample content. */
   lifted: {
+    /** The look the body style takes from the template's own body paragraphs (or the Body Text the conversion adds); null when they show none. */
     body: RunLook | null;
     headings: Record<string, RunLook>;
     table: { style_id: string | null; direct_formatting_lifted: boolean; look: Record<string, boolean> };

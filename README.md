@@ -129,7 +129,10 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   `--page-numbers` adds a page-number footer when the template has none.
 * Branding a template only shows in its sample content (hand-formatted
   headings, body text or tables, Word list buttons, custom bullet styles)
-  is lifted into styles. Tables follow the style most sample tables use;
+  is lifted into styles: a look merges into the style attribute by
+  attribute (a run setting only the complex-script font keeps the style's
+  Latin font), and body text takes the look most of the template's body
+  paragraphs show by hand. Tables follow the style most sample tables use;
   a header fill or banding added by hand becomes a table style (`Template
   Table` when the template already has a `Table` style).
 * A template whose first-page header draws a cover (and whose sample body

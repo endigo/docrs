@@ -228,7 +228,6 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     }
 
     let sample = super::styles::Sample::read(&txn)?;
-    let lifted = sample.summary();
     drop(txn);
     let parsed = ast::parse(PROBE, false)?;
     let trial_options = MarkdownOptions {
@@ -289,6 +288,12 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
             "The template's first page is a cover; the content starts on page 2.".into(),
         );
     }
+    let body_style = report
+        .styles
+        .get("body")
+        .filter(|body| !body.created)
+        .and_then(|body| body.style_id.as_deref());
+    let lifted = sample.summary(body_style);
     Ok(json!({
         "schema_version": 1,
         "roles": report.styles,
