@@ -2189,6 +2189,8 @@ struct Synthetic<'a> {
     numbering: &'a str,
     /// A distinct first page whose header holds a picture this tall (EMU).
     cover_height: Option<i64>,
+    /// A default footer holding these paragraphs.
+    footer: Option<&'a str>,
 }
 
 fn synthetic(template: Synthetic<'_>) -> Document {
@@ -2202,6 +2204,7 @@ fn synthetic(template: Synthetic<'_>) -> Document {
         <Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>\
         <Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>\
         <Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>\
+        <Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>\
         </Types>";
     let root_rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
         <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
@@ -2217,34 +2220,36 @@ fn synthetic(template: Synthetic<'_>) -> Document {
         + &rel("rId3", "settings", "settings.xml");
     let mut section = String::new();
     let mut members: Vec<(String, Vec<u8>)> = Vec::new();
-    if let Some(height) = template.cover_height {
-        doc_rels += &rel("rId4", "header", "header1.xml");
-        section = "<w:headerReference w:type=\"first\" r:id=\"rId4\"/>".to_string();
-        let header = format!(
+    let story = |root: &str, inner: &str| {
+        format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
-             <w:hdr xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\" \
+             <w:{root} xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\" \
              xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" \
              xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" \
-             xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\
-             <w:p><w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">\
-             <wp:extent cx=\"5000000\" cy=\"{height}\"/><wp:docPr id=\"1\" name=\"Cover\"/>\
-             <a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\
-             <pic:pic><pic:nvPicPr><pic:cNvPr id=\"1\" name=\"cover.png\"/><pic:cNvPicPr/></pic:nvPicPr>\
-             <pic:blipFill><a:blip r:embed=\"rIdImage\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>\
-             <pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"5000000\" cy=\"{height}\"/></a:xfrm>\
-             <a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>\
-             </a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:hdr>"
-        );
-        members.push(("word/header1.xml".into(), header.into_bytes()));
-        members.push((
-            "word/_rels/header1.xml.rels".into(),
-            format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
-                 <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{}</Relationships>",
-                rel("rIdImage", "image", "media/cover.png")
-            )
-            .into_bytes(),
-        ));
+             xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">{inner}</w:{root}>"
+        )
+        .into_bytes()
+    };
+    let picture_rels = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+         <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{}</Relationships>",
+        rel("rIdImage", "image", "media/cover.png")
+    )
+    .into_bytes();
+    if let Some(height) = template.cover_height {
+        doc_rels += &rel("rId4", "header", "header1.xml");
+        section += "<w:headerReference w:type=\"first\" r:id=\"rId4\"/>";
+        let cover = picture(5_000_000, height, false);
+        members.push(("word/header1.xml".into(), story("hdr", &cover)));
+        members.push(("word/_rels/header1.xml.rels".into(), picture_rels.clone()));
+    }
+    if let Some(footer) = template.footer {
+        doc_rels += &rel("rId5", "footer", "footer1.xml");
+        section += "<w:footerReference w:type=\"default\" r:id=\"rId5\"/>";
+        members.push(("word/footer1.xml".into(), story("ftr", footer)));
+        members.push(("word/_rels/footer1.xml.rels".into(), picture_rels.clone()));
+    }
+    if template.cover_height.is_some() || template.footer.is_some() {
         members.push(("word/media/cover.png".into(), png_bytes()));
     }
     let title_pg = if template.cover_height.is_some() {
@@ -2292,15 +2297,41 @@ fn synthetic(template: Synthetic<'_>) -> Document {
         ("word/numbering.xml".to_string(), numbering.into_bytes()),
         ("word/settings.xml".to_string(), settings.into_bytes()),
     ]);
-    if template.cover_height.is_none() {
-        members.retain(|(name, _)| name != "word/header1.xml");
-    }
     let bytes = docrs::package::zip_write::write_archive(
         members.iter().map(|(n, d)| (n.as_str(), d.as_slice())),
         &Limits::default(),
     )
     .unwrap();
     Document::open_bytes(&bytes, &Limits::default()).expect("synthetic template opens")
+}
+
+/// A paragraph holding a picture `cx` by `cy` EMU, inline or anchored to
+/// the page.
+fn picture(cx: i64, cy: i64, anchored: bool) -> String {
+    let extent = format!("<wp:extent cx=\"{cx}\" cy=\"{cy}\"/>");
+    let graphic = format!(
+        "<wp:docPr id=\"1\" name=\"Picture\"/>\
+         <a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\
+         <pic:pic><pic:nvPicPr><pic:cNvPr id=\"1\" name=\"picture.png\"/><pic:cNvPicPr/></pic:nvPicPr>\
+         <pic:blipFill><a:blip r:embed=\"rIdImage\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>\
+         <pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm>\
+         <a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>\
+         </a:graphicData></a:graphic>"
+    );
+    let drawing = if anchored {
+        format!(
+            "<wp:anchor distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\" simplePos=\"0\" relativeHeight=\"1\" \
+             behindDoc=\"0\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/>\
+             <wp:positionH relativeFrom=\"page\"><wp:posOffset>0</wp:posOffset></wp:positionH>\
+             <wp:positionV relativeFrom=\"page\"><wp:posOffset>0</wp:posOffset></wp:positionV>\
+             {extent}<wp:wrapNone/>{graphic}</wp:anchor>"
+        )
+    } else {
+        format!(
+            "<wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">{extent}{graphic}</wp:inline>"
+        )
+    };
+    format!("<w:p><w:r><w:drawing>{drawing}</w:drawing></w:r></w:p>")
 }
 
 fn style_xml<'a>(styles: &'a str, id: &str) -> &'a str {
@@ -3290,4 +3321,126 @@ fn body_spacing_is_added_followed_and_left_alone() {
         ),
     );
     assert_eq!(style_ppr(&out, "BodyText"), "");
+}
+
+// ------------------------------ pictures a header or footer cannot show
+
+fn pictures_reported(doc: &Document) -> Vec<String> {
+    let inspection = docrs::markdown::inspect(doc, &MarkdownOptions::default()).unwrap();
+    inspection["problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["code"] == "picture_larger_than_page")
+        .map(|p| p["message"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn an_oversized_footer_picture_is_reported_and_kept() {
+    let template = fixture_template("oversized-footer-picture.docx");
+    let message = "The footer has a picture 37.3 cm wide and 16.7 cm tall, wider than the page and taller than half of it (21.0 by 29.7 cm). Word hides what does not fit, but it can break PDFs and previews. Resize or remove it in the template.";
+    assert_eq!(pictures_reported(&template), [message]);
+    let inspection = docrs::markdown::inspect(&template, &MarkdownOptions::default()).unwrap();
+    assert_eq!(
+        inspection["section"]["headers_footers"]["footer"]["default"]["images"],
+        2
+    );
+    let out = export_with(
+        "78-oversized-footer-picture",
+        "# Advice\n\nBody.\n",
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    let warnings: Vec<_> = out
+        .report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "picture_larger_than_page")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{:?}", out.report.warnings);
+    assert_eq!(warnings[0].message, message);
+    assert_eq!(warnings[0].line, None);
+    // The footer is kept as it is, picture included.
+    let footer = out.part("word/footer1.xml");
+    assert_eq!(count(&footer, "<w:drawing>"), 2);
+    assert!(
+        footer.contains("cx=\"13442950\" cy=\"6005195\""),
+        "{footer}"
+    );
+}
+
+#[test]
+fn pictures_wider_than_the_page_or_taller_than_half_of_it_are_reported() {
+    // Letter: 21.6 by 27.9 cm.
+    let page_width = 12240 * 635;
+    let half_height = 15840 * 635 / 2;
+    let template = |footer: &str, cover_height: Option<i64>| {
+        synthetic(Synthetic {
+            body: "<w:p><w:r><w:t>Sample</w:t></w:r></w:p>",
+            footer: Some(footer),
+            cover_height,
+            ..Synthetic::default()
+        })
+    };
+    let fits = picture(page_width, half_height, false);
+    assert_eq!(
+        pictures_reported(&template(&fits, None)),
+        Vec::<String>::new()
+    );
+    let wide = picture(page_width + 360_000, 1_000_000, true);
+    assert_eq!(
+        pictures_reported(&template(&wide, None)),
+        [
+            "The footer has a picture 22.6 cm wide and 2.8 cm tall, wider than the page (21.6 by 27.9 cm). Word hides what does not fit, but it can break PDFs and previews. Resize or remove it in the template."
+        ]
+    );
+    let tall = picture(3_600_000, half_height + 360_000, false);
+    let reported = pictures_reported(&template(&tall, None));
+    assert_eq!(reported.len(), 1, "{reported:?}");
+    assert!(
+        reported[0].starts_with(
+            "The footer has a picture 10.0 cm wide and 15.0 cm tall, taller than half the page (21.6 by 27.9 cm)."
+        ),
+        "{reported:?}"
+    );
+    // An anchored picture is placed by position and may cover the page, as
+    // a letterhead background does: reported only when it does not fit.
+    let background = picture(page_width, 2 * half_height, true);
+    assert_eq!(
+        pictures_reported(&template(&background, None)),
+        Vec::<String>::new()
+    );
+    let overflowing = picture(page_width, 2 * half_height + 360_000, true);
+    let reported = pictures_reported(&template(&overflowing, None));
+    assert_eq!(reported.len(), 1, "{reported:?}");
+    assert!(
+        reported[0].starts_with(
+            "The footer has a picture 21.6 cm wide and 28.9 cm tall, taller than the page (21.6 by 27.9 cm)."
+        ),
+        "{reported:?}"
+    );
+    // Word's watermarks are VML shapes; they are not measured.
+    let watermark = "<w:p><w:r><w:pict><v:shape xmlns:v=\"urn:schemas-microsoft-com:vml\" \
+        id=\"PowerPlusWaterMarkObject1\" style=\"position:absolute;width:527.85pt;height:131.95pt;rotation:315\"/>\
+        </w:pict></w:r></w:p>";
+    assert_eq!(
+        pictures_reported(&template(watermark, None)),
+        Vec::<String>::new()
+    );
+    // A first-page header holds the cover of templates that have one: its
+    // picture is reported only when it does not fit on the page.
+    let logo = picture(900_000, 432_000, false);
+    assert_eq!(
+        pictures_reported(&template(&logo, Some(9_000_000))),
+        Vec::<String>::new()
+    );
+    let reported = pictures_reported(&template(&logo, Some(11_000_000)));
+    assert_eq!(reported.len(), 1, "{reported:?}");
+    assert!(
+        reported[0].starts_with(
+            "The first-page header has a picture 13.9 cm wide and 30.6 cm tall, taller than the page (21.6 by 27.9 cm)."
+        ),
+        "{reported:?}"
+    );
 }

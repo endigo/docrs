@@ -387,6 +387,9 @@ pub(crate) fn render(
     }
     renderer.styles.prefer_own = prefer_own_styles;
     renderer.plan_bookmarks()?;
+    for picture in super::stories::oversized_pictures(renderer.txn, &main)? {
+        renderer.warn("picture_larger_than_page", picture.message(), None);
+    }
     let ctx = Ctx {
         paragraph_role: None,
         indent: None,
@@ -957,30 +960,10 @@ fn effective_spacing(styles: &XmlTree, style_id: Option<&str>) -> (Option<i64>, 
 /// sections (Word reuses the previous section's header of a type the
 /// section does not define): `(element, type, relationship id)`.
 pub(crate) fn inherited_references(tree: &XmlTree) -> Result<Vec<(&'static str, String, String)>> {
-    let sections = crate::authoring::section_properties(tree)?;
-    let Some((last, earlier)) = sections.split_last() else {
-        return Ok(Vec::new());
-    };
-    let mut latest: BTreeMap<(&'static str, String), String> = BTreeMap::new();
-    for sect_pr in earlier {
-        for local in ["headerReference", "footerReference"] {
-            for reference in w_children(tree, *sect_pr, local) {
-                let kind = w_attr(tree, reference, "type")
-                    .unwrap_or("default")
-                    .to_string();
-                if let Some(r_id) = tree.attr(reference, Some(R), "id") {
-                    latest.insert((local, kind), r_id.to_string());
-                }
-            }
-        }
-    }
-    Ok(latest
+    Ok(super::stories::effective_references(tree)?
         .into_iter()
-        .filter(|((local, kind), _)| {
-            !w_children(tree, *last, local)
-                .any(|r| w_attr(tree, r, "type").unwrap_or("default") == kind)
-        })
-        .map(|((local, kind), r_id)| (local, kind, r_id))
+        .filter(|(_, _, _, inherited)| *inherited)
+        .map(|(local, kind, r_id, _)| (local, kind, r_id))
         .collect())
 }
 
@@ -3292,53 +3275,37 @@ impl<'p> Renderer<'_, '_, 'p> {
         body_node: NodeId,
         blank_first_page: bool,
     ) -> Result<Vec<NodeId>> {
-        let (title_pg, first_header, page_height) = {
+        let (title_pg, page_height) = {
             let tree = self.txn.tree(main)?;
             let Some(sect_pr) = w_child(tree, body_node, "sectPr") else {
                 return Ok(Vec::new());
             };
             let title_pg = w_child(tree, sect_pr, "titlePg")
                 .filter(|t| !matches!(w_attr(tree, *t, "val"), Some("0" | "false" | "off")));
-            let first_header = w_children(tree, sect_pr, "headerReference")
-                .find(|h| w_attr(tree, *h, "type") == Some("first"))
-                .and_then(|h| tree.attr(h, Some(R), "id").map(str::to_string));
             let page_height = w_child(tree, sect_pr, "pgSz")
                 .and_then(|p| w_attr(tree, p, "h"))
                 .and_then(|h| h.parse::<i64>().ok())
                 .unwrap_or(15840);
-            (title_pg, first_header, page_height)
+            (title_pg, page_height)
         };
         let Some(title_pg) = title_pg else {
             return Ok(Vec::new());
         };
+        let first_header = super::stories::stories(self.txn, main)?
+            .into_iter()
+            .find(|story| story.story == "header" && story.kind == "first")
+            .and_then(|story| story.part);
         let graphic = match first_header {
-            Some(r_id) => {
-                let target = self
-                    .txn
-                    .relationships(main)?
-                    .into_iter()
-                    .find(|rel| rel.id == r_id && !rel.external)
-                    .map(|rel| {
-                        rel.target_part_name(crate::package::rels::base_uri(&format!(
-                            "/{}",
-                            main.trim_start_matches('/')
-                        )))
-                    })
-                    .and_then(|name| self.txn.resolve(&name));
-                match target {
-                    Some(part) => {
-                        let tree = self.txn.tree(&part)?;
-                        let tallest = tree
-                            .descendants(tree.root())
-                            .filter(|node| tree.local_name(*node) == Some("extent"))
-                            .filter_map(|node| tree.attr(node, None, "cy"))
-                            .filter_map(|cy| cy.parse::<i64>().ok())
-                            .max()
-                            .unwrap_or(0);
-                        tallest * 2 >= page_height * EMU_PER_TWIP
-                    }
-                    None => false,
-                }
+            Some(part) => {
+                let tree = self.txn.tree(&part)?;
+                let tallest = tree
+                    .descendants(tree.root())
+                    .filter(|node| tree.local_name(*node) == Some("extent"))
+                    .filter_map(|node| tree.attr(node, None, "cy"))
+                    .filter_map(|cy| cy.parse::<i64>().ok())
+                    .max()
+                    .unwrap_or(0);
+                tallest * 2 >= page_height * EMU_PER_TWIP
             }
             None => false,
         };

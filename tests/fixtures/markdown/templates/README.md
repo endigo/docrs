@@ -17,5 +17,6 @@ synthetic test data; no customer templates or client documents.
 | `unused-body-text-style.docx` | As a PDF-to-Word converter leaves it: a 6 pt Body Text style used on empty spacer paragraphs only, the prose in Normal (Arial 11 pt by style). Same origin. |
 | `body-spacing-by-hand.docx` | A Body Text style defined as 6 pt after at 1.5 lines while every body paragraph is spaced by hand to none at single lines. Same origin. |
 | `body-spacing-in-normal.docx` | The prose in Normal (10 pt after, 1.15 lines by style) while Body Text (6 pt after, single lines) holds one short sample line. Same origin. |
+| `oversized-footer-picture.docx` | The default footer holds a small logo and a page number beside an inline picture of 37.3 × 16.7 cm, wider than the A4 page; Word clips it at the page edge, LibreOffice lays it out in full. From the fidelity comparison of 2026-10-26 (synthetic). |
 | `list-shapes.md` | Nested lists deeper than the template defines, continuations, mixed list kinds, an HTML table with a list in a cell. |
 | `record-of-advice.md` | A full Record of Advice as users edit it: repeated tables, `<u>`, `<br>` in cells, empty `<p></p>`, links. Messy on purpose. |

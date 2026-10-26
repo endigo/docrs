@@ -50,6 +50,7 @@ mod html;
 mod inspect;
 mod math;
 mod render;
+mod stories;
 mod styles;
 mod tiptap;
 
@@ -316,6 +317,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "nested_footnote",
         "a footnote inside a footnote is kept as text",
+    ),
+    (
+        "picture_larger_than_page",
+        "a header or footer of the reference document holds a picture wider than the page or taller than half of it; Word hides what does not fit, but it can break PDFs and previews",
     ),
     (
         "raw_html_dropped",
