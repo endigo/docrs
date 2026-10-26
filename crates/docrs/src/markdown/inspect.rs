@@ -293,7 +293,11 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         .get("body")
         .filter(|body| !body.created)
         .and_then(|body| body.style_id.as_deref());
-    let lifted = sample.summary(body_style);
+    let styles = match package.part_related_by(&main, rt::STYLES)? {
+        Some(name) => Some(package.xml(&name)?),
+        None => None,
+    };
+    let lifted = sample.summary(styles, body_style);
     Ok(json!({
         "schema_version": 1,
         "roles": report.styles,

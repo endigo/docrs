@@ -382,6 +382,8 @@ export interface ReferenceInspection {
   lifted: {
     /** The look the body style takes from the template's own body paragraphs (or the body style the conversion adds); null when they show none. */
     body: RunLook | null;
+    /** The paragraph spacing the body style takes from the template's prose (the unstyled paragraphs and its own); null when the style already gives it. */
+    spacing: Spacing | null;
     headings: Record<string, RunLook>;
     table: { style_id: string | null; direct_formatting_lifted: boolean; look: Record<string, boolean> };
   };
@@ -417,6 +419,14 @@ export interface RunLook {
   color: string | null;
   bold: boolean | null;
   italic: boolean | null;
+}
+
+/** Paragraph spacing as Word resolves it: points before and after; `line` is a multiple of single spacing under the `auto` rule, else points. */
+export interface Spacing {
+  before_pt: number | null;
+  after_pt: number | null;
+  line: number | null;
+  line_rule: string;
 }
 
 export interface HeaderFooterSummary {

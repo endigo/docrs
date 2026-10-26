@@ -131,12 +131,12 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   headings, body text or tables, Word list buttons, custom bullet styles)
   is lifted into styles: a look merges into the style attribute by
   attribute (a run setting only the complex-script font keeps the style's
-  Latin font), and body text takes the look the most of the template's
-  body paragraphs show by hand, a First Paragraph style following it. A
-  Body Text style the template writes no text in while its prose is in
-  Normal is passed over for Normal. Tables follow the style most sample
-  tables use;
-  a header fill or banding added by hand becomes a table style (`Template
+  Latin font), and body text takes the look and the paragraph spacing the
+  most of the template's prose shows, a First Paragraph style following
+  it. A Body Text style the template writes no text in while its prose is
+  in Normal is passed over for Normal. Tables follow the style most sample
+  tables use; a header fill or banding added by hand becomes a table style
+  (`Template
   Table` when the template already has a `Table` style).
 * A template whose first-page header draws a cover (and whose sample body
   leaves page 1 blank) keeps page 1 as the cover; `--no-cover-page` turns
