@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7 (2026-10-26)
+
+### Library
+
+- The body style takes the paragraph spacing the template's prose shows, as it takes the run look: the spacing (before, after, line and its rule, as Word resolves them through the style chain and the document defaults) carrying the most characters of the unstyled paragraphs and of the body style's own paragraphs, when it differs from what the style gives. A Body Text defined as 6 pt after at 1.5 lines whose every paragraph is set by hand to none at single lines now exports at none and single; a template whose prose is Normal at 10 pt after and 1.15 lines while Body Text holds one sample line now spaces the body like the prose. The spacing is written on the style in full (`w:spacing` before, after, line, lineRule), so nothing inherited shows through. A First Paragraph or Compact style with no spacing of its own follows the body, as it follows the body's look. When the unstyled paragraphs alone show a spacing other than the default style's, the Body Text added for them carries it. The gap a conversion puts above a paragraph after a table or list is unchanged. `inspectReference` and `markdown-inspect` report the spacing in `lifted.spacing` (points before and after; `line` a multiple of single spacing under the `auto` rule, else points).
+
 ## 0.3.6 (2026-10-26)
 
 ### Library
