@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8 (2026-10-26)
+
+### Library
+
+- `inspectReference` and `markdown-inspect` report, and a conversion warns (`picture_larger_than_page`), when a header or footer the output keeps holds a picture it cannot show whole: an inline picture wider than the page or taller than half of it, an anchored picture wider or taller than the page. The message names the header or footer (the one every page shows, the first-page one or the even-page one) and gives the picture's size and the page's in centimetres, in plain language a practice can act on: resize or remove it in the template. A first-page header holds the cover of templates that have one, so its inline picture is reported only when it does not fit on the page; a page-sized background anchored behind the text, and Word's own watermarks (VML shapes, not measured), are not reported. The output is unchanged: headers and footers are kept as they are. A footer holding a 37.3 by 16.7 cm picture on an A4 page, which Word clips at the page edge while other renderers lay out in full, left both reports silent.
+
 ## 0.3.7 (2026-10-26)
 
 ### Library
