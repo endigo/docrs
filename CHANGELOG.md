@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.6 (2026-10-26)
+
+### Library
+
+- The look the body style takes from a template's sample paragraphs is the one carrying the most characters, a plurality, no longer one carrying at least 60% of them. A template whose prose is formatted by hand as Arial 10 pt grey (52% of its text) beside an address block in 8 pt and a bold sub-heading now exports body text in Arial 10 pt grey instead of the theme font. A tie, or plain text (the style's own look) in the lead, still lifts nothing.
+
+- A template's First Paragraph and Compact styles follow the body. Each takes the look its own sample paragraphs show by hand; one that wears only the default style's look (based on Normal with no font, size or colour of its own or of a parent) takes the look the body style took, so the paragraph after each heading matches the rest of the body. One with a font, size or colour of its own, or based on the body style, is left alone. A First Paragraph style the template sets no run look on came out in the theme font while the body was lifted to Calibri 11 pt grey.
+
+- A Body Text (or Paragraph, First Paragraph, Compact) style the template writes no text in while its default style carries the prose, as a PDF-to-Word converter leaves a 6 pt Body Text on empty spacer paragraphs, is not the template's body: body text, first paragraphs and compact text use the default style as the prose does, and the template's style is left as it is. When that prose shows a look by hand, the style added for it is named "Template Body Text", apart from the template's own. Body text came out in the spacer's 6 pt.
+
 ## 0.3.5 (2026-10-26)
 
 ### Library

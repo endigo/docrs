@@ -2958,3 +2958,182 @@ fn the_body_look_is_weighed_by_characters_outside_tables() {
     let rpr = style_rpr(&out, "BodyText");
     assert!(rpr.contains("Bookman") && !rpr.contains("Calibri"), "{rpr}");
 }
+
+/// A first paragraph, a body paragraph, then another first paragraph.
+const SECTIONS: &str = "# Heading one\n\nFirst paragraph after a heading.\n\nSecond paragraph.\n\n\
+## Heading two\n\nAnother first paragraph.\n";
+
+fn first_paragraph_style(rpr: &str) -> String {
+    format!(
+        "<w:style w:type=\"paragraph\" w:styleId=\"FirstParagraph\"><w:name w:val=\"First Paragraph\"/>\
+         <w:basedOn w:val=\"Normal\"/><w:next w:val=\"BodyText\"/>{rpr}</w:style>"
+    )
+}
+
+#[test]
+fn the_body_look_is_the_plurality_by_characters() {
+    // Prose in Arial 10 pt grey carries 52% of the text, an address block in
+    // 8 pt and a bold sub-heading the rest, all in Normal.
+    let out = export_with(
+        "65-normal-direct-formatting",
+        SECTIONS,
+        Some(fixture_template("normal-direct-formatting.docx")),
+        &MarkdownOptions::default(),
+    );
+    let rpr = style_rpr(&out, "BodyText");
+    for property in [
+        "w:ascii=\"Arial\"",
+        "<w:color w:val=\"333333\"/>",
+        "<w:sz w:val=\"20\"/>",
+    ] {
+        assert!(rpr.contains(property), "{rpr}");
+    }
+    assert!(!rpr.contains("808080") && !rpr.contains("0070C0"), "{rpr}");
+    assert!(out.report.styles["body"].created);
+    assert_eq!(
+        out.report.styles["first_paragraph"].style_id.as_deref(),
+        Some("BodyText")
+    );
+    assert!(!style_of(&out, "Normal").contains("Arial"));
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"BodyText\"/>"), 3);
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("normal-direct-formatting.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection["lifted"]["body"]["font"], "Arial");
+    assert_eq!(inspection["lifted"]["body"]["size_pt"], 10.0);
+    assert_eq!(inspection["lifted"]["body"]["color"], "333333");
+}
+
+#[test]
+fn a_first_paragraph_style_takes_the_body_look() {
+    let out = export_with(
+        "66-first-paragraph-style",
+        SECTIONS,
+        Some(fixture_template("first-paragraph-style.docx")),
+        &MarkdownOptions::default(),
+    );
+    for id in ["BodyText", "FirstParagraph"] {
+        let rpr = style_rpr(&out, id);
+        for property in [
+            "w:ascii=\"Calibri\"",
+            "<w:color w:val=\"404040\"/>",
+            "<w:sz w:val=\"22\"/>",
+        ] {
+            assert!(rpr.contains(property), "{id}: {rpr}");
+        }
+        assert!(!rpr.contains("Bookman"), "{id}: {rpr}");
+    }
+    assert_eq!(out.report.styles["first_paragraph"].name, "First Paragraph");
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    let body = out.body();
+    assert_eq!(count(&body, "<w:pStyle w:val=\"FirstParagraph\"/>"), 2);
+    assert_eq!(count(&body, "<w:pStyle w:val=\"BodyText\"/>"), 1);
+    assert!(!body.contains("Calibri"), "{body}");
+    assert!(!style_of(&out, "Normal").contains("Calibri"));
+
+    // A First Paragraph the template shows no paragraph in, wearing only
+    // Normal's look, follows the body; one with a font of its own keeps it.
+    let long = "A body paragraph in Calibri, long enough to carry the look.";
+    let prose = format!(
+        "{}{}",
+        styled_paragraph("BodyText", long, CALIBRI),
+        styled_paragraph("BodyText", long, CALIBRI)
+    );
+    let export = |name: &str, first_paragraph: &str| {
+        let template = synthetic(Synthetic {
+            styles: &format!(
+                "{BOOKMAN_BODY_TEXT}{}",
+                first_paragraph_style(first_paragraph)
+            ),
+            body: &prose,
+            ..Synthetic::default()
+        });
+        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
+    };
+    let out = export("67-first-paragraph-follows-the-body", "");
+    let rpr = style_rpr(&out, "FirstParagraph");
+    assert!(
+        rpr.contains("w:ascii=\"Calibri\"") && rpr.contains("<w:sz w:val=\"22\"/>"),
+        "{rpr}"
+    );
+    assert!(style_rpr(&out, "BodyText").contains("Calibri"));
+    let out = export("68-first-paragraph-with-a-font-of-its-own", GEORGIA);
+    let rpr = style_rpr(&out, "FirstParagraph");
+    assert!(rpr.contains("Georgia") && !rpr.contains("Calibri"), "{rpr}");
+    assert!(style_rpr(&out, "BodyText").contains("Calibri"));
+}
+
+#[test]
+fn a_body_text_style_the_template_writes_no_text_in_is_not_the_body() {
+    // A 6 pt Body Text used on empty spacer paragraphs only; the prose is
+    // Normal, Arial 11 pt by style.
+    let out = export_with(
+        "69-unused-body-text-style",
+        SECTIONS,
+        Some(fixture_template("unused-body-text-style.docx")),
+        &MarkdownOptions::default(),
+    );
+    for role in ["body", "first_paragraph"] {
+        assert_eq!(out.report.styles[role].name, "Normal", "{role}");
+        assert_eq!(out.report.styles[role].style_id, None, "{role}");
+    }
+    let body = out.body();
+    assert!(
+        !body.contains("BodyText") && !body.contains("<w:rFonts"),
+        "{body}"
+    );
+    assert!(style_rpr(&out, "BodyText").contains("<w:sz w:val=\"12\"/>"));
+    assert!(
+        !out.report
+            .created_styles
+            .iter()
+            .any(|s| s.contains("Body Text"))
+    );
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("unused-body-text-style.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection["roles"]["body"]["name"], "Normal");
+    assert!(inspection["lifted"]["body"].is_null());
+
+    // The same spacer style beside Normal prose formatted by hand: the look
+    // goes into a style added beside the template's, named apart from it.
+    let spacer = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:rPr><w:sz w:val=\"12\"/></w:rPr></w:style>";
+    let long = "A Normal paragraph in Calibri, long enough to carry the look.";
+    let template = synthetic(Synthetic {
+        styles: spacer,
+        body: &format!(
+            "<w:p><w:pPr><w:pStyle w:val=\"BodyText\"/></w:pPr></w:p>\
+             <w:p><w:r>{CALIBRI}<w:t>{long}</w:t></w:r></w:p>\
+             <w:p><w:pPr><w:pStyle w:val=\"BodyText\"/></w:pPr></w:p>\
+             <w:p><w:r>{CALIBRI}<w:t>{long}</w:t></w:r></w:p>"
+        ),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "70-unused-body-text-beside-a-hand-look",
+        SECTIONS,
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(out.report.styles["body"].name, "Template Body Text");
+    assert!(out.report.styles["body"].created);
+    assert_eq!(
+        out.report.styles["first_paragraph"].style_id.as_deref(),
+        Some("TemplateBodyText")
+    );
+    assert!(style_rpr(&out, "TemplateBodyText").contains("w:ascii=\"Calibri\""));
+    let spacer = style_rpr(&out, "BodyText");
+    assert!(
+        spacer.contains("<w:sz w:val=\"12\"/>") && !spacer.contains("Calibri"),
+        "{spacer}"
+    );
+    assert_eq!(
+        count(&out.body(), "<w:pStyle w:val=\"TemplateBodyText\"/>"),
+        3
+    );
+}
