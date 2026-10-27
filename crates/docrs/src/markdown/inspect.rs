@@ -8,15 +8,14 @@
 //! trial conversion of a small probe document inside a transaction that is
 //! discarded, so they are exactly what a real conversion would do.
 
-use std::collections::BTreeMap;
-
 use serde_json::{Value, json};
 
 use super::ast;
 use super::frontmatter::Metadata;
 use super::render;
+use super::stories::stories;
 use super::{MarkdownOptions, MarkdownReport, Placement};
-use crate::authoring::{R, section_properties};
+use crate::authoring::section_properties;
 use crate::package::rels::rt;
 use crate::txn::Txn;
 use crate::wml::{W, w_attr, w_child, w_children};
@@ -84,47 +83,15 @@ fn story_summary(tree: &XmlTree) -> Value {
 
 /// The header and footer of each type the section shows (its own, or
 /// inherited from an earlier section), summarised.
-fn headers_footers(
-    txn: &Txn<'_>,
-    main: &str,
-    tree: &XmlTree,
-    sections: &[NodeId],
-) -> Result<Value> {
-    let rels = txn.relationships(main)?;
-    let main_uri = format!("/{}", main.trim_start_matches('/'));
-    let base = crate::package::rels::base_uri(&main_uri);
-    let mut effective: BTreeMap<(&'static str, String), (String, bool)> = BTreeMap::new();
-    for (index, sect_pr) in sections.iter().enumerate() {
-        let last = index + 1 == sections.len();
-        for local in ["headerReference", "footerReference"] {
-            for reference in w_children(tree, *sect_pr, local) {
-                let kind = w_attr(tree, reference, "type")
-                    .unwrap_or("default")
-                    .to_string();
-                if let Some(r_id) = tree.attr(reference, Some(R), "id") {
-                    effective.insert((local, kind), (r_id.to_string(), !last));
-                }
-            }
-        }
-    }
+fn headers_footers(txn: &Txn<'_>, main: &str) -> Result<Value> {
     let mut out = json!({ "header": {}, "footer": {} });
-    for ((local, kind), (r_id, inherited)) in effective {
-        let part = rels
-            .iter()
-            .find(|rel| rel.id == r_id && !rel.external)
-            .map(|rel| rel.target_part_name(base))
-            .and_then(|name| txn.resolve(&name));
-        let mut summary = match &part {
+    for story in stories(txn, main)? {
+        let mut summary = match &story.part {
             Some(part) => story_summary(txn.tree(part)?),
             None => json!({ "missing_part": true }),
         };
-        summary["inherited"] = json!(inherited);
-        let group = if local == "headerReference" {
-            "header"
-        } else {
-            "footer"
-        };
-        out[group][kind] = summary;
+        summary["inherited"] = json!(story.inherited);
+        out[story.story][story.kind] = summary;
     }
     Ok(out)
 }
@@ -194,7 +161,7 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
                 },
                 "text_width": width - left - right,
                 "title_page": title_page,
-                "headers_footers": headers_footers(&txn, &main, tree, &sections)?,
+                "headers_footers": headers_footers(&txn, &main)?,
             })
         }
     };
@@ -260,6 +227,11 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
                 err.message()
             ),
         );
+    }
+    for warning in &report.warnings {
+        if warning.code == "picture_larger_than_page" {
+            problem(warning.code, warning.message.clone());
+        }
     }
     for name in &report.created_styles {
         problem(
