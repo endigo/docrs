@@ -548,32 +548,14 @@ impl Package {
 
     /// The member a relationship of `rel_type` from `source` targets.
     pub fn part_related_by(&self, source: &str, rel_type: &str) -> Result<Option<String>> {
-        let source_name = if source == "/" {
-            "/".to_string()
-        } else {
-            format!("/{}", source.trim_start_matches('/'))
-        };
+        let source_name = rels::source_part_name(source);
         let rels = self.relationships_at(&source_name)?;
-        let matching: Vec<&Relationship> = rels
-            .iter()
-            .filter(|rel| !rel.external && rel.rel_type == rel_type)
-            .collect();
-        match matching.as_slice() {
-            [] => Ok(None),
-            [rel] => {
-                let target = rel.target_part_name(rels::base_uri(&source_name));
-                Ok(self
-                    .member_by_fold(&target)
-                    .map(|index| self.parts[index].name.clone()))
-            }
-            _ => Err(Error::refusal(
-                crate::RefusalKind::UnsupportedStructure,
-                "ambiguous_relationship",
-                format!(
-                    "multiple {rel_type} relationships from {source_name} make the target ambiguous"
-                ),
-            )),
-        }
+        Ok(
+            rels::single_target(&rels, rel_type, &source_name)?.and_then(|target| {
+                self.member_by_fold(&target)
+                    .map(|index| self.parts[index].name.clone())
+            }),
+        )
     }
 
     /// Main document member name (e.g. `word/document.xml`).

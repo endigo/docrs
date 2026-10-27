@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use serde::Serialize;
 
 use crate::anchor::{self, BlockTarget, Located};
+use crate::blocks::field_open_flags;
 use crate::bookmarks::pyclass::{is_py_alnum, is_py_alpha};
 use crate::fields::fieldcode;
 use crate::image::Image;
@@ -27,7 +28,7 @@ use crate::oxml::{append, set_w, w_el};
 use crate::package::ct;
 use crate::package::rels::{Relationship, base_uri, rt};
 use crate::protection::{OperationClass, refuse_if_protected};
-use crate::story::{self, count_fldchar_delta, iter_block_elements};
+use crate::story;
 use crate::txn::{RelTarget, Txn};
 use crate::unicode::casefold;
 use crate::wml::{
@@ -2435,36 +2436,6 @@ fn clear_children(tree: &mut XmlTree, root: NodeId) -> Result<()> {
         tree.detach(child)?;
     }
     Ok(())
-}
-
-/// Upstream `blocks._field_open_flags` (top-level content controls are
-/// measured among the body children).
-fn field_open_flags(tree: &XmlTree, story: &str, element: NodeId) -> Result<(bool, bool)> {
-    if let Some(body) = w_child(tree, tree.root(), "body")
-        && is_w(tree, element, "sdt")
-        && tree.parent(element) == Some(body)
-    {
-        let mut depth = 0i64;
-        for child in node_children(tree, body) {
-            if child == element {
-                return Ok((depth > 0, depth + count_fldchar_delta(tree, element) > 0));
-            }
-            depth = (depth + count_fldchar_delta(tree, child)).max(0);
-        }
-    }
-    let mut depth = 0i64;
-    for block in iter_block_elements(tree, story)? {
-        let contains = block.element == element
-            || tree
-                .descendants(block.element)
-                .any(|node| node == element && is_w(tree, node, "p"));
-        let delta = count_fldchar_delta(tree, block.element);
-        if contains {
-            return Ok((depth > 0, depth + delta > 0));
-        }
-        depth = (depth + delta).max(0);
-    }
-    Ok((false, false))
 }
 
 /// Upstream `_pad_adjacent_tables`.

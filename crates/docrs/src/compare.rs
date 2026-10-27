@@ -28,11 +28,10 @@ use crate::package::patch::{effective_content_types, parts_semantically_equal};
 use crate::package::rels::{RELS_NS, base_uri, rels_member_for, resolve_target};
 use crate::package::zip_read::read_archive;
 use crate::protection::{OperationClass, refuse_if_protected};
-use crate::replace::{
-    ReplaceOptions, apply_plan, next_revision_id, plan_replace, validate_writable_text,
-};
+use crate::replace::{ReplaceOptions, apply_plan, plan_replace, validate_writable_text};
 use crate::search::{Atom, Span, include_atom, new_span_token, signature, story_atoms};
 use crate::story::{self, Anchor, BlockKind, View, iter_block_elements, subtree_text, table_text};
+use crate::tracked::{insert_after, insert_before, next_revision_id};
 use crate::txn::Txn;
 use crate::unicode::{casefold, is_py_space};
 use crate::wml::{W, is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};
@@ -1235,22 +1234,6 @@ fn require_container_anchor(ctx: &Ctx<'_>, tree: &XmlTree, reference: NodeId) ->
         ));
     }
     Ok(())
-}
-
-fn insert_after(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "anchor is detached"))?;
-    let index = tree.index_in_parent(anchor).unwrap_or(0) + 1;
-    tree.insert(parent, index, node)
-}
-
-fn insert_before(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "anchor is detached"))?;
-    let index = tree.index_in_parent(anchor).unwrap_or(0);
-    tree.insert(parent, index, node)
 }
 
 fn insert_blocks(

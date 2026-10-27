@@ -34,8 +34,9 @@ use crate::{Error, RefusalKind, Result};
 
 /// Width used when the document has no section properties (6in in EMU).
 const FALLBACK_BLOCK_WIDTH: i64 = 5_486_400;
-const EMU_PER_TWIP: i64 = 635;
-const EMU_PER_PX: f64 = 9525.0;
+use crate::units::EMU_PER_TWIP;
+
+const EMU_PER_PX: f64 = crate::units::EMU_PER_PX as f64;
 const TWIPS_PER_PX: f64 = EMU_PER_PX / EMU_PER_TWIP as f64;
 /// The editor's narrowest column (Tiptap's `cellMinWidth`).
 const MIN_COLUMN_PX: f64 = 25.0;

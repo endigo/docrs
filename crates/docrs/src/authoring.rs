@@ -27,16 +27,7 @@ use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, DocumentId, Error, RefusalKind, Result};
 
-/// DrawingML wordprocessingDrawing (`wp:`).
-pub const WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
-/// DrawingML main (`a:`).
-pub const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
-/// DrawingML picture (`pic:`).
-pub const PIC: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
-/// Office relationships (`r:`).
-pub const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-const PICTURE_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+pub use crate::wml::{A, PIC, R, WP};
 
 /// Freshness evidence shared by every live authoring handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -947,7 +938,7 @@ fn new_pic_inline(
         &[("noChangeAspect", "1")],
     )?;
     let graphic = child(tree, inline, A, "graphic", &[])?;
-    let data = child(tree, graphic, A, "graphicData", &[("uri", PICTURE_URI)])?;
+    let data = child(tree, graphic, A, "graphicData", &[("uri", PIC)])?;
     let pic = child(tree, data, PIC, "pic", &[])?;
     let nv = child(tree, pic, PIC, "nvPicPr", &[])?;
     child(tree, nv, PIC, "cNvPr", &[("id", "0"), ("name", filename)])?;
@@ -4235,7 +4226,7 @@ impl InlineShapeRef {
         let graphic = required_child(tree, self.h.element, A, "graphic")?;
         let data = required_child(tree, graphic, A, "graphicData")?;
         Ok(match tree.attr(data, None, "uri") {
-            Some(PICTURE_URI) => {
+            Some(PIC) => {
                 let blip = tree
                     .first_child_named(data, PIC, "pic")
                     .and_then(|pic| tree.first_child_named(pic, PIC, "blipFill"))

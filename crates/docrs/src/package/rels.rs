@@ -160,6 +160,39 @@ pub fn base_uri(part_name: &str) -> &str {
     }
 }
 
+/// The `/`-prefixed part name a relationship source is written as (`/` is
+/// the package itself).
+pub(crate) fn source_part_name(source: &str) -> String {
+    if source == "/" {
+        "/".to_string()
+    } else {
+        format!("/{}", source.trim_start_matches('/'))
+    }
+}
+
+/// Part name the single internal `rel_type` relationship among `rels`
+/// targets (upstream `part_related_by`); several make it ambiguous.
+pub(crate) fn single_target(
+    rels: &[Relationship],
+    rel_type: &str,
+    source_name: &str,
+) -> Result<Option<String>> {
+    let mut matching = rels
+        .iter()
+        .filter(|rel| !rel.external && rel.rel_type == rel_type);
+    match (matching.next(), matching.next()) {
+        (None, _) => Ok(None),
+        (Some(rel), None) => Ok(Some(rel.target_part_name(base_uri(source_name)))),
+        (Some(_), Some(_)) => Err(Error::refusal(
+            crate::RefusalKind::UnsupportedStructure,
+            "ambiguous_relationship",
+            format!(
+                "multiple {rel_type} relationships from {source_name} make the target ambiguous"
+            ),
+        )),
+    }
+}
+
 /// Member name of the relationships part for `part_name` (`/` = package).
 pub fn rels_member_for(part_name: &str) -> String {
     if part_name == "/" {

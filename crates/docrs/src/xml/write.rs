@@ -32,6 +32,13 @@ pub fn serialize(tree: &XmlTree) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// `text` escaped for an attribute value or character data.
+pub(crate) fn escape_attr_to_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    escape_attr(text, &mut out);
+    out
+}
+
 /// Serialize one subtree (no declaration).
 pub fn serialize_node(tree: &XmlTree, id: NodeId) -> String {
     let mut out = String::new();

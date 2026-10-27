@@ -367,7 +367,7 @@ pub struct RoleStyle {
     pub created: bool,
 }
 
-fn find_style(tree: &XmlTree, name: &str, kind: Kind) -> Option<NodeId> {
+pub(super) fn find_style(tree: &XmlTree, name: &str, kind: Kind) -> Option<NodeId> {
     let wanted = ui_to_internal(name).to_lowercase();
     w_children(tree, tree.root(), "style").find(|style| {
         w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.xml()
@@ -377,10 +377,10 @@ fn find_style(tree: &XmlTree, name: &str, kind: Kind) -> Option<NodeId> {
     })
 }
 
-fn default_style(tree: &XmlTree, kind: Kind) -> Option<NodeId> {
+pub(super) fn default_style(tree: &XmlTree, kind: Kind) -> Option<NodeId> {
     w_children(tree, tree.root(), "style").find(|style| {
         w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.xml()
-            && matches!(w_attr(tree, *style, "default"), Some("1" | "true" | "on"))
+            && w_attr(tree, *style, "default").is_some_and(crate::styles::on_off)
     })
 }
 
@@ -910,9 +910,7 @@ impl Resolver {
     }
 }
 
-fn style_by_id(tree: &XmlTree, id: &str) -> Option<NodeId> {
-    w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
-}
+pub(super) use crate::styles::style_element_by_id as style_by_id;
 
 /// Whether a paragraph style shows only the default style's look in the
 /// respect `own` tests: neither it nor a parent short of the default has
@@ -1025,22 +1023,11 @@ impl Spacing {
     }
 }
 
-/// A style and the styles it is based on, nearest first.
-fn style_chain(styles: &XmlTree, style: Option<NodeId>) -> Vec<NodeId> {
-    let mut chain = Vec::new();
-    let mut current = style;
-    while let Some(node) = current.filter(|node| !chain.contains(node)) {
-        chain.push(node);
-        current = w_child(styles, node, "basedOn")
-            .and_then(|b| w_attr(styles, b, "val"))
-            .and_then(|id| style_by_id(styles, id));
-    }
-    chain
-}
+pub(super) use crate::styles::based_on_chain as style_chain;
 
 /// The spacing a paragraph style gives: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
-fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
+pub(super) fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
     let mut spacing = Spacing::default();
     spacing.apply(
         styles,
@@ -1606,16 +1593,13 @@ impl Sample {
         let styles_tree = related(crate::package::rels::rt::STYLES)?;
         let numbering_tree = related(crate::package::rels::rt::NUMBERING)?;
         let main = package.main_part_name();
-        let main_uri = format!("/{}", main.trim_start_matches('/'));
-        let base = crate::package::rels::base_uri(&main_uri);
-        for rel in txn.relationships(main)? {
-            use crate::package::rels::rt::{FOOTER, HEADER};
-            if rel.external || !matches!(rel.rel_type.as_str(), HEADER | FOOTER) {
-                continue;
-            }
-            let Some(part) = txn.resolve(&rel.target_part_name(base)) else {
-                continue;
-            };
+        for part in txn.parts_related_by(
+            main,
+            &[
+                crate::package::rels::rt::HEADER,
+                crate::package::rels::rt::FOOTER,
+            ],
+        )? {
             let story = txn.tree(&part)?;
             for node in story.descendants(story.root()) {
                 if story.is(node, W, "pStyle")
@@ -1885,26 +1869,28 @@ fn most_common<T: PartialEq + Clone>(values: impl Iterator<Item = T>) -> Option<
         .map(|(_, value)| value.clone())
 }
 
+/// `w:tblLook` flag names with their bits in the hexadecimal `w:val`.
+pub(super) const TBL_LOOK_FLAGS: [(&str, u32); 6] = [
+    ("firstRow", 0x20),
+    ("lastRow", 0x40),
+    ("firstColumn", 0x80),
+    ("lastColumn", 0x100),
+    ("noHBand", 0x200),
+    ("noVBand", 0x400),
+];
+
 /// `w:tblLook` flags of a table, from the attributes Word 2010 writes or
 /// else decoded from the older hexadecimal `w:val`.
 fn table_look(tree: &XmlTree, tbl: NodeId) -> Vec<(String, bool)> {
-    const FLAGS: [(&str, u32); 6] = [
-        ("firstRow", 0x20),
-        ("lastRow", 0x40),
-        ("firstColumn", 0x80),
-        ("lastColumn", 0x100),
-        ("noHBand", 0x200),
-        ("noVBand", 0x400),
-    ];
     let Some(look) = w_child(tree, tbl, "tblPr").and_then(|p| w_child(tree, p, "tblLook")) else {
         return Vec::new();
     };
     let bits = w_attr(tree, look, "val").and_then(|v| u32::from_str_radix(v, 16).ok());
-    FLAGS
+    TBL_LOOK_FLAGS
         .iter()
         .filter_map(|(name, bit)| {
             let on = match w_attr(tree, look, name) {
-                Some(value) => Some(matches!(value, "1" | "true" | "on")),
+                Some(value) => Some(crate::styles::on_off(value)),
                 None => bits.map(|bits| bits & bit != 0),
             }?;
             Some((name.to_string(), on))
@@ -2573,9 +2559,4 @@ fn create(
     })
 }
 
-pub(crate) fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
+pub(crate) use crate::xml::escape_attr_to_string as xml_escape;

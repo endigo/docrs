@@ -511,6 +511,20 @@ pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<Node
         .find(|style| w_attr(tree, *style, "styleId") == Some(style_id))
 }
 
+/// A style and the styles it is based on, nearest first; a cycle ends the
+/// walk.
+pub(crate) fn based_on_chain(tree: &XmlTree, start: Option<NodeId>) -> Vec<NodeId> {
+    let mut chain = Vec::new();
+    let mut current = start;
+    while let Some(node) = current.filter(|node| !chain.contains(node)) {
+        chain.push(node);
+        current = w_child(tree, node, "basedOn")
+            .and_then(|b| w_attr(tree, b, "val"))
+            .and_then(|id| style_element_by_id(tree, id));
+    }
+    chain
+}
+
 /// First `w:style` whose `w:name/@w:val` is `internal_name`
 /// (`CT_Styles.get_by_name`).
 pub(crate) fn style_element_by_name(tree: &XmlTree, internal_name: &str) -> Option<NodeId> {

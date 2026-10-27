@@ -56,8 +56,10 @@ pub mod styles;
 pub mod styles_write;
 pub mod tableops;
 pub mod textdiff;
+pub(crate) mod tracked;
 pub mod txn;
 pub mod unicode;
+pub mod units;
 pub mod wml;
 pub mod xml;
 

@@ -104,11 +104,13 @@ fn is_tag(tree: &XmlTree, id: NodeId, local: &str) -> bool {
     w_local(tree, id) == Some(local)
 }
 
-fn is_revision_tag(tree: &XmlTree, id: NodeId) -> bool {
+/// Whether `id` is an element upstream `Document.revisions` enumerates.
+pub(crate) fn is_revision_tag(tree: &XmlTree, id: NodeId) -> bool {
     w_local(tree, id).and_then(base_revision_type).is_some()
 }
 
-fn is_scan_tag(tree: &XmlTree, id: NodeId) -> bool {
+/// Whether `id` is any revision markup (upstream `_MARKUP_SCAN_TAGS`).
+pub(crate) fn is_scan_tag(tree: &XmlTree, id: NodeId) -> bool {
     w_local(tree, id).is_some_and(|local| {
         base_revision_type(local).is_some() || EXTRA_SCAN_TAGS.contains(&local)
     })

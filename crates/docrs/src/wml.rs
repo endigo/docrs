@@ -9,6 +9,12 @@ pub const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/mai
 pub const M: &str = "http://schemas.openxmlformats.org/officeDocument/2006/math";
 /// DrawingML main.
 pub const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+/// DrawingML wordprocessingDrawing (`wp:`).
+pub const WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+/// DrawingML picture (`pic:`).
+pub const PIC: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+/// Office relationships (`r:`).
+pub const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 /// Markup compatibility.
 pub const MC: &str = crate::xml::MC_NS;
 /// Word 2010 (`w14`).
@@ -73,6 +79,45 @@ pub fn leading_text(tree: &XmlTree, id: NodeId) -> String {
         match tree.data(*child) {
             NodeData::Text(text) => out.push_str(text),
             _ => break,
+        }
+    }
+    out
+}
+
+/// python-docx `CT_R.text`: the run's text with tabs, breaks and hyphens as
+/// characters.
+pub fn run_text(tree: &XmlTree, run: NodeId) -> String {
+    let mut out = String::new();
+    for child in tree.child_elements(run) {
+        if tree.ns_uri(child) != Some(W) {
+            continue;
+        }
+        match tree.local_name(child).unwrap_or("") {
+            "t" => out.push_str(&leading_text(tree, child)),
+            "tab" | "ptab" => out.push('\t'),
+            "cr" => out.push('\n'),
+            "br" => {
+                if w_attr(tree, child, "type").unwrap_or("textWrapping") == "textWrapping" {
+                    out.push('\n');
+                }
+            }
+            "noBreakHyphen" => out.push('-'),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// python-docx `CT_P.text`: the direct runs' and hyperlink runs' text.
+pub fn paragraph_text(tree: &XmlTree, paragraph: NodeId) -> String {
+    let mut out = String::new();
+    for child in tree.child_elements(paragraph) {
+        if is_w(tree, child, "r") {
+            out.push_str(&run_text(tree, child));
+        } else if is_w(tree, child, "hyperlink") {
+            for run in w_children(tree, child, "r") {
+                out.push_str(&run_text(tree, run));
+            }
         }
     }
     out

@@ -275,6 +275,21 @@ pub(crate) fn fld_char_run(
     Ok(run)
 }
 
+/// A detached run holding `instruction` as `w:instrText`, spaces preserved.
+pub(crate) fn instr_text_run(
+    tree: &mut XmlTree,
+    scope: NodeId,
+    instruction: &str,
+) -> Result<NodeId> {
+    let run = w_el(tree, scope, "r")?;
+    let instr = w_el(tree, run, "instrText")?;
+    tree.set_attr(instr, Some(XML_NS), "space", "preserve")?;
+    let text = tree.create_text(instruction);
+    tree.insert(instr, 0, text)?;
+    append(tree, run, instr)?;
+    Ok(run)
+}
+
 /// Insert a TOC complex field in a new paragraph after `anchor` (main body
 /// only), marked dirty; `levels` maps to `\o "low-high"`.
 pub fn insert_toc_after(
@@ -309,12 +324,11 @@ pub fn insert_toc_after(
     let scope = located.element;
     let paragraph = w_el(tree, scope, "p")?;
     let begin = fld_char_run(tree, paragraph, "begin", true)?;
-    let instr_run = w_el(tree, paragraph, "r")?;
-    let instr = w_el(tree, instr_run, "instrText")?;
-    tree.set_attr(instr, Some(XML_NS), "space", "preserve")?;
-    let text = tree.create_text(format!(" TOC \\o \"{low}-{high}\" \\h \\z \\u "));
-    tree.insert(instr, 0, text)?;
-    append(tree, instr_run, instr)?;
+    let instr_run = instr_text_run(
+        tree,
+        paragraph,
+        &format!(" TOC \\o \"{low}-{high}\" \\h \\z \\u "),
+    )?;
     let separate = fld_char_run(tree, paragraph, "separate", false)?;
     let placeholder = w_el(tree, paragraph, "r")?;
     add_t(

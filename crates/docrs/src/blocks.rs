@@ -29,7 +29,7 @@ use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_writable_text;
 use crate::story::{self, count_fldchar_delta, iter_block_elements};
 use crate::txn::Txn;
-use crate::wml::{W, is_w, iter_nodes, leading_text, w_attr, w_child, w_children};
+use crate::wml::{W, is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
@@ -224,9 +224,26 @@ fn refuse_cell_anchor(tree: &XmlTree, paragraph: NodeId) -> Result<()> {
     Ok(())
 }
 
-/// Upstream `_field_open_flags` for a paragraph: complex-field state before
-/// and after the block containing it.
-fn field_open_flags(tree: &XmlTree, story: &str, element: NodeId) -> Result<(bool, bool)> {
+/// Upstream `_field_open_flags`: complex-field state before and after the
+/// block containing `element` (a top-level content control is measured
+/// among the body children).
+pub(crate) fn field_open_flags(
+    tree: &XmlTree,
+    story: &str,
+    element: NodeId,
+) -> Result<(bool, bool)> {
+    if let Some(body) = w_child(tree, tree.root(), "body")
+        && is_w(tree, element, "sdt")
+        && tree.parent(element) == Some(body)
+    {
+        let mut depth = 0i64;
+        for child in node_children(tree, body) {
+            if child == element {
+                return Ok((depth > 0, depth + count_fldchar_delta(tree, element) > 0));
+            }
+            depth = (depth + count_fldchar_delta(tree, child)).max(0);
+        }
+    }
     let mut depth = 0i64;
     for block in iter_block_elements(tree, story)? {
         let contains = block.element == element

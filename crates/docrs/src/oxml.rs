@@ -10,7 +10,7 @@
 use crate::Result;
 use crate::unicode::py_strip;
 use crate::wml::{W, w_child};
-use crate::xml::{NodeData, NodeId, XML_NS, XmlTree};
+use crate::xml::{NodeId, XML_NS, XmlTree};
 
 /// `CT_PPr` child order.
 pub const PPR_SEQ: &[&str] = &[
@@ -127,8 +127,19 @@ pub fn insert_before_successors(
     child: NodeId,
     successors: &[&str],
 ) -> Result<()> {
+    insert_before_successors_in(tree, parent, child, W, successors)
+}
+
+/// [`insert_before_successors`] for children in the namespace `ns`.
+pub fn insert_before_successors_in(
+    tree: &mut XmlTree,
+    parent: NodeId,
+    child: NodeId,
+    ns: &str,
+    successors: &[&str],
+) -> Result<()> {
     let position = tree.children(parent).iter().position(|existing| {
-        tree.ns_uri(*existing) == Some(W)
+        tree.ns_uri(*existing) == Some(ns)
             && tree
                 .local_name(*existing)
                 .is_some_and(|local| successors.contains(&local))
@@ -215,24 +226,6 @@ pub fn add_t(tree: &mut XmlTree, run: NodeId, text: &str) -> Result<NodeId> {
     Ok(t)
 }
 
-/// A detached `w:p` with one run holding `text` and optional style
-/// (upstream `blocks._new_paragraph`).
-pub fn new_paragraph(
-    tree: &mut XmlTree,
-    scope: NodeId,
-    text: &str,
-    style_id: Option<&str>,
-) -> Result<NodeId> {
-    let paragraph = w_el(tree, scope, "p")?;
-    if let Some(style) = style_id {
-        set_paragraph_style(tree, paragraph, Some(style))?;
-    }
-    let run = w_el(tree, paragraph, "r")?;
-    add_t(tree, run, text)?;
-    append(tree, paragraph, run)?;
-    Ok(paragraph)
-}
-
 /// EMU → twips with Python's `round` (banker's rounding).
 pub fn emu_to_twips(emu: i64) -> i64 {
     let value = emu as f64 / 635.0;
@@ -315,11 +308,6 @@ pub fn new_table(
         }
     }
     Ok(tbl)
-}
-
-/// True for element nodes in the `w:` namespace named `local`.
-pub fn is_w_element(tree: &XmlTree, id: NodeId, local: &str) -> bool {
-    matches!(tree.data(id), NodeData::Element(_)) && tree.is(id, W, local)
 }
 
 #[cfg(test)]

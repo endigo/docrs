@@ -11,6 +11,7 @@ pub use decode::SourceEncoding;
 pub use equiv::trees_equivalent;
 pub use parse::parse;
 pub use tree::{Attr, Element, NodeData, NodeId, NsDecl, NsId, QName, XmlDecl, XmlTree};
+pub(crate) use write::escape_attr_to_string;
 pub use write::{serialize, serialize_node};
 
 use crate::Error;
