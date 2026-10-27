@@ -10,7 +10,8 @@
 use serde::Serialize;
 
 use crate::package::rels::rt;
-use crate::wml::{w_attr, w_child};
+use crate::sections::insert_settings_child;
+use crate::wml::{W, w_attr, w_child};
 use crate::{Document, Error, RefusalKind, Result};
 
 /// Kind of edit being attempted.
@@ -123,18 +124,11 @@ pub fn refuse_if_protected(
     if document.protection_acknowledged() {
         return Ok(());
     }
-    let Some(declared) = declared(document)? else {
-        return Ok(());
-    };
-    let unrestricted_edit = matches!(declared.edit.as_deref(), None | Some("none"));
-    if (unrestricted_edit && !declared.formatting) || !declared.enforcement {
+    let status = status(document)?;
+    if !status.blocks_paper_edits() {
         return Ok(());
     }
-    let mode = if unrestricted_edit {
-        None
-    } else {
-        declared.edit.as_deref()
-    };
+    let mode = status.edit.as_deref().filter(|edit| *edit != "none");
     if permits(mode, class) {
         return Ok(());
     }
@@ -158,82 +152,6 @@ pub fn refuse_if_protected(
 /// `w:edit` tokens [`set_protection`] accepts.
 pub const EDIT_MODES: &[&str] = &["readOnly", "comments", "trackedChanges", "forms"];
 
-/// Elements that follow `w:documentProtection` in `CT_Settings`
-/// (upstream `_DOCUMENT_PROTECTION_SUCCESSORS`), as `(namespace, local)`.
-const DOCUMENT_PROTECTION_SUCCESSORS: &[(&str, &str)] = &[
-    (W_NS, "autoFormatOverride"),
-    (W_NS, "styleLockTheme"),
-    (W_NS, "styleLockQFSet"),
-    (W_NS, "defaultTabStop"),
-    (W_NS, "autoHyphenation"),
-    (W_NS, "consecutiveHyphenLimit"),
-    (W_NS, "hyphenationZone"),
-    (W_NS, "doNotHyphenateCaps"),
-    (W_NS, "showEnvelope"),
-    (W_NS, "summaryLength"),
-    (W_NS, "clickAndTypeStyle"),
-    (W_NS, "defaultTableStyle"),
-    (W_NS, "evenAndOddHeaders"),
-    (W_NS, "bookFoldRevPrinting"),
-    (W_NS, "bookFoldPrinting"),
-    (W_NS, "bookFoldPrintingSheets"),
-    (W_NS, "drawingGridHorizontalSpacing"),
-    (W_NS, "drawingGridVerticalSpacing"),
-    (W_NS, "displayHorizontalDrawingGridEvery"),
-    (W_NS, "displayVerticalDrawingGridEvery"),
-    (W_NS, "doNotUseMarginsForDrawingGridOrigin"),
-    (W_NS, "drawingGridHorizontalOrigin"),
-    (W_NS, "drawingGridVerticalOrigin"),
-    (W_NS, "doNotShadeFormData"),
-    (W_NS, "noPunctuationKerning"),
-    (W_NS, "characterSpacingControl"),
-    (W_NS, "printTwoOnOne"),
-    (W_NS, "strictFirstAndLastChars"),
-    (W_NS, "noLineBreaksAfter"),
-    (W_NS, "noLineBreaksBefore"),
-    (W_NS, "savePreviewPicture"),
-    (W_NS, "doNotValidateAgainstSchema"),
-    (W_NS, "saveInvalidXml"),
-    (W_NS, "ignoreMixedContent"),
-    (W_NS, "alwaysShowPlaceholderText"),
-    (W_NS, "doNotDemarcateInvalidXml"),
-    (W_NS, "saveXmlDataOnly"),
-    (W_NS, "useXSLTWhenSaving"),
-    (W_NS, "saveThroughXslt"),
-    (W_NS, "showXMLTags"),
-    (W_NS, "alwaysMergeEmptyNamespace"),
-    (W_NS, "updateFields"),
-    (W_NS, "hdrShapeDefaults"),
-    (W_NS, "footnotePr"),
-    (W_NS, "endnotePr"),
-    (W_NS, "compat"),
-    (W_NS, "docVars"),
-    (W_NS, "rsids"),
-    (
-        "http://schemas.openxmlformats.org/officeDocument/2006/math",
-        "mathPr",
-    ),
-    (W_NS, "attachedSchema"),
-    (W_NS, "themeFontLang"),
-    (W_NS, "clrSchemeMapping"),
-    (W_NS, "doNotIncludeSubdocsInStats"),
-    (W_NS, "doNotAutoCompressPictures"),
-    (W_NS, "forceUpgrade"),
-    (W_NS, "captions"),
-    (W_NS, "readModeInkLockDown"),
-    (W_NS, "smartTagType"),
-    (
-        "http://schemas.openxmlformats.org/schemaLibrary/2006/main",
-        "schemaLibrary",
-    ),
-    (W_NS, "shapeDefaults"),
-    (W_NS, "doNotEmbedSmartTags"),
-    (W_NS, "decimalSymbol"),
-    (W_NS, "listSeparator"),
-];
-
-const W_NS: &str = crate::wml::W;
-
 /// Turn Restrict Editing on (upstream `set_protection`): writes
 /// `w:documentProtection` with `w:edit` and `w:enforcement="1"` (creating
 /// the settings part if needed) and clears any acknowledgment. Never strips
@@ -252,19 +170,13 @@ pub fn set_protection(document: &mut Document, edit: &str) -> Result<ProtectionS
     let element = match w_child(tree, root, "documentProtection") {
         Some(existing) => existing,
         None => {
-            let element = tree.create_element(root, W_NS, "documentProtection")?;
-            let position = tree.children(root).iter().position(|child| {
-                DOCUMENT_PROTECTION_SUCCESSORS
-                    .iter()
-                    .any(|(ns, local)| tree.is(*child, ns, local))
-            });
-            let index = position.unwrap_or(tree.children(root).len());
-            tree.insert(root, index, element)?;
+            let element = tree.create_element(root, W, "documentProtection")?;
+            insert_settings_child(tree, root, element, "documentProtection")?;
             element
         }
     };
-    tree.set_attr(element, Some(W_NS), "edit", edit)?;
-    tree.set_attr(element, Some(W_NS), "enforcement", "1")?;
+    tree.set_attr(element, Some(W), "edit", edit)?;
+    tree.set_attr(element, Some(W), "enforcement", "1")?;
     let staged = txn.finish()?;
     document.commit(staged)?;
     document.set_protection_acknowledged(false);

@@ -14,15 +14,9 @@ use crate::replace::validate_fresh;
 use crate::search::Span;
 use crate::txn::{RelTarget, Txn};
 use crate::unicode::is_py_space;
-use crate::wml::{W, is_w, leading_text, node_children, set_leading_text, w_attr, w_child};
+use crate::wml::{R, W, is_w, node_children, run_text, set_leading_text, w_attr, w_child};
 use crate::xml::{NodeId, XML_NS, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
-
-const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
 
 fn boundary(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::BoundaryViolation, reason, message)
@@ -250,29 +244,6 @@ impl Hyperlink {
     }
 }
 
-/// python-docx `CT_R.text`.
-fn run_text(tree: &XmlTree, run: NodeId) -> String {
-    let mut out = String::new();
-    for child in tree.child_elements(run) {
-        if tree.ns_uri(child) != Some(W) {
-            continue;
-        }
-        match tree.local_name(child).unwrap_or("") {
-            "t" => out.push_str(&leading_text(tree, child)),
-            "tab" | "ptab" => out.push('\t'),
-            "cr" => out.push('\n'),
-            "br" => {
-                if w_attr(tree, child, "type").unwrap_or("textWrapping") == "textWrapping" {
-                    out.push('\n');
-                }
-            }
-            "noBreakHyphen" => out.push('-'),
-            _ => {}
-        }
-    }
-    out
-}
-
 fn has_style_named(tree: &XmlTree, name: &str) -> bool {
     tree.child_elements(tree.root())
         .filter(|style| is_w(tree, *style, "style"))
@@ -338,7 +309,7 @@ pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Res
     refuse_if_protected(doc, "add a hyperlink", OperationClass::BodyContent)?;
     validate_span_fresh(doc, span)?;
     if span.in_field {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "span_in_field_result",
             "the span lies inside a field result; Word regenerates field results on update, so the hyperlink would silently vanish",
         ));
@@ -374,7 +345,7 @@ pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Res
                 break;
             }
             if is_w(tree, ancestor, "hyperlink") {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "already_hyperlinked",
                     "span is already inside a hyperlink; retarget it with Hyperlink.address. Nothing was changed",
                 ));
@@ -388,7 +359,7 @@ pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Res
             match sibling {
                 Some(node) if runs.contains(&node) => sibling = next_sibling(tree, node),
                 _ => {
-                    return Err(unsupported(
+                    return Err(Error::unsupported(
                         "intervening_markup",
                         "cannot wrap a hyperlink around intervening markup; nothing was changed",
                     ));
@@ -397,7 +368,7 @@ pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Res
         }
     }
     let story_part = txn.resolve(&span.part).ok_or_else(|| {
-        unsupported(
+        Error::unsupported(
             "story_without_part",
             format!(
                 "span story {} has no package part; nothing was changed",
@@ -431,7 +402,7 @@ pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Res
     }
     // Attributes last: declaring `r` on the new element before the runs
     // move in would change their namespace scope.
-    tree.set_attr(hyperlink, Some(R_NS), "id", &r_id)?;
+    tree.set_attr(hyperlink, Some(R), "id", &r_id)?;
     tree.set_attr(hyperlink, Some(W), "history", "1")?;
     let text: String = tree
         .child_elements(hyperlink)

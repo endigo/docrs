@@ -30,14 +30,12 @@ use crate::package::ct;
 use crate::package::rels::{base_uri, rels_member_for, rt};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::txn::{RelTarget, Txn};
-use crate::wml::{W, w_attr, w_child, w_children};
+use crate::wml::{M, R, W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
 const DEFAULT_HEADER: &[u8] = include_bytes!("../assets/default-header.xml");
 const DEFAULT_FOOTER: &[u8] = include_bytes!("../assets/default-footer.xml");
-
-const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /// Page orientation (`WD_ORIENTATION`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -102,7 +100,7 @@ pub enum HeaderFooterRole {
 }
 
 impl HeaderFooterRole {
-    fn reference(self) -> &'static str {
+    pub(crate) fn reference(self) -> &'static str {
         match self {
             HeaderFooterRole::Header => "headerReference",
             HeaderFooterRole::Footer => "footerReference",
@@ -252,7 +250,7 @@ fn read_setup(tree: &XmlTree, sect: NodeId) -> Result<SectionSetup> {
 }
 
 /// `./w:{role}Reference[@w:type='{kind}']` (first match).
-fn reference(
+pub(crate) fn reference(
     tree: &XmlTree,
     sect: NodeId,
     role: HeaderFooterRole,
@@ -369,7 +367,7 @@ fn add_reference(
 }
 
 /// `DocumentPart.add_header_part()` / `add_footer_part()` + reference.
-fn add_definition(
+pub(crate) fn add_definition(
     txn: &mut Txn<'_>,
     sect: NodeId,
     role: HeaderFooterRole,
@@ -495,7 +493,7 @@ impl Document {
                 Some(existing) => existing,
                 None => {
                     let element = tree.create_element(root, W, "evenAndOddHeaders")?;
-                    insert_settings_child(tree, root, element)?;
+                    insert_settings_child(tree, root, element, "evenAndOddHeaders")?;
                     element
                 }
             };
@@ -508,9 +506,23 @@ impl Document {
     }
 }
 
-/// `CT_Settings` successors of `w:evenAndOddHeaders` (with their
+/// `CT_Settings` child order from `w:documentProtection` on (with
 /// namespaces; `m:mathPr` and `sl:schemaLibrary` are not `w:`).
-const SETTINGS_SUCCESSORS: &[(&str, &str)] = &[
+pub(crate) const SETTINGS_SEQ: &[(&str, &str)] = &[
+    (W, "documentProtection"),
+    (W, "autoFormatOverride"),
+    (W, "styleLockTheme"),
+    (W, "styleLockQFSet"),
+    (W, "defaultTabStop"),
+    (W, "autoHyphenation"),
+    (W, "consecutiveHyphenLimit"),
+    (W, "hyphenationZone"),
+    (W, "doNotHyphenateCaps"),
+    (W, "showEnvelope"),
+    (W, "summaryLength"),
+    (W, "clickAndTypeStyle"),
+    (W, "defaultTableStyle"),
+    (W, "evenAndOddHeaders"),
     (W, "bookFoldRevPrinting"),
     (W, "bookFoldPrinting"),
     (W, "bookFoldPrintingSheets"),
@@ -546,10 +558,7 @@ const SETTINGS_SUCCESSORS: &[(&str, &str)] = &[
     (W, "compat"),
     (W, "docVars"),
     (W, "rsids"),
-    (
-        "http://schemas.openxmlformats.org/officeDocument/2006/math",
-        "mathPr",
-    ),
+    (M, "mathPr"),
     (W, "attachedSchema"),
     (W, "themeFontLang"),
     (W, "clrSchemeMapping"),
@@ -569,9 +578,20 @@ const SETTINGS_SUCCESSORS: &[(&str, &str)] = &[
     (W, "listSeparator"),
 ];
 
-fn insert_settings_child(tree: &mut XmlTree, root: NodeId, element: NodeId) -> Result<()> {
+/// Insert the new `w:local` settings child `element` before the first child
+/// that follows it in [`SETTINGS_SEQ`], else last.
+pub(crate) fn insert_settings_child(
+    tree: &mut XmlTree,
+    root: NodeId,
+    element: NodeId,
+    local: &str,
+) -> Result<()> {
+    let successors = match SETTINGS_SEQ.iter().position(|(_, name)| *name == local) {
+        Some(position) => &SETTINGS_SEQ[position + 1..],
+        None => &[],
+    };
     let index = tree.children(root).iter().position(|node| {
-        SETTINGS_SUCCESSORS
+        successors
             .iter()
             .any(|(ns, local)| tree.is(*node, ns, local))
     });

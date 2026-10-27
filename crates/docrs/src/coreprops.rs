@@ -19,7 +19,6 @@
 //! the package root.
 
 use crate::clock::Timestamp;
-use crate::package::content_types::CT_NS;
 use crate::package::ct;
 use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
@@ -597,22 +596,7 @@ pub(crate) fn ensure_part(txn: &mut Txn<'_>, now: Option<Timestamp>) -> Result<S
     // A stale `Override` for the missing part (Word leaves them behind)
     // would become ambiguous next to the new one; python-docx rewrites the
     // content types from the parts it holds, so it keeps exactly one.
-    {
-        let types = txn.tree_mut("[Content_Types].xml")?;
-        let root = types.root();
-        let stale: Vec<NodeId> = types
-            .child_elements(root)
-            .filter(|node| types.is(*node, CT_NS, "Override"))
-            .filter(|node| {
-                types
-                    .attr(*node, None, "PartName")
-                    .is_some_and(|name| name.eq_ignore_ascii_case(&format!("/{PART_NAME}")))
-            })
-            .collect();
-        for node in stale {
-            types.detach(node)?;
-        }
-    }
+    txn.drop_content_type_override(PART_NAME)?;
     let tree = default_part(now.unwrap_or_else(Timestamp::now))?;
     txn.add_xml_part(PART_NAME, ct::OPC_CORE_PROPERTIES, tree)?;
     txn.relate_to("/", rt::CORE_PROPERTIES, RelTarget::Part(PART_NAME))?;

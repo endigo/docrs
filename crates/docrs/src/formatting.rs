@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::Serialize;
 
 use crate::anchor::{self, BlockTarget};
+use crate::links::require_span_owner;
 use crate::replace::validate_fresh;
 use crate::styles::{default_styles_tree, internal_to_ui, py_int, styles_index, styles_part};
 use crate::wml::{W, w_attr, w_child};
@@ -507,17 +508,6 @@ fn finish(properties: BTreeMap<String, ResolvedValue>) -> EffectiveFormat {
 fn enclosing_paragraph(tree: &XmlTree, node: NodeId) -> Option<NodeId> {
     tree.ancestors(node)
         .find(|ancestor| tree.is(*ancestor, W, "p"))
-}
-
-fn require_span_owner(document: &Document, span: &Span) -> Result<()> {
-    if span.document_id() != document.id() {
-        return Err(Error::refusal(
-            RefusalKind::BoundaryViolation,
-            "foreign_span",
-            "span belongs to a different document; re-find the text in the document passed to this operation",
-        ));
-    }
-    Ok(())
 }
 
 fn with_styles<T>(

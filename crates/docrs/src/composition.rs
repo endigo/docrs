@@ -14,7 +14,9 @@
 //! writes go to one [`Txn`] committed as the last step, so a refusal leaves
 //! the destination unchanged. The source is only read (`&Document`).
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 
 use serde::Serialize;
 
@@ -25,25 +27,21 @@ use crate::fields::fieldcode;
 use crate::image::Image;
 use crate::numbering::{add_next, add_previous};
 use crate::oxml::{append, set_w, w_el};
-use crate::package::ct;
-use crate::package::rels::{Relationship, base_uri, rt};
+use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::protection::{OperationClass, refuse_if_protected};
+use crate::sections::{HeaderFooterRole, HeaderFooterType, add_definition, insert_settings_child};
 use crate::story;
 use crate::txn::{RelTarget, Txn};
 use crate::unicode::casefold;
 use crate::wml::{
-    A, W, iter_nodes, leading_text, node_children, set_leading_text, w_attr, w_child,
+    A, R, W, iter_nodes, leading_text, node_children, set_leading_text, w_attr, w_child,
 };
 use crate::xml::{NodeData, NodeId, XmlTree};
-use crate::{Document, Error, RefusalKind, Result};
+use crate::{Document, Error, Result};
 
-const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const VML_NS: &str = "urn:schemas-microsoft-com:vml";
 const OFFICE_NS: &str = "urn:schemas-microsoft-com:office:office";
 const MAIN_STORY: &str = "word/document.xml";
-
-const DEFAULT_HEADER: &[u8] = include_bytes!("../assets/default-header.xml");
-const DEFAULT_FOOTER: &[u8] = include_bytes!("../assets/default-footer.xml");
 
 const BODY_BLOCK_TAGS: &[&str] = &["p", "tbl", "sdt"];
 const STYLE_REF_TAGS: &[&str] = &["pStyle", "rStyle", "tblStyle"];
@@ -80,98 +78,6 @@ const MARKUP_SCAN_TAGS: &[&str] = &[
     "customXmlMoveFromRangeEnd",
     "customXmlMoveToRangeEnd",
 ];
-
-/// `CT_SectPr` successors of `w:headerReference` / `w:footerReference`.
-const SECT_PR_SUCCESSORS: &[&str] = &[
-    "footnotePr",
-    "endnotePr",
-    "type",
-    "pgSz",
-    "pgMar",
-    "paperSrc",
-    "pgBorders",
-    "lnNumType",
-    "pgNumType",
-    "cols",
-    "formProt",
-    "vAlign",
-    "noEndnote",
-    "titlePg",
-    "textDirection",
-    "bidi",
-    "rtlGutter",
-    "docGrid",
-    "printerSettings",
-    "sectPrChange",
-];
-
-/// `CT_Settings` successors of `w:evenAndOddHeaders`.
-const EVEN_ODD_SUCCESSORS: &[(&str, &str)] = &[
-    (W, "bookFoldRevPrinting"),
-    (W, "bookFoldPrinting"),
-    (W, "bookFoldPrintingSheets"),
-    (W, "drawingGridHorizontalSpacing"),
-    (W, "drawingGridVerticalSpacing"),
-    (W, "displayHorizontalDrawingGridEvery"),
-    (W, "displayVerticalDrawingGridEvery"),
-    (W, "doNotUseMarginsForDrawingGridOrigin"),
-    (W, "drawingGridHorizontalOrigin"),
-    (W, "drawingGridVerticalOrigin"),
-    (W, "doNotShadeFormData"),
-    (W, "noPunctuationKerning"),
-    (W, "characterSpacingControl"),
-    (W, "printTwoOnOne"),
-    (W, "strictFirstAndLastChars"),
-    (W, "noLineBreaksAfter"),
-    (W, "noLineBreaksBefore"),
-    (W, "savePreviewPicture"),
-    (W, "doNotValidateAgainstSchema"),
-    (W, "saveInvalidXml"),
-    (W, "ignoreMixedContent"),
-    (W, "alwaysShowPlaceholderText"),
-    (W, "doNotDemarcateInvalidXml"),
-    (W, "saveXmlDataOnly"),
-    (W, "useXSLTWhenSaving"),
-    (W, "saveThroughXslt"),
-    (W, "showXMLTags"),
-    (W, "alwaysMergeEmptyNamespace"),
-    (W, "updateFields"),
-    (W, "hdrShapeDefaults"),
-    (W, "footnotePr"),
-    (W, "endnotePr"),
-    (W, "compat"),
-    (W, "docVars"),
-    (W, "rsids"),
-    (
-        "http://schemas.openxmlformats.org/officeDocument/2006/math",
-        "mathPr",
-    ),
-    (W, "attachedSchema"),
-    (W, "themeFontLang"),
-    (W, "clrSchemeMapping"),
-    (W, "doNotIncludeSubdocsInStats"),
-    (W, "doNotAutoCompressPictures"),
-    (W, "forceUpgrade"),
-    (W, "captions"),
-    (W, "readModeInkLockDown"),
-    (W, "smartTagType"),
-    (
-        "http://schemas.openxmlformats.org/schemaLibrary/2006/main",
-        "schemaLibrary",
-    ),
-    (W, "shapeDefaults"),
-    (W, "doNotEmbedSmartTags"),
-    (W, "decimalSymbol"),
-    (W, "listSeparator"),
-];
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
-fn not_found(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::TargetNotFound, reason, message)
-}
 
 /// Python `repr()` of a string (quote choice and escapes of control
 /// characters), used in finding details that upstream formats with `!r`.
@@ -519,6 +425,8 @@ struct Source<'s> {
     /// python-docx's default styles, read when the source has no styles
     /// part (upstream would create that part on the source).
     default_styles: Option<XmlTree>,
+    /// Relationships by source part, parsed once.
+    rels: RefCell<HashMap<String, Rc<Vec<Relationship>>>>,
 }
 
 impl<'s> Source<'s> {
@@ -534,6 +442,7 @@ impl<'s> Source<'s> {
             main,
             styles_part,
             default_styles,
+            rels: RefCell::new(HashMap::new()),
         })
     }
 
@@ -549,13 +458,23 @@ impl<'s> Source<'s> {
         }
     }
 
-    fn rels(&self, part: &str) -> Result<Vec<Relationship>> {
-        self.doc.package().relationships_at(&format!("/{part}"))
+    fn rels(&self, part: &str) -> Result<Rc<Vec<Relationship>>> {
+        if let Some(rels) = self.rels.borrow().get(part) {
+            return Ok(Rc::clone(rels));
+        }
+        let rels = Rc::new(
+            self.doc
+                .package()
+                .relationships_at(&source_part_name(part))?,
+        );
+        self.rels
+            .borrow_mut()
+            .insert(part.to_string(), Rc::clone(&rels));
+        Ok(rels)
     }
 
     fn target_member(&self, part: &str, rel: &Relationship) -> Option<String> {
-        let source_name = format!("/{part}");
-        let target = rel.target_part_name(base_uri(&source_name));
+        let target = rel.target_part_name(base_uri(&source_part_name(part)));
         self.doc
             .package()
             .resolve_member(&target)
@@ -570,7 +489,7 @@ fn rel_by_id<'r>(rels: &'r [Relationship], r_id: &str) -> Option<&'r Relationshi
 
 fn body_of(tree: &XmlTree) -> Result<NodeId> {
     w_child(tree, tree.root(), "body")
-        .ok_or_else(|| unsupported("no_body", "the main document part has no w:body"))
+        .ok_or_else(|| Error::unsupported("no_body", "the main document part has no w:body"))
 }
 
 /// Body children lxml iterates (elements, comments, PIs), `w:sectPr`
@@ -620,7 +539,7 @@ fn refused_reason(tree: &XmlTree, node: NodeId) -> Option<&'static str> {
 /// Upstream `_refuse_unsupported_content`.
 fn refuse_unsupported_content(tree: &XmlTree, elements: &[NodeId]) -> Result<()> {
     let refuse = |reason: &str| {
-        unsupported(
+        Error::unsupported(
             "unsupported_content",
             format!(
                 "the source range contains {reason}; composition cannot carry it (a declared limit)"
@@ -645,7 +564,7 @@ fn refuse_unsupported_content(tree: &XmlTree, elements: &[NodeId]) -> Result<()>
         }
         for node in iter_nodes(tree, element) {
             if is_w_any(tree, node, MARKUP_SCAN_TAGS) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "tracked_revision_markup",
                     "the source range carries tracked-revision markup; accept or reject the source revisions \
                      first, then compose",
@@ -669,7 +588,7 @@ fn refuse_malformed_numeric_ids(roots: &[(&XmlTree, NodeId)]) -> Result<()> {
             let raw = w_attr(tree, marker, "id");
             let value = raw.and_then(py_int).unwrap_or(-1);
             if value < 0 {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "malformed_bookmark_id",
                     format!(
                         "composition found a bookmark marker with a missing or non-numeric w:id {}; nothing was \
@@ -685,7 +604,7 @@ fn refuse_malformed_numeric_ids(roots: &[(&XmlTree, NodeId)]) -> Result<()> {
                 continue;
             };
             if py_int(raw).unwrap_or(-1) < 0 {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "malformed_control_id",
                     format!(
                         "composition found a content control with a non-numeric w:id {}; nothing was changed",
@@ -770,7 +689,7 @@ fn preflight_bookmark_references(
         })
         .collect();
     if !ambiguous.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "ambiguous_source_bookmarks",
             format!("source bookmark names are case-ambiguous: {ambiguous:?}; nothing was changed"),
         ));
@@ -797,7 +716,7 @@ fn preflight_bookmark_references(
     let validate = |instruction: &str| -> Result<()> {
         for operand in fieldcode::bookmark_operands(instruction, &known)? {
             if !copied.contains(&casefold(&operand.value)) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "bookmark_reference_outside_range",
                     format!(
                         "the source range references bookmark {}, but its definition is outside the copied range. \
@@ -820,7 +739,7 @@ fn preflight_bookmark_references(
             if let Some(anchor) = w_attr(tree, hyperlink, "anchor").filter(|a| !a.is_empty())
                 && !copied.contains(&casefold(anchor))
             {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "bookmark_link_outside_range",
                     format!(
                         "the source range links to bookmark {}, but its definition is outside the copied range. \
@@ -847,7 +766,7 @@ fn refuse_relationship(
         Some(_) if expected == Some("linked image") => "linked image".to_string(),
         Some(rel) => rel.rel_type.rsplit('/').next().unwrap_or("").to_string(),
     };
-    unsupported(
+    Error::unsupported(
         "unsupported_relationship",
         format!(
             "the source range contains an unsupported {kind} relationship ({}@{attribute}={}); composition cannot \
@@ -875,12 +794,12 @@ fn preflight_relationships(
             for attr in &data.attrs {
                 let ns = attr.ns.map(|ns| tree.uri(ns));
                 let local = &*attr.name.local;
-                if !(ns == Some(R_NS) || (ns == Some(OFFICE_NS) && local == "relid")) {
+                if !(ns == Some(R) || (ns == Some(OFFICE_NS) && local == "relid")) {
                     continue;
                 }
                 let r_id = attr.value.as_str();
                 let rel = rel_by_id(&rels, r_id);
-                let is_r = ns == Some(R_NS);
+                let is_r = ns == Some(R);
                 let image_ok = || rel.is_some_and(|rel| rel.rel_type == rt::IMAGE && !rel.external);
                 if tree.is(node, A, "blip") && is_r && local == "embed" {
                     if image_ok() {
@@ -929,14 +848,21 @@ fn preflight_relationships(
     Ok(())
 }
 
-fn image_nodes(tree: &XmlTree, elements: &[NodeId]) -> Vec<(NodeId, &'static str)> {
+/// `(node, attribute, rId)` of every image reference under `elements`
+/// that names a relationship.
+fn image_references(tree: &XmlTree, elements: &[NodeId]) -> Vec<(NodeId, &'static str, String)> {
     let mut out = Vec::new();
     for &element in elements {
         for node in tree.descendants(element) {
-            if tree.is(node, A, "blip") {
-                out.push((node, "embed"));
+            let attr = if tree.is(node, A, "blip") {
+                "embed"
             } else if tree.is(node, VML_NS, "imagedata") {
-                out.push((node, "id"));
+                "id"
+            } else {
+                continue;
+            };
+            if let Some(r_id) = tree.attr(node, Some(R), attr).filter(|v| !v.is_empty()) {
+                out.push((node, attr, r_id.to_string()));
             }
         }
     }
@@ -944,7 +870,7 @@ fn image_nodes(tree: &XmlTree, elements: &[NodeId]) -> Vec<(NodeId, &'static str
 }
 
 fn image_relationship_changed(r_id: &str) -> Error {
-    unsupported(
+    Error::unsupported(
         "image_relationship_changed",
         format!(
             "image relationship {} changed after composition preflight. Nothing was changed",
@@ -962,18 +888,16 @@ fn refuse_unloadable_media(
     elements: &[NodeId],
 ) -> Result<()> {
     let rels = source.rels(part)?;
-    for (node, attr) in image_nodes(tree, elements) {
-        let Some(r_id) = tree.attr(node, Some(R_NS), attr).filter(|v| !v.is_empty()) else {
-            continue;
-        };
+    for (_, _, r_id) in image_references(tree, elements) {
+        let r_id = r_id.as_str();
         let rel = rel_by_id(&rels, r_id).filter(|rel| !rel.external);
         let Some(rel) = rel else {
             return Err(image_relationship_changed(r_id));
         };
         let blob = image_blob(source, part, rel).ok_or_else(|| image_relationship_changed(r_id))?;
-        if let Err(err) = Image::from_blob(&blob) {
+        if let Err(err) = Image::from_vec(blob) {
             if err.reason() == "unrecognized_image" {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "unembeddable_image",
                     "the source range contains an image format this package cannot re-embed (e.g. EMF/WMF); \
                      convert or remove it first. Nothing was changed",
@@ -1089,7 +1013,7 @@ fn expand_style_chain(
                 }
                 _ => "the source content".to_string(),
             };
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "undefined_source_style",
                 format!(
                     "{owner} references undefined source style {}; nothing was changed",
@@ -1199,7 +1123,7 @@ struct NumberingPlan {
 fn parse_numbering_id(raw: Option<&str>, prefix: &str) -> Result<i64> {
     let value = raw.and_then(py_int).unwrap_or(-1);
     if value < 0 {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "malformed_numbering_id",
             format!(
                 "{prefix} missing or non-numeric id {}. Nothing was changed",
@@ -1247,7 +1171,7 @@ fn index_numbering_elements(
             &format!("{label} has a {element_name} with"),
         )?;
         if lookup_indexed(&indexed, value).is_some() {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "duplicate_numbering_id",
                 format!(
                     "{label} contains duplicate {element_name} id {value}. Nothing was changed"
@@ -1288,7 +1212,7 @@ fn validated_numbering_graph(tree: &XmlTree, label: &str) -> Result<NumberingGra
     for &(num_id, num) in &nums {
         let refs = w_direct(tree, num, "abstractNumId");
         if refs.len() != 1 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "malformed_numbering_reference",
                 format!(
                     "{label} w:num {num_id} must contain exactly one w:abstractNumId. Nothing was changed"
@@ -1300,7 +1224,7 @@ fn validated_numbering_graph(tree: &XmlTree, label: &str) -> Result<NumberingGra
             &format!("{label} w:num {num_id} has a w:abstractNumId with"),
         )?;
         if lookup_indexed(&abstracts, abstract_id).is_none() {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "missing_abstract_numbering",
                 format!(
                     "{label} w:num {num_id} references missing abstract numbering definition {abstract_id}. Nothing \
@@ -1317,7 +1241,7 @@ fn validated_numbering_graph(tree: &XmlTree, label: &str) -> Result<NumberingGra
                 &format!("{label} w:abstractNum {abstract_id} has a w:lvlPicBulletId with"),
             )?;
             if lookup_indexed(&pictures, picture_id).is_none() {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "missing_picture_bullet",
                     format!(
                         "{label} w:abstractNum {abstract_id} references missing picture-bullet definition \
@@ -1416,20 +1340,20 @@ impl<'d, 's> Composer<'d, 's> {
         refuse_malformed_numeric_ids(&roots)
     }
 
-    /// Upstream `_chained_source_definitions`.
+    /// Upstream `_chained_source_definitions`: the source style ids
+    /// `elements` reach, in chain order, with their definitions.
     fn chained_source_definitions(
         &self,
         tree: &XmlTree,
         elements: &[NodeId],
-    ) -> Result<Vec<NodeId>> {
+    ) -> Result<(Vec<String>, Vec<NodeId>)> {
         let styles = self.source.styles()?;
         let defs = style_definitions(styles);
         let mut referenced = referenced_style_ids(tree, elements);
         referenced.extend(styleref_style_ids(tree, elements, styles, &defs)?);
-        Ok(expand_style_chain(styles, &defs.by_id, &referenced)?
-            .into_iter()
-            .map(|id| defs.by_id[&id])
-            .collect())
+        let ids = expand_style_chain(styles, &defs.by_id, &referenced)?;
+        let definitions = ids.iter().map(|id| defs.by_id[id]).collect();
+        Ok((ids, definitions))
     }
 
     /// Upstream `_preflight_numbering`: validate both graphs and allocate
@@ -1445,14 +1369,14 @@ impl<'d, 's> Composer<'d, 's> {
             .package()
             .part_related_by(&self.source.main, rt::NUMBERING)?
             .ok_or_else(|| {
-                unsupported(
+                Error::unsupported(
                     "source_numbering_missing",
                     "the source content references numbering but the source document has no numbering part. \
                      Nothing was changed",
                 )
             })?;
         let destination_part = self.txn.part_related_by(&self.main(), rt::NUMBERING)?.ok_or_else(|| {
-            unsupported(
+            Error::unsupported(
                 "destination_numbering_missing",
                 "the destination document has no numbering part; create a list definition first \
                  (ensure_bullet_definition / ensure_decimal_definition)",
@@ -1479,7 +1403,7 @@ impl<'d, 's> Composer<'d, 's> {
         let mut remaps = Vec::new();
         for (offset, source_num_id) in (0i64..).zip(referenced) {
             let Some(source_num) = lookup_indexed(&source_graph.nums, source_num_id) else {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "undefined_source_numbering",
                     format!(
                         "source numbering id {source_num_id} has no w:num definition. Nothing was changed"
@@ -1500,7 +1424,7 @@ impl<'d, 's> Composer<'d, 's> {
                 .descendants(source_abstract)
                 .any(|node| is_w_any(source_tree, node, &["numStyleLink", "styleLink"]))
             {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "linked_numbering_style",
                     format!(
                         "source numbering id {source_num_id} depends on a linked numbering style that composition \
@@ -1509,7 +1433,7 @@ impl<'d, 's> Composer<'d, 's> {
                 ));
             }
             if !w_descendants(source_tree, source_abstract, "lvlPicBulletId").is_empty() {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "picture_bullet",
                     format!(
                         "source numbering id {source_num_id} uses a picture bullet; composition cannot carry its \
@@ -1544,12 +1468,14 @@ impl<'d, 's> Composer<'d, 's> {
             .collect()
     }
 
-    /// Upstream `_reconcile_styles`: returns the imported definitions (in the
-    /// destination styles part).
+    /// Upstream `_reconcile_styles` over the source style ids `wanted` (what
+    /// `chained_source_definitions` found for the copied elements): returns
+    /// the imported definitions (in the destination styles part).
     fn reconcile_styles(
         &mut self,
         part: &str,
         clones: &[NodeId],
+        wanted: &[String],
         mode: StylesMode,
     ) -> Result<(String, Vec<NodeId>)> {
         let styles_part = crate::parts::ensure_styles_part(&mut self.txn)?;
@@ -1558,20 +1484,11 @@ impl<'d, 's> Composer<'d, 's> {
         let (plan, renamed_now) = {
             let destination_tree = self.txn.tree(&styles_part)?;
             let destination_defs = style_definitions(destination_tree);
-            let clone_tree = self.txn.tree(part)?;
-            let mut referenced = referenced_style_ids(clone_tree, clones);
-            referenced.extend(styleref_style_ids(
-                clone_tree,
-                clones,
-                source_styles,
-                &source_defs,
-            )?);
-            let wanted = expand_style_chain(source_styles, &source_defs.by_id, &referenced)?;
             let mut style_map = OrderedMap::default();
             let mut to_import: Vec<(String, NodeId, Option<String>)> = Vec::new();
             let mut renamed = OrderedMap::default();
             let mut taken: HashSet<String> = destination_defs.by_id.keys().cloned().collect();
-            for style_id in &wanted {
+            for style_id in wanted {
                 if let Some(mapped) = self.progress.style_map.get(style_id) {
                     style_map.insert(style_id, mapped);
                     continue;
@@ -1581,7 +1498,7 @@ impl<'d, 's> Composer<'d, 's> {
                     None => style_id.clone(),
                     Some(name) => w_attr(source_styles, name, "val")
                         .ok_or_else(|| {
-                            unsupported(
+                            Error::unsupported(
                                 "style_name_without_value",
                                 format!(
                                     "source style {} has a w:name without w:val",
@@ -1603,7 +1520,7 @@ impl<'d, 's> Composer<'d, 's> {
                         w_attr(destination_tree, existing, "styleId")
                             .map(str::to_string)
                             .ok_or_else(|| {
-                                unsupported(
+                                Error::unsupported(
                                     "destination_style_without_id",
                                     format!(
                                         "destination style {} has no w:styleId",
@@ -1815,25 +1732,16 @@ impl<'d, 's> Composer<'d, 's> {
     /// image parts related from `part`.
     fn copy_media(&mut self, part: &str, source_part: &str, clones: &[NodeId]) -> Result<()> {
         let rels = self.source.rels(source_part)?;
-        let nodes = image_nodes(self.txn.tree(part)?, clones);
+        let references = image_references(self.txn.tree(part)?, clones);
         let mut rel_map: HashMap<String, String> = HashMap::new();
-        for (node, attr) in nodes {
-            let Some(r_id) = self
-                .txn
-                .tree(part)?
-                .attr(node, Some(R_NS), attr)
-                .filter(|v| !v.is_empty())
-                .map(str::to_string)
-            else {
-                continue;
-            };
+        for (node, attr, r_id) in references {
             if !rel_map.contains_key(&r_id) {
                 let rel = rel_by_id(&rels, &r_id)
                     .filter(|rel| !rel.external && rel.rel_type == rt::IMAGE)
                     .ok_or_else(|| image_relationship_changed(&r_id))?;
                 let blob = image_blob(&self.source, source_part, rel)
                     .ok_or_else(|| image_relationship_changed(&r_id))?;
-                let image = Image::from_blob(&blob)?;
+                let image = Image::from_vec(blob)?;
                 let image_part =
                     crate::authoring::get_or_add_image_part(&mut self.txn, &image, None)?.0;
                 let new_r_id = self
@@ -1843,7 +1751,7 @@ impl<'d, 's> Composer<'d, 's> {
                 self.progress.media_copied.push(image_part);
             }
             let tree = self.txn.tree_mut(part)?;
-            tree.set_attr(node, Some(R_NS), attr, &rel_map[&r_id])?;
+            tree.set_attr(node, Some(R), attr, &rel_map[&r_id])?;
         }
         Ok(())
     }
@@ -1856,27 +1764,22 @@ impl<'d, 's> Composer<'d, 's> {
         clones: &[NodeId],
     ) -> Result<()> {
         let rels = self.source.rels(source_part)?;
-        let mut links = Vec::new();
-        {
+        let links: Vec<(NodeId, String)> = {
             let tree = self.txn.tree(part)?;
-            for &clone in clones {
-                links.extend(w_descendants(tree, clone, "hyperlink"));
-            }
-        }
-        for hyperlink in links {
-            let Some(r_id) = self
-                .txn
-                .tree(part)?
-                .attr(hyperlink, Some(R_NS), "id")
-                .filter(|v| !v.is_empty())
-                .map(str::to_string)
-            else {
-                continue;
-            };
+            clones
+                .iter()
+                .flat_map(|clone| w_descendants(tree, *clone, "hyperlink"))
+                .filter_map(|link| {
+                    let r_id = tree.attr(link, Some(R), "id").filter(|v| !v.is_empty())?;
+                    Some((link, r_id.to_string()))
+                })
+                .collect()
+        };
+        for (hyperlink, r_id) in links {
             let rel = rel_by_id(&rels, &r_id)
                 .filter(|rel| rel.external && rel.rel_type == rt::HYPERLINK)
                 .ok_or_else(|| {
-                    unsupported(
+                    Error::unsupported(
                         "hyperlink_relationship_changed",
                         format!(
                             "hyperlink relationship {} changed after composition preflight. Nothing was changed",
@@ -1889,9 +1792,31 @@ impl<'d, 's> Composer<'d, 's> {
                     .relate_to(part, rt::HYPERLINK, RelTarget::External(&rel.target))?;
             self.txn
                 .tree_mut(part)?
-                .set_attr(hyperlink, Some(R_NS), "id", &new_r_id)?;
+                .set_attr(hyperlink, Some(R), "id", &new_r_id)?;
         }
         Ok(())
+    }
+
+    /// Reconcile the imported `clones` of `part` with the destination:
+    /// styles, numbering, media, hyperlinks, bookmarks and control ids.
+    fn carry(
+        &mut self,
+        part: &str,
+        source_part: &str,
+        clones: &[NodeId],
+        wanted: &[String],
+        plan: &NumberingPlan,
+        mode: StylesMode,
+    ) -> Result<()> {
+        let (styles_part, imported) = self.reconcile_styles(part, clones, wanted, mode)?;
+        self.remap_numbering(
+            &[(part.to_string(), clones.to_vec()), (styles_part, imported)],
+            plan,
+        )?;
+        self.copy_media(part, source_part, clones)?;
+        self.recreate_hyperlinks(part, source_part, clones)?;
+        self.reconcile_bookmarks(part, clones)?;
+        self.reallocate_sdt_ids(part, clones)
     }
 
     /// Upstream `_reconcile_bookmarks`.
@@ -2042,7 +1967,7 @@ impl<'d, 's> Composer<'d, 's> {
         let has_fields = contains_fields(source_tree, range);
         refuse_unsupported_content(source_tree, range)?;
         if anchor_story != MAIN_STORY {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "destination_not_main_body",
                 format!(
                     "composition inserts into the main document body only (anchor is in {anchor_story})"
@@ -2057,7 +1982,7 @@ impl<'d, 's> Composer<'d, 's> {
                     .parent(anchor_element)
                     .is_some_and(|parent| is_w(tree, parent, "tc"))
             {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "cell_anchor",
                     "anchor resolves inside a table cell; block insertion targets body-level paragraphs — anchor \
                      on a paragraph outside the table",
@@ -2065,7 +1990,7 @@ impl<'d, 's> Composer<'d, 's> {
             }
             let (_, open_after) = field_open_flags(tree, anchor_story, anchor_element)?;
             if open_after {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "inside_open_field",
                     "the insertion boundary after the destination block remains inside an open field result; Word \
                      may regenerate that result and remove composed content. Use a current-view destination after \
@@ -2076,7 +2001,7 @@ impl<'d, 's> Composer<'d, 's> {
         self.refuse_malformed_numeric_ids(source_tree, range)?;
         preflight_bookmark_references(&self.source, source_tree, range)?;
         preflight_relationships(&self.source, &source_main, source_tree, range)?;
-        let chained = self.chained_source_definitions(source_tree, range)?;
+        let (wanted, chained) = self.chained_source_definitions(source_tree, range)?;
         let plan = {
             let source_styles = self.source.styles()?;
             let mut elements: Vec<(&XmlTree, NodeId)> =
@@ -2092,15 +2017,7 @@ impl<'d, 's> Composer<'d, 's> {
             .parent(anchor_element)
             .ok_or_else(|| Error::internal("anchor_detached", "destination anchor is detached"))?;
         let mut clones = self.import(&main, scope, source_tree, range)?;
-        let (styles_part, imported) = self.reconcile_styles(&main, &clones, mode)?;
-        self.remap_numbering(
-            &[(main.clone(), clones.clone()), (styles_part, imported)],
-            &plan,
-        )?;
-        self.copy_media(&main, &source_main, &clones)?;
-        self.recreate_hyperlinks(&main, &source_main, &clones)?;
-        self.reconcile_bookmarks(&main, &clones)?;
-        self.reallocate_sdt_ids(&main, &clones)?;
+        self.carry(&main, &source_main, &clones, &wanted, &plan, mode)?;
         {
             let tree = self.txn.tree_mut(&main)?;
             pad_adjacent_tables(tree, anchor_element, &mut clones)?;
@@ -2128,63 +2045,27 @@ impl<'d, 's> Composer<'d, 's> {
     /// The destination definition for a header/footer slot of the last
     /// section, created from the template when the slot is linked (python-docx
     /// `is_linked_to_previous = False`).
-    fn ensure_definition(&mut self, sect_pr: NodeId, slot: Slot) -> Result<String> {
+    fn ensure_definition(
+        &mut self,
+        sect_pr: NodeId,
+        role: HeaderFooterRole,
+        kind: HeaderFooterType,
+    ) -> Result<String> {
         let main = self.main();
-        let existing = {
-            let tree = self.txn.tree(&main)?;
-            reference_of(tree, sect_pr, slot)
-        };
+        let existing = reference_of(self.txn.tree(&main)?, sect_pr, role, kind);
         if let Some(r_id) = existing {
-            let rels = self.txn.relationships(&main)?;
-            let rel = rel_by_id(&rels, &r_id)
-                .filter(|rel| !rel.external)
-                .ok_or_else(|| {
-                    unsupported(
-                        "missing_header_footer_part",
-                        format!(
-                            "the destination {} reference {r_id} has no part",
-                            slot.element()
-                        ),
-                    )
-                })?;
-            let target = rel.target_part_name(base_uri(&format!("/{main}")));
-            return self.txn.resolve(&target).ok_or_else(|| {
-                unsupported(
+            return self.txn.part_related_by_id(&main, &r_id)?.ok_or_else(|| {
+                Error::unsupported(
                     "missing_header_footer_part",
                     format!(
                         "the destination {} reference {r_id} has no part",
-                        slot.element()
+                        role.reference()
                     ),
                 )
             });
         }
-        let (template, content_type, rel_type, pattern) = if slot.header {
-            (
-                DEFAULT_HEADER,
-                ct::WML_HEADER,
-                rt::HEADER,
-                "word/header{}.xml",
-            )
-        } else {
-            (
-                DEFAULT_FOOTER,
-                ct::WML_FOOTER,
-                rt::FOOTER,
-                "word/footer{}.xml",
-            )
-        };
-        let name = self.txn.next_partname(pattern);
-        self.txn
-            .add_xml_part(&name, content_type, crate::parts::template(template)?)?;
-        let r_id = self
-            .txn
-            .relate_to(&main, rel_type, RelTarget::Part(&name))?;
+        let name = add_definition(&mut self.txn, sect_pr, role, kind)?;
         self.created.push(name.clone());
-        let tree = self.txn.tree_mut(&main)?;
-        let reference = w_el(tree, sect_pr, slot.element())?;
-        crate::oxml::insert_before_successors(tree, sect_pr, reference, SECT_PR_SUCCESSORS)?;
-        set_w(tree, reference, "type", slot.kind)?;
-        tree.set_attr(reference, Some(R_NS), "id", &r_id)?;
         Ok(name)
     }
 
@@ -2194,7 +2075,7 @@ impl<'d, 's> Composer<'d, 's> {
         let dest_sect = *section_properties(self.txn.tree(&main)?)?
             .last()
             .ok_or_else(|| {
-                unsupported(
+                Error::unsupported(
                     "no_section_properties",
                     "the destination has no section properties",
                 )
@@ -2203,7 +2084,7 @@ impl<'d, 's> Composer<'d, 's> {
         let source_tree = self.source.tree(&source_main)?;
         let source_sections = section_properties(source_tree)?;
         let src_sect = *source_sections.last().ok_or_else(|| {
-            unsupported(
+            Error::unsupported(
                 "no_section_properties",
                 "the source has no section properties",
             )
@@ -2220,7 +2101,7 @@ impl<'d, 's> Composer<'d, 's> {
         let settings = crate::parts::ensure_settings_part(&mut self.txn)?;
         let dest_even = even_and_odd(self.txn.tree(&settings)?)?;
         if source_even != dest_even && dest_section_count > 1 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "even_odd_document_wide",
                 "even/odd headers are a document-wide setting; destination has more than one section. Nothing was \
                  changed",
@@ -2242,20 +2123,20 @@ impl<'d, 's> Composer<'d, 's> {
             }
         }
         let mut letterhead_has_fields = false;
-        for slot in SLOTS {
+        for (role, kind) in SLOTS {
             let Some(source_part) =
-                self.defined_header_footer(source_tree, &source_sections, slot)?
+                self.defined_header_footer(source_tree, &source_sections, role, kind)?
             else {
                 continue;
             };
-            let dest_part = self.ensure_definition(dest_sect, slot)?;
+            let dest_part = self.ensure_definition(dest_sect, role, kind)?;
             let src_tree = self.source.tree(&source_part)?;
             let children: Vec<NodeId> = node_children(src_tree, src_tree.root()).collect();
             refuse_unsupported_content(src_tree, &children)?;
             self.refuse_malformed_numeric_ids(src_tree, &children)?;
             preflight_relationships(&self.source, &source_part, src_tree, &children)?;
             refuse_unloadable_media(&self.source, &source_part, src_tree, &children)?;
-            let chained = self.chained_source_definitions(src_tree, &children)?;
+            let (wanted, chained) = self.chained_source_definitions(src_tree, &children)?;
             let plan = {
                 let source_styles = self.source.styles()?;
                 let mut elements: Vec<(&XmlTree, NodeId)> =
@@ -2273,15 +2154,7 @@ impl<'d, 's> Composer<'d, 's> {
             if contains_fields(self.txn.tree(&dest_part)?, &clones) {
                 letterhead_has_fields = true;
             }
-            let (styles_part, imported) = self.reconcile_styles(&dest_part, &clones, mode)?;
-            self.remap_numbering(
-                &[(dest_part.clone(), clones.clone()), (styles_part, imported)],
-                &plan,
-            )?;
-            self.copy_media(&dest_part, &source_part, &clones)?;
-            self.recreate_hyperlinks(&dest_part, &source_part, &clones)?;
-            self.reconcile_bookmarks(&dest_part, &clones)?;
-            self.reallocate_sdt_ids(&dest_part, &clones)?;
+            self.carry(&dest_part, &source_part, &clones, &wanted, &plan, mode)?;
             let tree = self.txn.tree_mut(&dest_part)?;
             for clone in clones {
                 append(tree, dest_root, clone)?;
@@ -2299,10 +2172,11 @@ impl<'d, 's> Composer<'d, 's> {
         &self,
         tree: &XmlTree,
         sections: &[NodeId],
-        slot: Slot,
+        role: HeaderFooterRole,
+        kind: HeaderFooterType,
     ) -> Result<Option<String>> {
         for &sect_pr in sections.iter().rev() {
-            let Some(r_id) = reference_of(tree, sect_pr, slot) else {
+            let Some(r_id) = reference_of(tree, sect_pr, role, kind) else {
                 continue;
             };
             let rels = self.source.rels(&self.source.main)?;
@@ -2310,9 +2184,12 @@ impl<'d, 's> Composer<'d, 's> {
                 .filter(|rel| !rel.external)
                 .and_then(|rel| self.source.target_member(&self.source.main, rel))
                 .ok_or_else(|| {
-                    unsupported(
+                    Error::unsupported(
                         "missing_header_footer_part",
-                        format!("the source {} reference {r_id} has no part", slot.element()),
+                        format!(
+                            "the source {} reference {r_id} has no part",
+                            role.reference()
+                        ),
                     )
                 })?;
             return Ok(Some(member));
@@ -2321,48 +2198,24 @@ impl<'d, 's> Composer<'d, 's> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Slot {
-    header: bool,
-    kind: &'static str,
-}
-
-impl Slot {
-    fn element(self) -> &'static str {
-        if self.header {
-            "headerReference"
-        } else {
-            "footerReference"
-        }
-    }
-}
-
-const SLOTS: [Slot; 4] = [
-    Slot {
-        header: true,
-        kind: "default",
-    },
-    Slot {
-        header: false,
-        kind: "default",
-    },
-    Slot {
-        header: true,
-        kind: "even",
-    },
-    Slot {
-        header: false,
-        kind: "even",
-    },
+/// The letterhead slots `_copy_letterhead` carries, in upstream order.
+const SLOTS: [(HeaderFooterRole, HeaderFooterType); 4] = [
+    (HeaderFooterRole::Header, HeaderFooterType::Primary),
+    (HeaderFooterRole::Footer, HeaderFooterType::Primary),
+    (HeaderFooterRole::Header, HeaderFooterType::EvenPage),
+    (HeaderFooterRole::Footer, HeaderFooterType::EvenPage),
 ];
 
 /// `rId` of the first `w:headerReference`/`w:footerReference` of the slot's
 /// type directly under `sect_pr`.
-fn reference_of(tree: &XmlTree, sect_pr: NodeId, slot: Slot) -> Option<String> {
-    w_direct(tree, sect_pr, slot.element())
-        .into_iter()
-        .find(|reference| w_attr(tree, *reference, "type") == Some(slot.kind))
-        .and_then(|reference| tree.attr(reference, Some(R_NS), "id").map(str::to_string))
+fn reference_of(
+    tree: &XmlTree,
+    sect_pr: NodeId,
+    role: HeaderFooterRole,
+    kind: HeaderFooterType,
+) -> Option<String> {
+    crate::sections::reference(tree, sect_pr, role, kind)
+        .and_then(|reference| tree.attr(reference, Some(R), "id").map(str::to_string))
 }
 
 /// `ST_OnOff` with python-docx's `CT_OnOff` default (`True` when absent).
@@ -2371,7 +2224,7 @@ fn on_off_val(tree: &XmlTree, element: NodeId) -> Result<bool> {
         None => Ok(true),
         Some("1" | "true" | "on") => Ok(true),
         Some("0" | "false" | "off") => Ok(false),
-        Some(other) => Err(unsupported(
+        Some(other) => Err(Error::unsupported(
             "invalid_on_off",
             format!("invalid ST_OnOff value {}", py_repr(other)),
         )),
@@ -2399,15 +2252,7 @@ fn set_even_and_odd(tree: &mut XmlTree, value: bool) -> Result<()> {
         Some(existing) => existing,
         None => {
             let element = w_el(tree, root, "evenAndOddHeaders")?;
-            let position = tree.children(root).iter().position(|child| {
-                EVEN_ODD_SUCCESSORS
-                    .iter()
-                    .any(|(ns, local)| tree.is(*child, ns, local))
-            });
-            match position {
-                Some(index) => tree.insert(root, index, element)?,
-                None => append(tree, root, element)?,
-            }
+            insert_settings_child(tree, root, element, "evenAndOddHeaders")?;
             element
         }
     };
@@ -2479,18 +2324,7 @@ fn remap_styleref_fields(
         for (instruction, nodes) in iter_field_instructions(tree, clone) {
             let rewritten = fieldcode::rewrite_command_operand(&instruction, "STYLEREF", &pairs)?;
             if rewritten != instruction {
-                let chars: Vec<char> = rewritten.chars().collect();
-                let mut offset = 0usize;
-                for (position, node) in nodes.iter().enumerate() {
-                    let width = leading_text(tree, *node).chars().count();
-                    let text = if position == nodes.len() - 1 {
-                        char_slice(&chars, offset, chars.len())
-                    } else {
-                        char_slice(&chars, offset, offset + width)
-                    };
-                    set_leading_text(tree, *node, &text)?;
-                    offset += width;
-                }
+                redistribute(tree, &nodes, &rewritten)?;
             }
         }
         for (field, instruction) in simple_field_instructions(tree, clone) {
@@ -2563,7 +2397,7 @@ fn source_range(
     include_end: bool,
 ) -> Result<Vec<NodeId>> {
     if start.story != MAIN_STORY {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "source_not_main_body",
             format!(
                 "composition copies from the main document body only (start anchor is in {})",
@@ -2583,7 +2417,7 @@ fn source_range(
     let Some(mut start_index) =
         start_block.and_then(|block| blocks.iter().position(|b| *b == block))
     else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "source_anchor_not_top_level",
             "the start anchor is not a top-level body block (text boxes and table cells cannot anchor a composition \
              range)",
@@ -2594,13 +2428,13 @@ fn source_range(
             let end_block = body_block_for_paragraph(tree, body, end.element);
             let position = end_block.and_then(|block| blocks.iter().position(|b| *b == block));
             let Some(mut end_index) = position.filter(|_| end.story == start.story) else {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "end_anchor_not_top_level",
                     "the end anchor must be a top-level body block of the same source document",
                 ));
             };
             if end_index < start_index {
-                return Err(not_found(
+                return Err(Error::not_found(
                     "end_before_start",
                     "end anchor precedes start anchor in the source body",
                 ));
@@ -2610,7 +2444,7 @@ fn source_range(
             }
             if !include_end {
                 if end_index == 0 {
-                    return Err(not_found(
+                    return Err(Error::not_found(
                         "empty_range",
                         "the adjusted source range is empty",
                     ));
@@ -2618,7 +2452,7 @@ fn source_range(
                 end_index -= 1;
             }
             if start_index > end_index {
-                return Err(not_found(
+                return Err(Error::not_found(
                     "empty_range",
                     "the adjusted source range is empty",
                 ));
@@ -2631,7 +2465,7 @@ fn source_range(
             }
             let end_index = start_index as i64 + count - 1;
             if end_index >= blocks.len() as i64 {
-                return Err(not_found(
+                return Err(Error::not_found(
                     "range_past_end",
                     format!(
                         "the source body has only {} blocks from the start anchor; {count} requested",
@@ -2740,7 +2574,7 @@ pub fn append_document(
     let source_tree = source.package().xml(&source_main)?;
     let range = body_children(source_tree, body_of(source_tree)?);
     if range.is_empty() {
-        return Err(not_found(
+        return Err(Error::not_found(
             "source_body_empty",
             "the source document body has no blocks",
         ));
@@ -2753,7 +2587,7 @@ pub fn append_document(
             .filter(|child| is_w_any(tree, *child, BODY_BLOCK_TAGS))
             .collect();
         let Some(&last) = blocks.last() else {
-            return Err(not_found(
+            return Err(Error::not_found(
                 "destination_body_empty",
                 "the destination document body has no blocks",
             ));

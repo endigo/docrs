@@ -228,19 +228,7 @@ pub fn add_t(tree: &mut XmlTree, run: NodeId, text: &str) -> Result<NodeId> {
 
 /// EMU → twips with Python's `round` (banker's rounding).
 pub fn emu_to_twips(emu: i64) -> i64 {
-    let value = emu as f64 / 635.0;
-    let floor = value.floor();
-    let diff = value - floor;
-    let rounded = if (diff - 0.5).abs() < f64::EPSILON {
-        if floor as i64 % 2 == 0 {
-            floor
-        } else {
-            floor + 1.0
-        }
-    } else {
-        value.round()
-    };
-    rounded as i64
+    (emu as f64 / 635.0).round_ties_even() as i64
 }
 
 /// A detached `w:tbl` per `CT_Tbl.new_tbl(rows, cols, width)` with optional
