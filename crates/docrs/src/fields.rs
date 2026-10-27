@@ -6,13 +6,10 @@
 //! placeholder result text and arms `w:updateFields`: this crate never
 //! computes a field's value.
 
-use crate::anchor::{
-    BlockTarget, locate_paragraph, require_current_view, resolve_anchor_paragraph,
-};
+use crate::anchor::{BlockTarget, resolve_anchor_paragraph, resolve_anchor_paragraph_for};
 use crate::blocks::{insert_after, refuse_paragraph_in_open_field};
 use crate::numbering::{py_int, set_p_style};
 use crate::oxml::{add_t, append, set_w, w_el};
-use crate::protection::{OperationClass, refuse_if_protected};
 use crate::sections::insert_settings_child;
 use crate::story;
 use crate::txn::Txn;
@@ -62,9 +59,7 @@ fn paragraph_target(
     paragraph: BlockTarget<'_>,
     operation: &str,
 ) -> Result<Target> {
-    let located = locate_paragraph(document, paragraph)?;
-    require_current_view(paragraph)?;
-    refuse_if_protected(document, operation, OperationClass::BodyContent)?;
+    let located = resolve_anchor_paragraph_for(document, paragraph, operation)?;
     Ok(Target {
         part: located.part,
         element: located.element,

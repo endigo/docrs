@@ -514,21 +514,7 @@ impl StyleType {
 
 /// Upstream `BabelFish.ui2internal`.
 pub fn ui_to_internal(name: &str) -> &str {
-    match name {
-        "Caption" => "caption",
-        "Footer" => "footer",
-        "Header" => "header",
-        "Heading 1" => "heading 1",
-        "Heading 2" => "heading 2",
-        "Heading 3" => "heading 3",
-        "Heading 4" => "heading 4",
-        "Heading 5" => "heading 5",
-        "Heading 6" => "heading 6",
-        "Heading 7" => "heading 7",
-        "Heading 8" => "heading 8",
-        "Heading 9" => "heading 9",
-        other => other,
-    }
+    crate::styles::ui_to_internal(name)
 }
 
 pub(crate) fn on_off(value: &str) -> Result<bool> {
