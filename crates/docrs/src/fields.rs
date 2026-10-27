@@ -468,7 +468,7 @@ pub mod fieldcode {
         }
     }
 
-    fn tokens(instruction: &str) -> Result<Vec<FieldOperand>> {
+    pub(crate) fn tokens(instruction: &str) -> Result<Vec<FieldOperand>> {
         let chars: Vec<char> = instruction.chars().collect();
         let mut out = Vec::new();
         let mut index = 0;

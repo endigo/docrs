@@ -426,11 +426,12 @@ fn formula_operands(instruction: &str, names: &[&str]) -> Vec<String> {
 
 /// Upstream `bookmark_operands(instruction, implicit_names=names)`.
 fn bookmark_operands(instruction: &str, names: &[&str]) -> Result<Vec<String>> {
-    // Tokenized first: an unterminated quoted operand refuses in a formula too.
-    let operands = fieldcode::bookmark_operands(instruction, names)?;
     if instruction.trim_start_matches(is_py_space).starts_with('=') {
+        // Tokenized first: an unterminated quoted operand refuses in a formula too.
+        fieldcode::tokens(instruction)?;
         return Ok(formula_operands(instruction, names));
     }
+    let operands = fieldcode::bookmark_operands(instruction, names)?;
     Ok(operands.into_iter().map(|operand| operand.value).collect())
 }
 

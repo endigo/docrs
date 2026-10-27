@@ -27,10 +27,9 @@ use crate::protection::{OperationClass, refuse_if_protected};
 use crate::revision::py_int;
 use crate::search::{Atom, MatchPolicy, Span, find_text, include_atom, signature, story_atoms};
 use crate::story::{self, Anchor, View};
-pub(crate) use crate::tracked::next_revision_id;
 use crate::tracked::{
-    add_tracked_run, hollowed_bookmarks, insert_after, new_revision, pieces_in_range,
-    set_preserved_text,
+    add_tracked_run, hollowed_bookmarks, insert_after, new_revision, next_revision_id,
+    pieces_in_range, set_preserved_text,
 };
 use crate::unicode::is_py_space;
 use crate::wml::{self, W14, is_w, iter_nodes, leading_text, w_attr, w_child};

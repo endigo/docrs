@@ -359,7 +359,7 @@ pub(super) fn find_style(tree: &XmlTree, name: &str, kind: StyleType) -> Option<
     })
 }
 
-pub(super) fn default_style(tree: &XmlTree, kind: StyleType) -> Option<NodeId> {
+fn default_style(tree: &XmlTree, kind: StyleType) -> Option<NodeId> {
     w_children(tree, tree.root(), "style").find(|style| {
         w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.as_xml()
             && w_attr(tree, *style, "default").is_some_and(crate::styles::on_off)
@@ -997,7 +997,7 @@ pub(super) use crate::styles::based_on_chain as style_chain;
 
 /// The spacing a paragraph style gives: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
-pub(super) fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
+fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
     let mut spacing = Spacing::default();
     spacing.apply(
         styles,
@@ -2094,7 +2094,7 @@ fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
 /// The table style a group of alike sample tables adds by hand: borders,
 /// shading and margins; `None` when nothing visible is added. The cells'
 /// text look goes to the cell paragraph styles instead
-/// (`Sample::cell_looks`), where every reader applies it and a header size
+/// (`Sample::cell_look`), where every reader applies it and a header size
 /// is not overridden by the body's.
 fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
     let representative = group.first()?;
@@ -2541,4 +2541,9 @@ fn create(
     })
 }
 
-pub(crate) use crate::xml::escape_attr_to_string as xml_escape;
+pub(crate) fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}

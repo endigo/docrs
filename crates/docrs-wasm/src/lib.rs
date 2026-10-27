@@ -329,7 +329,8 @@ pub fn styles_of(reference: Option<&[u8]>, options: &Options) -> Result<serde_js
     ))
 }
 
-/// The package's TypeScript declarations (`docrs.d.ts`).
+/// The package's TypeScript declarations (`docrs.d.ts`); `pub` because the
+/// custom section below only reads it on wasm32.
 pub const TYPINGS: &str = r#"
 /** Options of `fromMarkdown`; every field is optional. */
 export interface FromMarkdownOptions {
@@ -978,11 +979,11 @@ mod tests {
     }
 
     /// The text between the braces of `export interface NAME { ... }` in
-    /// `TYPES`.
+    /// `TYPINGS`.
     fn interface_body(name: &str) -> &'static str {
         let start = TYPINGS
             .find(&format!("export interface {name} "))
-            .unwrap_or_else(|| panic!("TYPES declares {name}"));
+            .unwrap_or_else(|| panic!("TYPINGS declares {name}"));
         brace_block(&TYPINGS[start..])
     }
 
