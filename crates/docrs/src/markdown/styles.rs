@@ -1110,7 +1110,7 @@ pub(crate) struct Sample {
     /// by hand: what the template shows for that heading, whatever its style
     /// says.
     heading_looks: BTreeMap<u8, String>,
-    /// The run look carrying the most characters of a style's sample
+    /// The run look carrying the most characters of a style's prose
     /// paragraphs, by style id (`None`: the default style), when it is set
     /// by hand and beats every other look, the style's own included;
     /// emphasis left out.
@@ -1118,12 +1118,16 @@ pub(crate) struct Sample {
     /// The spacing each prose paragraph shows, as Word resolves it, with
     /// the paragraph's characters, by style id (`None`: the default style).
     body_spacings: BTreeMap<Option<String>, Vec<(Spacing, usize)>>,
-    /// Styles of the top-level paragraphs that carry text.
+    /// Styles of the top-level paragraphs that carry text, prose or not.
     text_styles: BTreeSet<Option<String>>,
     table_style: Option<String>,
     table: Option<Lifted>,
     table_look: Vec<(String, bool)>,
 }
+
+/// Characters from which a sample paragraph is prose the body look and
+/// spacing can be read from, rather than a letterhead or label line.
+const PROSE_CHARS: usize = 40;
 
 /// `CT_TcBorders`, `CT_TblBorders` and `CT_PBdr` child order, strict and
 /// transitional names together.
@@ -1267,7 +1271,7 @@ impl Sample {
         if name.eq_ignore_ascii_case("First Paragraph") {
             !self.body_spacings.is_empty()
         } else {
-            self.text_styles.contains(&None)
+            self.body_spacings.contains_key(&None)
         }
     }
 
@@ -1405,6 +1409,9 @@ impl Sample {
             if first_run.is_some() {
                 sample.text_styles.insert(style_id.clone());
             }
+            let chars: usize = w_children(tree, block, "r")
+                .map(|r| crate::authoring::run_text(tree, r).chars().count())
+                .sum();
             let outline = ppr
                 .and_then(|p| w_child(tree, p, "outlineLvl"))
                 .and_then(|o| w_attr(tree, o, "val"))
@@ -1442,7 +1449,7 @@ impl Sample {
                         ..Lifted::default()
                     });
                 }
-                None if !listed && first_run.is_some() => {
+                None if !listed && first_run.is_some() && chars >= PROSE_CHARS => {
                     // Text over 14 pt or bold is a title, not body text.
                     let candidate = first_rpr.filter(|r| {
                         let size = w_child(tree, *r, "sz")
@@ -1456,9 +1463,6 @@ impl Sample {
                     let look = candidate
                         .and_then(|r| look_rpr(tree, r, EMPHASIS_RPR))
                         .unwrap_or_default();
-                    let chars = w_children(tree, block, "r")
-                        .map(|r| crate::authoring::run_text(tree, r).chars().count())
-                        .sum();
                     let mut spacing = styles_tree
                         .map(|styles| {
                             let node = style_id

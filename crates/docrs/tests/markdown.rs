@@ -3704,3 +3704,100 @@ fn an_unused_first_paragraph_style_is_passed_over_for_the_body() {
         2
     );
 }
+
+#[test]
+fn a_body_look_needs_prose_to_go_by() {
+    // Body Text is defined (15 pt) and the template's only text is two
+    // short Normal lines in Times: nothing is lifted, Body Text is the body.
+    let template = || {
+        Document::open_path_with(
+            fixture("body-text-no-prose.docx"),
+            &Limits::default(),
+            docrs::Tolerance::word(),
+        )
+        .unwrap()
+        .0
+    };
+    let out = export_html_from("87-body-text-no-prose", template(), SECTIONS_HTML);
+    for role in ["body", "first_paragraph", "compact"] {
+        assert_eq!(out.report.styles[role].name, "Body Text", "{role}");
+        assert!(!out.report.styles[role].created, "{role}");
+    }
+    let styles = out.part("word/styles.xml");
+    assert!(
+        !styles.contains("Template Body Text") && !styles.contains("Times"),
+        "{styles}"
+    );
+    assert_eq!(
+        style_rpr(&out, "BodyText"),
+        "<w:rPr><w:sz w:val=\"30\"/><w:szCs w:val=\"30\"/></w:rPr>"
+    );
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"BodyText\"/>"), 3);
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["body"]["name"], "Body Text");
+    assert!(
+        inspection["lifted"]["body"].is_null(),
+        "{}",
+        inspection["lifted"]
+    );
+    assert!(
+        inspection["lifted"]["spacing"].is_null(),
+        "{}",
+        inspection["lifted"]
+    );
+    let created = inspection["created_styles"].to_string();
+    assert!(!created.contains("Body Text"), "{created}");
+
+    // Letterhead lines (under 40 characters) in a look of their own do not
+    // lift it over the template's Body Text; the same look on prose does.
+    let brown = "<w:rPr><w:rFonts w:ascii=\"Trebuchet MS\" w:hAnsi=\"Trebuchet MS\"/>\
+        <w:color w:val=\"6B4F2A\"/><w:sz w:val=\"18\"/></w:rPr>";
+    let arial_body_text = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:sz w:val=\"20\"/></w:rPr></w:style>";
+    let export = |name: &str, styles: &str, text: &str, rpr: &str| {
+        let lines: String = (0..3)
+            .map(|_| format!("<w:p><w:r>{rpr}<w:t>{text}</w:t></w:r></w:p>"))
+            .collect();
+        let template = synthetic(Synthetic {
+            styles,
+            body: &lines,
+            ..Synthetic::default()
+        });
+        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
+    };
+    let out = export(
+        "88-letterhead-lines",
+        arial_body_text,
+        "Acme Wealth, 1 Main Street",
+        brown,
+    );
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    assert!(!out.report.styles["body"].created);
+    assert!(!out.part("word/styles.xml").contains("Trebuchet"));
+    let out = export(
+        "89-prose-in-a-look-of-its-own",
+        arial_body_text,
+        "A paragraph of advice long enough to read as prose.",
+        brown,
+    );
+    assert_eq!(out.report.styles["body"].name, "Template Body Text");
+    assert!(style_rpr(&out, "TemplateBodyText").contains("Trebuchet"));
+    // A spacer Body Text is passed over for Normal only when Normal
+    // carries prose.
+    let spacer = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:rPr><w:sz w:val=\"12\"/></w:rPr></w:style>";
+    let out = export(
+        "90-spacer-beside-short-lines",
+        spacer,
+        "Acme Wealth, 1 Main Street",
+        "",
+    );
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+    let out = export(
+        "91-spacer-beside-prose",
+        spacer,
+        "A Normal paragraph, long enough to read as prose.",
+        "",
+    );
+    assert_eq!(out.report.styles["body"].name, "Normal");
+}

@@ -132,7 +132,8 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   is lifted into styles: a look merges into the style attribute by
   attribute (a run setting only the complex-script font keeps the style's
   Latin font), and body text takes the look and the paragraph spacing the
-  most of the template's prose shows, a First Paragraph style the template
+  most of the template's prose (paragraphs of 40 characters or more)
+  shows, a First Paragraph style the template
   uses following it. A First Paragraph the template never writes text in,
   or a Body Text style it writes no text in while its prose is in Normal,
   is passed over for the body's style. Tables follow the style most sample

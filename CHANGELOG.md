@@ -10,6 +10,8 @@
 
 - A First Paragraph style the template defines but never writes text in is passed over: the paragraph after each heading takes the same style as the rest of the body (Body Text, or the default style when that carries the prose), and the template's First Paragraph is left as it is. A template whose prose is Body Text (Arial 10 pt) beside an unused First Paragraph based on Normal exported the first paragraph of every section in the theme font at 12 pt. A First Paragraph the template does use is kept as the template defines it, following the body's look and spacing when it has none of its own (0.3.6, 0.3.7). `inspectReference` and `markdown-inspect` report the body's style under `roles.first_paragraph` for such a template.
 
+- A body look or spacing is lifted from the template's sample text, and a Body Text or First Paragraph the template writes no text in is passed over, only when the template has prose to go by: paragraphs of 40 characters or more, not letterhead or label lines. A template whose Body Text is defined at 15 pt and whose only text is two short Normal lines in Times 12 pt exported the body in a "Template Body Text" at 12 pt; it now keeps Body Text as the body style, creates nothing, and `inspectReference` reports `lifted.body` as null. A letterhead-only template with three short lines in brown Trebuchet over an Arial 10 pt Body Text keeps the Body Text the same way. Prose formatted by hand still lifts its look and spacing (0.3.5 to 0.3.7), and a 6 pt spacer Body Text beside real prose in Normal is still passed over for Normal (0.3.6).
+
 ## 0.3.8 (2026-10-26)
 
 ### Library
