@@ -22,7 +22,7 @@ use docrs::{Error, ErrorKind};
     version,
     about = "Preservation-first DOCX inspection and safe editing"
 )]
-pub struct Cli {
+struct Cli {
     /// Emit machine-readable JSON (schema_version 1).
     #[arg(long, global = true)]
     json: bool,
@@ -34,7 +34,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
-pub enum Command {
+enum Command {
     /// Classify a file before opening it (never fails on bad input).
     Diagnose {
         /// File to diagnose.
@@ -373,7 +373,7 @@ pub enum Command {
     },
 }
 
-pub fn exit_code(err: &Error) -> u8 {
+fn exit_code(err: &Error) -> u8 {
     match err.kind() {
         ErrorKind::Refusal(_) => 3,
         ErrorKind::InvalidArgument => 2,

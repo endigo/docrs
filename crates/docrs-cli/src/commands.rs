@@ -51,6 +51,15 @@ fn emit_composition(
     });
 }
 
+/// `--cover-page` / `--no-cover-page`; `None` lets the conversion detect one.
+fn cover_page_option(cover_page: bool, no_cover_page: bool) -> Option<bool> {
+    match (cover_page, no_cover_page) {
+        (true, _) => Some(true),
+        (_, true) => Some(false),
+        _ => None,
+    }
+}
+
 /// `ROLE=Style Name` pairs.
 fn style_map(
     pairs: &[String],
@@ -538,11 +547,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                 toc_page_numbers: *toc_page_numbers,
                 toc_numbers: !no_toc_numbers,
                 page_numbers: *page_numbers,
-                cover_page: match (cover_page, no_cover_page) {
-                    (true, _) => Some(true),
-                    (_, true) => Some(false),
-                    _ => None,
-                },
+                cover_page: cover_page_option(*cover_page, *no_cover_page),
                 images: Default::default(),
                 now: None,
             };
@@ -650,11 +655,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let options = docrs::markdown::MarkdownOptions {
                 style_map: style_map(styles)?,
                 page_numbers: *page_numbers,
-                cover_page: match (cover_page, no_cover_page) {
-                    (true, _) => Some(true),
-                    (_, true) => Some(false),
-                    _ => None,
-                },
+                cover_page: cover_page_option(*cover_page, *no_cover_page),
                 ..Default::default()
             };
             let mut inspection = docrs::markdown::inspect(&document, &options)?;
