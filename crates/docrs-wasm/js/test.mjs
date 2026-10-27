@@ -37,7 +37,7 @@ test("every synthetic template converts the sample record of advice", () => {
     assert.ok(docx instanceof Uint8Array && isZip(docx), name);
     assert.deepEqual(report.warnings, [], name);
     assert.ok(report.counts.tables > 0, name);
-    assert.equal(lib.markdownStyles(docx).length, 40, name);
+    assert.equal(lib.markdownStyles(docx).length, 41, name);
   }
 });
 
@@ -273,7 +273,7 @@ test("oversized inputs are refused before they are copied in", () => {
 
 test("markdownStyles takes the limits and strictPackage options", () => {
   const reference = readBytes(join(templates, "docx-template-missing-pandoc-styles.docx"));
-  assert.equal(lib.markdownStyles(reference, undefined, { limits: "serverless" }).length, 40);
+  assert.equal(lib.markdownStyles(reference, undefined, { limits: "serverless" }).length, 41);
   assert.throws(
     () => lib.markdownStyles(reference, undefined, { strictPackage: true }),
     (err) => err.reason === "zip_directory_data",

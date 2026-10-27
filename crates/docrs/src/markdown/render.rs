@@ -1919,6 +1919,11 @@ impl<'p> Renderer<'_, '_, 'p> {
         let width = ctx.max_image_width - ctx.indent.unwrap_or(0) * EMU_PER_TWIP;
         let table_style = self.style(Role::Table)?;
         let cell_style = self.style(Role::TableContents)?;
+        let header_style = if header_rows > 0 {
+            self.style(Role::TableHeader)?
+        } else {
+            None
+        };
         self.report.counts.tables += 1;
         let total_twips = width / EMU_PER_TWIP;
         let col_twips = column_widths(&all_rows, &grid, cols, header_rows, layout, total_twips);
@@ -2061,11 +2066,16 @@ impl<'p> Renderer<'_, '_, 'p> {
         };
         for (row_index, col, twips, index, tc, p) in cells {
             let column_align = aligns.get(col).copied().unwrap_or(Align::None);
+            let (role, style) = if row_index < header_rows {
+                (Role::TableHeader, &header_style)
+            } else {
+                (Role::TableContents, &cell_style)
+            };
             let cell_ctx = Ctx {
                 max_image_width: twips * EMU_PER_TWIP,
                 indent: None,
                 top_level: false,
-                paragraph_role: Some(Role::TableContents),
+                paragraph_role: Some(role),
                 align: None,
                 ..ctx
             };
@@ -2083,7 +2093,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     None => (&[], None, content),
                 };
             let props = ParaProps {
-                style: cell_style.clone(),
+                style: style.clone(),
                 align: jc(own_align.unwrap_or(column_align)),
                 ..ParaProps::default()
             };
@@ -2120,7 +2130,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         let header_color = super::styles::header_color_override(
             self.txn.tree(&styles_part)?,
             table_style.as_deref(),
-            cell_style.as_deref(),
+            header_style.as_deref(),
         );
         if let Some(color) = header_color.filter(|_| header_rows > 0) {
             let tree = self.txn.tree_mut(part)?;

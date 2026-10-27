@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.11 (2026-10-27)
+
+### Library
+
+- Table cell text takes the look the template's own sample tables show, header and body rows apart. Body cells go in the paragraph style the template's table body cells write most of their text in, with the hand formatting those cells share lifted onto it, as the body text's is; header cells the same from the header rows, through a new role `table_header` (candidates "Table Heading" and "Table Header", in `markdownStyles`, the style map and the CLI like the others). A template whose sample tables put header cells in "Table Header" (bold 10 pt) and body cells in "Table Normal Body" (8 pt) exported every cell in a Table Contents on the body at 10 pt; it now uses the two styles. One with the same look applied by hand in Normal got the bold header through a lifted table style's first row but kept the body cells at 10 pt; it now gets a Table Contents at 8 pt and a Table Heading in bold, both on Normal. The lifted table style now carries only the cells' borders, fill and margins: their text look belongs to the paragraph styles, where every reader applies it and a header size is not overridden by the body's. Header cells whose text shows no look of their own share the body cells' style, so a template whose tables carry no text look of their own gets today's Table Contents alone. `inspectReference` reports the cell styles and text looks under `lifted.table.cell_styles` and `cell_text`.
+
 ## 0.3.10 (2026-10-27)
 
 ### Library

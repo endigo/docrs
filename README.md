@@ -117,8 +117,12 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
 * Input nested deeper than 128 levels (block quotes, lists, emphasis,
   links, HTML elements, math groups) is refused with `resource_limit`
   (`markdown_nesting_too_deep`) before anything changes.
-* Tables span the full text width; cells use a compact Table Contents
-  style. The table of contents is Word's table-of-contents block (heading
+* Tables span the full text width. Cells use the paragraph styles the
+  template's own sample tables write their text in (header and body rows
+  apart: roles `table_header` and `table_contents`), with the hand
+  formatting those cells share lifted onto them; a template whose tables
+  carry no text look of their own gets a compact Table Contents style.
+  The table of contents is Word's table-of-contents block (heading
   and entries in one content control, so Word offers Update Table), titled
   as the template's own contents is, else "Table of Contents", unless
   `--toc-title` says otherwise, and written

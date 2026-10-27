@@ -1437,17 +1437,21 @@ fn list_items_never_take_the_sample_body_style() {
     for (style, _) in items {
         assert_eq!(style, "List Paragraph");
     }
-    assert!(!out.body().contains("<w:pStyle w:val=\"NormalWeb\"/>"));
+    // The sample's Normal (Web) is for its table cells (below), not the body.
+    assert!(
+        out.paragraphs()
+            .iter()
+            .all(|(style, _)| style != "Normal (Web)")
+    );
 }
 
 #[test]
 fn table_look_comes_from_typical_body_cells_with_row_lines() {
     let out = advice_export("32-table-look");
     let table = style_of(&out, "Table");
-    let whole_rpr = &table[table.find("<w:rPr>").unwrap()..table.find("</w:rPr>").unwrap()];
-    assert!(!whole_rpr.contains("<w:b/>"), "{table}");
-    assert!(!whole_rpr.contains("FAA436"), "{table}");
-    assert!(whole_rpr.contains("w:ascii=\"Arial\""));
+    // The table style carries the cells' borders, fill and margins; their
+    // text look goes to the cell paragraph styles.
+    assert!(!table.contains("<w:rPr>"), "{table}");
     assert!(
         table.contains("<w:insideH w:val=\"single\" w:sz=\"6\" w:space=\"0\" w:color=\"D0D0D0\"/>"),
         "{table}"
@@ -1460,7 +1464,46 @@ fn table_look_comes_from_typical_body_cells_with_row_lines() {
     assert!(!whole_tcpr.contains("tcBorders"), "{table}");
     assert!(table.contains("<w:tblCellMar><w:top w:w=\"100\""));
     assert!(table.contains("w:fill=\"40C7F2\""));
-    assert!(table.contains("<w:color w:val=\"FFFFFF\"/>"));
+    // The cells' own style, Normal (Web), also carries sample body text, so
+    // it is left as it is: a Table Contents on it takes the look most of
+    // the body cells' text sets by hand (Arial, black, 10 pt, not the first
+    // column's bold orange), and a Table Heading on it their white bold.
+    assert_eq!(out.report.styles["table_contents"].name, "Table Contents");
+    let contents = style_of(&out, "TableContents");
+    assert!(
+        contents.contains("<w:basedOn w:val=\"NormalWeb\"/>")
+            && contents.contains("w:ascii=\"Arial\"")
+            && contents.contains("<w:color w:val=\"000000\"/>")
+            && contents.contains("<w:sz w:val=\"20\"/>"),
+        "{contents}"
+    );
+    assert!(
+        !contents.contains("<w:b/>") && !contents.contains("FAA436"),
+        "{contents}"
+    );
+    assert!(style_rpr(&out, "NormalWeb").contains("Times New Roman"));
+    let heading = style_of(&out, "TableHeading");
+    assert!(
+        heading.contains("<w:basedOn w:val=\"NormalWeb\"/>")
+            && heading.contains("<w:b/>")
+            && heading.contains("<w:color w:val=\"FFFFFF\"/>"),
+        "{heading}"
+    );
+    let body = out.body();
+    let header = &body[body.find("<w:tr>").unwrap()..body.find("</w:tr>").unwrap()];
+    assert_eq!(
+        count(header, "<w:pStyle w:val=\"TableHeading\"/>"),
+        2,
+        "{header}"
+    );
+    assert_eq!(count(&body, "<w:pStyle w:val=\"TableContents\"/>"), 4);
+    assert!(!body.contains("<w:pStyle w:val=\"NormalWeb\"/>"));
+    let inspection =
+        docrs::markdown::inspect(&html_converted(), &MarkdownOptions::default()).unwrap();
+    let cells = &inspection["lifted"]["table"];
+    assert_eq!(cells["cell_styles"]["body"], "NormalWeb");
+    assert_eq!(cells["cell_text"]["header"]["color"], "FFFFFF");
+    assert_eq!(cells["cell_text"]["body"]["bold"], serde_json::Value::Null);
 }
 
 #[test]
@@ -2411,14 +2454,27 @@ fn a_hand_formatted_sample_table_beats_an_empty_table_style() {
         "{lifted}"
     );
     assert!(lifted.contains("w:fill=\"22524F\""), "{lifted}");
-    assert!(lifted.contains("<w:color w:val=\"FFFFFF\"/>"), "{lifted}");
-    // The cell paragraphs inherit grey from Body Text, which in Word beats a
-    // table style's colour, so the header runs carry white themselves.
+    assert!(!lifted.contains("<w:rPr>"), "{lifted}");
+    // The header text's white bold goes to a Table Heading on the cells'
+    // style (Body Text, grey), where every reader applies it; a table
+    // style's colour would lose to the paragraph style's in Word.
+    let heading = style_of(&out, "TableHeading");
+    assert!(
+        heading.contains("<w:basedOn w:val=\"BodyText\"/>")
+            && heading.contains("<w:b/>")
+            && heading.contains("<w:color w:val=\"FFFFFF\"/>"),
+        "{heading}"
+    );
     let body = out.body();
     let header = &body[body.find("<w:tr>").unwrap()..body.find("</w:tr>").unwrap()];
-    assert_eq!(count(header, "<w:color w:val=\"FFFFFF\"/>"), 2, "{header}");
+    assert_eq!(
+        count(header, "<w:pStyle w:val=\"TableHeading\"/>"),
+        2,
+        "{header}"
+    );
+    assert!(!header.contains("FFFFFF"), "{header}");
     let second = &body[body.find("</w:tr>").unwrap()..];
-    assert!(!second[..second.find("</w:tbl>").unwrap()].contains("FFFFFF"));
+    assert!(!second[..second.find("</w:tbl>").unwrap()].contains("TableHeading"));
 }
 
 #[test]
@@ -4116,4 +4172,163 @@ fn page_one_shows_what_the_templates_page_one_shows() {
             .contains("multiple_sections"),
         "{inspection}"
     );
+}
+
+/// The table-text repro of 2026-10-27: a heading, a paragraph, a two-column
+/// table with a header row, a paragraph.
+const TABLE_TEXT_HTML: &str = "<h1>Heading one</h1>\
+    <p>Body text, long enough to read as the prose of a real advice document.</p>\
+    <table><tbody><tr><th><p>Asset</p></th><th><p>Balance</p></th></tr>\
+    <tr><td><p>Superannuation</p></td><td><p>$250,000</p></td></tr>\
+    <tr><td><p>Cash</p></td><td><p>$40,000</p></td></tr></tbody></table>\
+    <p>More body text after the table, long enough to read as prose.</p>";
+
+/// The first table's header row and the whole body.
+fn header_row(out: &Export) -> (String, String) {
+    let body = out.body();
+    let header = body[body.find("<w:tr>").unwrap()..body.find("</w:tr>").unwrap()].to_string();
+    (header, body)
+}
+
+#[test]
+fn table_cells_take_the_templates_own_table_text_styles() {
+    // The sample tables put header cells in "Table Header" (bold 10 pt) and
+    // body cells in "Table Normal Body" (8 pt); 0.3.10 put every cell in a
+    // Table Contents built on the body.
+    let out = export_html_from(
+        "103-table-cell-styles",
+        fixture_template("table-cell-styles.docx"),
+        TABLE_TEXT_HTML,
+    );
+    assert_eq!(out.report.styles["table_header"].name, "Table Header");
+    assert_eq!(
+        out.report.styles["table_contents"].name,
+        "Table Normal Body"
+    );
+    assert_eq!(out.report.styles["table"].name, "Table Grid");
+    assert!(
+        out.report.created_styles.is_empty(),
+        "{:?}",
+        out.report.created_styles
+    );
+    let (header, body) = header_row(&out);
+    assert_eq!(
+        count(&header, "<w:pStyle w:val=\"TableHeader\"/>"),
+        2,
+        "{header}"
+    );
+    assert_eq!(count(&body, "<w:pStyle w:val=\"TableNormalBody\"/>"), 4);
+    assert!(!body.contains("TableContents"));
+    // The style map sends the role elsewhere like any other.
+    let mut options = MarkdownOptions::default();
+    options
+        .style_map
+        .insert(Role::TableHeader, "Table Normal Body".into());
+    let out = export_html_with(
+        "103-table-cell-styles-mapped",
+        fixture_template("table-cell-styles.docx"),
+        TABLE_TEXT_HTML,
+        &options,
+    );
+    assert_eq!(out.report.styles["table_header"].name, "Table Normal Body");
+    assert_eq!(
+        count(&header_row(&out).0, "<w:pStyle w:val=\"TableNormalBody\"/>"),
+        2
+    );
+    let roles = role_styles(
+        &fixture_template("table-cell-styles.docx"),
+        &Default::default(),
+    )
+    .unwrap();
+    let header = roles
+        .iter()
+        .find(|(role, _)| *role == Role::TableHeader)
+        .and_then(|(_, style)| style.clone())
+        .unwrap();
+    assert_eq!(header.name, "Table Header");
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("table-cell-styles.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection["roles"]["table_header"]["name"], "Table Header");
+    assert_eq!(
+        inspection["lifted"]["table"]["cell_styles"]["header"],
+        "TableHeader"
+    );
+    assert_eq!(
+        inspection["lifted"]["table"]["cell_styles"]["body"],
+        "TableNormalBody"
+    );
+}
+
+#[test]
+fn hand_formatted_table_text_goes_to_the_cell_styles() {
+    // The same look applied by hand in Normal: header runs bold, body runs
+    // 8 pt. 0.3.10 lifted the looks into a table style, which only Word
+    // applies, and which gave the header the body's size as well.
+    let out = export_html_from(
+        "104-table-cell-hand-formatting",
+        fixture_template("table-cell-hand-formatting.docx"),
+        TABLE_TEXT_HTML,
+    );
+    assert_eq!(
+        out.report.created_styles,
+        ["Table Contents", "Table Heading"]
+    );
+    assert_eq!(out.report.styles["table"].name, "Table Grid");
+    let contents = style_of(&out, "TableContents");
+    assert!(
+        contents.contains("<w:basedOn w:val=\"Normal\"/>")
+            && contents.contains("<w:sz w:val=\"16\"/>"),
+        "{contents}"
+    );
+    let heading = style_of(&out, "TableHeading");
+    assert!(
+        heading.contains("<w:basedOn w:val=\"Normal\"/>")
+            && heading.contains("<w:b/>")
+            && !heading.contains("<w:sz "),
+        "{heading}"
+    );
+    let (header, body) = header_row(&out);
+    assert_eq!(
+        count(&header, "<w:pStyle w:val=\"TableHeading\"/>"),
+        2,
+        "{header}"
+    );
+    assert_eq!(count(&body, "<w:pStyle w:val=\"TableContents\"/>"), 4);
+    // The look sits in the styles, not on the runs.
+    assert!(!body.contains("<w:sz w:val=\"16\"/>") && !header.contains("<w:b/>"));
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("table-cell-hand-formatting.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    let table = &inspection["lifted"]["table"];
+    assert_eq!(table["cell_text"]["body"]["size_pt"], 8.0);
+    assert_eq!(table["cell_text"]["header"]["bold"], true);
+    assert_eq!(table["direct_formatting_lifted"], false);
+    assert_eq!(inspection["roles"]["table_header"]["created"], true);
+
+    // Tables whose text carries no look of its own keep today's Table
+    // Contents built on the body, and the header cells share it.
+    let plain = [row(&["A", "B"], "", ""), row(&["1", "2"], "", "")];
+    let template = synthetic(Synthetic {
+        styles: TABLE_GRID,
+        body: &sample_table(Some("TableGrid"), &plain),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "105-plain-table-text",
+        TABLE_MARKDOWN,
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(out.report.created_styles, ["Table Contents"]);
+    let header = &out.report.styles["table_header"];
+    assert_eq!(
+        (header.name.as_str(), header.created),
+        ("Table Contents", false)
+    );
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"TableContents\"/>"), 6);
 }

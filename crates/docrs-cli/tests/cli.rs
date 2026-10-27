@@ -371,7 +371,7 @@ fn markdown_reference_and_styles_commands() {
         .unwrap();
     let report = json_of(&styles);
     let roles = report["roles"].as_array().unwrap();
-    assert_eq!(roles.len(), 40);
+    assert_eq!(roles.len(), 41);
     let missing: Vec<&str> = roles
         .iter()
         .filter(|role| role["style"].is_null())
