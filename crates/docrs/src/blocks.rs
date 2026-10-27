@@ -26,12 +26,12 @@ use crate::image::py_round;
 use crate::numbering::{
     ListKind, StylesView, add_next, ensure_definition_in, py_int, set_p_style, validated_style_id,
 };
-use crate::oxml::{self, add_t, append, get_or_add_ppr, insert_before_successors, set_w, w_el};
+use crate::oxml::{self, add_t, append, get_or_add_ppr, set_w, w_el};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_writable_text;
 use crate::revision::w_local;
 use crate::story::{count_fldchar_delta, iter_block_elements};
-use crate::tracked::{new_revision, next_revision_id};
+use crate::tracked::{named_bookmarks_in, new_revision, next_revision_id};
 use crate::txn::Txn;
 use crate::wml::{is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
@@ -282,40 +282,6 @@ pub(crate) fn refuse_paragraph_in_open_field(
     Ok(())
 }
 
-/// Upstream `_named_bookmarks_in`: names of non-point, non-`_GoBack`
-/// bookmarks with a marker in `paragraph`.
-pub(crate) fn named_bookmarks_in(tree: &XmlTree, paragraph: NodeId) -> Vec<String> {
-    let stream: Vec<NodeId> = iter_nodes(tree, paragraph).collect();
-    let mut starts: std::collections::HashMap<Option<String>, (usize, String)> =
-        std::collections::HashMap::new();
-    let mut named: Vec<(Option<String>, String)> = Vec::new();
-    for (position, node) in stream.iter().enumerate() {
-        if is_w(tree, *node, "bookmarkStart") {
-            let name = w_attr(tree, *node, "name").unwrap_or("").to_string();
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            starts.insert(id.clone(), (position, name.clone()));
-            if name != "_GoBack" {
-                named.push((id, name));
-            }
-        } else if is_w(tree, *node, "bookmarkEnd") {
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            let Some((start, name)) = starts.remove(&id) else {
-                continue;
-            };
-            if name == "_GoBack" {
-                continue;
-            }
-            let has_text = stream[start + 1..position]
-                .iter()
-                .any(|inner| is_w(tree, *inner, "t") && !leading_text(tree, *inner).is_empty());
-            if !has_text {
-                named.retain(|(candidate, _)| *candidate != id);
-            }
-        }
-    }
-    named.into_iter().map(|(_, name)| name).collect()
-}
-
 const TRANSPARENT_PARAGRAPH_CHILDREN: &[&str] = &[
     "proofErr",
     "bookmarkStart",
@@ -434,17 +400,14 @@ fn stamp_paragraph_mark(
     revision_id: i64,
     stamp: Stamp<'_>,
 ) -> Result<()> {
-    let ppr = get_or_add_ppr(tree, paragraph)?;
-    let rpr = match w_child(tree, ppr, "rPr") {
-        Some(existing) => existing,
-        None => {
-            let rpr = w_el(tree, ppr, "rPr")?;
-            insert_before_successors(tree, ppr, rpr, &["sectPr", "pPrChange"])?;
-            rpr
-        }
-    };
-    let change = new_track_change(tree, rpr, tag, revision_id, stamp)?;
-    tree.insert(rpr, 0, change)
+    crate::tracked::stamp_paragraph_mark(
+        tree,
+        paragraph,
+        tag,
+        revision_id,
+        stamp.author,
+        &stamp.date.to_xml(),
+    )
 }
 
 /// Detach `node` and its tail text (lxml moves an element with its tail).

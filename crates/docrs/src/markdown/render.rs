@@ -22,9 +22,7 @@ use crate::authoring::{
 use crate::coreprops::{CoreProperty, ensure_part as ensure_core_part, write as write_core};
 use crate::fields::{fld_char_run, instr_text_run, set_update_fields_on_open};
 use crate::image::Image;
-use crate::numbering::{
-    add_next, add_previous, get_or_create_numbering, import_fragment, next_free_ids,
-};
+use crate::numbering::{add_previous, get_or_create_numbering, import_fragment, next_free_ids};
 use crate::oxml::{add_t, append, insert_before_successors, set_w, w_el};
 use crate::package::rels::rt;
 use crate::styles::StyleType;
@@ -332,7 +330,7 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     parsed: &'p Parsed,
     options: &'p MarkdownOptions,
     report: &'t mut MarkdownReport,
-    styles: Resolver,
+    styles: &'t mut Resolver,
     main: String,
     lists: Option<Lists>,
     /// Heading bookmark names in document order.
@@ -365,6 +363,7 @@ pub(crate) fn render(
     options: &MarkdownOptions,
     prefer_own_styles: bool,
     report: &mut MarkdownReport,
+    styles: &mut Resolver,
 ) -> Result<()> {
     let main = txn.document().package().main_part_name().to_string();
     let (toc_title, toc_title_source) = if let Some(title) = &options.toc_title {
@@ -400,7 +399,7 @@ pub(crate) fn render(
         parsed,
         options,
         report,
-        styles: Resolver::new(options.style_map.clone(), options.style_policy),
+        styles,
         main: main.clone(),
         lists: None,
         heading_bookmarks: VecDeque::new(),
@@ -2951,26 +2950,7 @@ impl<'p> Renderer<'_, '_, 'p> {
     fn add_num(&mut self, abstract_id: i64, restart: Option<(i64, u64)>) -> Result<i64> {
         let part = self.lists()?.part.clone();
         let tree = self.txn.tree_mut(&part)?;
-        let root = tree.root();
-        let (_, num_id) = next_free_ids(tree)?;
-        let override_xml = match restart {
-            Some((level, start)) => format!(
-                "<w:lvlOverride w:ilvl=\"{level}\"><w:startOverride w:val=\"{start}\"/></w:lvlOverride>"
-            ),
-            None => String::new(),
-        };
-        let xml = format!(
-            "<w:num xmlns:w=\"{W}\" w:numId=\"{num_id}\"><w:abstractNumId w:val=\"{abstract_id}\"/>{override_xml}</w:num>"
-        );
-        let node = import_fragment(tree, root, &xml)?;
-        match w_children(tree, root, "num").last() {
-            Some(last) => add_next(tree, last, node)?,
-            None => match w_child(tree, root, "numIdMacAtCleanup") {
-                Some(cleanup) => add_previous(tree, cleanup, node)?,
-                None => append(tree, root, node)?,
-            },
-        }
-        Ok(num_id)
+        crate::numbering::add_num(tree, &abstract_id.to_string(), restart)
     }
 
     fn bullet_num(&mut self) -> Result<i64> {

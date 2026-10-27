@@ -208,6 +208,9 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     };
     let mut report = MarkdownReport::default();
     let mut trial = Txn::new(document);
+    let mut resolver =
+        super::styles::Resolver::new(trial_options.style_map.clone(), trial_options.style_policy)
+            .with_sample(sample);
     let outcome = render::render(
         &mut trial,
         &parsed,
@@ -215,8 +218,12 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         &trial_options,
         false,
         &mut report,
+        &mut resolver,
     );
     drop(trial);
+    let sample = resolver
+        .take_sample()
+        .expect("seeded before the trial render");
     if let Err(err) = &outcome {
         problem(
             "conversion_refused",

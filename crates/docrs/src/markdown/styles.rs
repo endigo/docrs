@@ -441,6 +441,15 @@ impl Resolver {
         }
     }
 
+    pub(crate) fn with_sample(mut self, sample: Sample) -> Resolver {
+        self.sample = Some(sample);
+        self
+    }
+
+    pub(crate) fn take_sample(&mut self) -> Option<Sample> {
+        self.sample.take()
+    }
+
     /// Reads the sample once and names the styles part.
     fn prepare(&mut self, txn: &mut Txn<'_>) -> Result<String> {
         if self.sample.is_none() {

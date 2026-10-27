@@ -497,6 +497,7 @@ fn insert_with(
     let staged = {
         let doc: &Document = document;
         let mut txn = Txn::new(doc);
+        let mut resolver = styles::Resolver::new(options.style_map.clone(), options.style_policy);
         render::render(
             &mut txn,
             &parsed,
@@ -504,6 +505,7 @@ fn insert_with(
             options,
             prefer_own_styles,
             &mut report,
+            &mut resolver,
         )?;
         if options.strict && !report.warnings.is_empty() {
             let summary: Vec<String> = report
