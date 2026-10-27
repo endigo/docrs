@@ -1343,7 +1343,7 @@ fn add_break_xml(tree: &mut XmlTree, r: NodeId, kind: BreakType) -> Result<()> {
     Ok(())
 }
 
-const TBLPR_SEQ: &[&str] = &[
+pub(crate) const TBLPR_SEQ: &[&str] = &[
     "tblStyle",
     "tblpPr",
     "tblOverlap",
@@ -1364,7 +1364,7 @@ const TBLPR_SEQ: &[&str] = &[
     "tblPrChange",
 ];
 
-const TCPR_SEQ: &[&str] = &[
+pub(crate) const TCPR_SEQ: &[&str] = &[
     "cnfStyle",
     "tcW",
     "gridSpan",

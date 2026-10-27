@@ -511,13 +511,14 @@ impl Resolver {
                     names.iter().find_map(|name| {
                         let style = find_style(tree, name, role.kind())?;
                         // A body-text style the template writes no text in
-                        // while its default style carries the prose (a
-                        // converter's spacer style) is not the template's body.
+                        // is not the template's body: a converter's spacer
+                        // Body Text while the default style carries the
+                        // prose, or a First Paragraph the prose never uses.
                         let unused = role.falls_back_to_default()
                             && !prefer_own
                             && Some(style) != default
                             && w_attr(tree, style, "styleId").is_some_and(|id| {
-                                sample.unused(id)
+                                sample.unused(name, id)
                                     && !resolved
                                         .values()
                                         .any(|r| r.created && r.style_id.as_deref() == Some(id))
@@ -1025,12 +1026,17 @@ fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
         let old = w_child(tree, rpr, &local);
         // The sample's attributes override the style's one by one; the rest
         // stay. A font or colour set by name drops the theme attribute Word
-        // would otherwise prefer, and the other way round.
+        // would otherwise prefer, and the other way round, unless the sample
+        // sets both.
         if let (Some(old), false) = (old, attrs.is_empty()) {
             for (name, value) in &attrs {
                 tree.set_attr(old, Some(W), name, value)?;
+            }
+            for (name, _) in &attrs {
                 for shadowed in shadowed_by(&local, name) {
-                    tree.remove_attr(old, Some(W), shadowed);
+                    if !attrs.iter().any(|(set, _)| set == shadowed) {
+                        tree.remove_attr(old, Some(W), shadowed);
+                    }
                 }
             }
             tree.detach(child)?;
@@ -1061,7 +1067,8 @@ fn shadowed_by(element: &str, attribute: &str) -> &'static [&'static str] {
         ("rFonts", "cs") => &["cstheme"],
         ("rFonts", "cstheme") => &["cs"],
         ("color", "val") | ("u", "color") => &["themeColor", "themeTint", "themeShade"],
-        ("color", "themeColor") => &["val"],
+        // `w:color` keeps its `w:val`, which the schema requires: Word
+        // prefers the theme colour when both are set anyway.
         ("u", "themeColor") => &["color"],
         _ => &[],
     }
@@ -1118,14 +1125,56 @@ pub(crate) struct Sample {
     table_look: Vec<(String, bool)>,
 }
 
-fn w_xml(tree: &XmlTree, node: NodeId, skip: &[&str]) -> String {
+/// `CT_TcBorders`, `CT_TblBorders` and `CT_PBdr` child order, strict and
+/// transitional names together.
+const BORDERS_SEQ: &[&str] = &[
+    "top", "start", "left", "bottom", "end", "right", "insideH", "insideV", "tl2br", "tr2bl",
+    "between", "bar",
+];
+
+/// `CT_TcMar` and `CT_TblCellMar` child order.
+const MARGINS_SEQ: &[&str] = &["top", "start", "left", "bottom", "end", "right"];
+
+/// The schema order of a properties element's children, for the elements a
+/// look is copied from; `None` keeps the template's order.
+fn child_sequence(local: &str) -> Option<&'static [&'static str]> {
+    Some(match local {
+        "pPr" => crate::oxml::PPR_SEQ,
+        "rPr" => crate::oxml::RPR_SEQ,
+        "tcPr" => crate::authoring::TCPR_SEQ,
+        "tblPr" => crate::authoring::TBLPR_SEQ,
+        "tcBorders" | "tblBorders" | "pBdr" => BORDERS_SEQ,
+        "tcMar" | "tblCellMar" => MARGINS_SEQ,
+        _ => return None,
+    })
+}
+
+/// The `w:` children of `node` in schema order, whatever order the template
+/// wrote them in; children the schema does not name follow, in their order.
+fn ordered_w_children(tree: &XmlTree, node: NodeId) -> Vec<NodeId> {
+    let mut children: Vec<NodeId> = tree
+        .child_elements(node)
+        .filter(|c| tree.ns_uri(*c) == Some(W))
+        .collect();
+    if let Some(sequence) = tree.local_name(node).and_then(child_sequence) {
+        children.sort_by_key(|child| {
+            let local = tree.local_name(*child).unwrap_or("");
+            sequence
+                .iter()
+                .position(|item| *item == local)
+                .unwrap_or(sequence.len())
+        });
+    }
+    children
+}
+
+/// The `w:` children of `node` named in `keep` and not in `skip`, as
+/// WordprocessingML in schema order.
+fn w_xml(tree: &XmlTree, node: NodeId, keep: Option<&[&str]>, skip: &[&str]) -> String {
     let mut out = String::new();
-    for child in tree.child_elements(node) {
-        if tree.ns_uri(child) != Some(W) {
-            continue;
-        }
+    for child in ordered_w_children(tree, node) {
         let local = tree.local_name(child).unwrap_or("");
-        if skip.contains(&local) {
+        if keep.is_some_and(|keep| !keep.contains(&local)) || skip.contains(&local) {
             continue;
         }
         write_w(tree, child, &mut out);
@@ -1147,10 +1196,7 @@ fn write_w(tree: &XmlTree, node: NodeId, out: &mut String) {
             }
         }
     }
-    let children: Vec<NodeId> = tree
-        .child_elements(node)
-        .filter(|c| tree.ns_uri(*c) == Some(W))
-        .collect();
+    let children = ordered_w_children(tree, node);
     if children.is_empty() {
         out.push_str("/>");
         return;
@@ -1180,13 +1226,7 @@ const LOOK_RPR: &[&str] = &[
 const EMPHASIS_RPR: &[&str] = &["b", "bCs", "i", "iCs", "u"];
 
 fn look_rpr(tree: &XmlTree, rpr: NodeId, skip: &[&str]) -> Option<String> {
-    let mut out = String::new();
-    for child in tree.child_elements(rpr) {
-        let local = tree.local_name(child).unwrap_or("");
-        if tree.ns_uri(child) == Some(W) && LOOK_RPR.contains(&local) && !skip.contains(&local) {
-            write_w(tree, child, &mut out);
-        }
-    }
+    let out = w_xml(tree, rpr, Some(LOOK_RPR), skip);
     (!out.is_empty()).then_some(out)
 }
 
@@ -1217,10 +1257,18 @@ fn describe_rpr(rpr: &str) -> Value {
 }
 
 impl Sample {
-    /// Whether the template writes its text in the default style and none
-    /// in this one.
-    fn unused(&self, id: &str) -> bool {
-        self.text_styles.contains(&None) && !self.text_styles.contains(&Some(id.to_string()))
+    /// Whether the template writes no text in this style while its prose is
+    /// elsewhere: in the default style, or, for a First Paragraph, in any
+    /// style at all.
+    fn unused(&self, name: &str, id: &str) -> bool {
+        if self.text_styles.contains(&Some(id.to_string())) {
+            return false;
+        }
+        if name.eq_ignore_ascii_case("First Paragraph") {
+            !self.body_spacings.is_empty()
+        } else {
+            self.text_styles.contains(&None)
+        }
     }
 
     /// The spacing the body style takes from the prose, the unstyled
@@ -1380,7 +1428,12 @@ impl Sample {
                     sample.headings.entry(level + 1).or_insert_with(|| Lifted {
                         ppr: ppr
                             .map(|p| {
-                                w_xml(tree, p, &["pStyle", "numPr", "rPr", "sectPr", "pPrChange"])
+                                w_xml(
+                                    tree,
+                                    p,
+                                    None,
+                                    &["pStyle", "numPr", "rPr", "sectPr", "pPrChange"],
+                                )
                             })
                             .unwrap_or_default(),
                         rpr: first_rpr
@@ -1527,6 +1580,7 @@ fn table_look(tree: &XmlTree, tbl: NodeId) -> Vec<(String, bool)> {
 }
 
 const LOOK_TCPR: &[&str] = &["tcBorders", "shd", "tcMar"];
+const LOOK_TBLPR: &[&str] = &["tblBorders", "shd", "tblCellMar"];
 
 fn row_look(tree: &XmlTree, tr: NodeId) -> (String, String) {
     match w_child(tree, tr, "tc") {
@@ -1538,15 +1592,9 @@ fn row_look(tree: &XmlTree, tr: NodeId) -> (String, String) {
 /// `(cell look, run look)`: borders, shading and margins; font, colour and
 /// emphasis of the first run (the paragraph mark's when the cell is empty).
 fn cell_look(tree: &XmlTree, tc: NodeId) -> (String, String) {
-    let mut cell = String::new();
-    if let Some(tc_pr) = w_child(tree, tc, "tcPr") {
-        for child in tree.child_elements(tc_pr) {
-            let local = tree.local_name(child).unwrap_or("");
-            if tree.ns_uri(child) == Some(W) && LOOK_TCPR.contains(&local) {
-                write_w(tree, child, &mut cell);
-            }
-        }
-    }
+    let cell = w_child(tree, tc, "tcPr")
+        .map(|tc_pr| w_xml(tree, tc_pr, Some(LOOK_TCPR), &[]))
+        .unwrap_or_default();
     let paragraphs: Vec<NodeId> = w_children(tree, tc, "p").collect();
     let run = paragraphs
         .iter()
@@ -1600,13 +1648,9 @@ fn read_table(tree: &XmlTree, tbl: NodeId) -> SampleTable {
         .and_then(|p| w_child(tree, p, "tblStyle"))
         .and_then(|s| w_attr(tree, s, "val"))
         .map(str::to_string);
-    let mut props = String::new();
-    for child in tbl_pr.into_iter().flat_map(|p| tree.child_elements(p)) {
-        let local = tree.local_name(child).unwrap_or("");
-        if tree.ns_uri(child) == Some(W) && matches!(local, "tblBorders" | "shd" | "tblCellMar") {
-            write_w(tree, child, &mut props);
-        }
-    }
+    let props = tbl_pr
+        .map(|tbl_pr| w_xml(tree, tbl_pr, Some(LOOK_TBLPR), &[]))
+        .unwrap_or_default();
     let rows: Vec<NodeId> = w_children(tree, tbl, "tr").collect();
     let header = rows
         .first()

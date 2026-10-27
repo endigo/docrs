@@ -18,5 +18,9 @@ synthetic test data; no customer templates or client documents.
 | `body-spacing-by-hand.docx` | A Body Text style defined as 6 pt after at 1.5 lines while every body paragraph is spaced by hand to none at single lines. Same origin. |
 | `body-spacing-in-normal.docx` | The prose in Normal (10 pt after, 1.15 lines by style) while Body Text (6 pt after, single lines) holds one short sample line. Same origin. |
 | `oversized-footer-picture.docx` | The default footer holds a small logo and a page number beside an inline picture of 37.3 × 16.7 cm, wider than the A4 page; Word clips it at the page edge, LibreOffice lays it out in full. From the fidelity comparison of 2026-10-26 (synthetic). |
+| `heading-theme-colour.docx` | Every heading coloured by hand with both a value and a theme colour (`<w:color w:val="000000" w:themeColor="text1"/>`); the prose is Body Text. From the Open XML SDK validator and re-scoring pass of 2026-10-27 (synthetic, built from docrs's own reference document). |
+| `table-cell-shading-order.docx` | A sample table whose header cells put `w:shd` before `w:tcBorders` inside `w:tcPr`, as some editors save it (Word opens it; the schema order is borders, then shading). Same origin. |
+| `first-paragraph-unused.docx` | A First Paragraph style based on Normal with no look of its own that no paragraph uses; the prose is Body Text (Arial 10 pt, 1 pt before, 5 pt after). Same origin. |
+| `first-paragraph-used.docx` | The control: a First Paragraph based on Body Text with a look of its own (italic, 12 pt before), used on the paragraph after each heading. Same origin. |
 | `list-shapes.md` | Nested lists deeper than the template defines, continuations, mixed list kinds, an HTML table with a list in a cell. |
 | `record-of-advice.md` | A full Record of Advice as users edit it: repeated tables, `<u>`, `<br>` in cells, empty `<p></p>`, links. Messy on purpose. |

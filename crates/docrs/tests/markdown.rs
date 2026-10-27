@@ -3064,11 +3064,12 @@ fn a_first_paragraph_style_takes_the_body_look() {
     assert!(!body.contains("Calibri"), "{body}");
     assert!(!style_of(&out, "Normal").contains("Calibri"));
 
-    // A First Paragraph the template shows no paragraph in, wearing only
-    // Normal's look, follows the body; one with a font of its own keeps it.
+    // A First Paragraph the template uses, wearing only Normal's look,
+    // follows the body; one with a font of its own keeps it.
     let long = "A body paragraph in Calibri, long enough to carry the look.";
     let prose = format!(
-        "{}{}",
+        "{}{}{}",
+        styled_paragraph("FirstParagraph", long, ""),
         styled_paragraph("BodyText", long, CALIBRI),
         styled_paragraph("BodyText", long, CALIBRI)
     );
@@ -3283,10 +3284,11 @@ fn body_spacing_is_added_followed_and_left_alone() {
         style.contains(LOOSE) && !style.contains("<w:rPr>"),
         "{style}"
     );
-    // A First Paragraph with no spacing of its own follows the body; one
-    // with its own keeps it.
+    // A First Paragraph the template uses, with no spacing of its own,
+    // follows the body; one with its own keeps it.
     let prose = format!(
-        "{}{}",
+        "{}{}{}",
+        spaced_paragraph(Some("FirstParagraph"), long, ""),
         spaced_paragraph(Some("BodyText"), long, LOOSE),
         spaced_paragraph(Some("BodyText"), long, LOOSE)
     );
@@ -3442,5 +3444,263 @@ fn pictures_wider_than_the_page_or_taller_than_half_of_it_are_reported() {
             "The first-page header has a picture 13.9 cm wide and 30.6 cm tall, taller than the page (21.6 by 27.9 cm)."
         ),
         "{reported:?}"
+    );
+}
+
+// ------------------------------ validator errors and the unused First Paragraph
+
+/// The repro content: a heading, two paragraphs, a table with a header
+/// row, a second heading and a paragraph.
+const SECTIONS_HTML: &str = "<h1>Heading one</h1>\
+    <p>First paragraph after a heading, long enough to read as body text.</p>\
+    <p>Second paragraph, an ordinary body paragraph long enough to read as body text.</p>\
+    <table><tbody><tr><th><p>Asset</p></th><th><p>Value</p></th></tr>\
+    <tr><td><p>Home</p></td><td><p>$1,200,000</p></td></tr></tbody></table>\
+    <h2>Heading two</h2>\
+    <p>Another first paragraph after a heading, long enough to read as body text.</p>";
+
+fn export_html_from(name: &str, mut doc: Document, html: &str) -> Export {
+    let report = docrs::markdown::insert_html(&mut doc, html, &MarkdownOptions::default())
+        .unwrap_or_else(|err| panic!("{name}: conversion failed: {err}"));
+    let (bytes, _) = doc.patch_bytes().unwrap();
+    if let Some(dir) = std::env::var_os("DOCRS_MARKDOWN_EXPORT") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(PathBuf::from(dir).join(format!("{name}.docx")), &bytes).unwrap();
+    }
+    Export {
+        doc: Document::open_bytes(&bytes, &Limits::default()).unwrap(),
+        report,
+        bytes,
+    }
+}
+
+fn part_of(doc: &Document, name: &str) -> String {
+    String::from_utf8(docrs::xml::serialize(doc.package().xml(name).unwrap())).unwrap()
+}
+
+/// Every tag, once, in the order given.
+fn assert_in_order(xml: &str, tags: &[&str]) {
+    let positions: Vec<usize> = tags
+        .iter()
+        .map(|tag| {
+            xml.find(tag)
+                .unwrap_or_else(|| panic!("{tag} missing from {xml}"))
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{tags:?} out of order in {xml}"
+    );
+}
+
+#[test]
+fn a_lifted_colour_keeps_its_value_beside_the_theme_colour() {
+    // Every heading is coloured by hand with a value and a theme colour;
+    // the style takes both (w:val is required).
+    let out = export_html_from(
+        "79-heading-theme-colour",
+        fixture_template("heading-theme-colour.docx"),
+        SECTIONS_HTML,
+    );
+    for id in ["Heading1", "Heading2"] {
+        let rpr = style_rpr(&out, id);
+        let color = rpr[rpr.find("<w:color").unwrap()..]
+            .split("/>")
+            .next()
+            .unwrap();
+        assert!(
+            color.contains("w:val=\"000000\"") && color.contains("w:themeColor=\"text1\""),
+            "{id}: {rpr}"
+        );
+        assert!(!rpr.contains("2F5496"), "{id}: {rpr}");
+    }
+    // A colour set by value alone still drops the style's theme colour.
+    let heading = "<w:style w:type=\"paragraph\" w:styleId=\"Heading1\"><w:name w:val=\"heading 1\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:pPr><w:outlineLvl w:val=\"0\"/></w:pPr>\
+        <w:rPr><w:b/><w:color w:val=\"000000\" w:themeColor=\"text1\"/></w:rPr></w:style>";
+    let template = synthetic(Synthetic {
+        styles: heading,
+        body: &styled_paragraph(
+            "Heading1",
+            "Sample heading",
+            "<w:rPr><w:color w:val=\"C00000\"/></w:rPr>",
+        ),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "80-heading-colour-by-value",
+        SECTIONS,
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    let rpr = style_rpr(&out, "Heading1");
+    assert!(rpr.contains("<w:color w:val=\"C00000\"/>"), "{rpr}");
+}
+
+#[test]
+fn lifted_properties_are_written_in_schema_order() {
+    // The sample table's header cells put w:shd before w:tcBorders, as some
+    // editors save it; the table style is written in schema order.
+    let out = export_html_from(
+        "81-table-cell-shading-order",
+        fixture_template("table-cell-shading-order.docx"),
+        SECTIONS_HTML,
+    );
+    let table = style_of(&out, "Table");
+    let first_row = &table[table.find("w:type=\"firstRow\"").unwrap()..];
+    assert_in_order(first_row, &["<w:tcPr>", "<w:tcBorders>", "<w:shd "]);
+    assert!(first_row.contains("w:fill=\"1F3A5F\""), "{first_row}");
+
+    // Everything copied from a template part is ordered the same: a heading
+    // made by hand with its paragraph and run properties shuffled, a table
+    // whose cells list margins, shading and borders backwards.
+    let heading = "<w:p><w:pPr><w:outlineLvl w:val=\"0\"/><w:jc w:val=\"center\"/><w:keepNext/>\
+        <w:spacing w:before=\"240\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"32\"/><w:b/>\
+        <w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>Hand-made heading</w:t></w:r></w:p>";
+    let cell = |text: &str, shaded: bool| {
+        let shading = if shaded {
+            "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"1F3A5F\"/>"
+        } else {
+            ""
+        };
+        format!(
+            "<w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/>\
+             <w:tcMar><w:left w:w=\"80\" w:type=\"dxa\"/><w:top w:w=\"40\" w:type=\"dxa\"/></w:tcMar>{shading}\
+             <w:tcBorders><w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"1F3A5F\"/>\
+             <w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"1F3A5F\"/></w:tcBorders></w:tcPr>\
+             <w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
+        )
+    };
+    let table = format!(
+        "<w:tbl><w:tblPr><w:tblW w:w=\"6000\" w:type=\"dxa\"/></w:tblPr>\
+         <w:tblGrid><w:gridCol w:w=\"3000\"/><w:gridCol w:w=\"3000\"/></w:tblGrid>\
+         <w:tr>{}{}</w:tr><w:tr>{}{}</w:tr><w:tr>{}{}</w:tr></w:tbl>",
+        cell("Asset", true),
+        cell("Value", true),
+        cell("Home", false),
+        cell("1", false),
+        cell("Car", false),
+        cell("2", false)
+    );
+    let template = synthetic(Synthetic {
+        body: &format!("{heading}{table}"),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "82-shuffled-template-properties",
+        "# Heading\n\nText.\n\n| A | B |\n| - | - |\n| 1 | 2 |\n",
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    let heading = style_of(&out, "Heading1");
+    assert_in_order(
+        &heading,
+        &[
+            "<w:pPr>",
+            "<w:keepNext/>",
+            "<w:spacing ",
+            "<w:jc ",
+            "<w:outlineLvl ",
+            "<w:rPr>",
+            "<w:rFonts ",
+            "<w:b/>",
+            "<w:sz ",
+        ],
+    );
+    let table = style_of(&out, "Table");
+    assert_in_order(
+        &table,
+        &[
+            "<w:tblPr>",
+            "<w:tblBorders>",
+            "<w:tblCellMar>",
+            "<w:top w:w=\"40\"",
+            "<w:left w:w=\"80\"",
+        ],
+    );
+    let first_row = &table[table.find("w:type=\"firstRow\"").unwrap()..];
+    assert_in_order(
+        first_row,
+        &[
+            "<w:tcPr>",
+            "<w:tcBorders>",
+            "<w:top ",
+            "<w:bottom ",
+            "<w:shd ",
+            "<w:tcMar>",
+            "<w:top w:w=\"40\"",
+            "<w:left ",
+        ],
+    );
+}
+
+#[test]
+fn an_unused_first_paragraph_style_is_passed_over_for_the_body() {
+    // First Paragraph is defined (based on Normal, no look of its own) but
+    // no paragraph uses it; the prose is Body Text.
+    let template = || fixture_template("first-paragraph-unused.docx");
+    let out = export_html_from("83-first-paragraph-unused", template(), SECTIONS_HTML);
+    assert_eq!(out.report.styles["first_paragraph"].name, "Body Text");
+    assert_eq!(
+        out.report.styles["first_paragraph"].style_id.as_deref(),
+        Some("BodyText")
+    );
+    let body = out.body();
+    assert_eq!(count(&body, "<w:pStyle w:val=\"BodyText\"/>"), 3);
+    assert!(!body.contains("FirstParagraph"), "{body}");
+    assert_eq!(
+        style_of(&out, "FirstParagraph"),
+        style_xml(&part_of(&template(), "word/styles.xml"), "FirstParagraph")
+    );
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["first_paragraph"]["name"], "Body Text");
+    assert_eq!(inspection["roles"]["body"]["name"], "Body Text");
+
+    // The control: a First Paragraph the template uses, with a look of its
+    // own (italic, 12 pt before), is kept as the template defines it.
+    let template = || fixture_template("first-paragraph-used.docx");
+    let out = export_html_from("84-first-paragraph-used", template(), SECTIONS_HTML);
+    assert_eq!(out.report.styles["first_paragraph"].name, "First Paragraph");
+    let body = out.body();
+    assert_eq!(count(&body, "<w:pStyle w:val=\"FirstParagraph\"/>"), 2);
+    assert_eq!(count(&body, "<w:pStyle w:val=\"BodyText\"/>"), 1);
+    let style = style_of(&out, "FirstParagraph");
+    assert!(
+        style.contains("<w:i/>") && style.contains("w:before=\"240\""),
+        "{style}"
+    );
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(
+        inspection["roles"]["first_paragraph"]["name"],
+        "First Paragraph"
+    );
+
+    // When the prose is the default style, so is the first paragraph.
+    let long = "A Normal paragraph, long enough to read as prose.";
+    let export = |name: &str, body: &str| {
+        let template = synthetic(Synthetic {
+            styles: &first_paragraph_style(""),
+            body,
+            ..Synthetic::default()
+        });
+        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
+    };
+    let out = export(
+        "85-first-paragraph-unused-normal-prose",
+        &format!(
+            "{}{}",
+            spaced_paragraph(None, long, ""),
+            spaced_paragraph(None, long, "")
+        ),
+    );
+    assert_eq!(out.report.styles["first_paragraph"].name, "Normal");
+    assert_eq!(out.report.styles["first_paragraph"].style_id, None);
+    assert!(!out.body().contains("<w:pStyle w:val=\"FirstParagraph\"/>"));
+    // A template with no prose at all says nothing: First Paragraph is used.
+    let out = export("86-first-paragraph-no-prose", "");
+    assert_eq!(out.report.styles["first_paragraph"].name, "First Paragraph");
+    assert_eq!(
+        count(&out.body(), "<w:pStyle w:val=\"FirstParagraph\"/>"),
+        2
     );
 }
