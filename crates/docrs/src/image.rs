@@ -47,7 +47,7 @@ fn eof() -> Error {
 }
 
 /// Python `round()` for floats (ties to even), then `int()`.
-fn py_round(value: f64) -> i64 {
+pub(crate) fn py_round(value: f64) -> i64 {
     value.round_ties_even() as i64
 }
 

@@ -67,20 +67,17 @@ pub struct Story {
     pub part: String,
 }
 
-fn story_rank(name: &str) -> u8 {
-    if name == "word/document.xml" {
-        0
-    } else if name.starts_with("word/header") {
-        1
-    } else if name.starts_with("word/footer") {
-        2
-    } else if name == "word/footnotes.xml" {
-        3
-    } else if name == "word/endnotes.xml" {
-        4
-    } else {
-        5
-    }
+/// Traversal rank of a story part name; `None` for any other part.
+fn story_rank(name: &str) -> Option<u8> {
+    Some(match name {
+        "word/document.xml" => 0,
+        _ if name.starts_with("word/header") && name.ends_with(".xml") => 1,
+        _ if name.starts_with("word/footer") && name.ends_with(".xml") => 2,
+        "word/footnotes.xml" => 3,
+        "word/endnotes.xml" => 4,
+        "word/comments.xml" => 5,
+        _ => return None,
+    })
 }
 
 /// Every story part, in traversal order (body, headers, footers, footnotes,
@@ -97,14 +94,7 @@ pub fn stories(document: &Document) -> Vec<Story> {
         })
         .filter_map(|part| {
             let name = casefold(part.name());
-            let is_story = name == "word/document.xml"
-                || ((name.starts_with("word/header") || name.starts_with("word/footer"))
-                    && name.ends_with(".xml"))
-                || matches!(
-                    name.as_str(),
-                    "word/footnotes.xml" | "word/endnotes.xml" | "word/comments.xml"
-                );
-            is_story.then(|| Story {
+            story_rank(&name).map(|_| Story {
                 name,
                 part: part.name().to_string(),
             })
@@ -668,10 +658,10 @@ pub(crate) fn story_blocks(
                 )
             }
             BlockKind::Paragraph => {
-                let visitor =
+                let mut visitor =
                     subtree_text(tree, block.element, view, true, block.in_sdt, block.in_txbx);
                 (
-                    visitor.text.clone(),
+                    std::mem::take(&mut visitor.text),
                     style_id(tree, block.element),
                     None,
                     visitor,
@@ -782,8 +772,12 @@ fn count_blind_regions(tree: &XmlTree, counts: &mut BTreeMap<String, usize>) {
 
 /// Every block in every story part, in document order.
 pub fn iter_blocks(document: &Document, view: View) -> Result<Vec<Block>> {
+    blocks_in(document, &stories(document), view)
+}
+
+fn blocks_in(document: &Document, stories: &[Story], view: View) -> Result<Vec<Block>> {
     let mut blocks = Vec::new();
-    for story in stories(document) {
+    for story in stories {
         let tree = document.package().xml(&story.part)?;
         blocks.extend(story_blocks(
             tree,
@@ -798,20 +792,18 @@ pub fn iter_blocks(document: &Document, view: View) -> Result<Vec<Block>> {
 
 /// Inspection snapshot (deterministic).
 pub fn outline(document: &Document, view: View) -> Result<Outline> {
-    let blocks = iter_blocks(document, view)?;
+    let found = stories(document);
+    let blocks = blocks_in(document, &found, view)?;
     let mut counts: BTreeMap<String, usize> = BLIND_REGION_KEYS
         .iter()
         .map(|key| (key.to_string(), 0))
         .collect();
-    for story in stories(document) {
+    for story in &found {
         let tree = document.package().xml(&story.part)?;
         count_blind_regions(tree, &mut counts);
     }
     Ok(Outline {
-        story_parts: stories(document)
-            .into_iter()
-            .map(|story| story.name)
-            .collect(),
+        story_parts: found.into_iter().map(|story| story.name).collect(),
         blocks,
         blind_region_counts: counts,
     })

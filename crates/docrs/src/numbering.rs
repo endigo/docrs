@@ -15,15 +15,20 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Serialize;
 
-use crate::anchor::{BlockTarget, locate_paragraph, require_current_view};
+use crate::anchor::{BlockTarget, resolve_anchor_paragraph_for};
 use crate::oxml::{PPR_SEQ, get_or_add, get_or_add_ppr, set_w};
 use crate::package::ct;
 use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::story::{self, BlockKind, View, iter_block_elements, subtree_text};
+use crate::styles::{
+    default_styles_tree, internal_to_ui, style_element_by_id, style_elements, ui_to_internal,
+};
 use crate::txn::Txn;
 use crate::unicode::{is_py_space, py_strip};
-use crate::wml::{W, first_choice_children, is_w, leading_text, w_attr, w_child, w_children};
+use crate::wml::{
+    W, first_choice_children, is_w, leading_text, node_children, w_attr, w_child, w_children,
+};
 use crate::xml::{self, NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
@@ -132,15 +137,6 @@ pub(crate) fn require_int(value: Option<&str>, what: &str) -> Result<i64> {
         .ok_or_else(|| malformed_int(what, value))
 }
 
-/// Non-text child nodes (lxml's element/comment/PI children).
-pub(crate) fn lxml_children(tree: &XmlTree, id: NodeId) -> Vec<NodeId> {
-    tree.children(id)
-        .iter()
-        .copied()
-        .filter(|child| !matches!(tree.data(*child), NodeData::Text(_)))
-        .collect()
-}
-
 /// lxml `anchor.addnext(node)`: `node` goes after `anchor` *and its tail*.
 pub(crate) fn add_next(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
     let parent = tree
@@ -226,40 +222,6 @@ fn import_node(
     Ok(element)
 }
 
-const DEFAULT_STYLES: &[u8] = include_bytes!("../assets/default-styles.xml");
-
-/// python-docx `BabelFish` UI ↔ internal style-name aliases.
-const STYLE_ALIASES: &[(&str, &str)] = &[
-    ("Caption", "caption"),
-    ("Footer", "footer"),
-    ("Header", "header"),
-    ("Heading 1", "heading 1"),
-    ("Heading 2", "heading 2"),
-    ("Heading 3", "heading 3"),
-    ("Heading 4", "heading 4"),
-    ("Heading 5", "heading 5"),
-    ("Heading 6", "heading 6"),
-    ("Heading 7", "heading 7"),
-    ("Heading 8", "heading 8"),
-    ("Heading 9", "heading 9"),
-];
-
-fn ui2internal(name: &str) -> &str {
-    STYLE_ALIASES
-        .iter()
-        .find(|(ui, _)| *ui == name)
-        .map(|(_, internal)| *internal)
-        .unwrap_or(name)
-}
-
-fn internal2ui(name: &str) -> &str {
-    STYLE_ALIASES
-        .iter()
-        .find(|(_, internal)| *internal == name)
-        .map(|(ui, _)| *ui)
-        .unwrap_or(name)
-}
-
 /// The styles part as python-docx `document.styles` sees it: the related
 /// part, or (when missing) the default template python-docx would create.
 pub(crate) struct StylesView<'a> {
@@ -278,7 +240,7 @@ impl<'a> StylesView<'a> {
                 missing: false,
             }),
             None => Ok(StylesView {
-                tree: Cow::Owned(crate::parts::template(DEFAULT_STYLES)?),
+                tree: Cow::Owned(default_styles_tree()?),
                 missing: true,
             }),
         }
@@ -293,40 +255,19 @@ impl<'a> StylesView<'a> {
                 missing: false,
             }),
             None => Ok(StylesView {
-                tree: Cow::Owned(crate::parts::template(DEFAULT_STYLES)?),
+                tree: Cow::Owned(default_styles_tree()?),
                 missing: true,
             }),
         }
-    }
-
-    /// Every `w:style` child of the styles root.
-    pub(crate) fn styles(&self) -> Vec<NodeId> {
-        let tree: &XmlTree = &self.tree;
-        w_children(tree, tree.root(), "style").collect()
-    }
-
-    /// `w:styleId` values (upstream `{style.style_id for style in styles}`).
-    pub(crate) fn style_ids(&self) -> HashSet<String> {
-        self.styles()
-            .into_iter()
-            .filter_map(|style| w_attr(&self.tree, style, "styleId").map(str::to_string))
-            .collect()
     }
 
     fn name_val(&self, style: NodeId) -> Option<&str> {
         w_child(&self.tree, style, "name").and_then(|name| w_attr(&self.tree, name, "val"))
     }
 
-    /// `CT_Styles.get_by_id` (first match).
-    fn get_by_id(&self, style_id: &str) -> Option<NodeId> {
-        self.styles()
-            .into_iter()
-            .find(|style| w_attr(&self.tree, *style, "styleId") == Some(style_id))
-    }
-
     /// `CT_Styles.get_by_name`: any `w:name` child with the value.
     fn get_by_name(&self, name: &str) -> Option<NodeId> {
-        self.styles().into_iter().find(|style| {
+        style_elements(&self.tree).find(|style| {
             w_children(&self.tree, *style, "name")
                 .any(|child| w_attr(&self.tree, child, "val") == Some(name))
         })
@@ -334,17 +275,16 @@ impl<'a> StylesView<'a> {
 
     /// python-docx `styles[key]` (UI name, then deprecated style-id lookup).
     fn lookup(&self, key: &str) -> Option<NodeId> {
-        self.get_by_name(ui2internal(key))
-            .or_else(|| self.get_by_id(key))
+        self.get_by_name(ui_to_internal(key))
+            .or_else(|| style_element_by_id(&self.tree, key))
     }
 
     /// UI names of every style (upstream `{style.name for style in styles}`).
     fn ui_names(&self) -> HashSet<String> {
-        self.styles()
-            .into_iter()
+        style_elements(&self.tree)
             .filter_map(|style| {
                 self.name_val(style)
-                    .map(|name| internal2ui(name).to_string())
+                    .map(|name| internal_to_ui(name).to_string())
             })
             .collect()
     }
@@ -365,7 +305,7 @@ impl<'a> StylesView<'a> {
     /// with `w:default` on.
     fn default_paragraph_style(&self) -> Result<Option<NodeId>> {
         let mut found = None;
-        for style in self.styles() {
+        for style in style_elements(&self.tree) {
             if self.raw_type(style)? != Some("paragraph") {
                 continue;
             }
@@ -417,7 +357,7 @@ pub(crate) fn validated_style_id(
     let Some(style_id) = style_id else {
         return Ok(None);
     };
-    if !styles.style_ids().contains(style_id) {
+    if style_element_by_id(&styles.tree, style_id).is_none() {
         return Err(Error::refusal(
             RefusalKind::TargetNotFound,
             "style_not_defined",
@@ -526,7 +466,7 @@ fn style_index(styles: &StylesView<'_>) -> StyleIndex {
     let tree: &XmlTree = &styles.tree;
     let mut by_id = HashMap::new();
     let mut default_id = None;
-    for style in styles.styles() {
+    for style in style_elements(tree) {
         if let Some(id) = w_attr(tree, style, "styleId") {
             by_id.insert(id.to_string(), style);
         }
@@ -619,59 +559,28 @@ fn selected(tree: &XmlTree, root: NodeId, target: &str) -> Vec<NodeId> {
     out
 }
 
-fn table_paragraphs(tree: &XmlTree, table: NodeId) -> Vec<NodeId> {
-    let mut out = Vec::new();
-    for row in selected(tree, table, "tr") {
-        for cell in selected(tree, row, "tc") {
-            out.extend(selected(tree, cell, "p"));
-        }
-    }
-    out
+/// Where a table paragraph was selected: its row, the row's selected cells
+/// with the index of its own, and its index among the cell's paragraphs.
+struct CellAddress<'a> {
+    row: usize,
+    tr: NodeId,
+    cells: &'a [NodeId],
+    cell: usize,
+    within: usize,
 }
 
-fn climb_to(tree: &XmlTree, start: Option<NodeId>, target: &str) -> Option<NodeId> {
-    let mut current = start;
-    while let Some(node) = current {
-        if is_w(tree, node, target) || is_w(tree, node, "body") {
-            break;
-        }
-        current = tree.parent(node);
-    }
-    current.filter(|node| is_w(tree, *node, target))
-}
-
-/// Upstream `_table_cell_address`.
-fn table_cell_address(tree: &XmlTree, paragraph: NodeId) -> Result<Option<(usize, i64, usize)>> {
-    let Some(tc) = climb_to(tree, tree.parent(paragraph), "tc") else {
-        return Ok(None);
-    };
-    let Some(tr) = climb_to(tree, tree.parent(tc), "tr") else {
-        return Ok(None);
-    };
-    let Some(tbl) = climb_to(tree, tree.parent(tr), "tbl") else {
-        return Ok(None);
-    };
-    let unreachable = || {
-        Error::invalid_argument(
-            "unreachable_table_cell",
-            "numbered paragraph is not reachable through its table's selected content",
-        )
-    };
-    let rows = selected(tree, tbl, "tr");
-    let cells = selected(tree, tr, "tc");
+/// Upstream `_table_cell_address`: `(row, grid column, paragraph-in-cell)`.
+fn table_cell_address(tree: &XmlTree, address: &CellAddress<'_>) -> Result<(usize, i64, usize)> {
     let mut column = 0i64;
     if let Some(grid_before) =
-        w_child(tree, tr, "trPr").and_then(|pr| w_child(tree, pr, "gridBefore"))
+        w_child(tree, address.tr, "trPr").and_then(|pr| w_child(tree, pr, "gridBefore"))
     {
         column = match w_attr(tree, grid_before, "val").filter(|v| !v.is_empty()) {
             Some(value) => require_int(Some(value), "w:gridBefore/@w:val")?,
             None => 0,
         };
     }
-    for cell in &cells {
-        if *cell == tc {
-            break;
-        }
+    for cell in &address.cells[..address.cell] {
         let span = w_child(tree, *cell, "tcPr").and_then(|pr| w_child(tree, pr, "gridSpan"));
         column += match span {
             Some(span) => match w_attr(tree, span, "val").filter(|v| !v.is_empty()) {
@@ -681,12 +590,7 @@ fn table_cell_address(tree: &XmlTree, paragraph: NodeId) -> Result<Option<(usize
             None => 1,
         };
     }
-    let row = rows.iter().position(|r| *r == tr).ok_or_else(unreachable)?;
-    let within = selected(tree, tc, "p")
-        .iter()
-        .position(|p| *p == paragraph)
-        .ok_or_else(unreachable)?;
-    Ok(Some((row, column, within)))
+    Ok((address.row, column, address.within))
 }
 
 /// Every numbering definition and every numbered paragraph in `document`
@@ -702,14 +606,12 @@ pub fn list_numbering(document: &Document) -> Result<NumberingReport> {
     for story in story::stories(document) {
         let tree = document.package().xml(&story.part)?;
         for block in iter_block_elements(tree, &story.name)? {
-            let paragraphs = match block.kind {
-                BlockKind::Paragraph => vec![block.element],
-                BlockKind::Table => table_paragraphs(tree, block.element),
-            };
-            for paragraph in paragraphs {
+            let numbered_paragraph = |paragraph: NodeId,
+                                      cell: Option<&CellAddress<'_>>|
+             -> Result<Option<NumberedParagraph>> {
                 let Some((num_id, level)) = effective_numbering(&styles, &index, tree, paragraph)?
                 else {
-                    continue;
+                    return Ok(None);
                 };
                 let Some(definition) = by_id.get(&num_id) else {
                     return Err(Error::refusal(
@@ -738,14 +640,40 @@ pub fn list_numbering(document: &Document) -> Result<NumberingReport> {
                     block.in_txbx,
                 )
                 .text;
-                numbered.push(NumberedParagraph {
+                let table_cell = match cell {
+                    Some(cell) => Some(table_cell_address(tree, cell)?),
+                    None => None,
+                };
+                Ok(Some(NumberedParagraph {
                     story: story.name.clone(),
                     index: block.index,
                     num_id,
                     level,
                     text,
-                    table_cell: table_cell_address(tree, paragraph)?,
-                });
+                    table_cell,
+                }))
+            };
+            match block.kind {
+                BlockKind::Paragraph => numbered.extend(numbered_paragraph(block.element, None)?),
+                BlockKind::Table => {
+                    for (row, tr) in selected(tree, block.element, "tr").into_iter().enumerate() {
+                        let cells = selected(tree, tr, "tc");
+                        for (cell, tc) in cells.iter().enumerate() {
+                            for (within, paragraph) in
+                                selected(tree, *tc, "p").into_iter().enumerate()
+                            {
+                                let address = CellAddress {
+                                    row,
+                                    tr,
+                                    cells: &cells,
+                                    cell,
+                                    within,
+                                };
+                                numbered.extend(numbered_paragraph(paragraph, Some(&address))?);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -758,15 +686,6 @@ pub fn list_numbering(document: &Document) -> Result<NumberingReport> {
 /// `CT_NumPr` child order.
 const NUMPR_SEQ: &[&str] = &["ilvl", "numId", "numberingChange", "ins"];
 
-fn locate_target(
-    document: &Document,
-    paragraph: BlockTarget<'_>,
-) -> Result<crate::anchor::Located> {
-    let located = locate_paragraph(document, paragraph)?;
-    require_current_view(paragraph)?;
-    Ok(located)
-}
-
 /// Give `paragraph` the existing definition `num_id` at `level` (upstream
 /// `apply_numbering`). Never fabricates a definition.
 pub fn apply_numbering(
@@ -775,8 +694,7 @@ pub fn apply_numbering(
     num_id: i64,
     level: i64,
 ) -> Result<()> {
-    let located = locate_target(document, paragraph)?;
-    refuse_if_protected(document, "apply numbering", OperationClass::BodyContent)?;
+    let located = resolve_anchor_paragraph_for(document, paragraph, "apply numbering")?;
     let definitions = definitions(live_numbering_tree(document)?)?;
     let Some(definition) = definitions.iter().find(|d| d.num_id == num_id) else {
         let defined: Vec<i64> = definitions.iter().map(|d| d.num_id).collect();
@@ -827,7 +745,7 @@ fn style_numbering_binding(styles: &StylesView<'_>, style_name: &str) -> Result<
         }
         style = w_child(tree, current, "basedOn")
             .and_then(|based| w_attr(tree, based, "val"))
-            .and_then(|based| styles.get_by_id(based));
+            .and_then(|based| style_element_by_id(tree, based));
     }
     Ok(None)
 }
@@ -840,8 +758,7 @@ pub fn apply_list_style(
     paragraph: BlockTarget<'_>,
     style_name: &str,
 ) -> Result<()> {
-    let located = locate_target(document, paragraph)?;
-    refuse_if_protected(document, "apply a list style", OperationClass::BodyContent)?;
+    let located = resolve_anchor_paragraph_for(document, paragraph, "apply a list style")?;
     let mut txn = Txn::new(document);
     let (style_id, missing) = {
         let styles = StylesView::from_txn(&txn)?;
@@ -987,8 +904,7 @@ fn signature(tree: &XmlTree, node: NodeId, ignore_root_abstract_id: bool) -> Sig
         ),
         attrs,
         text,
-        children: lxml_children(tree, node)
-            .into_iter()
+        children: node_children(tree, node)
             .map(|child| signature(tree, child, false))
             .collect(),
     }
@@ -1001,7 +917,7 @@ fn is_canonical_abstract(tree: &XmlTree, abstract_num: NodeId, kind: ListKind) -
 }
 
 fn is_plain_num_reference(tree: &XmlTree, num: NodeId, abstract_id: &str) -> bool {
-    let children = lxml_children(tree, num);
+    let children: Vec<NodeId> = node_children(tree, num).collect();
     let [reference] = children.as_slice() else {
         return false;
     };
@@ -1082,22 +998,42 @@ pub(crate) fn ensure_definition_in(txn: &mut Txn<'_>, kind: ListKind) -> Result<
             }
         }
     }
-    let (abstract_id, num_id) = next_free_ids(txn.tree(&part)?)?;
+    let (abstract_id, _) = next_free_ids(txn.tree(&part)?)?;
     let tree = txn.tree_mut(&part)?;
     let root = tree.root();
     let abstract_num = import_fragment(tree, root, &kind.canonical_xml(&abstract_id.to_string()))?;
-    let num = import_fragment(
-        tree,
-        root,
-        &format!(
-            "<w:num xmlns:w=\"{W}\" w:numId=\"{num_id}\"><w:abstractNumId w:val=\"{abstract_id}\"/></w:num>"
-        ),
-    )?;
     // Schema order: abstractNum* before num*.
     match w_child(tree, root, "num") {
         Some(first_num) => add_previous(tree, first_num, abstract_num)?,
         None => crate::oxml::append(tree, root, abstract_num)?,
     }
+    add_num(tree, &abstract_id.to_string(), None)
+}
+
+/// A new `w:num` referencing `abstract_id` (a raw `w:abstractNumId` value)
+/// with the next free numId, after the last `w:num`; `restart` adds a
+/// `(level, start)` override. Returns the numId.
+pub(crate) fn add_num(
+    tree: &mut XmlTree,
+    abstract_id: &str,
+    restart: Option<(i64, u64)>,
+) -> Result<i64> {
+    let root = tree.root();
+    let (_, num_id) = next_free_ids(tree)?;
+    let override_xml = match restart {
+        Some((level, start)) => format!(
+            "<w:lvlOverride w:ilvl=\"{level}\"><w:startOverride w:val=\"{start}\"/></w:lvlOverride>"
+        ),
+        None => String::new(),
+    };
+    let num = import_fragment(
+        tree,
+        root,
+        &format!(
+            "<w:num xmlns:w=\"{W}\" w:numId=\"{num_id}\"><w:abstractNumId w:val=\"{}\"/>{override_xml}</w:num>",
+            xml_attr_escape(abstract_id)
+        ),
+    )?;
     match w_children(tree, root, "num").last() {
         Some(last) => add_next(tree, last, num)?,
         None => match w_child(tree, root, "numIdMacAtCleanup") {
@@ -1173,7 +1109,7 @@ pub fn restart_numbering(document: &mut Document, num_id: i64) -> Result<i64> {
             format!("numbering definition numId={num_id} does not exist; nothing to restart"),
         ));
     };
-    let children = lxml_children(tree, definition);
+    let children: Vec<NodeId> = node_children(tree, definition).collect();
     let abstract_ref = w_child(tree, definition, "abstractNumId");
     let Some(abstract_id) = abstract_ref
         .and_then(|reference| w_attr(tree, reference, "val"))
@@ -1208,23 +1144,8 @@ pub fn restart_numbering(document: &mut Document, num_id: i64) -> Result<i64> {
             ),
         ));
     }
-    let (_, new_num_id) = next_free_ids(tree)?;
     let mut txn = Txn::new(document);
-    let tree = txn.tree_mut(&part)?;
-    let root = tree.root();
-    let new_num = import_fragment(
-        tree,
-        root,
-        &format!(
-            "<w:num xmlns:w=\"{W}\" w:numId=\"{new_num_id}\"><w:abstractNumId w:val=\"{}\"/>\
-             <w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"1\"/></w:lvlOverride></w:num>",
-            xml_attr_escape(&abstract_id)
-        ),
-    )?;
-    let last = w_children(tree, root, "num")
-        .last()
-        .ok_or_else(|| Error::internal("restart_numbering", "definition vanished"))?;
-    add_next(tree, last, new_num)?;
+    let new_num_id = add_num(txn.tree_mut(&part)?, &abstract_id, Some((0, 1)))?;
     let staged = txn.finish()?;
     document.commit(staged)?;
     Ok(new_num_id)

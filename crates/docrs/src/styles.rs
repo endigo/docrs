@@ -458,7 +458,6 @@ fn read_latent(tree: &XmlTree, element: NodeId) -> Result<LatentStyles> {
 pub(crate) fn read_styles(tree: &XmlTree, part: Option<String>) -> Result<Styles> {
     let root = tree.root();
     let styles = style_elements(tree)
-        .into_iter()
         .enumerate()
         .map(|(index, element)| read_style(tree, element, index))
         .collect::<Result<Vec<_>>>()?;
@@ -500,15 +499,13 @@ pub(crate) fn default_styles_tree() -> Result<XmlTree> {
 }
 
 /// Direct `w:style` children of the `w:styles` root.
-pub(crate) fn style_elements(tree: &XmlTree) -> Vec<NodeId> {
-    w_children(tree, tree.root(), "style").collect()
+pub(crate) fn style_elements(tree: &XmlTree) -> impl Iterator<Item = NodeId> + '_ {
+    w_children(tree, tree.root(), "style")
 }
 
 /// First `w:style` with `w:styleId == style_id` (`CT_Styles.get_by_id`).
 pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<NodeId> {
-    style_elements(tree)
-        .into_iter()
-        .find(|style| w_attr(tree, *style, "styleId") == Some(style_id))
+    style_elements(tree).find(|style| w_attr(tree, *style, "styleId") == Some(style_id))
 }
 
 /// A style and the styles it is based on, nearest first; a cycle ends the
@@ -528,7 +525,7 @@ pub(crate) fn based_on_chain(tree: &XmlTree, start: Option<NodeId>) -> Vec<NodeI
 /// First `w:style` whose `w:name/@w:val` is `internal_name`
 /// (`CT_Styles.get_by_name`).
 pub(crate) fn style_element_by_name(tree: &XmlTree, internal_name: &str) -> Option<NodeId> {
-    style_elements(tree).into_iter().find(|style| {
+    style_elements(tree).find(|style| {
         w_child(tree, *style, "name").and_then(|name| w_attr(tree, name, "val"))
             == Some(internal_name)
     })
