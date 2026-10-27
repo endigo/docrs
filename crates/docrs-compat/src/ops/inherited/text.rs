@@ -9,10 +9,10 @@ use docrs::{Document, Result};
 use serde_json::{Value, json};
 
 use crate::ops::inherited::{
-    bad, error_class, font_changes, font_json, index_arg, paragraph, parfmt_json, parfmt_props,
-    pick, run, test_file,
+    error_class, font_changes, font_json, index_arg, paragraph, parfmt_json, parfmt_props, pick,
+    run, test_file,
 };
-use crate::ops::{OpFn, Step};
+use crate::ops::{OpFn, Step, bad};
 
 fn parfmt(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let target = paragraph(doc, step.param("para", 0))?;

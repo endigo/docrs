@@ -16,7 +16,7 @@ use docrs::sections::HeaderFooter;
 use docrs::{Document, Error, Result};
 use serde_json::{Map, Value, json};
 
-use super::OpFn;
+use super::{OpFn, bad};
 
 mod coreprops;
 mod sections;
@@ -31,11 +31,6 @@ pub fn lookup(name: &str) -> Option<OpFn> {
         .or_else(|| styles::lookup(name))
         .or_else(|| text::lookup(name))
         .or_else(|| tables::lookup(name))
-}
-
-/// A malformed case argument.
-pub(crate) fn bad(message: impl Into<String>) -> Error {
-    Error::invalid_argument("bad_case", message)
 }
 
 /// Python list indexing (negative from the end).

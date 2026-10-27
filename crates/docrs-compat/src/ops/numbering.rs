@@ -1,17 +1,14 @@
 //! Ops adapters for upstream `docx.numbering`.
 
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::Value;
 
-use super::{OpFn, Step, target};
+use super::{OpFn, Step, bad, target};
 
 fn int(value: &Value, name: &str) -> Result<i64> {
-    value.as_i64().ok_or_else(|| {
-        Error::invalid_argument(
-            "bad_case",
-            format!("{name} must be an integer, got {value}"),
-        )
-    })
+    value
+        .as_i64()
+        .ok_or_else(|| bad(format!("{name} must be an integer, got {value}")))
 }
 
 fn list_numbering(doc: &mut Document, _step: &Step<'_>) -> Result<Value> {
@@ -34,7 +31,7 @@ fn apply_list_style(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let name = step
         .param("style_name", 1)
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "style_name is required"))?
+        .ok_or_else(|| bad("style_name is required"))?
         .to_string();
     doc.apply_list_style(paragraph.as_target(), &name)?;
     Ok(Value::Null)

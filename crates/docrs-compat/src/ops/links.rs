@@ -1,15 +1,15 @@
 //! Ops adapters for upstream `docx.links`.
 
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::Value;
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn add_hyperlink(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let address = step
         .param("address", 1)
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "address is required"))?
+        .ok_or_else(|| bad("address is required"))?
         .to_string();
     let span = super::span(doc, step.param("span", 0))?;
     Ok(doc.add_hyperlink(&span, &address)?.to_json())

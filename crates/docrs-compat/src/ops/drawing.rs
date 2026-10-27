@@ -2,20 +2,17 @@
 //! `ext.p4_has_picture`, `ext.p4_drawing_image`, `ext.p4_replace_picture`).
 
 use docrs::drawing::Drawing;
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::{Value, json};
 
 use super::authoring::{error_class, image_bytes, image_summary};
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn drawing(doc: &Document, key: &Value) -> Result<Drawing> {
-    let bad = |message: String| Error::invalid_argument("bad_case", message);
     let (drawings, index) = match key {
         Value::Number(n) => (doc.drawings()?, n.as_i64().unwrap_or(0)),
         Value::Object(map) => {
-            let part = map["part"]
-                .as_str()
-                .ok_or_else(|| bad("drawing part".into()))?;
+            let part = map["part"].as_str().ok_or_else(|| bad("drawing part"))?;
             (
                 doc.drawings_in(part)?,
                 map.get("index").and_then(Value::as_i64).unwrap_or(0),

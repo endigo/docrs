@@ -1,14 +1,14 @@
 //! Ops adapters for upstream `docx.notes`.
 
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn text_arg<'a>(step: &'a Step<'_>) -> Result<&'a str> {
     step.param("text", 1)
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "text is required"))
+        .ok_or_else(|| bad("text is required"))
 }
 
 fn add_footnote(doc: &mut Document, step: &Step<'_>) -> Result<Value> {

@@ -8,8 +8,8 @@ use docrs::styles_write::{
 use docrs::{Document, Result};
 use serde_json::{Map, Value, json};
 
-use crate::ops::inherited::{bad, error_class, font_changes, font_json, parfmt_json, parfmt_props};
-use crate::ops::{OpFn, Step};
+use crate::ops::inherited::{error_class, font_changes, font_json, parfmt_json, parfmt_props};
+use crate::ops::{OpFn, Step, bad};
 
 /// `p7_common.error_class` plus the style-specific `AttributeError`.
 fn classify(result: Result<Value>) -> Result<Value> {

@@ -3,10 +3,10 @@
 
 use docrs::clock::Timestamp;
 use docrs::controls::{Control, ControlValue};
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 /// Decode a control value: string, bool, `{"$date": iso}` (aware
 /// datetime) or `{"$day": "YYYY-MM-DD"}` (date).
@@ -27,16 +27,10 @@ pub fn control_value(value: &Value) -> Result<ControlValue> {
                     month: month as u32,
                     day: day as u32,
                 }),
-                _ => Err(Error::invalid_argument(
-                    "bad_case",
-                    format!("bad $day {text}"),
-                )),
+                _ => Err(bad(format!("bad $day {text}"))),
             }
         }
-        other => Err(Error::invalid_argument(
-            "bad_case",
-            format!("unsupported control value {other}"),
-        )),
+        other => Err(bad(format!("unsupported control value {other}"))),
     }
 }
 
@@ -70,7 +64,7 @@ fn select(doc: &Document, step: &Step<'_>) -> Result<Control> {
             .controls()?
             .into_iter()
             .nth(index as usize)
-            .ok_or_else(|| Error::invalid_argument("bad_case", "control index out of range")),
+            .ok_or_else(|| bad("control index out of range")),
         None => doc.control(opt(step.kwarg("tag")), opt(step.kwarg("alias"))),
     }
 }

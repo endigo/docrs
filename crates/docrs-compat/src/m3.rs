@@ -10,7 +10,7 @@ use docrs::xml::{self, trees_equivalent};
 use docrs::{Document, FindOptions, Limits, MatchPolicy, ReplaceAllOptions, ReplaceOptions, View};
 use serde_json::{Value, json};
 
-use crate::{hostile, oracle};
+use crate::{hostile, opsrun, oracle, report};
 
 fn word_counts(doc: &Document) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
@@ -165,11 +165,7 @@ pub(crate) fn rust_case(doc_bytes: &[u8], case: &Value, out: &Path) -> Value {
                     }
                 }
             }
-            if let Some(refused) = value["refused"].as_array_mut() {
-                for item in refused {
-                    *item = json!({"story": item["story"], "anchor": item["anchor"], "error": item["error"]});
-                }
-            }
+            strip_refused(&mut value);
             value
         } else {
             let options = FindOptions {
@@ -203,17 +199,23 @@ pub(crate) fn rust_case(doc_bytes: &[u8], case: &Value, out: &Path) -> Value {
     }
 }
 
+/// Keep only the story, anchor and error of each refused match.
+fn strip_refused(report: &mut Value) {
+    if let Some(refused) = report["refused"].as_array_mut() {
+        for item in refused {
+            *item =
+                json!({"story": item["story"], "anchor": item["anchor"], "error": item["error"]});
+        }
+    }
+}
+
 pub(crate) fn normalize_python_result(result: &Value, all: bool) -> Value {
     let mut value = result.clone();
     if let Some(object) = value.as_object_mut() {
         object.remove("version");
     }
     if all {
-        if let Some(refused) = value["refused"].as_array_mut() {
-            for item in refused {
-                *item = json!({"story": item["story"], "anchor": item["anchor"], "error": item["error"]});
-            }
-        }
+        strip_refused(&mut value);
         if let Some(results) = value["results"].as_array_mut() {
             for item in results {
                 item.as_object_mut().map(|o| o.remove("version"));
@@ -221,6 +223,16 @@ pub(crate) fn normalize_python_result(result: &Value, all: bool) -> Value {
         }
     }
     value
+}
+
+/// Whether the Rust and oracle replace reports agree once the oracle's is
+/// normalized (the `schema` of either is not compared).
+pub(crate) fn reports_equal(rust: &Value, python: &Value, all: bool) -> bool {
+    let mut rust_cmp = rust["result"].clone();
+    rust_cmp.as_object_mut().map(|o| o.remove("schema"));
+    let mut py_cmp = normalize_python_result(&python["result"], all);
+    py_cmp.as_object_mut().map(|o| o.remove("schema"));
+    rust_cmp == py_cmp
 }
 
 pub(crate) fn parts_equivalent(
@@ -268,27 +280,15 @@ pub(crate) fn parts_equivalent(
 /// (name, input, cases, rust results, rust outputs) for one document.
 type Plan = (String, PathBuf, Vec<Value>, Vec<Value>, Vec<PathBuf>);
 
-pub fn run(python: &Path, report: Option<&Path>) -> Result<bool, String> {
+pub fn run(python: &Path, report_path: Option<&Path>) -> Result<bool, String> {
     let work = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let mut inputs: Vec<(String, PathBuf)> = hostile::all_fixtures()
-        .into_iter()
-        .filter(|rel| !rel.contains("/corrupt/") && !rel.contains("large"))
-        .map(|rel| {
-            let path = hostile::fixtures_dir().join(&rel);
-            (rel, path)
-        })
-        .collect();
-    for (name, bytes) in hostile::synthetic_documents()
-        .into_iter()
-        .chain(hostile::m3_documents())
-    {
-        let path = work.path().join(format!(
-            "{}.docx",
-            crate::opsrun::case_safe_file_stem(&name)
-        ));
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-        inputs.push((name, path));
-    }
+    let mut inputs = hostile::fixture_inputs(&["/corrupt/", "large"]);
+    inputs.extend(hostile::materialize(
+        work.path(),
+        hostile::synthetic_documents()
+            .into_iter()
+            .chain(hostile::m3_documents()),
+    )?);
 
     let mut requests = Vec::new();
     let mut plans: Vec<Plan> = Vec::new();
@@ -337,33 +337,13 @@ pub fn run(python: &Path, report: Option<&Path>) -> Result<bool, String> {
         {
             let all = case["all"] == true;
             let verdict = if rust["outcome"] == "ok" && py["outcome"] == "ok" {
-                let rust_result = &rust["result"];
-                let py_result = normalize_python_result(&py["result"], all);
-                let mut rust_cmp = rust_result.clone();
-                rust_cmp.as_object_mut().map(|o| o.remove("schema"));
-                let mut py_cmp = py_result.clone();
-                py_cmp.as_object_mut().map(|o| o.remove("schema"));
-                let changed_r: BTreeSet<String> = rust["patch"]["changed_parts"]
-                    .as_array()
-                    .map(|v| {
-                        v.iter()
-                            .filter_map(|x| x.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let changed_p: BTreeSet<String> = py["patch"]["changed_parts"]
-                    .as_array()
-                    .map(|v| {
-                        v.iter()
-                            .filter_map(|x| x.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let changed_r = opsrun::names(&rust["patch"]["changed_parts"]);
+                let changed_p = opsrun::names(&py["patch"]["changed_parts"]);
                 let python_out = PathBuf::from(case["out"].as_str().unwrap_or(""));
                 let parts: Vec<String> = changed_r.iter().cloned().collect();
                 let equivalent = parts_equivalent(rust_out, &python_out, &parts).unwrap_or(false);
                 outcomes.insert("ok".into());
-                if rust_cmp != py_cmp {
+                if !reports_equal(rust, py, all) {
                     "report_mismatch"
                 } else if changed_r != changed_p {
                     "changed_parts_mismatch"
@@ -443,21 +423,10 @@ pub fn run(python: &Path, report: Option<&Path>) -> Result<bool, String> {
         "  outcome kinds covered: {}",
         outcomes.into_iter().collect::<Vec<_>>().join(", ")
     );
-    for failure in failures.iter().take(15) {
-        let mut text = failure.to_string();
-        if text.len() > 1400 {
-            text.truncate(1400);
-            text.push('…');
-        }
-        println!("  {text}");
-    }
-    if let Some(path) = report {
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(&json!({"summary": summary, "failures": failures}))
-                .unwrap_or_default(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
+    report::print_failures("", &failures, 15, 1400);
+    report::write_json(
+        report_path,
+        &json!({"summary": summary, "failures": failures}),
+    )?;
     Ok(failures.is_empty())
 }

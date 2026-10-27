@@ -7,8 +7,8 @@ use docrs::{Document, Result};
 use serde_json::{Value, json};
 
 use super::super::authoring::image_bytes;
-use crate::ops::inherited::{bad, block_summary, container, hdrftr, index_arg, paragraph, pick};
-use crate::ops::{OpFn, Step};
+use crate::ops::inherited::{block_summary, container, hdrftr, index_arg, paragraph, pick};
+use crate::ops::{OpFn, Step, bad};
 
 fn setup_json(setup: &SectionSetup) -> Value {
     json!({

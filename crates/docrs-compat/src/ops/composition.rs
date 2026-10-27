@@ -24,11 +24,7 @@ use docrs::composition::{
 use docrs::{Document, DocumentId, Error, Limits, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step, Target, block, span, target};
-
-fn bad(message: impl Into<String>) -> Error {
-    Error::invalid_argument("bad_case", message)
-}
+use super::{OpFn, Step, Target, bad, block, span, target};
 
 struct Entry {
     key: String,
@@ -98,7 +94,6 @@ fn build_source(spec: &Value) -> Result<Document> {
         let adapter =
             super::lookup(name).ok_or_else(|| bad(format!("no adapter for source step {name}")))?;
         let call = Step {
-            op: name,
             args: step["args"].as_array().map(Vec::as_slice).unwrap_or(&[]),
             kwargs: step["kwargs"].as_object().unwrap_or(&empty),
         };

@@ -1,5 +1,3 @@
-#![allow(dead_code)] // shared decoders are used by the per-package adapters
-
 //! Rust side of shared ops cases: `"module.function"` → adapter.
 //!
 //! Each module file exposes `lookup(name) -> Option<OpFn>` for the upstream
@@ -25,13 +23,12 @@ pub mod revision;
 pub mod tableops;
 
 use docrs::anchor::BlockTarget;
+use docrs::clock::Timestamp;
 use docrs::{Block, Document, Error, FindOptions, MatchPolicy, Result, Span, View};
 use serde_json::Value;
 
 /// One step of an ops case.
 pub struct Step<'a> {
-    #[allow(dead_code)]
-    pub op: &'a str,
     pub args: &'a [Value],
     pub kwargs: &'a serde_json::Map<String, Value>,
 }
@@ -79,11 +76,27 @@ pub fn lookup(name: &str) -> Option<OpFn> {
         .or_else(|| inherited::lookup(name))
 }
 
+/// A malformed case argument.
+pub(crate) fn bad(message: impl Into<String>) -> Error {
+    Error::invalid_argument("bad_case", message)
+}
+
+/// Decode `{"$date": "..."}` (or null).
+pub(crate) fn date(value: &Value) -> Result<Option<Timestamp>> {
+    match value {
+        Value::Null => Ok(None),
+        other => match other["$date"].as_str() {
+            Some(text) => Timestamp::parse(text).map(Some),
+            None => Err(bad(format!("expected {{\"$date\": ...}}, got {other}"))),
+        },
+    }
+}
+
 /// Decode a `$span` argument.
 pub fn span(doc: &Document, value: &Value) -> Result<Span> {
-    let text = value["$span"].as_str().ok_or_else(|| {
-        Error::invalid_argument("bad_case", format!("expected $span, got {value}"))
-    })?;
+    let text = value["$span"]
+        .as_str()
+        .ok_or_else(|| bad(format!("expected $span, got {value}")))?;
     let options = FindOptions {
         policy: MatchPolicy::parse(value["match"].as_str().unwrap_or("exact"))?,
         view: View::parse(value["view"].as_str().unwrap_or("current"))?,
@@ -96,18 +109,16 @@ pub fn span(doc: &Document, value: &Value) -> Result<Span> {
 
 /// Decode a `$block` argument (first block whose text equals the value).
 pub fn block(doc: &Document, value: &Value) -> Result<Block> {
-    let wanted = value["$block"].as_str().ok_or_else(|| {
-        Error::invalid_argument("bad_case", format!("expected $block, got {value}"))
-    })?;
+    let wanted = value["$block"]
+        .as_str()
+        .ok_or_else(|| bad(format!("expected $block, got {value}")))?;
     let view = View::parse(value["view"].as_str().unwrap_or("current"))?;
     let index = value["index"].as_u64().unwrap_or(0) as usize;
     doc.blocks(view)?
         .into_iter()
         .filter(|block| block.text == wanted)
         .nth(index)
-        .ok_or_else(|| {
-            Error::invalid_argument("bad_case", format!("no block with text {wanted:?}"))
-        })
+        .ok_or_else(|| bad(format!("no block with text {wanted:?}")))
 }
 
 /// An owned [`BlockTarget`].
@@ -144,10 +155,7 @@ pub fn target(doc: &Document, value: &Value) -> Result<Target> {
         spec["$span"] = Value::String(text.to_string());
         return Ok(Target::Span(span(doc, &spec)?));
     }
-    Err(Error::invalid_argument(
-        "bad_case",
-        format!("cannot decode target {value}"),
-    ))
+    Err(bad(format!("cannot decode target {value}")))
 }
 
 /// Strings from a JSON array argument.

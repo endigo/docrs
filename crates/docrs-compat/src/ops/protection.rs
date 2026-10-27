@@ -1,9 +1,9 @@
 //! Ops adapters for upstream `docx.protection`.
 
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::Value;
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn status_json(status: docrs::protection::ProtectionStatus) -> Value {
     serde_json::json!({
@@ -18,7 +18,7 @@ fn set_protection(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let edit = step
         .param("edit", 0)
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "edit is required"))?;
+        .ok_or_else(|| bad("edit is required"))?;
     doc.set_protection(edit).map(status_json)
 }
 

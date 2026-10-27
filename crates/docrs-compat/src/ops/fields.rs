@@ -2,10 +2,10 @@
 //! `ext.p2_fieldcode` oracle helper).
 
 use docrs::fields::fieldcode::{self, FieldOperand};
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step, strings, target};
+use super::{OpFn, Step, bad, strings, target};
 
 fn page_number(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let paragraph = target(doc, step.param("paragraph", 0))?;
@@ -31,7 +31,7 @@ fn reference(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let bookmark = step
         .kwarg("bookmark")
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "bookmark is required"))?
+        .ok_or_else(|| bad("bookmark is required"))?
         .to_string();
     let kind = step.kwarg("kind").as_str().unwrap_or("text").to_string();
     doc.add_reference_field(paragraph.as_target(), &bookmark, &kind)?;
@@ -55,10 +55,7 @@ fn toc(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
             items[1].as_i64().unwrap_or(0),
         ),
         other => {
-            return Err(Error::invalid_argument(
-                "bad_case",
-                format!("levels must be a pair, got {other}"),
-            ));
+            return Err(bad(format!("levels must be a pair, got {other}")));
         }
     };
     doc.insert_toc_after(anchor.as_target(), levels)?;
@@ -119,10 +116,7 @@ fn fieldcode_op(_doc: &mut Document, step: &Step<'_>) -> Result<Value> {
             fieldcode::rewrite_command_operand(&instruction, command, &borrowed(&renames))
                 .map(Value::from)
         }
-        other => Err(Error::invalid_argument(
-            "bad_case",
-            format!("unknown fieldcode function {other:?}"),
-        )),
+        other => Err(bad(format!("unknown fieldcode function {other:?}"))),
     }
 }
 
