@@ -32,7 +32,7 @@ use crate::replace::{
 };
 use crate::revision::is_scan_tag;
 use crate::search::{
-    Atom, MatchPolicy, Span, collect_block_atoms, fresh_span_token, signature, slice_chars,
+    Atom, MatchPolicy, Span, collect_block_atoms, new_span_token, signature, slice_chars,
 };
 use crate::story::{self, Anchor, BlockKind, View, iter_block_elements};
 use crate::styles::py_int;
@@ -582,7 +582,7 @@ pub fn update_cell(
     let span = Span {
         incarnation: tree.incarnation(),
         document: document.id(),
-        token: fresh_span_token(),
+        token: new_span_token(),
         story: story_name.clone(),
         part: part.clone(),
         anchor: Anchor {

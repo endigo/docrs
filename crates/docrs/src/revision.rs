@@ -2173,11 +2173,7 @@ fn cleanup_comment_anchors(ctx: &mut Ctx<'_, '_>, comment_ids: &[i64]) -> Result
         discard_element(ctx, &NodeRef::new(&part, comment))?;
     }
     cleanup_comments_extended(ctx, &paragraph_ids)?;
-    crate::commentops::remove_comment_identity_rows(
-        &mut ctx.txn,
-        &ctx.main.clone(),
-        &paragraph_ids,
-    )?;
+    crate::commentops::remove_comment_identity_rows(&mut ctx.txn, &paragraph_ids)?;
     Ok(())
 }
 

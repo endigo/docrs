@@ -619,7 +619,7 @@ fn refuse_malformed_numeric_ids(roots: &[(&XmlTree, NodeId)]) -> Result<()> {
 
 /// Upstream `bookmarks._iter_field_instructions`: (concatenated
 /// instruction, `w:instrText` nodes) per complex field closed under `root`.
-fn iter_field_instructions(tree: &XmlTree, root: NodeId) -> Vec<(String, Vec<NodeId>)> {
+pub(crate) fn iter_field_instructions(tree: &XmlTree, root: NodeId) -> Vec<(String, Vec<NodeId>)> {
     let mut stack: Vec<(Vec<NodeId>, bool)> = Vec::new();
     let mut out = Vec::new();
     for node in iter_nodes(tree, root) {

@@ -331,11 +331,6 @@ pub(crate) fn new_span_token() -> u64 {
     NEXT_SPAN_TOKEN.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Alias of [`new_span_token`] (name used by `tableops`).
-pub(crate) fn fresh_span_token() -> u64 {
-    new_span_token()
-}
-
 /// One edit-sensitive ancestor: identity, tag, sorted attributes and (for
 /// content controls) the serialized `w:sdtPr`.
 type Scope = (NodeId, String, Vec<(String, String)>, String);

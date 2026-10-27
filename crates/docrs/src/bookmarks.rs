@@ -17,7 +17,7 @@ use crate::search::Span;
 use crate::story::{is_direct_run_child, project_run_child, stories};
 use crate::txn::Txn;
 use crate::unicode::{casefold, is_py_space};
-use crate::wml::{W, W14, is_w, iter_nodes, leading_text, w_attr};
+use crate::wml::{W, W14, is_w, iter_nodes, w_attr};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
@@ -437,32 +437,10 @@ fn bookmark_operands(instruction: &str, names: &[&str]) -> Result<Vec<String>> {
 /// Upstream `_iter_field_instructions`: concatenated instruction text per
 /// complex field.
 fn field_instructions(tree: &XmlTree) -> Vec<String> {
-    let mut stack: Vec<(Vec<NodeId>, bool)> = Vec::new();
-    let mut out = Vec::new();
-    for node in iter_nodes(tree, tree.root()) {
-        if is_w(tree, node, "fldChar") {
-            match w_attr(tree, node, "fldCharType") {
-                Some("begin") => stack.push((Vec::new(), true)),
-                Some("separate") => {
-                    if let Some(top) = stack.last_mut() {
-                        top.1 = false;
-                    }
-                }
-                Some("end") => {
-                    if let Some((nodes, _)) = stack.pop() {
-                        out.push(nodes.iter().map(|n| leading_text(tree, *n)).collect());
-                    }
-                }
-                _ => {}
-            }
-        } else if is_w(tree, node, "instrText")
-            && !stack.is_empty()
-            && let Some(entry) = stack.iter_mut().rev().find(|(_, collecting)| *collecting)
-        {
-            entry.0.push(node);
-        }
-    }
-    out
+    crate::composition::iter_field_instructions(tree, tree.root())
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect()
 }
 
 fn field_references(document: &Document, name: &str) -> Result<usize> {

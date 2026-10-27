@@ -585,11 +585,7 @@ fn retarget_comment_identity(txn: &mut Txn<'_>, previous: &str, current: &str) -
 }
 
 /// Upstream `_remove_comment_identity_rows`.
-pub(crate) fn remove_comment_identity_rows(
-    txn: &mut Txn<'_>,
-    _main: &str,
-    para_ids: &[String],
-) -> Result<()> {
+pub(crate) fn remove_comment_identity_rows(txn: &mut Txn<'_>, para_ids: &[String]) -> Result<()> {
     let wanted: Vec<String> = para_ids
         .iter()
         .filter(|value| !value.is_empty())
@@ -1293,8 +1289,7 @@ pub fn delete_comment(document: &mut Document, comment: &Comment) -> Result<()> 
                 tree.detach(entry)?;
             }
         }
-        let main = main_of(&txn);
-        remove_comment_identity_rows(&mut txn, &main, &para_ids)?;
+        remove_comment_identity_rows(&mut txn, &para_ids)?;
         txn.finish()?
     };
     document.commit(staged)
