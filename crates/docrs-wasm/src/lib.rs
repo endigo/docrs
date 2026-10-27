@@ -385,7 +385,15 @@ export interface ReferenceInspection {
     /** The paragraph spacing the body style takes from the template's prose (the unstyled paragraphs and its own); null when the style already gives it. */
     spacing: Spacing | null;
     headings: Record<string, RunLook>;
-    table: { style_id: string | null; direct_formatting_lifted: boolean; look: Record<string, boolean> };
+    table: {
+      style_id: string | null;
+      direct_formatting_lifted: boolean;
+      look: Record<string, boolean>;
+      /** The paragraph style the sample tables' header and body cells write most of their text in, when it is not the default. */
+      cell_styles: { header: string | null; body: string | null };
+      /** The hand formatting those cells share, which their paragraph styles take; null when they show none. */
+      cell_text: { header: RunLook | null; body: RunLook | null };
+    };
   };
   /** The section whose page setup the output keeps (the last). Its page 1 shows the
    *  template's page 1 header and footer, the other pages the last section's. */
