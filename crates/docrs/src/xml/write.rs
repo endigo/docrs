@@ -33,6 +33,7 @@ pub fn serialize(tree: &XmlTree) -> Vec<u8> {
 }
 
 /// `text` escaped for an attribute value or character data.
+#[cfg(feature = "markdown")]
 pub(crate) fn escape_attr_to_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     escape_attr(text, &mut out);

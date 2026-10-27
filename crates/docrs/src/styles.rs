@@ -510,6 +510,7 @@ pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<Node
 
 /// A style and the styles it is based on, nearest first; a cycle ends the
 /// walk.
+#[cfg(feature = "markdown")]
 pub(crate) fn based_on_chain(tree: &XmlTree, start: Option<NodeId>) -> Vec<NodeId> {
     let mut chain = Vec::new();
     let mut current = start;
