@@ -257,7 +257,7 @@ fn bookmark_census(tree: &XmlTree) -> BookmarkCensus {
 }
 
 /// One story census shared by a synchronous batch.
-pub(crate) struct Census {
+pub struct Census {
     atoms: Vec<Atom>,
     by_element: HashMap<NodeId, usize>,
     bookmarks: BookmarkCensus,

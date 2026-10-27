@@ -10,7 +10,7 @@
 use crate::Result;
 use crate::unicode::py_strip;
 use crate::wml::{W, w_child};
-use crate::xml::{NodeId, XML_NS, XmlTree};
+use crate::xml::{NodeData, NodeId, XML_NS, XmlTree};
 
 /// `CT_PPr` child order.
 pub const PPR_SEQ: &[&str] = &[
@@ -296,6 +296,29 @@ pub fn new_table(
         }
     }
     Ok(tbl)
+}
+
+/// A detached `w:p` with one run holding `text` and optional style
+/// (upstream `blocks._new_paragraph`).
+pub fn new_paragraph(
+    tree: &mut XmlTree,
+    scope: NodeId,
+    text: &str,
+    style_id: Option<&str>,
+) -> Result<NodeId> {
+    let paragraph = w_el(tree, scope, "p")?;
+    if let Some(style) = style_id {
+        set_paragraph_style(tree, paragraph, Some(style))?;
+    }
+    let run = w_el(tree, paragraph, "r")?;
+    add_t(tree, run, text)?;
+    append(tree, paragraph, run)?;
+    Ok(paragraph)
+}
+
+/// True for element nodes in the `w:` namespace named `local`.
+pub fn is_w_element(tree: &XmlTree, id: NodeId, local: &str) -> bool {
+    matches!(tree.data(id), NodeData::Element(_)) && tree.is(id, W, local)
 }
 
 #[cfg(test)]
