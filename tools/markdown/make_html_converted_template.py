@@ -123,9 +123,9 @@ BODY = "".join(
         heading1("Your situation"),
         para("This sample advice describes an invented client."),
         # Most sample text sits in unstyled paragraphs with Arial runs.
-        para("Unstyled sample text one.", "Normal"),
-        para("Unstyled sample text two.", "Normal"),
-        para("Unstyled sample text three.", "Normal"),
+        para("Unstyled sample text one, long enough to read as the prose of the advice.", "Normal"),
+        para("Unstyled sample text two, long enough to read as the prose of the advice.", "Normal"),
+        para("Unstyled sample text three, long enough to read as the prose of the advice.", "Normal"),
         heading2("Personal details"),
         data_table([("Priority:", "Keep a cash reserve"), ("Residence", "Example City"), ("Lifestyle", "Sailing")], label_first=True),
         para("Text right after a table."),
