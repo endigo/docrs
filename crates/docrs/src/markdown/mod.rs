@@ -402,7 +402,7 @@ pub fn insert_markdown(
     markdown: &str,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, markdown, InputFormat::Markdown, options, false)
+    insert_source(document, markdown, InputFormat::Markdown, options)
 }
 
 /// Render editor HTML into `document`: the same conversion as
@@ -412,7 +412,7 @@ pub fn insert_html(
     html: &str,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, html, InputFormat::Html, options, false)
+    insert_source(document, html, InputFormat::Html, options)
 }
 
 /// Render a TipTap document (`editor.getJSON()` as JSON text) into
@@ -427,7 +427,7 @@ pub fn insert_tiptap(
     json: &str,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, json, InputFormat::Tiptap, options, false)
+    insert_source(document, json, InputFormat::Tiptap, options)
 }
 
 /// Render `source` in `format` into `document`. Atomic.

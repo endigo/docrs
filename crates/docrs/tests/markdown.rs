@@ -1489,17 +1489,15 @@ fn table_look_comes_from_typical_body_cells_with_row_lines() {
             && heading.contains("<w:color w:val=\"FFFFFF\"/>"),
         "{heading}"
     );
-    let body = out.body();
-    let header = &body[body.find("<w:tr>").unwrap()..body.find("</w:tr>").unwrap()];
+    let (header, body) = header_row(&out);
     assert_eq!(
-        count(header, "<w:pStyle w:val=\"TableHeading\"/>"),
+        count(&header, "<w:pStyle w:val=\"TableHeading\"/>"),
         2,
         "{header}"
     );
     assert_eq!(count(&body, "<w:pStyle w:val=\"TableContents\"/>"), 4);
     assert!(!body.contains("<w:pStyle w:val=\"NormalWeb\"/>"));
-    let inspection =
-        docrs::markdown::inspect(&html_converted(), &MarkdownOptions::default()).unwrap();
+    let inspection = inspect_default(&html_converted());
     let cells = &inspection["lifted"]["table"];
     assert_eq!(cells["cell_styles"]["body"], "NormalWeb");
     assert_eq!(cells["cell_text"]["header"]["color"], "FFFFFF");
@@ -2465,10 +2463,9 @@ fn a_hand_formatted_sample_table_beats_an_empty_table_style() {
             && heading.contains("<w:color w:val=\"FFFFFF\"/>"),
         "{heading}"
     );
-    let body = out.body();
-    let header = &body[body.find("<w:tr>").unwrap()..body.find("</w:tr>").unwrap()];
+    let (header, body) = header_row(&out);
     assert_eq!(
-        count(header, "<w:pStyle w:val=\"TableHeading\"/>"),
+        count(&header, "<w:pStyle w:val=\"TableHeading\"/>"),
         2,
         "{header}"
     );
@@ -4190,6 +4187,11 @@ fn header_row(out: &Export) -> (String, String) {
     (header, body)
 }
 
+/// What a conversion with default options takes from `document`.
+fn inspect_default(document: &Document) -> serde_json::Value {
+    docrs::markdown::inspect(document, &MarkdownOptions::default()).unwrap()
+}
+
 #[test]
 fn table_cells_take_the_templates_own_table_text_styles() {
     // The sample tables put header cells in "Table Header" (bold 10 pt) and
@@ -4246,11 +4248,7 @@ fn table_cells_take_the_templates_own_table_text_styles() {
         .and_then(|(_, style)| style.clone())
         .unwrap();
     assert_eq!(header.name, "Table Header");
-    let inspection = docrs::markdown::inspect(
-        &fixture_template("table-cell-styles.docx"),
-        &MarkdownOptions::default(),
-    )
-    .unwrap();
+    let inspection = inspect_default(&fixture_template("table-cell-styles.docx"));
     assert_eq!(inspection["roles"]["table_header"]["name"], "Table Header");
     assert_eq!(
         inspection["lifted"]["table"]["cell_styles"]["header"],
@@ -4299,11 +4297,7 @@ fn hand_formatted_table_text_goes_to_the_cell_styles() {
     assert_eq!(count(&body, "<w:pStyle w:val=\"TableContents\"/>"), 4);
     // The look sits in the styles, not on the runs.
     assert!(!body.contains("<w:sz w:val=\"16\"/>") && !header.contains("<w:b/>"));
-    let inspection = docrs::markdown::inspect(
-        &fixture_template("table-cell-hand-formatting.docx"),
-        &MarkdownOptions::default(),
-    )
-    .unwrap();
+    let inspection = inspect_default(&fixture_template("table-cell-hand-formatting.docx"));
     let table = &inspection["lifted"]["table"];
     assert_eq!(table["cell_text"]["body"]["size_pt"], 8.0);
     assert_eq!(table["cell_text"]["header"]["bold"], true);
