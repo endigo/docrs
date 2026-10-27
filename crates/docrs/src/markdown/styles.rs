@@ -1053,7 +1053,7 @@ fn respace(txn: &mut Txn<'_>, part: &str, id: &str, spacing: &Spacing) -> Result
     let Some(style) = style_by_id(tree, id) else {
         return Ok(());
     };
-    let ppr = crate::oxml::get_or_add(tree, style, "pPr", STYLE_SEQ)?;
+    let ppr = crate::oxml::get_or_add(tree, style, "pPr", crate::authoring::STYLE_SEQ)?;
     if let Some(old) = w_child(tree, ppr, "spacing") {
         crate::authoring::remove(tree, old)?;
     }
@@ -1093,38 +1093,12 @@ fn plurality<T: PartialEq + Clone>(values: impl Iterator<Item = (T, usize)>) -> 
     }
 }
 
-/// `CT_Style` child order.
-const STYLE_SEQ: &[&str] = &[
-    "name",
-    "aliases",
-    "basedOn",
-    "next",
-    "link",
-    "autoRedefine",
-    "hidden",
-    "uiPriority",
-    "semiHidden",
-    "unhideWhenUsed",
-    "qFormat",
-    "locked",
-    "personal",
-    "personalCompose",
-    "personalReply",
-    "rsid",
-    "pPr",
-    "rPr",
-    "tblPr",
-    "trPr",
-    "tcPr",
-    "tblStylePr",
-];
-
 fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
     let tree = txn.tree_mut(part)?;
     let Some(style) = style_by_id(tree, id) else {
         return Ok(());
     };
-    let rpr = crate::oxml::get_or_add(tree, style, "rPr", STYLE_SEQ)?;
+    let rpr = crate::oxml::get_or_add(tree, style, "rPr", crate::authoring::STYLE_SEQ)?;
     let wrapper = import_fragment(tree, rpr, &format!("<w:rPr xmlns:w=\"{W}\">{look}</w:rPr>"))?;
     for child in tree.child_elements(wrapper).collect::<Vec<_>>() {
         let local = tree.local_name(child).unwrap_or("").to_string();
@@ -1142,18 +1116,16 @@ fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
         let old = w_child(tree, rpr, &local);
         // The sample's attributes override the style's one by one; the rest
         // stay. A font or colour set by name drops the theme attribute Word
-        // would otherwise prefer, and the other way round, unless the sample
-        // sets both.
+        // would otherwise prefer, and the other way round, short of what the
+        // sample sets itself.
         if let (Some(old), false) = (old, attrs.is_empty()) {
-            for (name, value) in &attrs {
-                tree.set_attr(old, Some(W), name, value)?;
-            }
             for (name, _) in &attrs {
                 for shadowed in shadowed_by(&local, name) {
-                    if !attrs.iter().any(|(set, _)| set == shadowed) {
-                        tree.remove_attr(old, Some(W), shadowed);
-                    }
+                    tree.remove_attr(old, Some(W), shadowed);
                 }
+            }
+            for (name, value) in &attrs {
+                tree.set_attr(old, Some(W), name, value)?;
             }
             tree.detach(child)?;
             continue;
@@ -1293,16 +1265,14 @@ fn ordered_w_children(tree: &XmlTree, node: NodeId) -> Vec<NodeId> {
     children
 }
 
-/// The `w:` children of `node` named in `keep` and not in `skip`, as
+/// The `w:` children of `node` that `admit` lets through, as
 /// WordprocessingML in schema order.
-fn w_xml(tree: &XmlTree, node: NodeId, keep: Option<&[&str]>, skip: &[&str]) -> String {
+fn w_xml(tree: &XmlTree, node: NodeId, admit: impl Fn(&str) -> bool) -> String {
     let mut out = String::new();
     for child in ordered_w_children(tree, node) {
-        let local = tree.local_name(child).unwrap_or("");
-        if keep.is_some_and(|keep| !keep.contains(&local)) || skip.contains(&local) {
-            continue;
+        if admit(tree.local_name(child).unwrap_or("")) {
+            write_w(tree, child, &mut out);
         }
-        write_w(tree, child, &mut out);
     }
     out
 }
@@ -1351,7 +1321,9 @@ const LOOK_RPR: &[&str] = &[
 const EMPHASIS_RPR: &[&str] = &["b", "bCs", "i", "iCs", "u"];
 
 fn look_rpr(tree: &XmlTree, rpr: NodeId, skip: &[&str]) -> Option<String> {
-    let out = w_xml(tree, rpr, Some(LOOK_RPR), skip);
+    let out = w_xml(tree, rpr, |local| {
+        LOOK_RPR.contains(&local) && !skip.contains(&local)
+    });
     (!out.is_empty()).then_some(out)
 }
 
@@ -1615,12 +1587,12 @@ impl Sample {
                     sample.headings.entry(level + 1).or_insert_with(|| Lifted {
                         ppr: ppr
                             .map(|p| {
-                                w_xml(
-                                    tree,
-                                    p,
-                                    None,
-                                    &["pStyle", "numPr", "rPr", "sectPr", "pPrChange"],
-                                )
+                                w_xml(tree, p, |local| {
+                                    !matches!(
+                                        local,
+                                        "pStyle" | "numPr" | "rPr" | "sectPr" | "pPrChange"
+                                    )
+                                })
                             })
                             .unwrap_or_default(),
                         rpr: first_rpr
@@ -1782,7 +1754,7 @@ fn row_look(tree: &XmlTree, tr: NodeId) -> (String, String) {
 /// emphasis of the first run (the paragraph mark's when the cell is empty).
 fn cell_look(tree: &XmlTree, tc: NodeId) -> (String, String) {
     let cell = w_child(tree, tc, "tcPr")
-        .map(|tc_pr| w_xml(tree, tc_pr, Some(LOOK_TCPR), &[]))
+        .map(|tc_pr| w_xml(tree, tc_pr, |local| LOOK_TCPR.contains(&local)))
         .unwrap_or_default();
     let paragraphs: Vec<NodeId> = w_children(tree, tc, "p").collect();
     let run = paragraphs
@@ -1838,7 +1810,7 @@ fn read_table(tree: &XmlTree, tbl: NodeId) -> SampleTable {
         .and_then(|s| w_attr(tree, s, "val"))
         .map(str::to_string);
     let props = tbl_pr
-        .map(|tbl_pr| w_xml(tree, tbl_pr, Some(LOOK_TBLPR), &[]))
+        .map(|tbl_pr| w_xml(tree, tbl_pr, |local| LOOK_TBLPR.contains(&local)))
         .unwrap_or_default();
     let rows: Vec<NodeId> = w_children(tree, tbl, "tr").collect();
     let header = rows
@@ -1921,11 +1893,12 @@ fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
     if sides.is_empty() {
         return String::new();
     }
-    // CT_TblBorders order.
-    let order = [
-        "top", "left", "start", "bottom", "right", "end", "insideH", "insideV",
-    ];
-    sides.sort_by_key(|(side, _)| order.iter().position(|o| o == side).unwrap_or(order.len()));
+    sides.sort_by_key(|(side, _)| {
+        BORDERS_SEQ
+            .iter()
+            .position(|o| o == side)
+            .unwrap_or(BORDERS_SEQ.len())
+    });
     let mut out = String::from("<w:tblBorders>");
     for (side, attrs) in sides {
         out.push_str(&format!("<w:{side} {attrs}/>"));
