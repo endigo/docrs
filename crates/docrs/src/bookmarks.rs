@@ -8,6 +8,7 @@
 
 use serde::Serialize;
 
+use crate::fields::fieldcode;
 use crate::links::{
     add_next, add_previous, isolate_edge_runs, require_live_span, validate_span_fresh,
 };
@@ -24,10 +25,6 @@ use crate::{Document, Error, RefusalKind, Result};
 pub(crate) mod pyclass;
 
 use pyclass::{is_py_alnum, is_py_alpha, is_py_decimal, is_py_word};
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
 
 /// One bookmark (upstream `BookmarkInfo`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,27 +190,58 @@ fn bookmark_text(tree: &XmlTree, start: NodeId, raw_id: Option<&str>) -> String 
     pieces
 }
 
-/// Every bookmark across every story, document order (upstream
-/// `list_bookmarks`).
-pub fn list_bookmarks(document: &Document) -> Result<Vec<BookmarkInfo>> {
+/// A `w:bookmarkStart` with its parsed id.
+struct BookmarkStart<'t> {
+    story: String,
+    tree: &'t XmlTree,
+    element: NodeId,
+    id: i64,
+}
+
+impl BookmarkStart<'_> {
+    fn name(&self) -> &str {
+        w_attr(self.tree, self.element, "name").unwrap_or("")
+    }
+}
+
+/// Every `w:bookmarkStart` across every story, document order (refusing a
+/// non-numeric id).
+fn bookmark_starts(document: &Document) -> Result<Vec<BookmarkStart<'_>>> {
     let mut found = Vec::new();
     for story in stories(document) {
         let tree = document.package().xml(&story.part)?;
-        for start in iter_nodes(tree, tree.root()).filter(|n| is_w(tree, *n, "bookmarkStart")) {
-            let raw_id = w_attr(tree, start, "id");
-            let bookmark_id = match raw_id {
+        for element in iter_nodes(tree, tree.root()).filter(|n| is_w(tree, *n, "bookmarkStart")) {
+            let id = match w_attr(tree, element, "id") {
                 Some(raw) => int_or_invalid(raw)?,
                 None => -1,
             };
-            found.push(BookmarkInfo {
-                name: w_attr(tree, start, "name").unwrap_or("").to_string(),
-                bookmark_id,
+            found.push(BookmarkStart {
                 story: story.name.clone(),
-                text: bookmark_text(tree, start, raw_id),
+                tree,
+                element,
+                id,
             });
         }
     }
     Ok(found)
+}
+
+/// Every bookmark across every story, document order (upstream
+/// `list_bookmarks`).
+pub fn list_bookmarks(document: &Document) -> Result<Vec<BookmarkInfo>> {
+    Ok(bookmark_starts(document)?
+        .into_iter()
+        .map(|start| BookmarkInfo {
+            name: start.name().to_string(),
+            bookmark_id: start.id,
+            text: bookmark_text(
+                start.tree,
+                start.element,
+                w_attr(start.tree, start.element, "id"),
+            ),
+            story: start.story,
+        })
+        .collect())
 }
 
 /// Word's bookmark-name rule (upstream `_NAME_RE`,
@@ -291,11 +319,11 @@ pub fn create_bookmark(
             ));
         }
         let folded = casefold(name);
-        if list_bookmarks(doc)?
+        if bookmark_starts(doc)?
             .iter()
-            .any(|b| casefold(&b.name) == folded)
+            .any(|start| casefold(start.name()) == folded)
         {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "duplicate_bookmark_name",
                 format!(
                     "a bookmark named {} already exists; bookmark names are document-unique",
@@ -305,13 +333,13 @@ pub fn create_bookmark(
         }
         validate_span_fresh(doc, span)?;
         if span.in_field {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "span_in_field_result",
                 "the span lies inside a field result; a bookmark planted there is destroyed the next time the field updates — bookmark the field's source text instead",
             ));
         }
         if span.atoms.iter().any(|atom| atom.run.is_none()) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "span_outside_runs",
                 "the span includes content outside ordinary runs; bookmark a plain text range",
             ));
@@ -322,13 +350,13 @@ pub fn create_bookmark(
             .run
             .unwrap_or(span.atoms[span.atoms.len() - 1].element);
         if revision_scope(tree, first_run) != revision_scope(tree, last_run) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "crosses_revision_scopes",
                 "bookmark endpoints cross pending revision scopes; resolve the revision or bookmark text within one revision scope. Nothing was changed",
             ));
         }
         if revision_wrapper_between(tree, first_run, last_run) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "crosses_revision_content",
                 "bookmark text crosses pending revision content; resolve the revision first. Nothing was changed",
             ));
@@ -358,172 +386,9 @@ pub fn create_bookmark(
     Ok(info)
 }
 
-const FIELD_COMMANDS: &[&str] = &[
-    "ADDRESSBLOCK",
-    "ADVANCE",
-    "ASK",
-    "AUTHOR",
-    "AUTONUM",
-    "AUTONUMLGL",
-    "AUTONUMOUT",
-    "AUTOTEXT",
-    "AUTOTEXTLIST",
-    "BARCODE",
-    "BIBLIOGRAPHY",
-    "BIDIOUTLINE",
-    "CITATION",
-    "COMMENTS",
-    "COMPARE",
-    "CREATEDATE",
-    "DATABASE",
-    "DATE",
-    "DISPLAYBARCODE",
-    "DOCVARIABLE",
-    "DOCPROPERTY",
-    "EDITTIME",
-    "EMBED",
-    "EQ",
-    "FILENAME",
-    "FILESIZE",
-    "FILLIN",
-    "FORMCHECKBOX",
-    "FORMDROPDOWN",
-    "FORMTEXT",
-    "GLOSSARY",
-    "GOTOBUTTON",
-    "GREETINGLINE",
-    "HYPERLINK",
-    "IF",
-    "INCLUDEPICTURE",
-    "INCLUDETEXT",
-    "INDEX",
-    "INFO",
-    "KEYWORDS",
-    "LASTSAVEDBY",
-    "LINK",
-    "LISTNUM",
-    "MACROBUTTON",
-    "MERGEBARCODE",
-    "MERGEFIELD",
-    "MERGEREC",
-    "MERGESEQ",
-    "NEXT",
-    "NEXTIF",
-    "NOTEREF",
-    "NUMCHARS",
-    "NUMPAGES",
-    "NUMWORDS",
-    "PAGE",
-    "PAGEREF",
-    "PRINT",
-    "PRINTDATE",
-    "PRIVATE",
-    "QUOTE",
-    "RD",
-    "REF",
-    "REVNUM",
-    "SAVEDATE",
-    "SECTION",
-    "SECTIONPAGES",
-    "SEQ",
-    "SET",
-    "SKIPIF",
-    "STYLEREF",
-    "SUBJECT",
-    "SYMBOL",
-    "TA",
-    "TC",
-    "TEMPLATE",
-    "TIME",
-    "TITLE",
-    "TOA",
-    "TOC",
-    "USERADDRESS",
-    "USERINITIALS",
-    "USERNAME",
-    "XE",
-];
-
-#[derive(Debug, Clone)]
-struct Operand {
-    value: String,
-    quoted: bool,
-}
-
-/// Python `str.upper()` for the ASCII command vocabulary (non-ASCII text
-/// never equals an ASCII command either way).
-fn upper(text: &str) -> String {
-    text.chars().flat_map(char::to_uppercase).collect()
-}
-
-fn tokens(instruction: &str) -> Result<Vec<Operand>> {
-    let chars: Vec<char> = instruction.chars().collect();
-    let mut out = Vec::new();
-    let mut index = 0;
-    while index < chars.len() {
-        while index < chars.len() && is_py_space(chars[index]) {
-            index += 1;
-        }
-        if index >= chars.len() {
-            break;
-        }
-        let start = index;
-        if chars[index] != '"' {
-            while index < chars.len() && !is_py_space(chars[index]) {
-                index += 1;
-            }
-            out.push(Operand {
-                value: chars[start..index].iter().collect(),
-                quoted: false,
-            });
-            continue;
-        }
-        index += 1;
-        let mut value = String::new();
-        let mut closed = false;
-        while index < chars.len() {
-            let c = chars[index];
-            if c == '"' {
-                index += 1;
-                closed = true;
-                break;
-            }
-            if c == '\\' && chars.get(index + 1) == Some(&'"') {
-                value.push('"');
-                index += 2;
-                continue;
-            }
-            value.push(c);
-            index += 1;
-        }
-        if !closed {
-            return Err(unsupported(
-                "unterminated_field_operand",
-                "field instruction contains an unterminated quoted operand; nothing was changed",
-            ));
-        }
-        out.push(Operand {
-            value,
-            quoted: true,
-        });
-    }
-    Ok(out)
-}
-
-/// Upstream `_fieldcode.bookmark_operands`.
-fn command_operand(tokens: &[Operand], command: &str) -> Option<Operand> {
-    if tokens.len() < 2 || tokens[0].quoted || upper(&tokens[0].value) != upper(command) {
-        return None;
-    }
-    let operand = &tokens[1];
-    if !operand.quoted && operand.value.starts_with('\\') {
-        None
-    } else {
-        Some(operand.clone())
-    }
-}
-
-fn formula_operands(instruction: &str, names: &[String]) -> Vec<Operand> {
+/// Bookmark identifiers of a formula field (`= ...`), read with Python's
+/// character classes (upstream `_fieldcode`'s `str.isalpha`/`isalnum`).
+fn formula_operands(instruction: &str, names: &[&str]) -> Vec<String> {
     let wanted: Vec<String> = names.iter().map(|n| casefold(n)).collect();
     let chars: Vec<char> = instruction.chars().collect();
     let mut out = Vec::new();
@@ -553,56 +418,20 @@ fn formula_operands(instruction: &str, names: &[String]) -> Vec<Operand> {
         if wanted.contains(&casefold(&value))
             && (following >= chars.len() || chars[following] != '(')
         {
-            out.push(Operand {
-                value,
-                quoted: false,
-            });
+            out.push(value);
         }
     }
     out
 }
 
 /// Upstream `bookmark_operands(instruction, implicit_names=names)`.
-fn bookmark_operands(instruction: &str, names: &[String]) -> Result<Vec<Operand>> {
-    let tokens = tokens(instruction)?;
-    let command = match tokens.first() {
-        Some(first) if !first.quoted => upper(&first.value),
-        _ => String::new(),
-    };
+fn bookmark_operands(instruction: &str, names: &[&str]) -> Result<Vec<String>> {
+    // Tokenized first: an unterminated quoted operand refuses in a formula too.
+    let operands = fieldcode::bookmark_operands(instruction, names)?;
     if instruction.trim_start_matches(is_py_space).starts_with('=') {
         return Ok(formula_operands(instruction, names));
     }
-    if matches!(
-        command.as_str(),
-        "REF" | "PAGEREF" | "NOTEREF" | "GOTOBUTTON"
-    ) {
-        return Ok(command_operand(&tokens, &command).into_iter().collect());
-    }
-    let switch = match command.as_str() {
-        "HYPERLINK" => Some("\\l"),
-        "TOC" => Some("\\b"),
-        _ => None,
-    };
-    if let Some(switch) = switch {
-        return Ok(tokens
-            .windows(2)
-            .filter(|pair| {
-                !pair[0].quoted
-                    && casefold(&pair[0].value) == switch
-                    && (pair[1].quoted || !pair[1].value.starts_with('\\'))
-            })
-            .map(|pair| pair[1].clone())
-            .collect());
-    }
-    let implicit: Vec<String> = names.iter().map(|n| casefold(n)).collect();
-    if let Some(first) = tokens.first()
-        && !first.quoted
-        && !FIELD_COMMANDS.contains(&command.as_str())
-        && implicit.contains(&casefold(&first.value))
-    {
-        return Ok(vec![first.clone()]);
-    }
-    Ok(Vec::new())
+    Ok(operands.into_iter().map(|operand| operand.value).collect())
 }
 
 /// Upstream `_iter_field_instructions`: concatenated instruction text per
@@ -638,14 +467,14 @@ fn field_instructions(tree: &XmlTree) -> Vec<String> {
 
 fn field_references(document: &Document, name: &str) -> Result<usize> {
     let target = casefold(name);
-    let names = vec![name.to_string()];
+    let names = [name];
     let mut count = 0;
     for story in stories(document) {
         let tree = document.package().xml(&story.part)?;
         for instruction in field_instructions(tree) {
             if bookmark_operands(&instruction, &names)?
                 .iter()
-                .any(|operand| casefold(&operand.value) == target)
+                .any(|operand| casefold(operand) == target)
             {
                 count += 1;
             }
@@ -654,7 +483,7 @@ fn field_references(document: &Document, name: &str) -> Result<usize> {
             if let Some(instr) = w_attr(tree, node, "instr").filter(|i| !i.is_empty())
                 && bookmark_operands(instr, &names)?
                     .iter()
-                    .any(|operand| casefold(&operand.value) == target)
+                    .any(|operand| casefold(operand) == target)
             {
                 count += 1;
             }
@@ -691,7 +520,7 @@ pub fn delete_bookmark(document: &mut Document, name: &str) -> Result<()> {
             }
         }
         if matching.len() > 1 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "case_ambiguous_bookmark",
                 format!(
                     "bookmark name {} is case-ambiguous; nothing was changed",
@@ -702,7 +531,7 @@ pub fn delete_bookmark(document: &mut Document, name: &str) -> Result<()> {
         let resolved = matching.pop().unwrap_or_else(|| name.to_string());
         let referencing = field_references(doc, &resolved)?;
         if referencing > 0 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "bookmark_referenced",
                 format!(
                     "bookmark {} is referenced by {referencing} field instruction(s); update or remove those fields first",
@@ -722,7 +551,7 @@ pub fn delete_bookmark(document: &mut Document, name: &str) -> Result<()> {
                     let raw = w_attr(tree, marker, "id");
                     let id = raw.and_then(py_int).unwrap_or(-1);
                     if id < 0 || destination.iter().any(|(existing, _)| *existing == id) {
-                        return Err(unsupported(
+                        return Err(Error::unsupported(
                             "malformed_bookmark_ids",
                             format!(
                                 "bookmark markers have missing, non-numeric, or duplicate w:id {}; nothing was changed",
@@ -739,7 +568,7 @@ pub fn delete_bookmark(document: &mut Document, name: &str) -> Result<()> {
             start_ids.sort_unstable();
             end_ids.sort_unstable();
             if start_ids != end_ids {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "unpaired_bookmark_markers",
                     "bookmark start/end markers are not one-to-one; nothing was changed",
                 ));
@@ -768,7 +597,7 @@ pub fn delete_bookmark(document: &mut Document, name: &str) -> Result<()> {
         for (part, start, end) in &pairs {
             let tree = doc.package().xml(part)?;
             if revision_scope(tree, *start) != revision_scope(tree, *end) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "markers_cross_revision_scopes",
                     format!(
                         "bookmark {} has markers in different revision scopes; deleting it could leave a dangling marker. Nothing was changed",
@@ -834,14 +663,8 @@ mod tests {
 
     #[test]
     fn operands_follow_upstream() {
-        let names = vec!["DefinedTerm".to_string()];
-        let found = |instr: &str| {
-            bookmark_operands(instr, &names)
-                .unwrap()
-                .into_iter()
-                .map(|o| o.value)
-                .collect::<Vec<_>>()
-        };
+        let names = ["DefinedTerm"];
+        let found = |instr: &str| bookmark_operands(instr, &names).unwrap();
         assert_eq!(found(" REF DefinedTerm \\h "), vec!["DefinedTerm"]);
         assert_eq!(found(" DefinedTerm \\* MERGEFORMAT "), vec!["DefinedTerm"]);
         assert!(found(" QUOTE \"literal REF DefinedTerm text\" ").is_empty());

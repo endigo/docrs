@@ -69,14 +69,6 @@ const WEEKDAY_NAMES: [&str; 7] = [
     "Sunday",
 ];
 
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
-fn not_found(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::TargetNotFound, reason, message)
-}
-
 /// Python `repr` of a string (single quotes unless the text holds one).
 pub(crate) fn py_repr(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') {
@@ -104,6 +96,16 @@ pub(crate) fn py_repr(text: &str) -> String {
     }
     out.push(quote);
     out
+}
+
+/// `w:val` of the `w:local` child of a control's `w:sdtPr`.
+fn sdt_pr_val<'a>(tree: &'a XmlTree, sdt_pr: Option<NodeId>, local: &str) -> Option<&'a str> {
+    w_attr(tree, w_child(tree, sdt_pr?, local)?, "val")
+}
+
+/// Whether a control's `w:sdtPr` holds a `w:local` child.
+fn sdt_pr_has(tree: &XmlTree, sdt_pr: Option<NodeId>, local: &str) -> bool {
+    sdt_pr.is_some_and(|pr| w_child(tree, pr, local).is_some())
 }
 
 /// A value to set (or a value read back).
@@ -374,22 +376,18 @@ impl Control {
                 "control belongs to a different document; reacquire it from the document that now contains it",
             ));
         }
-        let tree = document
-            .package()
-            .part(&self.part)
-            .map(|_| document.package().xml(&self.part))
-            .transpose()?
-            .ok_or_else(|| {
-                not_found(
-                    "stale_control",
-                    "control is stale: it was removed from its document",
-                )
-            })?;
-        if !tree.contains(self.sdt) || tree.incarnation() != self.incarnation {
-            return Err(not_found(
+        let stale = || {
+            Error::not_found(
                 "stale_control",
                 "control is stale: it was removed from its document",
-            ));
+            )
+        };
+        if document.package().part(&self.part).is_none() {
+            return Err(stale());
+        }
+        let tree = document.package().xml(&self.part)?;
+        if !tree.contains(self.sdt) || tree.incarnation() != self.incarnation {
+            return Err(stale());
         }
         Ok(tree)
     }
@@ -400,11 +398,7 @@ impl Control {
 
     fn pr_value(&self, document: &Document, local: &str) -> Result<Option<String>> {
         let tree = self.tree(document)?;
-        Ok(self
-            .sdt_pr(tree)
-            .and_then(|pr| w_child(tree, pr, local))
-            .and_then(|node| w_attr(tree, node, "val"))
-            .map(str::to_string))
+        Ok(sdt_pr_val(tree, self.sdt_pr(tree), local).map(str::to_string))
     }
 
     /// Story name.
@@ -431,17 +425,13 @@ impl Control {
     /// `w:dataBinding` is present.
     pub fn is_data_bound(&self, document: &Document) -> Result<bool> {
         let tree = self.tree(document)?;
-        Ok(self
-            .sdt_pr(tree)
-            .is_some_and(|pr| w_child(tree, pr, "dataBinding").is_some()))
+        Ok(sdt_pr_has(tree, self.sdt_pr(tree), "dataBinding"))
     }
 
     /// `w:showingPlcHdr` is present.
     pub fn showing_placeholder(&self, document: &Document) -> Result<bool> {
         let tree = self.tree(document)?;
-        Ok(self
-            .sdt_pr(tree)
-            .is_some_and(|pr| w_child(tree, pr, "showingPlcHdr").is_some()))
+        Ok(sdt_pr_has(tree, self.sdt_pr(tree), "showingPlcHdr"))
     }
 
     /// Current value: [`ControlValue::Checked`] for checkboxes,
@@ -470,21 +460,14 @@ impl Control {
         } else {
             content_text(tree, self.sdt)
         };
-        let pr_value = |local: &str| {
-            sdt_pr
-                .and_then(|pr| w_child(tree, pr, local))
-                .and_then(|node| w_attr(tree, node, "val"))
-                .map(str::to_string)
-        };
         Ok(ControlInfo {
-            tag: pr_value("tag"),
-            alias: pr_value("alias"),
+            tag: sdt_pr_val(tree, sdt_pr, "tag").map(str::to_string),
+            alias: sdt_pr_val(tree, sdt_pr, "alias").map(str::to_string),
             control_type: kind.to_string(),
             value,
             story: self.story.clone(),
-            showing_placeholder: sdt_pr
-                .is_some_and(|pr| w_child(tree, pr, "showingPlcHdr").is_some()),
-            is_data_bound: sdt_pr.is_some_and(|pr| w_child(tree, pr, "dataBinding").is_some()),
+            showing_placeholder: sdt_pr_has(tree, sdt_pr, "showingPlcHdr"),
+            is_data_bound: sdt_pr_has(tree, sdt_pr, "dataBinding"),
             choices: choices(tree, sdt_pr),
         })
     }
@@ -504,12 +487,12 @@ impl Control {
             }
         }
         if tree.is_attached(self.sdt) {
-            return Err(not_found(
+            return Err(Error::not_found(
                 "stale_control",
                 "control is stale: it is no longer in the document's active content-control traversal",
             ));
         }
-        Err(not_found(
+        Err(Error::not_found(
             "stale_control",
             "control is stale: it was removed from its document",
         ))
@@ -543,7 +526,7 @@ impl Control {
         let binding = sdt_pr.and_then(|pr| w_child(tree, pr, "dataBinding"));
         if let Some(binding) = binding {
             if kind != "text" && kind != "rich_text" {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "data_bound_typed_control",
                     format!("data-bound {kind} controls are not settable; nothing was changed"),
                 ));
@@ -571,7 +554,7 @@ impl Control {
             let checkbox = sdt_pr
                 .and_then(|pr| tree.first_child_named(pr, W14, "checkbox"))
                 .ok_or_else(|| {
-                    unsupported(
+                    Error::unsupported(
                         "checkbox_without_properties",
                         "checkbox control has no w14:checkbox properties; nothing was changed",
                     )
@@ -584,7 +567,7 @@ impl Control {
             return txn.finish();
         }
         if matches!(kind, "picture" | "group" | "building_block") {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "unsettable_control",
                 format!("{kind} controls are not settable"),
             ));
@@ -601,7 +584,7 @@ impl Control {
             let date_pr = sdt_pr
                 .and_then(|pr| w_child(tree, pr, "date"))
                 .ok_or_else(|| {
-                    unsupported(
+                    Error::unsupported(
                         "date_without_properties",
                         "date control has no w:date properties; nothing was changed",
                     )
@@ -627,7 +610,7 @@ impl Control {
             let choices = choices(tree, sdt_pr);
             if !choices.contains(text) {
                 let listed: Vec<String> = choices.iter().map(|c| py_repr(c)).collect();
-                return Err(not_found(
+                return Err(Error::not_found(
                     "not_a_choice",
                     format!(
                         "{} is not one of this dropdown's choices [{}]",
@@ -701,7 +684,7 @@ pub fn get_control(document: &Document, tag: Option<&str>, alias: Option<&str>) 
         (None, None) => String::new(),
     };
     match matches.len() {
-        0 => Err(not_found(
+        0 => Err(Error::not_found(
             "no_control",
             format!("no content control with {wanted}"),
         )),
@@ -759,15 +742,15 @@ impl Document {
 /// Upstream `_validate_span_surface_edit`.
 pub(crate) fn validate_span_surface_edit(tree: &XmlTree, sdt: NodeId) -> Result<()> {
     let sdt_pr = w_child(tree, sdt, "sdtPr");
-    if sdt_pr.is_some_and(|pr| w_child(tree, pr, "dataBinding").is_some()) {
-        return Err(unsupported(
+    if sdt_pr_has(tree, sdt_pr, "dataBinding") {
+        return Err(Error::unsupported(
             "data_bound_control",
             "span lies in a data-bound control whose surface text Word re-syncs from custom XML; use the binding source instead",
         ));
     }
     let kind = control_type(tree, sdt_pr);
     if kind != "text" && kind != "rich_text" {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "typed_control",
             format!(
                 "span lies in a {kind} control whose display text is tied to machine-readable control state; use Control.set_value()"
@@ -784,7 +767,7 @@ pub(crate) fn refuse_locked_control_content(tree: &XmlTree, sdt: NodeId) -> Resu
     };
     let locks: Vec<NodeId> = w_children(tree, pr, "lock").collect();
     if locks.len() > 1 {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "multiple_locks",
             "control has multiple w:lock declarations; nothing was changed",
         ));
@@ -795,7 +778,7 @@ pub(crate) fn refuse_locked_control_content(tree: &XmlTree, sdt: NodeId) -> Resu
             Some("contentLocked" | "sdtContentLocked")
         )
     }) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "locked_control",
             "control content is locked; nothing was changed",
         ));
@@ -805,8 +788,8 @@ pub(crate) fn refuse_locked_control_content(tree: &XmlTree, sdt: NodeId) -> Resu
 
 /// Upstream `_refuse_control_write_restrictions`.
 pub(crate) fn refuse_control_write_restrictions(tree: &XmlTree, sdt: NodeId) -> Result<()> {
-    if w_child(tree, sdt, "sdtPr").is_some_and(|pr| w_child(tree, pr, "dataBinding").is_some()) {
-        return Err(unsupported(
+    if sdt_pr_has(tree, w_child(tree, sdt, "sdtPr"), "dataBinding") {
+        return Err(Error::unsupported(
             "data_bound_control",
             "control is data-bound; edits could be discarded on sync",
         ));
@@ -830,7 +813,7 @@ pub(crate) fn refuse_control_surface(tree: &XmlTree, span: &Span, what: &str) ->
         validate_span_surface_edit(tree, control)?;
         refuse_control_write_restrictions(tree, control)?;
         if control_type(tree, w_child(tree, control, "sdtPr")) == "text" {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "plain_text_control",
                 format!(
                     "span lies in a plain-text content control; {what} would break the control's content model. Nothing was changed"
@@ -891,7 +874,7 @@ fn declared_checkbox_state(
         .and_then(char::from_u32);
     let Some(glyph) = glyph else {
         let shown = raw.map(py_repr).unwrap_or_else(|| "None".into());
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "invalid_checkbox_glyph",
             format!("checkbox declares invalid hexadecimal glyph {shown}; nothing was changed"),
         ));
@@ -919,7 +902,7 @@ fn set_checkbox_state(tree: &mut XmlTree, checkbox: NodeId, checked: bool) -> Re
 fn format_declared_date(tree: &XmlTree, date_pr: NodeId, stamp: &Stamp) -> Result<String> {
     let calendar = w_child(tree, date_pr, "calendar").and_then(|c| w_attr(tree, c, "val"));
     if calendar.is_some_and(|c| c != "gregorian") {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unsupported_calendar",
             format!(
                 "date control declares unsupported calendar {}; nothing was changed",
@@ -928,14 +911,14 @@ fn format_declared_date(tree: &XmlTree, date_pr: NodeId, stamp: &Stamp) -> Resul
         ));
     }
     let Some(format_elm) = w_child(tree, date_pr, "dateFormat") else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "missing_date_format",
             "date control has no w:dateFormat; nothing was changed",
         ));
     };
     let pattern = w_attr(tree, format_elm, "val").unwrap_or("");
     if pattern.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "empty_date_format",
             "date control declares an empty w:dateFormat; nothing was changed",
         ));
@@ -946,7 +929,7 @@ fn format_declared_date(tree: &XmlTree, date_pr: NodeId, stamp: &Stamp) -> Resul
     let mut uses_names = false;
     let mut index = 0;
     let bad = |detail: String| {
-        unsupported(
+        Error::unsupported(
             "unsupported_date_format",
             format!(
                 "unsupported date format {}{detail}; nothing was changed",
@@ -1023,7 +1006,7 @@ fn format_declared_date(tree: &XmlTree, date_pr: NodeId, stamp: &Stamp) -> Resul
     }
     if uses_names {
         let Some(language) = language else {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "date_names_without_locale",
                 format!(
                     "date format {} uses locale-sensitive names, but the date control has no w:lid; nothing was changed",
@@ -1033,7 +1016,7 @@ fn format_declared_date(tree: &XmlTree, date_pr: NodeId, stamp: &Stamp) -> Resul
         };
         let normalized = language.to_lowercase();
         if normalized != "en" && !normalized.starts_with("en-") {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "unsupported_date_locale",
                 format!(
                     "date format {} requires locale {}, but only English date names are supported; nothing was changed",
@@ -1073,7 +1056,7 @@ fn control_level(tree: &XmlTree, sdt: NodeId, content: Option<NodeId>) -> Result
         let has_paragraph = tree.child_elements(content).any(|c| is_w(tree, c, "p"));
         let has_run = tree.child_elements(content).any(|c| is_w(tree, c, "r"));
         if has_paragraph == has_run {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_control_shape",
                 "control content has an ambiguous block/inline shape; nothing was changed",
             ));
@@ -1084,7 +1067,7 @@ fn control_level(tree: &XmlTree, sdt: NodeId, content: Option<NodeId>) -> Result
             Level::Inline
         };
         if parent_level.is_some_and(|level| level != content_level) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "control_shape_mismatch",
                 "control content does not match its block/inline parent; nothing was changed",
             ));
@@ -1092,7 +1075,7 @@ fn control_level(tree: &XmlTree, sdt: NodeId, content: Option<NodeId>) -> Result
         return Ok(content_level);
     }
     parent_level.ok_or_else(|| {
-        unsupported(
+        Error::unsupported(
             "ambiguous_control_parent",
             "empty control has an ambiguous block/inline parent; nothing was changed",
         )
@@ -1162,7 +1145,7 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
             .skip(1)
             .any(|node| is_w(tree, node, "sdt"))
         {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "nested_controls",
                 "control content holds nested content controls; set the inner controls individually instead of overwriting the group",
             ));
@@ -1172,7 +1155,7 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
             .skip(1)
             .any(|node| is_w(tree, node, "tbl"))
         {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "control_holds_table",
                 "control content holds a table; refusing to replace structure with plain text",
             ));
@@ -1181,7 +1164,7 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
         let has_inline = tree.child_elements(content).any(|c| is_w(tree, c, "r"))
             || node_children(tree, content).next().is_none();
         if !has_block && !has_inline {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "control_not_simple_text",
                 "control content is not simple text (no paragraph or runs to replace); refusing to destroy its structure",
             ));
@@ -1190,7 +1173,7 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
     let level = control_level(tree, sdt, content)?;
 
     let first_run = content.and_then(|c| tree.descendants(c).find(|n| is_w(tree, *n, "r")));
-    let mut template_rpr = first_run
+    let template_rpr = first_run
         .and_then(|run| w_child(tree, run, "rPr"))
         .map(|rpr| tree.deep_clone(rpr));
     let content = match content {
@@ -1203,7 +1186,7 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
         }
     };
     let run = tree.create_element(content, W, "r")?;
-    let target_paragraph = if level == Level::Block {
+    if level == Level::Block {
         let paragraph = match w_child(tree, content, "p") {
             Some(paragraph) => paragraph,
             None => {
@@ -1227,7 +1210,6 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
         for extra in extras {
             remove_with_tail(tree, extra)?;
         }
-        Some(paragraph)
     } else {
         let doomed: Vec<NodeId> = node_children(tree, content).collect();
         for child in doomed {
@@ -1235,30 +1217,27 @@ fn set_text(tree: &mut XmlTree, sdt: NodeId, text: &str, font: Option<&str>) -> 
         }
         let end = tree.children(content).len();
         tree.insert(content, end, run)?;
-        None
-    };
-    let _ = target_paragraph;
-    if let Some(font) = font {
-        let rpr = match template_rpr {
-            Some(rpr) => rpr,
-            None => tree.create_element(run, W, "rPr")?,
-        };
-        tree.insert(run, 0, rpr)?;
-        let fonts = match w_child(tree, rpr, "rFonts") {
-            Some(fonts) => fonts,
-            None => {
-                let fonts = tree.create_element(rpr, W, "rFonts")?;
-                tree.insert(rpr, 0, fonts)?;
-                fonts
-            }
-        };
-        for attribute in ["ascii", "hAnsi", "eastAsia", "cs"] {
-            tree.set_attr(fonts, Some(W), attribute, font)?;
-        }
-        template_rpr = None;
     }
-    if let Some(rpr) = template_rpr {
+    let rpr = match template_rpr {
+        Some(rpr) => Some(rpr),
+        None if font.is_some() => Some(tree.create_element(run, W, "rPr")?),
+        None => None,
+    };
+    if let Some(rpr) = rpr {
         tree.insert(run, 0, rpr)?;
+        if let Some(font) = font {
+            let fonts = match w_child(tree, rpr, "rFonts") {
+                Some(fonts) => fonts,
+                None => {
+                    let fonts = tree.create_element(rpr, W, "rFonts")?;
+                    tree.insert(rpr, 0, fonts)?;
+                    fonts
+                }
+            };
+            for attribute in ["ascii", "hAnsi", "eastAsia", "cs"] {
+                tree.set_attr(fonts, Some(W), attribute, font)?;
+            }
+        }
     }
     crate::oxml::add_t(tree, run, text)?;
     clear_placeholder_state(tree, sdt)
@@ -1370,7 +1349,7 @@ fn evaluate_store_xpath(
 ) -> Result<Vec<xpath::XNode>> {
     match xpath::evaluate(item, expr, namespaces) {
         Ok(xpath::XValue::Nodes(nodes)) => Ok(nodes),
-        Ok(other) => Err(unsupported(
+        Ok(other) => Err(Error::unsupported(
             "xpath_not_node_set",
             format!(
                 "the data-bound control's xpath {} evaluates to {}, not to a node, so there is nothing in the custom \
@@ -1379,7 +1358,7 @@ fn evaluate_store_xpath(
                 other.python_type()
             ),
         )),
-        Err(xpath::XError::Unsupported(detail)) => Err(unsupported(
+        Err(xpath::XError::Unsupported(detail)) => Err(Error::unsupported(
             "xpath_unsupported",
             format!(
                 "the data-bound control's xpath {} uses {detail}, which this library does not evaluate, so the bound \
@@ -1387,16 +1366,18 @@ fn evaluate_store_xpath(
                 py_repr(expr)
             ),
         )),
-        Err(xpath::XError::Syntax(detail) | xpath::XError::Eval(detail)) => Err(unsupported(
-            "xpath_invalid",
-            format!(
-                "the data-bound control's xpath {} is not a valid XPath expression, so the bound value cannot be \
+        Err(xpath::XError::Syntax(detail) | xpath::XError::Eval(detail)) => {
+            Err(Error::unsupported(
+                "xpath_invalid",
+                format!(
+                    "the data-bound control's xpath {} is not a valid XPath expression, so the bound value cannot be \
                  located. The document itself is intact — Word treats such a binding as unbound. Repair the \
                  w:dataBinding expression, or set the control's value in a document whose binding resolves; nothing \
                  was changed ({detail})",
-                py_repr(expr)
-            ),
-        )),
+                    py_repr(expr)
+                ),
+            ))
+        }
     }
 }
 
@@ -1468,7 +1449,7 @@ fn write_bound_store(
     let store_id = w_attr(tree, binding, "storeItemID").filter(|v| !v.is_empty());
     let expr = w_attr(tree, binding, "xpath").filter(|v| !v.is_empty());
     let (Some(store_id), Some(expr)) = (store_id, expr) else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "incomplete_binding",
             "data-bound control is missing storeItemID or xpath; nothing was changed",
         ));
@@ -1489,7 +1470,7 @@ fn write_bound_store(
         }
     }
     let Some(props_part) = props_part else {
-        return Err(not_found(
+        return Err(Error::not_found(
             "no_custom_xml_store",
             format!(
                 "no custom XML store with itemID {}; nothing was changed",
@@ -1499,8 +1480,9 @@ fn write_bound_store(
     };
     let mut item_part = None;
     'owners: for owner in package.parts().filter(|p| p.is_reachable()) {
-        let rels = package.relationships_at(&format!("/{}", owner.name()))?;
-        let base = crate::package::rels::base_uri(&format!("/{}", owner.name())).to_string();
+        let owner_name = crate::package::rels::source_part_name(owner.name());
+        let rels = package.relationships_at(&owner_name)?;
+        let base = crate::package::rels::base_uri(&owner_name).to_string();
         for rel in rels.iter().filter(|rel| !rel.external) {
             let target = rel.target_part_name(&base);
             if package.resolve_member(&target) == Some(props_part.as_str()) {
@@ -1512,7 +1494,7 @@ fn write_bound_store(
     let item_part = match item_part {
         Some(item) if item != props_part => item,
         _ => {
-            return Err(not_found(
+            return Err(Error::not_found(
                 "no_custom_xml_item",
                 "custom XML properties have no item payload; nothing was changed",
             ));
@@ -1527,7 +1509,7 @@ fn write_bound_store(
             .part(&item_part)
             .is_some_and(|p| p.current_bytes().is_empty())
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "custom_xml_not_xml",
             "custom XML item is not writable XML; nothing was changed",
         ));
@@ -1536,7 +1518,7 @@ fn write_bound_store(
     let namespaces = binding_namespaces(item_tree, w_attr(tree, binding, "prefixMappings"));
     let nodes = eval_store_xpath(item_tree, expr, &namespaces)?;
     let Some(first) = nodes.first().copied() else {
-        return Err(not_found(
+        return Err(Error::not_found(
             "xpath_matched_nothing",
             format!(
                 "xpath {} matched no node in the custom XML store",
@@ -1563,7 +1545,7 @@ fn write_bound_store(
             };
             staged.set_attr(element, ns.as_deref(), &local, value)
         }
-        _ => Err(unsupported(
+        _ => Err(Error::unsupported(
             "non_element_store_target",
             "xpath matched a non-element store target; nothing was changed",
         )),
