@@ -9,7 +9,7 @@
 //! widow/orphan control; table rows are as tall as their tallest cell and
 //! split across pages between lines.
 
-use super::model::{Block, LineRule, Metric, Model, Para, Piece, TabKind, Table};
+use super::model::{Block, LineSpacing, Metric, Model, Para, Piece, TabKind, Table};
 use crate::xml::NodeId;
 
 /// One laid-out line: its height and whether a page break follows it.
@@ -86,10 +86,10 @@ impl Extent {
 /// The height of a line whose text is `text` points tall (multiple line
 /// spacing included) and tallest object `object` points.
 fn line_height(para: &Para, text: f64, object: f64) -> f64 {
-    match para.line_rule {
-        LineRule::Exact => para.line / 20.0,
-        LineRule::Auto => text.max(object),
-        LineRule::AtLeast => text.max(para.line / 20.0).max(object),
+    match para.line {
+        LineSpacing::Exact(points) => points,
+        LineSpacing::Multiple(_) => text.max(object),
+        LineSpacing::AtLeast(points) => text.max(points).max(object),
     }
 }
 
@@ -123,56 +123,86 @@ fn segment_width(pieces: &[Piece], start: usize) -> f64 {
     width
 }
 
+/// The lines of a paragraph so far and the one being filled.
+struct Breaker<'a> {
+    para: &'a Para,
+    /// The multiple less one of multiple line spacing.
+    extra: f64,
+    /// The paragraph mark's single line height, and with the extra.
+    mark_single: f64,
+    mark: f64,
+    out: Vec<Line>,
+    x: f64,
+    text: Extent,
+    /// Width of the spaces between words on the line so far.
+    spaces: f64,
+    object: f64,
+    has_content: bool,
+    /// Last break opportunity on this line (piece index to restart from).
+    last_break: Option<usize>,
+    line_start: usize,
+    first_line: bool,
+}
+
+impl Breaker<'_> {
+    /// Close the line (`page_break` after it) and open the next one at
+    /// piece `restart`.
+    fn break_line(&mut self, page_break: bool, restart: usize) {
+        let height = self.text.height(self.mark_single, self.extra);
+        let (text, single) = if height > 0.0 {
+            (height, self.text.single_height())
+        } else {
+            (self.mark, self.mark_single)
+        };
+        self.out.push(Line {
+            height: line_height(self.para, text, self.object),
+            fit: line_height(self.para, single, self.object),
+            page_break,
+        });
+        self.first_line = false;
+        self.x = self.para.left;
+        self.text = Extent::default();
+        self.spaces = 0.0;
+        self.object = 0.0;
+        self.has_content = false;
+        self.last_break = None;
+        self.line_start = restart;
+    }
+}
+
 /// Break `para` into lines `width` points wide.
 pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f64) -> Vec<Line> {
-    let extra = match para.line_rule {
-        LineRule::Auto => para.line / 240.0 - 1.0,
+    let extra = match para.line {
+        LineSpacing::Multiple(multiple) => multiple - 1.0,
         _ => 0.0,
     };
     let mark_single = single(metrics, para.mark);
-    let mark = mark_single * (1.0 + extra);
-    let mut out = Vec::new();
+    let mut b = Breaker {
+        para,
+        extra,
+        mark_single,
+        mark: mark_single * (1.0 + extra),
+        out: Vec::new(),
+        x: para.left + para.first,
+        text: Extent::default(),
+        spaces: 0.0,
+        object: 0.0,
+        has_content: false,
+        last_break: None,
+        line_start: 0,
+        first_line: true,
+    };
     let pieces = &para.pieces;
     let right_limit = width - para.right;
-    let mut first_line = true;
-    let start_x = |first: bool| -> f64 {
-        if first {
-            para.left + para.first
-        } else {
-            para.left
-        }
-    };
-    let mut x = start_x(true);
-    let mut text = Extent::default();
-    // Width of the spaces between words on the line so far.
-    let mut spaces = 0.0f64;
-    let mut object = 0.0f64;
-    let mut has_content = false;
     if let Some(label) = &para.label {
-        text.add_label(metrics, label.metric);
-        x += label.width + label.space;
+        b.text.add_label(metrics, label.metric);
+        b.x += label.width + label.space;
         if label.tab {
-            x = tab_stop(para, x, true, default_tab).0;
+            b.x = tab_stop(para, b.x, true, default_tab).0;
         }
-        has_content = true;
+        b.has_content = true;
     }
     let mut index = 0;
-    // Last break opportunity on this line: (piece index to restart from).
-    let mut last_break: Option<usize> = None;
-    let mut line_start = 0;
-    let finish = |out: &mut Vec<Line>, text: Extent, object: f64, page_break: bool| {
-        let height = text.height(mark_single, extra);
-        let (text, single) = if height > 0.0 {
-            (height, text.single_height())
-        } else {
-            (mark, mark_single)
-        };
-        out.push(Line {
-            height: line_height(para, text, object),
-            fit: line_height(para, single, object),
-            page_break,
-        });
-    };
     while index < pieces.len() {
         match &pieces[index] {
             Piece::Char {
@@ -182,125 +212,85 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
             } => {
                 let is_space = *ch == ' ' || *ch == '\u{3000}';
                 let shrink = if para.justified {
-                    JUSTIFIED_SHRINK * spaces
+                    JUSTIFIED_SHRINK * b.spaces
                 } else {
                     0.0
                 };
-                if !is_space && x + w > right_limit + EPSILON + shrink && has_content {
-                    let restart = match last_break {
-                        Some(b) if b > line_start => b,
-                        _ if index > line_start => index,
+                if !is_space && b.x + w > right_limit + EPSILON + shrink && b.has_content {
+                    let restart = match b.last_break {
+                        Some(at) if at > b.line_start => at,
+                        _ if index > b.line_start => index,
                         _ => index + 1,
                     };
-                    finish(&mut out, text, object, false);
-                    first_line = false;
-                    x = start_x(false);
-                    text = Extent::default();
-                    spaces = 0.0;
-                    object = 0.0;
-                    has_content = false;
-                    last_break = None;
-                    line_start = restart;
+                    b.break_line(false, restart);
                     index = restart;
                     continue;
                 }
-                x += w;
-                text.add(metrics, *metric, extra);
+                b.x += w;
+                b.text.add(metrics, *metric, extra);
                 if is_space {
-                    if has_content {
-                        spaces += w;
+                    if b.has_content {
+                        b.spaces += w;
                     }
-                    last_break = Some(index + 1);
+                    b.last_break = Some(index + 1);
                 } else {
-                    has_content = true;
+                    b.has_content = true;
                     if breaks_after(*ch) {
-                        last_break = Some(index + 1);
+                        b.last_break = Some(index + 1);
                     }
                 }
             }
             Piece::Object { width: w, height } => {
-                if x + w > right_limit + EPSILON && has_content {
-                    finish(&mut out, text, object, false);
-                    first_line = false;
-                    x = start_x(false);
-                    text = Extent::default();
-                    spaces = 0.0;
-                    object = 0.0;
-                    line_start = index;
+                if b.x + w > right_limit + EPSILON && b.has_content {
+                    b.break_line(false, index);
                 }
-                x += w;
-                object = object.max(*height);
-                has_content = true;
-                last_break = Some(index + 1);
+                b.x += w;
+                b.object = b.object.max(*height);
+                b.has_content = true;
+                b.last_break = Some(index + 1);
             }
             Piece::Tab { metric } => {
-                let (stop, kind) = tab_stop(para, x, first_line, default_tab);
+                let (stop, kind) = tab_stop(para, b.x, b.first_line, default_tab);
                 let segment = segment_width(pieces, index + 1);
                 let target = match kind {
-                    TabKind::Right | TabKind::Decimal => (stop - segment).max(x),
-                    TabKind::Center => (stop - segment / 2.0).max(x),
+                    TabKind::Right | TabKind::Decimal => (stop - segment).max(b.x),
+                    TabKind::Center => (stop - segment / 2.0).max(b.x),
                     _ => stop,
                 };
-                text.add(metrics, *metric, extra);
-                if target > right_limit + EPSILON && has_content && kind == TabKind::Left {
-                    finish(&mut out, text, object, false);
-                    first_line = false;
-                    x = start_x(false);
-                    text = Extent::default();
-                    spaces = 0.0;
-                    object = 0.0;
-                    has_content = false;
-                    last_break = None;
-                    line_start = index + 1;
+                b.text.add(metrics, *metric, extra);
+                if target > right_limit + EPSILON && b.has_content && kind == TabKind::Left {
+                    b.break_line(false, index + 1);
                 } else {
-                    x = target;
-                    spaces = 0.0;
-                    has_content = true;
-                    last_break = Some(index + 1);
+                    b.x = target;
+                    b.spaces = 0.0;
+                    b.has_content = true;
+                    b.last_break = Some(index + 1);
                 }
             }
             Piece::LineBreak { metric } => {
-                text.add(metrics, *metric, extra);
-                finish(&mut out, text, object, false);
-                first_line = false;
-                x = start_x(false);
-                text = Extent::default();
-                spaces = 0.0;
-                object = 0.0;
-                has_content = false;
-                last_break = None;
-                line_start = index + 1;
+                b.text.add(metrics, *metric, extra);
+                b.break_line(false, index + 1);
             }
-            Piece::PageBreak => {
-                finish(&mut out, text, object, true);
-                first_line = false;
-                x = start_x(false);
-                text = Extent::default();
-                spaces = 0.0;
-                object = 0.0;
-                has_content = false;
-                last_break = None;
-                line_start = index + 1;
-            }
+            Piece::PageBreak => b.break_line(true, index + 1),
         }
         index += 1;
     }
     // The last line carries the paragraph mark, unless the paragraph ends
     // with a page break (the mark then stays beside the break).
-    if has_content || !matches!(pieces.last(), Some(Piece::PageBreak)) {
-        let height = text.height(mark_single, extra);
-        let (text, single) = if has_content && height > 0.0 {
-            (height, text.single_height())
+    if b.has_content || !matches!(pieces.last(), Some(Piece::PageBreak)) {
+        let height = b.text.height(mark_single, extra);
+        let (text, single) = if b.has_content && height > 0.0 {
+            (height, b.text.single_height())
         } else {
-            (height.max(mark), text.single_height().max(mark_single))
+            (height.max(b.mark), b.text.single_height().max(mark_single))
         };
-        out.push(Line {
-            height: line_height(para, text, object),
-            fit: line_height(para, single, object),
+        b.out.push(Line {
+            height: line_height(para, text, b.object),
+            fit: line_height(para, single, b.object),
             page_break: false,
         });
     }
-    out
+    b.out
 }
 
 /// Total height of blocks stacked in `width` (headers, footers).
@@ -356,10 +346,28 @@ struct CellLine {
     widow_control: bool,
 }
 
+/// A paragraph (or a nested row's end) and its offset from the top of the
+/// content holding it.
+#[derive(Clone, Copy)]
+struct ParaOffset {
+    node: Option<NodeId>,
+    offset: f64,
+    row_end: bool,
+}
+
+impl ParaOffset {
+    fn shifted(self, by: f64) -> ParaOffset {
+        ParaOffset {
+            offset: self.offset + by,
+            ..self
+        }
+    }
+}
+
 struct CellLayout {
     lines: Vec<CellLine>,
     /// Paragraphs (and nested row ends) with their offsets.
-    paras: Vec<(Option<NodeId>, f64, bool)>,
+    paras: Vec<ParaOffset>,
     content: f64,
 }
 
@@ -388,7 +396,11 @@ fn cell_layout(
                 } else {
                     gap(previous, para)
                 };
-                out.paras.push((para.node, y, false));
+                out.paras.push(ParaOffset {
+                    node: para.node,
+                    offset: y,
+                    row_end: false,
+                });
                 let para_lines = lines(para, metrics, width, default_tab);
                 let count = para_lines.len();
                 for (index, line) in para_lines.into_iter().enumerate() {
@@ -409,10 +421,13 @@ fn cell_layout(
                 }
                 for row in &table.rows {
                     let layout = row_layout(row, metrics, default_tab);
-                    for (node, offset, row_end) in layout.paras {
-                        out.paras.push((node, y + offset, row_end));
-                    }
-                    out.paras.push((row.node, y, true));
+                    out.paras
+                        .extend(layout.paras.iter().map(|para| para.shifted(y)));
+                    out.paras.push(ParaOffset {
+                        node: row.node,
+                        offset: y,
+                        row_end: true,
+                    });
                     out.lines.push(CellLine {
                         offset: y,
                         height: layout.height,
@@ -442,7 +457,7 @@ fn cell_layout(
 /// the row top.
 struct RowLayout {
     height: f64,
-    paras: Vec<(Option<NodeId>, f64, bool)>,
+    paras: Vec<ParaOffset>,
     cells: Vec<(CellLayout, f64)>,
 }
 
@@ -457,9 +472,7 @@ fn row_layout(row: &super::model::Row, metrics: &[Metric], default_tab: f64) -> 
             height = height.max(layout.content + cell.margins[0] + cell.margins[1]);
         }
         let top = row.border_top + cell.margins[0];
-        for (node, offset, row_end) in &layout.paras {
-            paras.push((*node, offset + top, *row_end));
-        }
+        paras.extend(layout.paras.iter().map(|para| para.shifted(top)));
         cells.push((layout, top));
     }
     if let Some((value, exact)) = row.height {
@@ -535,6 +548,16 @@ impl<'m> Flow<'m> {
 
     fn body_height(&self) -> f64 {
         self.bottom - self.top
+    }
+
+    /// Place `para` at its offset below the current position.
+    fn place(&mut self, para: ParaOffset) {
+        self.out.push(Placed {
+            node: para.node,
+            page: self.page,
+            y: self.y + para.offset,
+            row_end: para.row_end,
+        });
     }
 
     fn metrics(&self) -> &'m [Metric] {
@@ -696,13 +719,8 @@ impl<'m> Flow<'m> {
                     self.y += header_height;
                 }
             }
-            for (node, offset, row_end) in &layout.paras {
-                self.out.push(Placed {
-                    node: *node,
-                    page: self.page,
-                    y: self.y + offset,
-                    row_end: *row_end,
-                });
+            for para in &layout.paras {
+                self.place(*para);
             }
             self.out.push(Placed {
                 node: row.node,
@@ -731,8 +749,8 @@ impl<'m> Flow<'m> {
         let available = self.bottom - self.y;
         let mut any = false;
         let mut rest = 0.0f64;
-        let mut moved: Vec<(Option<NodeId>, f64, bool)> = Vec::new();
-        let mut kept: Vec<(Option<NodeId>, f64, bool)> = Vec::new();
+        let mut moved: Vec<ParaOffset> = Vec::new();
+        let mut kept: Vec<ParaOffset> = Vec::new();
         for (cell, (cell_layout, top)) in row.cells.iter().zip(&layout.cells) {
             let lines = &cell_layout.lines;
             let mut cut = lines
@@ -754,31 +772,25 @@ impl<'m> Flow<'m> {
             match cut {
                 Some(cut) => {
                     rest = rest.max(cell_layout.content - cut + cell.margins[0] + cell.margins[1]);
-                    for (node, offset, row_end) in &cell_layout.paras {
-                        if *offset >= cut - EPSILON {
-                            moved.push((*node, offset - cut + cell.margins[0], *row_end));
+                    for para in &cell_layout.paras {
+                        if para.offset >= cut - EPSILON {
+                            moved.push(ParaOffset {
+                                offset: para.offset - cut + cell.margins[0],
+                                ..*para
+                            });
                         } else {
-                            kept.push((*node, offset + top, *row_end));
+                            kept.push(para.shifted(*top));
                         }
                     }
                 }
-                None => {
-                    for (node, offset, row_end) in &cell_layout.paras {
-                        kept.push((*node, offset + top, *row_end));
-                    }
-                }
+                None => kept.extend(cell_layout.paras.iter().map(|para| para.shifted(*top))),
             }
         }
         if !any {
             return false;
         }
-        for (node, offset, row_end) in kept {
-            self.out.push(Placed {
-                node,
-                page: self.page,
-                y: self.y + offset,
-                row_end,
-            });
+        for para in kept {
+            self.place(para);
         }
         self.out.push(Placed {
             node: row.node,
@@ -790,13 +802,8 @@ impl<'m> Flow<'m> {
         if row_index >= headers && headers > 0 {
             self.y += header_height;
         }
-        for (node, offset, row_end) in moved {
-            self.out.push(Placed {
-                node,
-                page: self.page,
-                y: self.y + offset,
-                row_end,
-            });
+        for para in moved {
+            self.place(para);
         }
         self.y += rest;
         self.at_top = false;
@@ -918,7 +925,6 @@ mod tests {
         }
         Para {
             pieces,
-            line: 240.0,
             style: "Normal".into(),
             ..Para::default()
         }
@@ -968,18 +974,17 @@ mod tests {
         };
         let mut p = Para {
             pieces: vec![char(0), char(1)],
-            line: 240.0,
             ..Para::default()
         };
         assert_eq!(lines(&p, &metrics, 100.0, 36.0)[0].height, 12.0);
         // Double spacing adds each font's own extra height above it: A
         // 8 + 10, B 6 + 10; the line only needs its single height to fit.
-        p.line = 480.0;
+        p.line = LineSpacing::Multiple(2.0);
         let line = lines(&p, &metrics, 100.0, 36.0)[0];
         assert_eq!((line.height, line.fit), (22.0, 12.0));
         // A list label counts with its ascent only (plus the text's extra).
         p.pieces = vec![char(0)];
-        p.line = 240.0;
+        p.line = LineSpacing::Multiple(1.0);
         p.label = Some(crate::layout::model::Label {
             width: 5.0,
             space: 0.0,
@@ -1011,7 +1016,7 @@ mod tests {
         // for a double-spaced line's text though not its 20-point height.
         let mut blocks: Vec<Block> = (0..9).map(|_| Block::Para(para(1, 10.0))).collect();
         let mut double = para(1, 10.0);
-        double.line = 480.0;
+        double.line = LineSpacing::Multiple(2.0);
         blocks.push(Block::Para(double));
         let (placed, pages) = paginate(&model(blocks, 120.0));
         assert_eq!((placed[9].page, pages), (1, 1));

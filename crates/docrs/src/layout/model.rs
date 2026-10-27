@@ -15,10 +15,12 @@ use super::fonts::{FontBook, FontKind};
 use crate::Result;
 use crate::package::rels::rt;
 use crate::txn::Txn;
-use crate::wml::{W, w_attr, w_child, w_children};
+use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
+use crate::wml::{R, W, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
 
-const TWIP: f64 = 1.0 / 20.0;
+/// Points per twip.
+const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
 const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const VML: &str = "urn:schemas-microsoft-com:vml";
 
@@ -43,6 +45,23 @@ pub enum LineRule {
     Exact,
     /// At least `line` twips.
     AtLeast,
+}
+
+/// A paragraph's line spacing, resolved to points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineSpacing {
+    /// A multiple of the single line height.
+    Multiple(f64),
+    /// Exactly this many points.
+    Exact(f64),
+    /// At least this many points.
+    AtLeast(f64),
+}
+
+impl Default for LineSpacing {
+    fn default() -> Self {
+        LineSpacing::Multiple(1.0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,8 +108,7 @@ pub struct Para {
     pub after: f64,
     pub before_auto: bool,
     pub after_auto: bool,
-    pub line: f64,
-    pub line_rule: LineRule,
+    pub line: LineSpacing,
     pub left: f64,
     pub right: f64,
     /// First-line indent (negative: hanging).
@@ -707,28 +725,22 @@ impl Numbering {
     }
 
     fn level(&self, num: &str, ilvl: u8) -> Option<&Level> {
-        let (abs, overrides, _) = self.nums.get(num)?;
-        overrides
-            .get(&ilvl)
-            .or_else(|| self.abstracts.get(abs).and_then(|levels| levels.get(&ilvl)))
+        level_in(&self.nums, &self.abstracts, num, ilvl)
     }
 
     /// Advance the counters and return the label text.
     fn label(&mut self, num: &str, ilvl: u8) -> Option<String> {
         let (abs, _, starts) = self.nums.get(num)?;
-        let (abs, starts) = (abs.clone(), starts.clone());
-        let level = self.level(num, ilvl)?;
-        let text = level.text.clone();
-        let format = level.format.clone();
+        let level = level_in(&self.nums, &self.abstracts, num, ilvl)?;
         let mut starts_by_level = [1i64; 9];
         for (i, slot) in starts_by_level.iter_mut().enumerate() {
             *slot = starts
                 .get(&(i as u8))
                 .copied()
-                .or_else(|| self.level(num, i as u8).map(|l| l.start))
+                .or_else(|| level_in(&self.nums, &self.abstracts, num, i as u8).map(|l| l.start))
                 .unwrap_or(1);
         }
-        let counters = self.counters.entry(abs).or_insert_with(|| {
+        let counters = self.counters.entry(abs.clone()).or_insert_with(|| {
             let mut c = [0; 9];
             for (i, v) in c.iter_mut().enumerate() {
                 *v = starts_by_level[i] - 1;
@@ -741,24 +753,38 @@ impl Numbering {
             counters[deeper] = starts_by_level[deeper] - 1;
         }
         let values = *counters;
-        if format == "bullet" {
-            return Some(text);
+        if level.format == "bullet" {
+            return Some(level.text.clone());
         }
         let mut out = String::new();
-        let mut chars = text.chars().peekable();
+        let mut chars = level.text.chars().peekable();
         while let Some(c) = chars.next() {
             if c == '%'
                 && let Some(d) = chars.peek().and_then(|d| d.to_digit(10))
             {
                 chars.next();
                 let index = (d as usize).saturating_sub(1).min(8);
-                out.push_str(&format_number(values[index], &format));
+                out.push_str(&format_number(values[index], &level.format));
                 continue;
             }
             out.push(c);
         }
         Some(out)
     }
+}
+
+/// `Numbering::level` over the maps alone, so `label` can hold a level
+/// while it advances the counters.
+fn level_in<'a>(
+    nums: &'a HashMap<String, Num>,
+    abstracts: &'a HashMap<String, HashMap<u8, Level>>,
+    num: &str,
+    ilvl: u8,
+) -> Option<&'a Level> {
+    let (abs, overrides, _) = nums.get(num)?;
+    overrides
+        .get(&ilvl)
+        .or_else(|| abstracts.get(abs).and_then(|levels| levels.get(&ilvl)))
 }
 
 fn format_number(value: i64, format: &str) -> String {
@@ -873,7 +899,6 @@ pub(super) struct Builder<'a> {
     pub fonts: &'a mut FontBook,
     pub metrics: Vec<Metric>,
     metric_index: HashMap<(u64, u64), u32>,
-    section_widths: Vec<f64>,
     sections_seen: usize,
 }
 
@@ -893,7 +918,6 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         fonts,
         metrics: Vec::new(),
         metric_index: HashMap::new(),
-        section_widths: Vec::new(),
         sections_seen: 0,
     };
     let default_tab = part(txn, main, rt::SETTINGS)
@@ -916,8 +940,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     }
     let mut sections = Vec::new();
     let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
-    let main_uri = format!("/{}", main.trim_start_matches('/'));
-    let rels = txn.relationships(main)?;
+    let rels = txn.resolved_relationships(main)?;
     for sect in &sects {
         let page = page_of(tree, Some(*sect));
         for reference in tree.child_elements(*sect) {
@@ -929,22 +952,17 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             let which = w_attr(tree, reference, "type")
                 .unwrap_or("default")
                 .to_string();
-            let Some(id) = tree.attr(reference, Some(crate::authoring::R), "id") else {
+            let Some(id) = tree.attr(reference, Some(R), "id") else {
                 continue;
             };
-            let Some(rel) = rels.iter().find(|r| r.id == id) else {
+            let Some((_, name)) = rels.iter().find(|(rel, _)| rel.id == id) else {
                 continue;
             };
-            let Some(name) =
-                txn.resolve(&rel.target_part_name(crate::package::rels::base_uri(&main_uri)))
-            else {
-                continue;
-            };
-            let Ok(story) = txn.tree(&name) else {
+            let Ok(story) = txn.tree(name) else {
                 continue;
             };
             let mut story_blocks = Vec::new();
-            builder.blocks(story, story.root(), None, false, &mut story_blocks);
+            builder.blocks(story, story.root(), None, &mut story_blocks);
             let height = super::flow::stack_height(
                 &story_blocks,
                 &builder.metrics,
@@ -982,8 +1000,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     }
     let mut blocks = Vec::new();
     if let Some(body) = body {
-        builder.section_widths = sections.iter().map(|s| s.page.text_width).collect();
-        builder.blocks(tree, body, None, false, &mut blocks);
+        builder.blocks(tree, body, None, &mut blocks);
     }
     Ok(Model {
         sections,
@@ -1037,7 +1054,6 @@ impl Builder<'_> {
         tree: &XmlTree,
         parent: NodeId,
         table: Option<&TableCtx>,
-        _nested: bool,
         out: &mut Vec<Block>,
     ) {
         for child in tree.child_elements(parent) {
@@ -1049,10 +1065,10 @@ impl Builder<'_> {
                 "tbl" => out.push(Block::Table(self.table(tree, child))),
                 "sdt" => {
                     if let Some(content) = w_child(tree, child, "sdtContent") {
-                        self.blocks(tree, content, table, _nested, out);
+                        self.blocks(tree, content, table, out);
                     }
                 }
-                "customXml" | "ins" | "moveTo" => self.blocks(tree, child, table, _nested, out),
+                "customXml" | "ins" | "moveTo" => self.blocks(tree, child, table, out),
                 _ => {}
             }
         }
@@ -1163,7 +1179,7 @@ impl Builder<'_> {
                     Some(_) => 2,
                 };
                 let mut blocks = Vec::new();
-                self.blocks(tree, tc, Some(&ctx), true, &mut blocks);
+                self.blocks(tree, tc, Some(&ctx), &mut blocks);
                 cells.push(Cell {
                     width,
                     margins: [
@@ -1200,10 +1216,10 @@ impl Builder<'_> {
             ppr.merge(&chain.0);
             rpr.layer(&chain.1);
             if table.first_row
-                && let Some((p, r)) = self.styles.defs.get(id).and_then(|d| d.first_row.clone())
+                && let Some((p, r)) = self.styles.defs.get(id).and_then(|d| d.first_row.as_ref())
             {
-                ppr.merge(&p);
-                rpr.layer(&r);
+                ppr.merge(p);
+                rpr.layer(r);
             }
         }
         let chain = self.styles.chain(style);
@@ -1214,8 +1230,7 @@ impl Builder<'_> {
         if let Some((id, ilvl)) = num {
             let ilvl = direct.ilvl.or(ilvl).or(ppr.ilvl).unwrap_or(0);
             if let Some(level) = self.numbering.level(&id, ilvl) {
-                let level_ppr = level.ppr.clone();
-                ppr.merge(&level_ppr);
+                ppr.merge(&level.ppr);
             }
         }
         ppr.merge(direct);
@@ -1302,8 +1317,12 @@ impl Builder<'_> {
             after: ppr.after.unwrap_or(0.0),
             before_auto: ppr.before_auto.unwrap_or(false),
             after_auto: ppr.after_auto.unwrap_or(false),
-            line: ppr.line.map_or(240.0, |l| l.0),
-            line_rule: ppr.line.map_or(LineRule::Auto, |l| l.1),
+            line: match ppr.line {
+                None => LineSpacing::Multiple(1.0),
+                Some((line, LineRule::Auto)) => LineSpacing::Multiple(line / 240.0),
+                Some((line, LineRule::Exact)) => LineSpacing::Exact(line / TWIPS_PER_PT as f64),
+                Some((line, LineRule::AtLeast)) => LineSpacing::AtLeast(line / TWIPS_PER_PT as f64),
+            },
             left: ppr.left.unwrap_or(0.0),
             right: ppr.right.unwrap_or(0.0),
             first: ppr.first.unwrap_or(0.0),
@@ -1522,7 +1541,7 @@ impl Builder<'_> {
                                     tree.attr(extent, None, name)
                                         .and_then(|v| v.parse::<f64>().ok())
                                         .unwrap_or(0.0)
-                                        / 12700.0
+                                        / EMU_PER_PT as f64
                                 };
                                 para.pieces.push(Piece::Object {
                                     width: emu("cx"),
@@ -1575,13 +1594,13 @@ fn vml_size(style: &str) -> (f64, f64) {
             .parse()
             .unwrap_or(0.0);
         let points = if value.ends_with("in") {
-            number * 72.0
+            number * PT_PER_INCH as f64
         } else if value.ends_with("px") {
-            number * 0.75
+            number * (EMU_PER_PX as f64 / EMU_PER_PT as f64)
         } else if value.ends_with("cm") {
-            number * 72.0 / 2.54
+            number * PT_PER_INCH as f64 / 2.54
         } else if value.ends_with("mm") {
-            number * 72.0 / 25.4
+            number * PT_PER_INCH as f64 / 25.4
         } else {
             number
         };
