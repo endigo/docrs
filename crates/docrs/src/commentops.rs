@@ -13,10 +13,12 @@ use serde::Serialize;
 
 use crate::clock::Timestamp;
 use crate::comments::{self, Comment};
+use crate::controls::refuse_control_write_restrictions;
 use crate::package::{ct, rels::rt};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::revision::{W15, iter_w, py_int, py_opt_repr, py_repr, w_local};
 use crate::story::{self, is_direct_run_child, project_run_child};
+use crate::tracked::{insert_after, insert_before};
 use crate::txn::{RelTarget, Txn};
 use crate::wml::{W, W14, w_attr};
 use crate::xml::{self, NodeId, XmlTree};
@@ -41,18 +43,10 @@ pub const COMMENTS_EXTENSIBLE_RELATIONSHIP_TYPE: &str =
 pub(crate) const W16CID: &str = "http://schemas.microsoft.com/office/word/2016/wordml/cid";
 pub(crate) const W16CEX: &str = "http://schemas.microsoft.com/office/word/2018/wordml/cex";
 
-const COMMENTS_PARTNAME: &str = "word/comments.xml";
+pub(crate) const COMMENTS_PARTNAME: &str = "word/comments.xml";
 const COMMENTS_EXTENDED_PARTNAME: &str = "word/commentsExtended.xml";
 const COMMENTS_IDS_PARTNAME: &str = "word/commentsIds.xml";
 const COMMENTS_EXTENSIBLE_PARTNAME: &str = "word/commentsExtensible.xml";
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
-fn not_found(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::TargetNotFound, reason, message)
-}
 
 fn main_of(txn: &Txn<'_>) -> String {
     txn.document().package().main_part_name().to_string()
@@ -67,7 +61,7 @@ fn occupied(txn: &Txn<'_>, name: &str) -> bool {
 pub(crate) fn comments_part(txn: &Txn<'_>, purpose: &str) -> Result<Option<String>> {
     match txn.part_related_by(&main_of(txn), rt::COMMENTS) {
         Ok(part) => Ok(part),
-        Err(err) if err.reason() == "ambiguous_relationship" => Err(unsupported(
+        Err(err) if err.reason() == "ambiguous_relationship" => Err(Error::unsupported(
             "ambiguous_relationship",
             format!(
                 "multiple comments relationships make {purpose} ambiguous; nothing was changed"
@@ -77,28 +71,31 @@ pub(crate) fn comments_part(txn: &Txn<'_>, purpose: &str) -> Result<Option<Strin
     }
 }
 
-fn is_live(txn: &Txn<'_>, part: &str) -> bool {
+/// Whether `part` is a parsed XML part (not an opaque blob).
+pub(crate) fn is_live(txn: &Txn<'_>, part: &str) -> bool {
     txn.content_type(part)
         .is_some_and(|ct| ct::EAGER_XML.contains(&ct.as_str()))
 }
 
+/// Refuse when `word/comments.xml` exists without the comments relationship.
+pub(crate) fn refuse_comments_name_taken(txn: &Txn<'_>) -> Result<()> {
+    if occupied(txn, COMMENTS_PARTNAME) {
+        return Err(Error::unsupported(
+            "comments_part_name_taken",
+            "a package part already occupies /word/comments.xml without the document comments \
+             relationship; nothing was changed",
+        ));
+    }
+    Ok(())
+}
+
 /// Upstream `_preflight_comment_add`.
 pub(crate) fn preflight_comment_add(txn: &Txn<'_>) -> Result<()> {
-    let part = match comments_part(txn, "comment authoring")? {
-        Some(part) => part,
-        None => {
-            if occupied(txn, COMMENTS_PARTNAME) {
-                return Err(unsupported(
-                    "comments_part_name_taken",
-                    "a package part already occupies /word/comments.xml without the document comments \
-                     relationship; nothing was changed",
-                ));
-            }
-            return Ok(());
-        }
+    let Some(part) = comments_part(txn, "comment authoring")? else {
+        return refuse_comments_name_taken(txn);
     };
     if !is_live(txn, &part) || !txn.tree(&part).is_ok_and(|t| t.is(t.root(), W, "comments")) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "comments_part_not_live",
             "the comments relationship does not target a live w:comments part; nothing was changed",
         ));
@@ -111,7 +108,7 @@ pub(crate) fn preflight_comment_add(txn: &Txn<'_>) -> Result<()> {
         }
         let raw = w_attr(tree, comment, "id");
         let Some(id) = raw.and_then(py_int) else {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "malformed_comment_id",
                 format!(
                     "malformed comment w:id={}; nothing was changed",
@@ -120,7 +117,7 @@ pub(crate) fn preflight_comment_add(txn: &Txn<'_>) -> Result<()> {
             ));
         };
         if seen.contains(&id) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "duplicate_comment_id",
                 format!("duplicate comment w:id={id}; nothing was changed"),
             ));
@@ -142,13 +139,13 @@ pub(crate) fn preflight_comment_range(
     let nodes: Vec<NodeId> = crate::wml::iter_nodes(tree, tree.root()).collect();
     let position = |id: NodeId| nodes.iter().position(|node| *node == id);
     let (Some(first), Some(last)) = (position(first_run), position(last_run)) else {
-        return Err(not_found(
+        return Err(Error::not_found(
             "stale_comment_range",
             "comment range runs are stale or detached; reacquire the span",
         ));
     };
     if first > last {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "reversed_comment_range",
             "comment range endpoints are reversed; nothing was changed",
         ));
@@ -163,7 +160,7 @@ pub(crate) fn preflight_comment_range(
         .iter()
         .any(|run| iter_w(tree, *run, &["fldChar"]).next().is_some())
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "comment_across_field",
             "cannot anchor a comment across a complex field boundary; nothing was changed",
         ));
@@ -178,7 +175,7 @@ pub(crate) fn preflight_comment_range(
             }
         }
         if depth > 0 && selected.contains(node) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "comment_inside_field",
                 "cannot anchor a comment inside a complex field; nothing was changed",
             ));
@@ -189,7 +186,7 @@ pub(crate) fn preflight_comment_range(
             .ancestors(*run)
             .any(|ancestor| w_local(tree, ancestor) == Some("fldSimple"))
         {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "comment_inside_field",
                 "cannot anchor a comment inside a field; nothing was changed",
             ));
@@ -209,38 +206,6 @@ pub(crate) fn preflight_comment_range(
     Ok(())
 }
 
-/// Upstream `controls._refuse_control_write_restrictions`.
-fn refuse_control_write_restrictions(tree: &XmlTree, sdt: NodeId) -> Result<()> {
-    let Some(sdt_pr) = tree.first_child_named(sdt, W, "sdtPr") else {
-        return Ok(());
-    };
-    if tree.first_child_named(sdt_pr, W, "dataBinding").is_some() {
-        return Err(unsupported(
-            "data_bound_control",
-            "control is data-bound; edits could be discarded on sync",
-        ));
-    }
-    let locks: Vec<NodeId> = crate::wml::w_children(tree, sdt_pr, "lock").collect();
-    if locks.len() > 1 {
-        return Err(unsupported(
-            "multiple_locks",
-            "control has multiple w:lock declarations; nothing was changed",
-        ));
-    }
-    if locks.first().is_some_and(|lock| {
-        matches!(
-            w_attr(tree, *lock, "val"),
-            Some("contentLocked" | "sdtContentLocked")
-        )
-    }) {
-        return Err(unsupported(
-            "locked_control",
-            "control content is locked; nothing was changed",
-        ));
-    }
-    Ok(())
-}
-
 /// Upstream `_validate_para_id`: an 8-digit hex id, upper-cased.
 pub(crate) fn validate_para_id(raw: Option<&str>, attribute: &str) -> Result<String> {
     match raw {
@@ -249,7 +214,7 @@ pub(crate) fn validate_para_id(raw: Option<&str>, attribute: &str) -> Result<Str
         {
             Ok(value.to_ascii_uppercase())
         }
-        _ => Err(unsupported(
+        _ => Err(Error::unsupported(
             "malformed_para_id",
             format!(
                 "malformed {attribute}={}; nothing was changed",
@@ -266,7 +231,7 @@ pub(crate) fn last_paragraph(tree: &XmlTree, comment: NodeId) -> Option<NodeId> 
 
 fn require_last_paragraph(tree: &XmlTree, comment: NodeId) -> Result<NodeId> {
     last_paragraph(tree, comment).ok_or_else(|| {
-        unsupported(
+        Error::unsupported(
             "comment_without_paragraph",
             "comment has no paragraph to key on",
         )
@@ -285,7 +250,7 @@ fn existing_para_ids(tree: &XmlTree) -> Result<Vec<u32>> {
     sorted.sort_unstable();
     sorted.dedup();
     if sorted.len() != values.len() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "duplicate_para_id",
             "duplicate w14:paraId values make comment threading ambiguous; nothing was changed",
         ));
@@ -337,7 +302,7 @@ pub(crate) fn comments_extended_root(txn: &mut Txn<'_>, create: bool) -> Result<
         return Ok(existing);
     }
     if occupied(txn, COMMENTS_EXTENDED_PARTNAME) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "comments_extended_name_taken",
             "a package part already occupies /word/commentsExtended.xml without the commentsExtended \
              relationship; nothing was changed",
@@ -365,7 +330,7 @@ pub(crate) fn validate_comments_extended(txn: &Txn<'_>) -> Result<Option<String>
     let part = match txn.part_related_by(&main_of(txn), COMMENTS_EXTENDED_RELATIONSHIP_TYPE) {
         Ok(part) => part,
         Err(err) if err.reason() == "ambiguous_relationship" => {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_relationship",
                 "multiple commentsExtended relationships make comment threading ambiguous; nothing was changed",
             ));
@@ -374,7 +339,7 @@ pub(crate) fn validate_comments_extended(txn: &Txn<'_>) -> Result<Option<String>
     };
     let Some(part) = part else { return Ok(None) };
     if !is_live(txn, &part) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "comments_extended_opaque",
             "commentsExtended part loaded as an opaque blob; the package registration is missing, and writing \
              to a parsed copy would be silently lost on save",
@@ -382,7 +347,7 @@ pub(crate) fn validate_comments_extended(txn: &Txn<'_>) -> Result<Option<String>
     }
     let tree = txn.tree(&part)?;
     if !tree.is(tree.root(), W15, "commentsEx") {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "comments_extended_root",
             "commentsExtended has an unexpected root element; nothing was changed",
         ));
@@ -397,7 +362,7 @@ pub(crate) fn validate_comments_extended(txn: &Txn<'_>) -> Result<Option<String>
             validate_para_id(Some(parent), "w15:paraIdParent")?;
         }
         if seen.contains(&para_id) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "duplicate_para_id",
                 "duplicate w15:paraId values make comment threading ambiguous; nothing was changed",
             ));
@@ -440,7 +405,7 @@ fn xml_part_root(txn: &mut Txn<'_>, spec: &IdentityPart, create: bool) -> Result
     let part = match txn.part_related_by(&main_of(txn), spec.rel_type) {
         Ok(part) => part,
         Err(err) if err.reason() == "ambiguous_relationship" => {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_relationship",
                 format!(
                     "multiple {shown} relationships make comment identity ambiguous; nothing was changed"
@@ -455,7 +420,7 @@ fn xml_part_root(txn: &mut Txn<'_>, spec: &IdentityPart, create: bool) -> Result
                 .tree(&part)
                 .is_ok_and(|t| t.is(t.root(), spec.ns, spec.root));
         if !ok {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "identity_part_root",
                 format!("{shown} has an unexpected root; nothing was changed"),
             ));
@@ -466,7 +431,7 @@ fn xml_part_root(txn: &mut Txn<'_>, spec: &IdentityPart, create: bool) -> Result
         return Ok(None);
     }
     if occupied(txn, spec.partname) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "identity_part_name_taken",
             format!(
                 "a package part already occupies {shown} without the expected relationship; nothing was changed"
@@ -586,7 +551,7 @@ pub(crate) fn ensure_comment_identity(
 pub(crate) fn preflight_comments_extended_write(txn: &Txn<'_>) -> Result<()> {
     let root = validate_comments_extended(txn)?;
     if root.is_none() && occupied(txn, COMMENTS_EXTENDED_PARTNAME) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "comments_extended_name_taken",
             "a package part already occupies /word/commentsExtended.xml without the commentsExtended \
              relationship; nothing was changed",
@@ -789,7 +754,7 @@ pub(crate) fn comment_element(txn: &Txn<'_>, comment: &Comment) -> Result<(Strin
     }
     let tree = txn.tree(&expected)?;
     if !tree.contains(comment.element) || tree.parent(comment.element) != Some(tree.root()) {
-        return Err(not_found(
+        return Err(Error::not_found(
             "stale_comment",
             "comment is stale: its comment was removed from the document",
         ));
@@ -805,8 +770,12 @@ fn last_para_id(tree: &XmlTree, comment: NodeId) -> Result<Option<String>> {
 /// Whether `comment`'s thread is marked resolved (`w15:done`).
 pub fn is_resolved(document: &Document, comment: &Comment) -> Result<bool> {
     let mut txn = Txn::new(document);
-    let (part, element) = comment_element(&txn, comment)?;
-    let Some(root) = comments_extended_root(&mut txn, false)? else {
+    is_resolved_in(&mut txn, comment)
+}
+
+fn is_resolved_in(txn: &mut Txn<'_>, comment: &Comment) -> Result<bool> {
+    let (part, element) = comment_element(txn, comment)?;
+    let Some(root) = comments_extended_root(txn, false)? else {
         return Ok(false);
     };
     let Some(para_id) = last_para_id(txn.tree(&part)?, element)?.filter(|p| !p.is_empty()) else {
@@ -884,7 +853,7 @@ fn anchor_elements(
 ) -> Result<(Option<NodeId>, Option<NodeId>, Option<NodeId>)> {
     let body = tree
         .first_child_named(tree.root(), W, "body")
-        .ok_or_else(|| unsupported("no_body", "document has no body"))?;
+        .ok_or_else(|| Error::unsupported("no_body", "document has no body"))?;
     let mut starts = Vec::new();
     let mut ends = Vec::new();
     let mut references = Vec::new();
@@ -895,7 +864,7 @@ fn anchor_elements(
     ) {
         let raw = w_attr(tree, node, "id");
         let Some(id) = raw.and_then(py_int) else {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "malformed_comment_id",
                 format!(
                     "malformed {} comment marker w:id={}; nothing was changed",
@@ -914,7 +883,7 @@ fn anchor_elements(
         }
     }
     if starts.len() > 1 || ends.len() > 1 || references.len() > 1 {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "duplicate_comment_anchor",
             format!("comment {comment_id} has duplicate anchor markers; nothing was changed"),
         ));
@@ -938,7 +907,7 @@ fn anchored_text_in(txn: &Txn<'_>, comment: &Comment) -> Result<String> {
     let tree = txn.tree(&main)?;
     let (start, end, _) = anchor_elements(tree, comment.comment_id)?;
     let (Some(start), Some(end)) = (start, end) else {
-        return Err(not_found(
+        return Err(Error::not_found(
             "comment_without_anchor",
             format!(
                 "comment {} has no range anchor in the body",
@@ -1028,22 +997,6 @@ pub(crate) fn validate_xml_characters(value: &str, argument: &str) -> Result<()>
     ))
 }
 
-fn insert_after(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "insertion anchor is detached"))?;
-    let index = tree.index_in_parent(anchor).unwrap_or(0) + 1;
-    tree.insert(parent, index, node)
-}
-
-fn insert_before(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "insertion anchor is detached"))?;
-    let index = tree.index_in_parent(anchor).unwrap_or(0);
-    tree.insert(parent, index, node)
-}
-
 /// A detached `w:commentRangeStart`/`End` with `w:id`.
 pub(crate) fn range_marker(
     tree: &mut XmlTree,
@@ -1109,7 +1062,7 @@ pub fn reply(
             anchor_elements(tree, comment.comment_id)?
         };
         let (Some(start), Some(end), Some(reference)) = (start, end, reference) else {
-            return Err(not_found(
+            return Err(Error::not_found(
                 "comment_without_anchor",
                 format!(
                     "comment {} has no range anchor to thread onto",
@@ -1129,7 +1082,7 @@ pub fn reply(
                     .filter(|n| w_local(tree, *n) == Some("r"))
                     .collect(),
                 _ => {
-                    return Err(unsupported(
+                    return Err(Error::unsupported(
                         "stale_comment_range",
                         "comment range markers are stale, reversed, or detached; nothing was changed",
                     ));
@@ -1137,7 +1090,7 @@ pub fn reply(
             }
         };
         if anchored.is_empty() {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "empty_comment_range",
                 "comment range contains no live runs to anchor a reply; nothing was changed",
             ));
@@ -1158,11 +1111,8 @@ pub fn reply(
             text,
             author,
             Some(initials.unwrap_or("")),
-            None,
+            date,
         )?;
-        let date = date.unwrap_or_else(Timestamp::now).to_xml();
-        txn.tree_mut(&cpart)?
-            .set_attr(new_elm, Some(W), "date", &date)?;
         let new_last = require_last_paragraph(txn.tree(&cpart)?, new_elm)?;
         let new_para_id = ensure_para_id(&mut txn, &cpart, new_last)?;
         {
@@ -1217,7 +1167,7 @@ pub fn comment_thread(document: &Document) -> Result<Vec<ThreadEntry>> {
             Err(err) if err.refusal_kind() == Some(RefusalKind::TargetNotFound) => None,
             Err(err) => return Err(err),
         };
-        let resolved = is_resolved(document, comment)?;
+        let resolved = is_resolved_in(&mut txn, comment)?;
         let parent_id = parent_of_in(&mut txn, comment)?;
         entries.push(ThreadEntry {
             comment_id: comment.comment_id,
@@ -1231,20 +1181,22 @@ pub fn comment_thread(document: &Document) -> Result<Vec<ThreadEntry>> {
     Ok(entries)
 }
 
+/// `comment` and, transitively, its replies (comment ids are unique after
+/// `preflight_comment_add`).
 fn thread_ids_to_delete(txn: &mut Txn<'_>, part: &str, comment: &Comment) -> Result<Vec<i64>> {
     let mut wanted = vec![comment.comment_id];
-    let all = comments::comments_in(txn, part)?;
+    let mut parents: Vec<(i64, Option<i64>)> = Vec::new();
+    for candidate in comments::comments_in(txn, part)?.iter() {
+        if candidate.comment_id != comment.comment_id {
+            parents.push((candidate.comment_id, parent_of_in(txn, candidate)?));
+        }
+    }
     let mut grew = true;
     while grew {
         grew = false;
-        for candidate in all.iter() {
-            if wanted.contains(&candidate.comment_id) {
-                continue;
-            }
-            if let Some(parent) = parent_of_in(txn, candidate)?
-                && wanted.contains(&parent)
-            {
-                wanted.push(candidate.comment_id);
+        for (id, parent) in &parents {
+            if !wanted.contains(id) && parent.is_some_and(|parent| wanted.contains(&parent)) {
+                wanted.push(*id);
                 grew = true;
             }
         }

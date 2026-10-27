@@ -16,28 +16,23 @@ use serde::Serialize;
 use crate::anchor::{BlockTarget, require_current_view};
 use crate::clock::Timestamp;
 use crate::commentops::{
-    self, comment_element, ensure_comment_identity, mark_comment_range, migrate_comment_extension,
-    preflight_comment_add, preflight_comment_range, preflight_comments_extended_write,
-    validate_comment_arguments, validate_xml_characters,
+    self, COMMENTS_PARTNAME, comment_element, ensure_comment_identity, mark_comment_range,
+    migrate_comment_extension, preflight_comment_add, preflight_comment_range,
+    preflight_comments_extended_write, validate_comment_arguments, validate_xml_characters,
 };
+use crate::oxml::{add_t, append};
 use crate::package::{ct, rels::rt};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::revision::{RevisionDate, py_int, w_local};
-use crate::search::Span;
+use crate::search::{Span, slice_chars};
+use crate::tracked::set_preserved_text;
 use crate::txn::{RelTarget, Txn};
-use crate::unicode::is_py_space;
-use crate::wml::{W, leading_text, node_children, w_attr};
-use crate::xml::{NodeId, XML_NS, XmlTree};
+use crate::wml::{W, node_children, paragraph_text, w_attr};
+use crate::xml::{NodeId, XmlTree};
 use crate::{Document, DocumentId, Error, RefusalKind, Result};
 
 /// Upstream `templates/default-comments.xml` (MIT; see `NOTICE.md`).
 const DEFAULT_COMMENTS: &[u8] = include_bytes!("../assets/default-comments.xml");
-
-const COMMENTS_PARTNAME: &str = "word/comments.xml";
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
 
 /// A comment (a read snapshot plus a live handle for mutations).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -154,45 +149,6 @@ pub(crate) fn st_datetime(raw: &str) -> RevisionDate {
     RevisionDate::from_isoformat(raw).unwrap_or(epoch)
 }
 
-/// python-docx `CT_R.text`.
-fn run_text(tree: &XmlTree, run: NodeId) -> String {
-    let mut out = String::new();
-    for child in tree.child_elements(run) {
-        match w_local(tree, child) {
-            Some("t") => out.push_str(&leading_text(tree, child)),
-            Some("tab" | "ptab") => out.push('\t'),
-            Some("cr") => out.push('\n'),
-            Some("br") => {
-                if w_attr(tree, child, "type").unwrap_or("textWrapping") == "textWrapping" {
-                    out.push('\n');
-                }
-            }
-            Some("noBreakHyphen") => out.push('-'),
-            _ => {}
-        }
-    }
-    out
-}
-
-/// python-docx `CT_P.text` (`w:r | w:hyperlink` children).
-pub(crate) fn paragraph_text(tree: &XmlTree, paragraph: NodeId) -> String {
-    let mut out = String::new();
-    for child in tree.child_elements(paragraph) {
-        match w_local(tree, child) {
-            Some("r") => out.push_str(&run_text(tree, child)),
-            Some("hyperlink") => {
-                for run in tree.child_elements(child) {
-                    if w_local(tree, run) == Some("r") {
-                        out.push_str(&run_text(tree, run));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
 fn comment_from(
     tree: &XmlTree,
     part: &str,
@@ -201,7 +157,7 @@ fn comment_from(
 ) -> Result<Comment> {
     let raw = w_attr(tree, element, "id");
     let comment_id = raw.and_then(py_int).ok_or_else(|| {
-        unsupported(
+        Error::unsupported(
             "malformed_comment_id",
             format!(
                 "malformed comment w:id={}; nothing was changed",
@@ -250,16 +206,8 @@ pub(crate) fn comment_at(document: &Document, part: &str, element: NodeId) -> Re
 pub fn comments(document: &Document) -> Result<Comments> {
     let txn = Txn::new(document);
     match commentops::comments_part(&txn, "comment inspection")? {
-        Some(part) => {
-            let live = txn
-                .content_type(&part)
-                .is_some_and(|ct| ct::EAGER_XML.contains(&ct.as_str()));
-            if !live {
-                return Ok(Comments::default());
-            }
-            comments_in(&txn, &part)
-        }
-        None => Ok(Comments::default()),
+        Some(part) if commentops::is_live(&txn, &part) => comments_in(&txn, &part),
+        _ => Ok(Comments::default()),
     }
 }
 
@@ -269,13 +217,7 @@ fn ensure_comments_part(txn: &mut Txn<'_>) -> Result<String> {
     if let Some(part) = commentops::comments_part(txn, "comment authoring")? {
         return Ok(part);
     }
-    if txn.resolve(COMMENTS_PARTNAME).is_some() {
-        return Err(unsupported(
-            "comments_part_name_taken",
-            "a package part already occupies /word/comments.xml without the document comments relationship; \
-             nothing was changed",
-        ));
-    }
+    commentops::refuse_comments_name_taken(txn)?;
     let main = txn.document().package().main_part_name().to_string();
     txn.add_xml_part(
         COMMENTS_PARTNAME,
@@ -324,17 +266,12 @@ fn next_comment_id(tree: &XmlTree) -> Result<i64> {
     Ok(next)
 }
 
-fn append(tree: &mut XmlTree, parent: NodeId, child: NodeId) -> Result<()> {
-    let end = tree.children(parent).len();
-    tree.insert(parent, end, child)
-}
-
 /// `_RunContentAppender.append_to_run_from_text`.
 fn append_run_text(tree: &mut XmlTree, run: NodeId, text: &str) -> Result<()> {
     let mut buffer = String::new();
     let flush = |tree: &mut XmlTree, buffer: &mut String| -> Result<()> {
         if !buffer.is_empty() {
-            crate::oxml::add_t(tree, run, buffer)?;
+            add_t(tree, run, buffer)?;
             buffer.clear();
         }
         Ok(())
@@ -522,7 +459,7 @@ pub fn add_comment(
 ) -> Result<Comment> {
     let main = main_part(document);
     if runs.document != document.id() || runs.part != main {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "foreign_comment_runs",
             "comment range runs do not belong to this document; nothing was changed",
         ));
@@ -534,7 +471,7 @@ pub fn add_comment(
     let (Some(Some(first)), Some(Some(last))) =
         (selected.first().copied(), selected.last().copied())
     else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "span_outside_runs",
             "span text is not inside runs; cannot anchor a comment",
         ));
@@ -649,30 +586,6 @@ fn set_comment_attr(
     comment_at(document, &comment.part, comment.element)
 }
 
-fn atom_text(tree: &XmlTree, atom: &crate::search::Atom) -> String {
-    atom.text(tree)
-}
-
-fn slice(text: &str, start: usize, end: usize) -> String {
-    text.chars()
-        .skip(start)
-        .take(end.saturating_sub(start))
-        .collect()
-}
-
-/// Upstream `_set_preserved_text`.
-fn set_preserved_text(tree: &mut XmlTree, element: NodeId, text: &str) -> Result<()> {
-    crate::wml::set_leading_text(tree, element, text)?;
-    let edge = text.chars().next().is_some_and(is_py_space)
-        || text.chars().last().is_some_and(is_py_space);
-    if edge {
-        tree.set_attr(element, Some(XML_NS), "space", "preserve")?;
-    } else {
-        tree.remove_attr(element, Some(XML_NS), "space");
-    }
-    Ok(())
-}
-
 fn new_run_like(tree: &mut XmlTree, run: NodeId) -> Result<NodeId> {
     let new_run = tree.create_element(run, W, "r")?;
     if let Some(r_pr) = tree.first_child_named(run, W, "rPr") {
@@ -706,7 +619,7 @@ fn split_before(tree: &mut XmlTree, run: NodeId, element: NodeId, prefix: &str) 
         append(tree, new_run, child)?;
     }
     if !prefix.is_empty() {
-        crate::oxml::add_t(tree, new_run, prefix)?;
+        add_t(tree, new_run, prefix)?;
     }
     Ok(())
 }
@@ -732,7 +645,7 @@ fn split_after(tree: &mut XmlTree, run: NodeId, element: NodeId, tail: &str) -> 
     let index = tree.index_in_parent(run).unwrap_or(0) + 1;
     tree.insert(parent, index, new_run)?;
     if !tail.is_empty() {
-        crate::oxml::add_t(tree, new_run, tail)?;
+        add_t(tree, new_run, tail)?;
     }
     for child in following {
         tree.detach(child)?;
@@ -747,16 +660,20 @@ fn isolate_edge_runs(tree: &mut XmlTree, span: &Span) -> Result<()> {
     let mut end_offset = span.end_offset;
     let first = &span.atoms[0];
     if let Some(run) = first.run {
-        let text = atom_text(tree, first);
+        let text = first.text(tree);
         let prefix = if start_offset > 0 {
-            slice(&text, 0, start_offset)
+            slice_chars(&text, 0, start_offset)
         } else {
             String::new()
         };
         split_before(tree, run, first.element, &prefix)?;
         if !prefix.is_empty() {
             let length = text.chars().count();
-            set_preserved_text(tree, first.element, &slice(&text, start_offset, length))?;
+            set_preserved_text(
+                tree,
+                first.element,
+                &slice_chars(&text, start_offset, length),
+            )?;
             if span.atoms.len() == 1 {
                 end_offset -= start_offset;
             }
@@ -766,16 +683,16 @@ fn isolate_edge_runs(tree: &mut XmlTree, span: &Span) -> Result<()> {
     let _ = start_offset;
     let last = &span.atoms[span.atoms.len() - 1];
     if let Some(run) = last.run {
-        let text = atom_text(tree, last);
+        let text = last.text(tree);
         let length = text.chars().count();
         let tail = if end_offset < length {
-            slice(&text, end_offset, length)
+            slice_chars(&text, end_offset, length)
         } else {
             String::new()
         };
         split_after(tree, run, last.element, &tail)?;
         if !tail.is_empty() {
-            set_preserved_text(tree, last.element, &slice(&text, 0, end_offset))?;
+            set_preserved_text(tree, last.element, &slice_chars(&text, 0, end_offset))?;
         }
     }
     Ok(())
@@ -810,7 +727,7 @@ impl Span {
         require_current_view(BlockTarget::Span(self))?;
         let main_story_name = main_story(document).unwrap_or_default();
         if self.story != main_story_name {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "comment_outside_main_story",
                 format!(
                     "comments anchor in the main document story (span is in {})",
@@ -822,7 +739,7 @@ impl Span {
         let tree = document.package().xml(&main)?;
         crate::replace::validate_fresh(document, tree, self, None)?;
         if self.atoms.iter().any(|atom| atom.run.is_none()) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "span_outside_runs",
                 "span text is not inside runs; cannot anchor a comment",
             ));
