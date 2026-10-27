@@ -13,23 +13,24 @@ use super::ast::{
     inline_text, place,
 };
 use super::frontmatter::Metadata;
-use super::styles::{Resolver, Role};
+use super::styles::{Resolver, Role, TBL_LOOK_FLAGS, find_style, style_by_id, style_chain};
 use super::{MarkdownOptions, MarkdownReport, MarkdownWarning, Placement};
 use crate::authoring::{
-    A, R, WP, add_picture_named, append_run_content, block_width, body, clear_except, new_tbl,
-    paragraph_text, set_table_style_id,
+    A, R, SECT_PR_SEQ, WP, add_picture_named, append_run_content, block_width, body, clear_except,
+    new_tbl, paragraph_text, set_table_style_id,
 };
 use crate::coreprops::{CoreProperty, ensure_part as ensure_core_part, write as write_core};
-use crate::fields::{fld_char_run, set_update_fields_on_open};
+use crate::fields::{fld_char_run, instr_text_run, set_update_fields_on_open};
 use crate::image::Image;
 use crate::numbering::{
     add_next, add_previous, get_or_create_numbering, import_fragment, next_free_ids,
 };
 use crate::oxml::{add_t, append, insert_before_successors, set_w, w_el};
 use crate::package::rels::rt;
+use crate::styles::StyleType;
 use crate::txn::{RelTarget, Txn};
 use crate::wml::{W, w_attr, w_child, w_children};
-use crate::xml::{NodeId, XML_NS, XmlTree};
+use crate::xml::{NodeId, XmlTree};
 use crate::{Error, RefusalKind, Result};
 
 /// Width used when the document has no section properties (6in in EMU).
@@ -254,6 +255,34 @@ struct Ctx {
     align: Option<Align>,
 }
 
+impl Ctx {
+    /// Where a paragraph outside the block sequence goes (a caption, the
+    /// title block, the contents).
+    fn detached(in_note: bool) -> Ctx {
+        Ctx {
+            paragraph_role: None,
+            indent: None,
+            quote_depth: 0,
+            in_note,
+            top_level: false,
+            max_image_width: FALLBACK_BLOCK_WIDTH,
+            align: None,
+        }
+    }
+}
+
+/// A table cell the grid placed: its row and first column, its width in
+/// twips, the index of its content in the row (none for a merged slot),
+/// and its `w:tc` with the paragraph `new_tbl` gave it.
+struct CellSlot {
+    row: usize,
+    col: usize,
+    twips: i64,
+    index: Option<usize>,
+    tc: NodeId,
+    p: NodeId,
+}
+
 enum Anchor {
     /// Before the body's final `w:sectPr` (or at the end).
     End,
@@ -324,6 +353,8 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     /// The title above the contents, and where it came from (the report's code).
     toc_title: String,
     toc_title_source: &'static str,
+    /// The styles part, once ensured.
+    styles_part: Option<String>,
 }
 
 /// Render `parsed` into the transaction's main document.
@@ -382,6 +413,7 @@ pub(crate) fn render(
         toc_numbers: Vec::new(),
         toc_title,
         toc_title_source,
+        styles_part: None,
     };
     if matches!(options.placement, Placement::ReplaceBody) {
         drop_replaced_body_leftovers(renderer.txn, &main)?;
@@ -554,18 +586,11 @@ fn drop_unreferenced_parts(txn: &mut Txn<'_>, main: &str) -> Result<()> {
     let rels = txn.relationships(main)?;
     // Content controls in the kept stories bound to custom XML keep it.
     let mut bound = false;
-    let main_uri = format!("/{}", main.trim_start_matches('/'));
-    for rel in rels.iter().filter(|rel| !rel.external) {
-        let kind = rel.rel_type.rsplit('/').next().unwrap_or("");
-        if matches!(kind, "header" | "footer" | "footnotes" | "endnotes")
-            && let Some(part) =
-                txn.resolve(&rel.target_part_name(crate::package::rels::base_uri(&main_uri)))
-        {
-            let tree = txn.tree(&part)?;
-            bound |= tree
-                .descendants(tree.root())
-                .any(|node| tree.is(node, W, "dataBinding"));
-        }
+    for part in story_parts(txn, main)? {
+        let tree = txn.tree(&part)?;
+        bound |= tree
+            .descendants(tree.root())
+            .any(|node| tree.is(node, W, "dataBinding"));
     }
     {
         let tree = txn.tree(main)?;
@@ -600,19 +625,8 @@ fn drop_unreferenced_parts(txn: &mut Txn<'_>, main: &str) -> Result<()> {
     let mut reachable: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::from(["/".to_string()]);
     while let Some(source) = queue.pop_front() {
-        let source_uri = if source == "/" {
-            "/".to_string()
-        } else {
-            format!("/{source}")
-        };
-        for rel in txn.relationships(&source)? {
-            if rel.external {
-                continue;
-            }
-            let target = rel.target_part_name(crate::package::rels::base_uri(&source_uri));
-            if let Some(member) = txn.resolve(&target)
-                && reachable.insert(member.clone())
-            {
+        for (_, member) in txn.resolved_relationships(&source)? {
+            if reachable.insert(member.clone()) {
                 queue.push_back(member);
             }
         }
@@ -637,20 +651,24 @@ const EXTENDED_PROPERTIES: &str =
 const CUSTOM_PROPERTIES: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties";
 
+/// The header, footer, footnotes and endnotes parts `main` relates.
+fn story_parts(txn: &Txn<'_>, main: &str) -> Result<Vec<String>> {
+    Ok(txn
+        .resolved_relationships(main)?
+        .into_iter()
+        .filter(|(rel, _)| {
+            let kind = rel.rel_type.rsplit('/').next().unwrap_or("");
+            matches!(kind, "header" | "footer" | "footnotes" | "endnotes")
+        })
+        .map(|(_, part)| part)
+        .collect())
+}
+
 /// Field instructions (simple and complex fields) in the main part and the
 /// headers, footers and notes it relates.
 fn kept_field_instructions(txn: &Txn<'_>, main: &str) -> Result<Vec<String>> {
-    let main_uri = format!("/{}", main.trim_start_matches('/'));
     let mut parts = vec![main.to_string()];
-    for rel in txn.relationships(main)?.iter().filter(|rel| !rel.external) {
-        let kind = rel.rel_type.rsplit('/').next().unwrap_or("");
-        if matches!(kind, "header" | "footer" | "footnotes" | "endnotes")
-            && let Some(part) =
-                txn.resolve(&rel.target_part_name(crate::package::rels::base_uri(&main_uri)))
-        {
-            parts.push(part);
-        }
-    }
+    parts.extend(story_parts(txn, main)?);
     let mut out = Vec::new();
     for part in parts {
         let tree = txn.tree(&part)?;
@@ -912,18 +930,12 @@ fn tidy_settings(txn: &mut Txn<'_>, keep_update_fields: bool, line_breaks: bool)
 /// the document defaults.
 fn effective_spacing(styles: &XmlTree, style_id: Option<&str>) -> (Option<i64>, Option<i64>) {
     let root = styles.root();
-    let find = |id: &str| {
-        w_children(styles, root, "style").find(|s| w_attr(styles, *s, "styleId") == Some(id))
-    };
-    let default = || {
-        w_children(styles, root, "style").find(|s| {
+    let start = match style_id {
+        Some(id) => style_by_id(styles, id),
+        None => w_children(styles, root, "style").find(|s| {
             w_attr(styles, *s, "type") == Some("paragraph")
                 && matches!(w_attr(styles, *s, "default"), Some("1" | "true" | "on"))
-        })
-    };
-    let mut current = match style_id {
-        Some(id) => find(id),
-        None => default(),
+        }),
     };
     let (mut before, mut after) = (None, None);
     let read = |node: NodeId, name: &str| {
@@ -932,15 +944,9 @@ fn effective_spacing(styles: &XmlTree, style_id: Option<&str>) -> (Option<i64>, 
             .and_then(|s| w_attr(styles, s, name))
             .and_then(|v| v.parse::<i64>().ok())
     };
-    for _ in 0..16 {
-        let Some(style) = current else {
-            break;
-        };
+    for style in style_chain(styles, start) {
         before = before.or_else(|| read(style, "before"));
         after = after.or_else(|| read(style, "after"));
-        current = w_child(styles, style, "basedOn")
-            .and_then(|b| w_attr(styles, b, "val"))
-            .and_then(find);
     }
     let defaults = w_child(styles, root, "docDefaults")
         .and_then(|d| w_child(styles, d, "pPrDefault"))
@@ -996,19 +1002,11 @@ fn set_references(
         let reference = w_el(tree, sect_pr, local)?;
         set_w(tree, reference, "type", kind)?;
         tree.set_attr(reference, Some(R), "id", r_id)?;
-        let position = tree
-            .children(sect_pr)
-            .iter()
-            .position(|c| {
-                tree.element(*c).is_some()
-                    && !(tree.is(*c, W, "headerReference") || tree.is(*c, W, "footerReference"))
-            })
-            .unwrap_or(tree.children(sect_pr).len());
-        tree.insert(sect_pr, position, reference)?;
+        insert_before_successors(tree, sect_pr, reference, SECT_PR_SEQ)?;
     }
     match (section.title_page, w_child(tree, sect_pr, "titlePg")) {
         (true, None) => {
-            crate::oxml::get_or_add(tree, sect_pr, "titlePg", crate::authoring::SECT_PR_SEQ)?;
+            crate::oxml::get_or_add(tree, sect_pr, "titlePg", SECT_PR_SEQ)?;
         }
         (true, Some(title_pg)) => {
             tree.remove_attr(title_pg, Some(W), "val");
@@ -1275,6 +1273,18 @@ impl<'p> Renderer<'_, '_, 'p> {
         self.styles.id(self.txn, role)
     }
 
+    fn styles_part(&mut self) -> Result<String> {
+        if self.styles_part.is_none() {
+            self.styles_part = Some(crate::parts::ensure_styles_part(self.txn)?);
+        }
+        Ok(self.styles_part.clone().expect("styles part"))
+    }
+
+    /// A heading's level shifted by the heading offset, within Word's nine.
+    fn heading_level(&self, level: u8) -> u8 {
+        (i16::from(level) + i16::from(self.options.heading_offset)).clamp(1, 9) as u8
+    }
+
     /// Bookmark names for every heading, planned before rendering so links
     /// can point forward.
     fn plan_bookmarks(&mut self) -> Result<()> {
@@ -1320,8 +1330,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             let name = bookmark_name(&key, &taken);
             taken.insert(name.to_lowercase());
             self.anchors.entry(key).or_insert_with(|| name.clone());
-            let level =
-                (i16::from(level) + i16::from(self.options.heading_offset)).clamp(1, 9) as u8;
+            let level = self.heading_level(level);
             self.toc_entries.push((level, text.clone(), name.clone()));
             self.heading_bookmarks.push_back(name);
         }
@@ -1386,8 +1395,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     after_paragraph = true;
                 }
                 Block::Heading { level, content, .. } => {
-                    let level = (i16::from(*level) + i16::from(self.options.heading_offset))
-                        .clamp(1, 9) as u8;
+                    let level = self.heading_level(*level);
                     out.push(self.heading(part, scope, level, content, ctx)?);
                 }
                 Block::Code { text, .. } => {
@@ -1487,20 +1495,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     };
                     out.push(self.new_paragraph(part, scope, &props)?);
                 }
-                Block::PageBreak => {
-                    let props = ParaProps {
-                        style: self.style(Role::Body)?,
-                        ..ParaProps::default()
-                    };
-                    let p = self.new_paragraph(part, scope, &props)?;
-                    let tree = self.txn.tree_mut(part)?;
-                    let r = w_el(tree, p, "r")?;
-                    append(tree, p, r)?;
-                    let br = w_el(tree, r, "br")?;
-                    set_w(tree, br, "type", "page")?;
-                    append(tree, r, br)?;
-                    out.push(p);
-                }
+                Block::PageBreak => out.push(self.page_break_paragraph(part, scope)?),
                 Block::Toc => {
                     if ctx.in_note || part != self.main {
                         self.warn(
@@ -1544,7 +1539,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         nodes: &[NodeId],
         list_ends: &[usize],
     ) -> Result<()> {
-        let styles_part = crate::parts::ensure_styles_part(self.txn)?;
+        let styles_part = self.styles_part()?;
         let style_of = |tree: &XmlTree, p: NodeId| {
             w_child(tree, p, "pPr")
                 .and_then(|p| w_child(tree, p, "pStyle"))
@@ -1603,6 +1598,26 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(p)
     }
 
+    /// A body-styled paragraph holding a page break.
+    fn page_break_paragraph(&mut self, part: &str, scope: NodeId) -> Result<NodeId> {
+        let props = ParaProps {
+            style: self.style(Role::Body)?,
+            ..ParaProps::default()
+        };
+        let p = self.new_paragraph(part, scope, &props)?;
+        let tree = self.txn.tree_mut(part)?;
+        let r = add_w_child(tree, p, "r", &[])?;
+        add_w_child(tree, r, "br", &[("type", "page")])?;
+        Ok(p)
+    }
+
+    /// Write `inlines` into `parent`.
+    fn inlines(&mut self, part: &str, parent: NodeId, inlines: &[Inline], ctx: Ctx) -> Result<()> {
+        let mut pieces = Vec::new();
+        flatten(inlines, &Fmt::default(), &mut pieces);
+        self.emit(part, parent, &pieces, ctx)
+    }
+
     fn paragraph(
         &mut self,
         part: &str,
@@ -1612,9 +1627,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         ctx: Ctx,
     ) -> Result<NodeId> {
         let p = self.new_paragraph(part, scope, props)?;
-        let mut pieces = Vec::new();
-        flatten(inlines, &Fmt::default(), &mut pieces);
-        self.emit(part, p, &pieces, ctx)?;
+        self.inlines(part, p, inlines, ctx)?;
         Ok(p)
     }
 
@@ -1642,19 +1655,17 @@ impl<'p> Renderer<'_, '_, 'p> {
         if let Some(name) = &bookmark {
             self.next_bookmark_id += 1;
             let tree = self.txn.tree_mut(part)?;
-            let start = w_el(tree, p, "bookmarkStart")?;
-            set_w(tree, start, "id", &id.to_string())?;
-            set_w(tree, start, "name", name)?;
-            append(tree, p, start)?;
+            add_w_child(
+                tree,
+                p,
+                "bookmarkStart",
+                &[("id", &id.to_string()), ("name", name)],
+            )?;
         }
-        let mut pieces = Vec::new();
-        flatten(content, &Fmt::default(), &mut pieces);
-        self.emit(part, p, &pieces, ctx)?;
+        self.inlines(part, p, content, ctx)?;
         if bookmark.is_some() {
             let tree = self.txn.tree_mut(part)?;
-            let end = w_el(tree, p, "bookmarkEnd")?;
-            set_w(tree, end, "id", &id.to_string())?;
-            append(tree, p, end)?;
+            add_w_child(tree, p, "bookmarkEnd", &[("id", &id.to_string())])?;
         }
         Ok(p)
     }
@@ -1670,8 +1681,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         let text = text.strip_suffix('\n').unwrap_or(text);
         if !text.is_empty() {
             let tree = self.txn.tree_mut(part)?;
-            let r = w_el(tree, p, "r")?;
-            append(tree, p, r)?;
+            let r = add_w_child(tree, p, "r", &[])?;
             append_run_content(tree, r, text)?;
         }
         Ok(p)
@@ -1708,15 +1718,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             keep_next: role == Role::TableCaption,
             ..ParaProps::default()
         };
-        let ctx = Ctx {
-            paragraph_role: None,
-            indent: None,
-            quote_depth: 0,
-            in_note: part != self.main,
-            top_level: false,
-            max_image_width: FALLBACK_BLOCK_WIDTH,
-            align: None,
-        };
+        let ctx = Ctx::detached(part != self.main);
         self.paragraph(part, scope, &props, inlines, ctx)
     }
 
@@ -1765,20 +1767,19 @@ impl<'p> Renderer<'_, '_, 'p> {
             ctx.paragraph_role,
             Some(Role::BlockQuote | Role::FootnoteText | Role::Definition)
         );
-        let template = {
+        let source = {
             let lists = self.lists()?;
-            if start.is_some() {
-                lists.template_number.clone()
+            let template = if start.is_some() {
+                &lists.template_number
             } else {
-                lists.template_bullet.clone()
-            }
+                &lists.template_bullet
+            };
+            template.as_ref().and_then(|t| {
+                t.levels
+                    .get(&level)
+                    .map(|source| (t.name.clone(), source.clone()))
+            })
         };
-        let source = template.as_ref().and_then(|t| {
-            t.levels
-                .get(&level)
-                .cloned()
-                .map(|source| (t.name.clone(), source))
-        });
         let (num_id, ilvl, item_style, indent, item_indent) = match source {
             Some((name, source)) => {
                 let num_id = match start {
@@ -1837,12 +1838,13 @@ impl<'p> Renderer<'_, '_, 'p> {
                 .task
                 .map(|done| if done { "\u{2612} " } else { "\u{2610} " });
             let mut rest: &[Block] = &item.blocks;
-            let (first, first_align) = match rest.first().map(unaligned) {
+            let (first, first_align): (&[Inline], Option<Align>) = match rest.first().map(unaligned)
+            {
                 Some((Block::Paragraph(inlines) | Block::Plain(inlines), align)) => {
                     rest = &rest[1..];
-                    (inlines.clone(), align)
+                    (inlines, align)
                 }
-                _ => (Vec::new(), None),
+                _ => (&[], None),
             };
             let props = ParaProps {
                 style: item_style.clone(),
@@ -1852,11 +1854,14 @@ impl<'p> Renderer<'_, '_, 'p> {
                 align: first_align.or(ctx.align).and_then(jc),
                 ..ParaProps::default()
             };
-            let mut inlines = Vec::new();
-            if let Some(marker) = marker {
-                inlines.push(Inline::Text(marker.to_string()));
-            }
-            inlines.extend(first);
+            let inlines: Cow<[Inline]> = match marker {
+                Some(marker) => {
+                    let mut marked = vec![Inline::Text(marker.to_string())];
+                    marked.extend_from_slice(first);
+                    Cow::Owned(marked)
+                }
+                None => Cow::Borrowed(first),
+            };
             out.push(self.paragraph(part, scope, &props, &inlines, continuation)?);
             for block in rest {
                 match unaligned(block) {
@@ -1941,14 +1946,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 && (!look_flags.is_empty() || header_rows == 0)
             {
                 let mut bits = 0u32;
-                for (name, bit) in [
-                    ("firstRow", 0x20u32),
-                    ("lastRow", 0x40),
-                    ("firstColumn", 0x80),
-                    ("lastColumn", 0x100),
-                    ("noHBand", 0x200),
-                    ("noVBand", 0x400),
-                ] {
+                for (name, bit) in TBL_LOOK_FLAGS {
                     let on = if name == "firstRow" {
                         header_rows > 0
                     } else if look_flags.is_empty() {
@@ -2003,8 +2001,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             {
                 if row_index < header_rows {
                     let tr_pr = w_el(tree, tr, "trPr")?;
-                    let header = w_el(tree, tr_pr, "tblHeader")?;
-                    append(tree, tr_pr, header)?;
+                    add_w_child(tree, tr_pr, "tblHeader", &[])?;
                     tree.insert(tr, 0, tr_pr)?;
                 }
                 let tcs: Vec<NodeId> = w_children(tree, tr, "tc").collect();
@@ -2022,27 +2019,20 @@ impl<'p> Renderer<'_, '_, 'p> {
                     if let Some(tc_w) = w_child(tree, tc_pr, "tcW") {
                         set_w(tree, tc_w, "w", &twips.to_string())?;
                     }
-                    let add = |tree: &mut XmlTree, local: &str, value: Option<&str>| {
-                        let node = w_el(tree, tc_pr, local)?;
-                        if let Some(value) = value {
-                            set_w(tree, node, "val", value)?;
-                        }
-                        append(tree, tc_pr, node)
-                    };
                     if span > 1 {
-                        add(tree, "gridSpan", Some(&span.to_string()))?;
+                        add_w_child(tree, tc_pr, "gridSpan", &[("val", &span.to_string())])?;
                     }
                     let valign = match *slot {
                         Slot::Cell {
                             span, merges_down, ..
                         } => {
                             if merges_down {
-                                add(tree, "vMerge", Some("restart"))?;
+                                add_w_child(tree, tc_pr, "vMerge", &[("val", "restart")])?;
                             }
                             span.valign
                         }
                         Slot::Continue { span, .. } => {
-                            add(tree, "vMerge", None)?;
+                            add_w_child(tree, tc_pr, "vMerge", &[])?;
                             span.valign
                         }
                         Slot::Empty { .. } => None,
@@ -2053,19 +2043,34 @@ impl<'p> Renderer<'_, '_, 'p> {
                             VAlign::Center => "center",
                             VAlign::Bottom => "bottom",
                         };
-                        add(tree, "vAlign", Some(value))?;
+                        add_w_child(tree, tc_pr, "vAlign", &[("val", value)])?;
                     }
                     let p = w_child(tree, tc, "p").expect("new_tbl gives every cell a paragraph");
                     let index = match *slot {
                         Slot::Cell { index, .. } => Some(index),
                         _ => None,
                     };
-                    cells.push((row_index, col, twips, index, tc, p));
+                    cells.push(CellSlot {
+                        row: row_index,
+                        col,
+                        twips,
+                        index,
+                        tc,
+                        p,
+                    });
                 }
             }
             (tbl, cells)
         };
-        for (row_index, col, twips, index, tc, p) in cells {
+        for CellSlot {
+            row: row_index,
+            col,
+            twips,
+            index,
+            tc,
+            p,
+        } in cells
+        {
             let column_align = aligns.get(col).copied().unwrap_or(Align::None);
             let (role, style) = if row_index < header_rows {
                 (Role::TableHeader, &header_style)
@@ -2103,9 +2108,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 write_ppr(tree, p, &props)?;
             }
             self.report.counts.paragraphs += 1;
-            let mut pieces = Vec::new();
-            flatten(first, &Fmt::default(), &mut pieces);
-            self.emit(part, p, &pieces, cell_ctx)?;
+            self.inlines(part, p, first, cell_ctx)?;
             if rest.is_empty() {
                 continue;
             }
@@ -2127,7 +2130,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 append(tree, tc, empty)?;
             }
         }
-        let styles_part = crate::parts::ensure_styles_part(self.txn)?;
+        let styles_part = self.styles_part()?;
         let header_color = super::styles::header_color_override(
             self.txn.tree(&styles_part)?,
             table_style.as_deref(),
@@ -2210,8 +2213,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     let props = self.run_props(fmt)?;
                     let tree = self.txn.tree_mut(part)?;
                     let r = new_run(tree, parent, &props)?;
-                    let br = w_el(tree, r, "br")?;
-                    append(tree, r, br)?;
+                    add_w_child(tree, r, "br", &[])?;
                 }
                 Piece::Image {
                     url,
@@ -2353,10 +2355,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         let note = {
             let tree = self.txn.tree_mut(&notes)?;
             let root = tree.root();
-            let note = w_el(tree, root, "footnote")?;
-            set_w(tree, note, "id", &id.to_string())?;
-            append(tree, root, note)?;
-            note
+            add_w_child(tree, root, "footnote", &[("id", &id.to_string())])?
         };
         let note_ctx = Ctx {
             paragraph_role: Some(Role::FootnoteText),
@@ -2395,8 +2394,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         };
         let mark = w_el(tree, first, "r")?;
         write_rpr(tree, mark, &mark_props)?;
-        let reference = w_el(tree, mark, "footnoteRef")?;
-        append(tree, mark, reference)?;
+        add_w_child(tree, mark, "footnoteRef", &[])?;
         let space = w_el(tree, first, "r")?;
         add_t(tree, space, " ")?;
         let at = usize::from(w_child(tree, first, "pPr").is_some());
@@ -2404,9 +2402,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         tree.insert(first, at + 1, space)?;
         let tree = self.txn.tree_mut(part)?;
         let r = new_run(tree, parent, &mark_props)?;
-        let reference = w_el(tree, r, "footnoteReference")?;
-        set_w(tree, reference, "id", &id.to_string())?;
-        append(tree, r, reference)?;
+        add_w_child(tree, r, "footnoteReference", &[("id", &id.to_string())])?;
         Ok(())
     }
 
@@ -2589,12 +2585,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             self.image_unreadable(&shown, line);
             return Ok(false);
         }
-        let r = {
-            let tree = self.txn.tree_mut(part)?;
-            let r = w_el(tree, parent, "r")?;
-            append(tree, parent, r)?;
-            r
-        };
+        let r = add_w_child(self.txn.tree_mut(part)?, parent, "r", &[])?;
         add_picture_named(
             self.txn,
             part,
@@ -2691,7 +2682,7 @@ impl<'p> Renderer<'_, '_, 'p> {
     /// (Word's built-in list styles are separate lists), else from level
     /// `n` of the base style's numbering.
     fn template_list(&mut self, numbering: &str, name: &str) -> Result<Option<TemplateList>> {
-        let styles_part = crate::parts::ensure_styles_part(self.txn)?;
+        let styles_part = self.styles_part()?;
         let mut bound: BTreeMap<i64, (Option<String>, i64, i64)> = BTreeMap::new();
         // Without such styles, the list paragraphs of the template's own
         // sample body (Word's list buttons, or a custom style that binds
@@ -2701,23 +2692,9 @@ impl<'p> Renderer<'_, '_, 'p> {
         let bound_styles: Vec<String>;
         {
             let tree = self.txn.tree(&styles_part)?;
-            let paragraph_styles: Vec<NodeId> = w_children(tree, tree.root(), "style")
-                .filter(|s| w_attr(tree, *s, "type").unwrap_or("paragraph") == "paragraph")
-                .collect();
-            let named = |wanted: &str| {
-                paragraph_styles.iter().copied().find(|s| {
-                    w_child(tree, *s, "name")
-                        .and_then(|n| w_attr(tree, n, "val"))
-                        .is_some_and(|v| v.eq_ignore_ascii_case(wanted))
-                })
-            };
             let binding = |style: NodeId| {
                 let (mut num_id, mut ilvl) = (None, None);
-                let mut current = Some(style);
-                for _ in 0..16 {
-                    let Some(style) = current else {
-                        break;
-                    };
+                for style in style_chain(tree, Some(style)) {
                     if let Some(num_pr) =
                         w_child(tree, style, "pPr").and_then(|p| w_child(tree, p, "numPr"))
                     {
@@ -2732,40 +2709,19 @@ impl<'p> Renderer<'_, '_, 'p> {
                     if num_id.is_some() && ilvl.is_some() {
                         break;
                     }
-                    current = w_child(tree, style, "basedOn")
-                        .and_then(|b| w_attr(tree, b, "val"))
-                        .and_then(|id| {
-                            paragraph_styles
-                                .iter()
-                                .copied()
-                                .find(|s| w_attr(tree, *s, "styleId") == Some(id))
-                        });
                 }
                 num_id.filter(|n| *n != 0).map(|n| (n, ilvl.unwrap_or(0)))
             };
             let outlined = |style: NodeId| {
-                let mut current = Some(style);
-                for _ in 0..16 {
-                    let Some(style) = current else {
-                        return false;
-                    };
-                    let level = w_child(tree, style, "pPr")
-                        .and_then(|p| w_child(tree, p, "outlineLvl"))
-                        .and_then(|o| w_attr(tree, o, "val"))
-                        .and_then(|v| v.parse::<u8>().ok());
-                    if let Some(level) = level {
-                        return level < 9;
-                    }
-                    current = w_child(tree, style, "basedOn")
-                        .and_then(|b| w_attr(tree, b, "val"))
-                        .and_then(|id| {
-                            paragraph_styles
-                                .iter()
-                                .copied()
-                                .find(|s| w_attr(tree, *s, "styleId") == Some(id))
-                        });
-                }
-                false
+                style_chain(tree, Some(style))
+                    .into_iter()
+                    .find_map(|style| {
+                        w_child(tree, style, "pPr")
+                            .and_then(|p| w_child(tree, p, "outlineLvl"))
+                            .and_then(|o| w_attr(tree, o, "val"))
+                            .and_then(|v| v.parse::<u8>().ok())
+                    })
+                    .is_some_and(|level| level < 9)
             };
             for level in 0..9i64 {
                 let wanted = if level == 0 {
@@ -2773,7 +2729,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 } else {
                     format!("{name} {}", level + 1)
                 };
-                if let Some(style) = named(&wanted)
+                if let Some(style) = find_style(tree, &wanted, StyleType::Paragraph)
                     && let (Some(id), Some((num_id, ilvl))) =
                         (w_attr(tree, style, "styleId"), binding(style))
                 {
@@ -2787,7 +2743,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 // Paragraph; a general style the sample body used for
                 // everything (Normal (Web) in HTML-converted documents) is
                 // replaced by List Paragraph, or else by the body role.
-                let list_paragraph = named("List Paragraph")
+                let list_paragraph = find_style(tree, "List Paragraph", StyleType::Paragraph)
                     .and_then(|s| w_attr(tree, s, "styleId"))
                     .map(str::to_string);
                 let package = self.txn.document().package();
@@ -2807,12 +2763,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     let style_id = w_child(main, ppr, "pStyle")
                         .and_then(|s| w_attr(main, s, "val"))
                         .map(str::to_string);
-                    let style = style_id.as_deref().and_then(|id| {
-                        paragraph_styles
-                            .iter()
-                            .copied()
-                            .find(|s| w_attr(tree, *s, "styleId") == Some(id))
-                    });
+                    let style = style_id.as_deref().and_then(|id| style_by_id(tree, id));
                     // Numbered headings are not lists.
                     let heading =
                         w_child(main, ppr, "outlineLvl").is_some() || style.is_some_and(outlined);
@@ -3041,15 +2992,7 @@ impl<'p> Renderer<'_, '_, 'p> {
 
     fn title_block(&mut self, scope: NodeId, metadata: &Metadata) -> Result<Vec<NodeId>> {
         let main = self.main.clone();
-        let ctx = Ctx {
-            paragraph_role: None,
-            indent: None,
-            quote_depth: 0,
-            in_note: false,
-            top_level: false,
-            max_image_width: FALLBACK_BLOCK_WIDTH,
-            align: None,
-        };
+        let ctx = Ctx::detached(false);
         let mut lines: Vec<(Role, String)> = Vec::new();
         if let Some(title) = &metadata.title {
             lines.push((Role::Title, title.clone()));
@@ -3091,32 +3034,23 @@ impl<'p> Renderer<'_, '_, 'p> {
         let (sdt, content) = {
             let tree = self.txn.tree_mut(&main)?;
             let sdt = w_el(tree, scope, "sdt")?;
-            let pr = w_el(tree, sdt, "sdtPr")?;
-            append(tree, sdt, pr)?;
-            let part = w_el(tree, pr, "docPartObj")?;
-            append(tree, pr, part)?;
-            let gallery = w_el(tree, part, "docPartGallery")?;
-            set_w(tree, gallery, "val", "Table of Contents")?;
-            append(tree, part, gallery)?;
-            let unique = w_el(tree, part, "docPartUnique")?;
-            append(tree, part, unique)?;
-            let content = w_el(tree, sdt, "sdtContent")?;
-            append(tree, sdt, content)?;
+            let pr = add_w_child(tree, sdt, "sdtPr", &[])?;
+            let part = add_w_child(tree, pr, "docPartObj", &[])?;
+            add_w_child(
+                tree,
+                part,
+                "docPartGallery",
+                &[("val", "Table of Contents")],
+            )?;
+            add_w_child(tree, part, "docPartUnique", &[])?;
+            let content = add_w_child(tree, sdt, "sdtContent", &[])?;
             (sdt, content)
         };
         let heading_props = ParaProps {
             style: self.style(Role::TocHeading)?,
             ..ParaProps::default()
         };
-        let ctx = Ctx {
-            paragraph_role: None,
-            indent: None,
-            quote_depth: 0,
-            in_note: false,
-            top_level: false,
-            max_image_width: FALLBACK_BLOCK_WIDTH,
-            align: None,
-        };
+        let ctx = Ctx::detached(false);
         let heading = self.paragraph(
             &main,
             scope,
@@ -3152,12 +3086,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             let tree = self.txn.tree_mut(&main)?;
             if index == 0 {
                 let begin = fld_char_run(tree, p, "begin", numbers)?;
-                let instr_run = w_el(tree, p, "r")?;
-                let instr = w_el(tree, instr_run, "instrText")?;
-                tree.set_attr(instr, Some(XML_NS), "space", "preserve")?;
-                let text = tree.create_text(instruction.clone());
-                tree.insert(instr, 0, text)?;
-                append(tree, instr_run, instr)?;
+                let instr_run = instr_text_run(tree, p, &instruction)?;
                 let separate = fld_char_run(tree, p, "separate", false)?;
                 for piece in [begin, instr_run, separate] {
                     append(tree, p, piece)?;
@@ -3165,12 +3094,13 @@ impl<'p> Renderer<'_, '_, 'p> {
             }
             match entry {
                 Some((_, text, bookmark)) => {
-                    let link = w_el(tree, p, "hyperlink")?;
-                    set_w(tree, link, "anchor", bookmark)?;
-                    set_w(tree, link, "history", "1")?;
-                    append(tree, p, link)?;
-                    let r = w_el(tree, link, "r")?;
-                    append(tree, link, r)?;
+                    let link = add_w_child(
+                        tree,
+                        p,
+                        "hyperlink",
+                        &[("anchor", bookmark), ("history", "1")],
+                    )?;
+                    let r = add_w_child(tree, link, "r", &[])?;
                     append_run_content(tree, r, text)?;
                     if self.options.toc_numbers {
                         // As Word writes an entry: a dot-leader tab to the
@@ -3179,22 +3109,21 @@ impl<'p> Renderer<'_, '_, 'p> {
                         let ppr = crate::oxml::get_or_add_ppr(tree, p)?;
                         let tabs =
                             crate::oxml::get_or_add(tree, ppr, "tabs", crate::oxml::PPR_SEQ)?;
-                        let tab = w_el(tree, tabs, "tab")?;
-                        set_w(tree, tab, "val", "right")?;
-                        set_w(tree, tab, "leader", "dot")?;
-                        set_w(tree, tab, "pos", &(width_twips).to_string())?;
-                        append(tree, tabs, tab)?;
-                        let tab_run = w_el(tree, link, "r")?;
-                        let tab_char = w_el(tree, tab_run, "tab")?;
-                        append(tree, tab_run, tab_char)?;
-                        append(tree, link, tab_run)?;
+                        add_w_child(
+                            tree,
+                            tabs,
+                            "tab",
+                            &[
+                                ("val", "right"),
+                                ("leader", "dot"),
+                                ("pos", &width_twips.to_string()),
+                            ],
+                        )?;
+                        let tab_run = add_w_child(tree, link, "r", &[])?;
+                        add_w_child(tree, tab_run, "tab", &[])?;
                         let begin = fld_char_run(tree, link, "begin", false)?;
-                        let instr_run = w_el(tree, link, "r")?;
-                        let instr = w_el(tree, instr_run, "instrText")?;
-                        tree.set_attr(instr, Some(XML_NS), "space", "preserve")?;
-                        let code = tree.create_text(format!(" PAGEREF {bookmark} \\h "));
-                        tree.insert(instr, 0, code)?;
-                        append(tree, instr_run, instr)?;
+                        let instr_run =
+                            instr_text_run(tree, link, &format!(" PAGEREF {bookmark} \\h "))?;
                         let separate = fld_char_run(tree, link, "separate", false)?;
                         let number_run = w_el(tree, link, "r")?;
                         let number = add_t(tree, number_run, "1")?;
@@ -3206,8 +3135,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     }
                 }
                 None => {
-                    let r = w_el(tree, p, "r")?;
-                    append(tree, p, r)?;
+                    let r = add_w_child(tree, p, "r", &[])?;
                     add_t(tree, r, "No headings to list.")?;
                 }
             }
@@ -3293,17 +3221,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             }
             return Ok(());
         }
-        let props = ParaProps {
-            style: self.style(Role::Body)?,
-            ..ParaProps::default()
-        };
-        let p = self.new_paragraph(main, body_node, &props)?;
-        let tree = self.txn.tree_mut(main)?;
-        let r = w_el(tree, p, "r")?;
-        append(tree, p, r)?;
-        let br = w_el(tree, r, "br")?;
-        set_w(tree, br, "type", "page")?;
-        append(tree, r, br)?;
+        let p = self.page_break_paragraph(main, body_node)?;
         nodes.insert(body_start, p);
         Ok(())
     }
@@ -3323,11 +3241,8 @@ impl<'p> Renderer<'_, '_, 'p> {
                 return Ok(Vec::new());
             };
             let title_pg = w_child(tree, sect_pr, "titlePg")
-                .filter(|t| !matches!(w_attr(tree, *t, "val"), Some("0" | "false" | "off")));
-            let page_height = w_child(tree, sect_pr, "pgSz")
-                .and_then(|p| w_attr(tree, p, "h"))
-                .and_then(|h| h.parse::<i64>().ok())
-                .unwrap_or(15840);
+                .filter(|_| super::stories::title_page(tree, sect_pr));
+            let (_, page_height) = super::stories::page_size(tree, Some(sect_pr));
             (title_pg, page_height)
         };
         let Some(title_pg) = title_pg else {
@@ -3366,17 +3281,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         if !cover {
             return Ok(Vec::new());
         }
-        let props = ParaProps {
-            style: self.style(Role::Body)?,
-            ..ParaProps::default()
-        };
-        let p = self.new_paragraph(main, body_node, &props)?;
-        let tree = self.txn.tree_mut(main)?;
-        let r = w_el(tree, p, "r")?;
-        append(tree, p, r)?;
-        let br = w_el(tree, r, "br")?;
-        set_w(tree, br, "type", "page")?;
-        append(tree, r, br)?;
+        let p = self.page_break_paragraph(main, body_node)?;
         self.report.cover_page = Some("content_after_cover".into());
         Ok(vec![p])
     }
@@ -3399,14 +3304,9 @@ impl<'p> Renderer<'_, '_, 'p> {
             }
         };
         let footer_style = {
-            let styles = crate::parts::ensure_styles_part(self.txn)?;
+            let styles = self.styles_part()?;
             let tree = self.txn.tree(&styles)?;
-            w_children(tree, tree.root(), "style")
-                .find(|s| {
-                    w_child(tree, *s, "name")
-                        .and_then(|n| w_attr(tree, n, "val"))
-                        .is_some_and(|v| v.eq_ignore_ascii_case("footer"))
-                })
+            find_style(tree, "Footer", StyleType::Paragraph)
                 .and_then(|s| w_attr(tree, s, "styleId").map(str::to_string))
         };
         let style = footer_style
@@ -3430,15 +3330,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         set_w(tree, reference, "type", "default")?;
         tree.set_attr(reference, Some(R), "id", &r_id)?;
         // Header/footer references lead the section properties.
-        let position = tree
-            .children(sect_pr)
-            .iter()
-            .position(|c| {
-                !(tree.is(*c, W, "headerReference") || tree.is(*c, W, "footerReference"))
-                    && tree.element(*c).is_some()
-            })
-            .unwrap_or(tree.children(sect_pr).len());
-        tree.insert(sect_pr, position, reference)?;
+        insert_before_successors(tree, sect_pr, reference, SECT_PR_SEQ)?;
         self.report.page_numbers = Some("footer_added".into());
         Ok(())
     }
@@ -4004,6 +3896,21 @@ fn abstract_xml(abstract_id: i64, name: &str) -> String {
     xml
 }
 
+/// A new `w:local` appended to `parent`, with `attrs` set as `w:` attributes.
+fn add_w_child(
+    tree: &mut XmlTree,
+    parent: NodeId,
+    local: &str,
+    attrs: &[(&str, &str)],
+) -> Result<NodeId> {
+    let node = w_el(tree, parent, local)?;
+    for (name, value) in attrs {
+        set_w(tree, node, name, value)?;
+    }
+    append(tree, parent, node)?;
+    Ok(node)
+}
+
 fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
     let has_any = props.style.is_some()
         || props.keep_next
@@ -4016,66 +3923,54 @@ fn write_ppr(tree: &mut XmlTree, p: NodeId, props: &ParaProps) -> Result<()> {
     }
     let ppr = w_el(tree, p, "pPr")?;
     tree.insert(p, 0, ppr)?;
-    let child = |tree: &mut XmlTree, local: &str, attrs: &[(&str, &str)]| -> Result<NodeId> {
-        let node = w_el(tree, ppr, local)?;
-        for (name, value) in attrs {
-            set_w(tree, node, name, value)?;
-        }
-        append(tree, ppr, node)?;
-        Ok(node)
-    };
     if let Some(style) = &props.style {
-        child(tree, "pStyle", &[("val", style)])?;
+        add_w_child(tree, ppr, "pStyle", &[("val", style)])?;
     }
     if props.keep_next {
-        child(tree, "keepNext", &[])?;
+        add_w_child(tree, ppr, "keepNext", &[])?;
     }
     if let Some((num_id, level)) = props.numbering {
-        let num_pr = child(tree, "numPr", &[])?;
-        let ilvl = w_el(tree, num_pr, "ilvl")?;
-        set_w(tree, ilvl, "val", &level.to_string())?;
-        append(tree, num_pr, ilvl)?;
-        let num = w_el(tree, num_pr, "numId")?;
-        set_w(tree, num, "val", &num_id.to_string())?;
-        append(tree, num_pr, num)?;
+        let num_pr = add_w_child(tree, ppr, "numPr", &[])?;
+        add_w_child(tree, num_pr, "ilvl", &[("val", &level.to_string())])?;
+        add_w_child(tree, num_pr, "numId", &[("val", &num_id.to_string())])?;
     }
     if props.rule {
-        let borders = child(tree, "pBdr", &[])?;
-        let bottom = w_el(tree, borders, "bottom")?;
-        for (name, value) in [
-            ("val", "single"),
-            ("sz", "6"),
-            ("space", "1"),
-            ("color", "auto"),
-        ] {
-            set_w(tree, bottom, name, value)?;
-        }
-        append(tree, borders, bottom)?;
-        child(tree, "spacing", &[("before", "120"), ("after", "120")])?;
+        let borders = add_w_child(tree, ppr, "pBdr", &[])?;
+        add_w_child(
+            tree,
+            borders,
+            "bottom",
+            &[
+                ("val", "single"),
+                ("sz", "6"),
+                ("space", "1"),
+                ("color", "auto"),
+            ],
+        )?;
+        add_w_child(tree, ppr, "spacing", &[("before", "120"), ("after", "120")])?;
     }
     if let Some(left) = props.indent_left {
         match props.hanging {
-            Some(hanging) => child(
+            Some(hanging) => add_w_child(
                 tree,
+                ppr,
                 "ind",
                 &[
                     ("left", &left.to_string()),
                     ("hanging", &hanging.to_string()),
                 ],
             )?,
-            None => child(tree, "ind", &[("left", &left.to_string())])?,
+            None => add_w_child(tree, ppr, "ind", &[("left", &left.to_string())])?,
         };
     }
     if let Some(align) = props.align {
-        child(tree, "jc", &[("val", align)])?;
+        add_w_child(tree, ppr, "jc", &[("val", align)])?;
     }
     if props.rule {
         // A 1 pt paragraph mark keeps the empty line thin.
-        let rpr = child(tree, "rPr", &[])?;
+        let rpr = add_w_child(tree, ppr, "rPr", &[])?;
         for local in ["sz", "szCs"] {
-            let size = w_el(tree, rpr, local)?;
-            set_w(tree, size, "val", "2")?;
-            append(tree, rpr, size)?;
+            add_w_child(tree, rpr, local, &[("val", "2")])?;
         }
     }
     Ok(())
@@ -4098,64 +3993,58 @@ fn write_rpr(tree: &mut XmlTree, r: NodeId, props: &RunProps) -> Result<()> {
     }
     let rpr = w_el(tree, r, "rPr")?;
     tree.insert(r, 0, rpr)?;
-    let child = |tree: &mut XmlTree, local: &str, attrs: &[(&str, &str)]| -> Result<()> {
-        let node = w_el(tree, rpr, local)?;
-        for (name, value) in attrs {
-            set_w(tree, node, name, value)?;
-        }
-        append(tree, rpr, node)
-    };
     if let Some(style) = &props.style {
-        child(tree, "rStyle", &[("val", style)])?;
+        add_w_child(tree, rpr, "rStyle", &[("val", style)])?;
     }
     if let Some(font) = &props.font {
-        child(
+        add_w_child(
             tree,
+            rpr,
             "rFonts",
             &[("ascii", font), ("hAnsi", font), ("cs", font)],
         )?;
     }
     if props.bold {
-        child(tree, "b", &[])?;
-        child(tree, "bCs", &[])?;
+        add_w_child(tree, rpr, "b", &[])?;
+        add_w_child(tree, rpr, "bCs", &[])?;
     }
     if props.italic {
-        child(tree, "i", &[])?;
-        child(tree, "iCs", &[])?;
+        add_w_child(tree, rpr, "i", &[])?;
+        add_w_child(tree, rpr, "iCs", &[])?;
     }
     if props.strike {
-        child(tree, "strike", &[])?;
+        add_w_child(tree, rpr, "strike", &[])?;
     }
     if let Some(color) = &props.color {
-        child(tree, "color", &[("val", color)])?;
+        add_w_child(tree, rpr, "color", &[("val", color)])?;
     }
     if let Some(size) = props.size {
         let size = size.to_string();
-        child(tree, "sz", &[("val", &size)])?;
-        child(tree, "szCs", &[("val", &size)])?;
+        add_w_child(tree, rpr, "sz", &[("val", &size)])?;
+        add_w_child(tree, rpr, "szCs", &[("val", &size)])?;
     }
     if let Some(highlight) = props.highlight {
-        child(tree, "highlight", &[("val", highlight)])?;
+        add_w_child(tree, rpr, "highlight", &[("val", highlight)])?;
     }
     if props.underline {
-        child(tree, "u", &[("val", "single")])?;
+        add_w_child(tree, rpr, "u", &[("val", "single")])?;
     }
     if let Some(fill) = &props.shading {
-        child(
+        add_w_child(
             tree,
+            rpr,
             "shd",
             &[("val", "clear"), ("color", "auto"), ("fill", fill)],
         )?;
     }
     if let Some(vert) = props.vert_align {
-        child(tree, "vertAlign", &[("val", vert)])?;
+        add_w_child(tree, rpr, "vertAlign", &[("val", vert)])?;
     }
     Ok(())
 }
 
 fn new_run(tree: &mut XmlTree, parent: NodeId, props: &RunProps) -> Result<NodeId> {
-    let r = w_el(tree, parent, "r")?;
-    append(tree, parent, r)?;
+    let r = add_w_child(tree, parent, "r", &[])?;
     write_rpr(tree, r, props)?;
     Ok(r)
 }
@@ -4227,8 +4116,7 @@ fn is_toc_heading(tree: &XmlTree, styles: Option<&XmlTree>, p: NodeId) -> bool {
     };
     id == "TOCHeading"
         || styles.is_some_and(|styles| {
-            w_children(styles, styles.root(), "style")
-                .find(|style| w_attr(styles, *style, "styleId") == Some(id))
+            style_by_id(styles, id)
                 .and_then(|style| w_child(styles, style, "name"))
                 .and_then(|name| w_attr(styles, name, "val"))
                 .is_some_and(|name| name.eq_ignore_ascii_case("TOC Heading"))

@@ -6,7 +6,8 @@
 
 use super::ast::{MAX_NESTING_DEPTH, too_deep};
 use crate::Result;
-use crate::wml::{M, W};
+use crate::oxml::{append, set_w, w_el};
+use crate::wml::M;
 use crate::xml::{NodeId, XML_NS, XmlTree};
 
 /// Character style of a math run.
@@ -402,11 +403,7 @@ impl Parser {
                     self.index += 1;
                     nodes.push(Node::Run(" ".into(), Style::Auto));
                 }
-                _ => {
-                    let atom = self.atom();
-                    let node = self.scripts(atom);
-                    push_node(&mut nodes, node);
-                }
+                _ => push_node(&mut nodes, self.scripted_atom()),
             }
         }
         nodes
@@ -488,9 +485,7 @@ impl Parser {
                 self.index += 1;
                 break;
             }
-            let atom = self.atom();
-            let node = self.scripts(atom);
-            push_node(&mut nodes, node);
+            push_node(&mut nodes, self.scripted_atom());
         }
         nodes
     }
@@ -519,6 +514,12 @@ impl Parser {
         })
     }
 
+    /// An atom with the scripts that follow it.
+    fn scripted_atom(&mut self) -> Option<Node> {
+        let atom = self.atom();
+        self.scripts(atom)
+    }
+
     fn command(&mut self, name: &str) -> Node {
         if let Some(text) = symbol(name) {
             return Node::Run(text.to_string(), Style::Auto);
@@ -533,10 +534,8 @@ impl Parser {
             if !starts_argument {
                 return name_node.expect("a function name");
             }
-            let argument: Vec<Node> = self.nested(2, |parser| {
-                let atom = parser.atom();
-                parser.scripts(atom).into_iter().collect()
-            });
+            let argument: Vec<Node> =
+                self.nested(2, |parser| parser.scripted_atom().into_iter().collect());
             return Node::Func(name_node.into_iter().collect(), argument);
         }
         if LIMITS.contains(&name) {
@@ -565,10 +564,7 @@ impl Parser {
                 }
             }
             let body = self.nested(2, |parser| match parser.atom() {
-                Some(atom) => vec![parser.scripts(Some(atom))]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
+                Some(atom) => parser.scripts(Some(atom)).into_iter().collect(),
                 None => Vec::new(),
             });
             return Node::Nary {
@@ -871,12 +867,12 @@ fn write_run(tree: &mut XmlTree, parent: NodeId, text: &str, style: Style) -> Re
         }
     }
     // Word's math font for every run.
-    let w_rpr = tree.create_element(r, W, "rPr")?;
-    crate::oxml::append(tree, r, w_rpr)?;
-    let fonts = tree.create_element(w_rpr, W, "rFonts")?;
-    tree.set_attr(fonts, Some(W), "ascii", "Cambria Math")?;
-    tree.set_attr(fonts, Some(W), "hAnsi", "Cambria Math")?;
-    crate::oxml::append(tree, w_rpr, fonts)?;
+    let w_rpr = w_el(tree, r, "rPr")?;
+    append(tree, r, w_rpr)?;
+    let fonts = w_el(tree, w_rpr, "rFonts")?;
+    set_w(tree, fonts, "ascii", "Cambria Math")?;
+    set_w(tree, fonts, "hAnsi", "Cambria Math")?;
+    append(tree, w_rpr, fonts)?;
     let t = m_el(tree, r, "t")?;
     if text.starts_with(' ') || text.ends_with(' ') {
         tree.set_attr(t, Some(XML_NS), "space", "preserve")?;

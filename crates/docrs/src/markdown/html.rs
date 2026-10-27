@@ -5,7 +5,7 @@
 
 use super::ast::{
     Align, Block, CellSpan, Inline, ListItem, MAX_NESTING_DEPTH, MAX_TABLE_COLUMNS, RunStyle, Slot,
-    TableLayout, VAlign, place, too_deep,
+    TableLayout, VAlign, note_once, paragraph, place, tight, too_deep,
 };
 use crate::Result;
 
@@ -577,6 +577,8 @@ pub(crate) struct SpanFormat {
     pub subscript: bool,
     /// `property on <tag>` for each declaration that was ignored.
     pub dropped: Vec<String>,
+    /// A highlight colour was given; a background does not replace it.
+    highlight_given: bool,
 }
 
 /// A font size in CSS pixels as Word's half-points.
@@ -589,7 +591,6 @@ pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
     let drop = |format: &mut SpanFormat, property: &str| {
         format.dropped.push(format!("{property} on <{tag}>"));
     };
-    let mut highlight_given = false;
     if tag == "font" {
         match attr(attrs, "color").map(css_color) {
             Some(Some(color)) => format.style.color = color,
@@ -605,37 +606,18 @@ pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
     }
     if tag == "mark"
         && let Some(color) = attr(attrs, "data-color")
+        && !format.highlight(color)
     {
-        match css_color(color) {
-            Some(color) => {
-                format.style.highlight = color;
-                highlight_given = true;
-            }
-            None => drop(&mut format, "data-color"),
-        }
+        drop(&mut format, "data-color");
     }
     for (property, value) in declarations(attrs) {
         let lower = value.to_ascii_lowercase();
         match property.as_str() {
-            "color" => match css_color(&value) {
-                Some(Some(color)) => format.style.color = Some(color),
-                Some(None) => {}
-                None => drop(&mut format, &property),
-            },
-            "background-color" | "background" => match css_color(&value) {
-                Some(color) => {
-                    if !highlight_given {
-                        format.style.highlight = color;
-                    }
-                    highlight_given = true;
+            "color" | "background-color" | "background" | "font-family" | "font-size" => {
+                if !format.declare(&property, &value) {
+                    drop(&mut format, &property);
                 }
-                None => drop(&mut format, &property),
-            },
-            "font-family" => format.style.font = first_family(&value).or(format.style.font),
-            "font-size" => match css_pixels(&value) {
-                Some(px) => format.style.size = Some(half_points(px)),
-                None => drop(&mut format, &property),
-            },
+            }
             "font-weight" => {
                 format.bold = matches!(lower.as_str(), "bold" | "bolder")
                     || lower.parse::<u32>().is_ok_and(|weight| weight >= 600);
@@ -654,11 +636,67 @@ pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
             _ => drop(&mut format, &property),
         }
     }
-    format.default_highlight = tag == "mark" && !highlight_given;
+    format.default_highlight = tag == "mark" && !format.highlight_given;
     format
 }
 
 impl SpanFormat {
+    /// A highlight colour given outright (`<mark data-color>`, Tiptap's
+    /// `highlight` mark), over any background. False when `value` is not a
+    /// colour, for the caller to report.
+    pub(crate) fn highlight(&mut self, value: &str) -> bool {
+        match css_color(value) {
+            Some(color) => {
+                self.style.highlight = color;
+                self.highlight_given = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub(crate) fn highlight_given(&self) -> bool {
+        self.highlight_given
+    }
+
+    /// Apply a `color`, `background(-color)`, `font-family` or `font-size`
+    /// declaration. False when the property is another or its value cannot
+    /// be read, for the caller to report.
+    pub(crate) fn declare(&mut self, property: &str, value: &str) -> bool {
+        match property {
+            "color" => match css_color(value) {
+                Some(Some(color)) => {
+                    self.style.color = Some(color);
+                    true
+                }
+                Some(None) => true,
+                None => false,
+            },
+            "background-color" | "background" => match css_color(value) {
+                Some(color) => {
+                    if !self.highlight_given {
+                        self.style.highlight = color;
+                    }
+                    self.highlight_given = true;
+                    true
+                }
+                None => false,
+            },
+            "font-family" => {
+                self.style.font = first_family(value).or(self.style.font.take());
+                true
+            }
+            "font-size" => match css_pixels(value) {
+                Some(px) => {
+                    self.style.size = Some(half_points(px));
+                    true
+                }
+                None => false,
+            },
+            _ => false,
+        }
+    }
+
     /// `content` with this formatting applied.
     pub(crate) fn wrap(self, content: Vec<Inline>) -> Vec<Inline> {
         let mut content = content;
@@ -708,26 +746,19 @@ pub(crate) struct HtmlRow {
 
 impl Converter {
     fn note(&mut self, name: &str) {
-        if !self.unknown.iter().any(|u| u == name) {
-            self.unknown.push(name.to_string());
-        }
+        note_once(&mut self.unknown, name);
     }
 
     fn skip(&mut self, name: &str) -> bool {
         let Some(tag) = hidden_tag(name) else {
             return false;
         };
-        if !self.skipped.iter().any(|s| s == tag) {
-            self.skipped.push(tag.to_string());
-        }
+        note_once(&mut self.skipped, tag);
         true
     }
 
     fn note_style(&mut self, tag: &str, property: &str) {
-        let note = format!("{property} on <{tag}>");
-        if !self.styles.contains(&note) {
-            self.styles.push(note);
-        }
+        note_once(&mut self.styles, &format!("{property} on <{tag}>"));
     }
 
     fn block_align(
@@ -872,9 +903,7 @@ impl Converter {
                     };
                     let format = span_format(name, attrs);
                     for dropped in &format.dropped {
-                        if !self.styles.contains(dropped) {
-                            self.styles.push(dropped.clone());
-                        }
+                        note_once(&mut self.styles, dropped);
                     }
                     for inline in format.wrap(inline) {
                         match (out.last_mut(), inline) {
@@ -901,12 +930,7 @@ impl Converter {
                 .iter()
                 .all(|i| matches!(i, Inline::Text(t) if t.trim().is_empty()));
             if !blank {
-                let inlines = trim_inlines(inlines);
-                out.push(if plain {
-                    Block::Plain(inlines)
-                } else {
-                    Block::Paragraph(inlines)
-                });
+                out.push(paragraph(trim_inlines(inlines), plain));
             }
         };
         for node in nodes {
@@ -918,12 +942,7 @@ impl Converter {
                     && let Some(align) = image_align(attrs)
                 {
                     flush(self, &mut pending, &mut out);
-                    let picture = vec![self.image(attrs)];
-                    let block = if plain {
-                        Block::Plain(picture)
-                    } else {
-                        Block::Paragraph(picture)
-                    };
+                    let block = paragraph(vec![self.image(attrs)], plain);
                     out.extend(aligned(Some(align), vec![block]));
                     continue;
                 }
@@ -963,12 +982,7 @@ impl Converter {
                     let (align, inner) = if has_blocks {
                         (align, self.blocks(children, plain))
                     } else {
-                        let inlines = trim_inlines(self.inlines(children));
-                        let block = if plain {
-                            Block::Plain(inlines)
-                        } else {
-                            Block::Paragraph(inlines)
-                        };
+                        let block = paragraph(trim_inlines(self.inlines(children)), plain);
                         (self.picture_align(align, children), vec![block])
                     };
                     out.extend(aligned(align, inner));
@@ -1096,16 +1110,13 @@ impl Converter {
                 });
             }
         }
-        let tight = items
-            .iter()
-            .all(|item| !item.blocks.iter().any(|b| matches!(b, Block::Paragraph(_))));
         Block::List {
             start: ordered.then(|| {
                 attr(attrs, "start")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1)
             }),
-            tight,
+            tight: tight(&items),
             items,
         }
     }
