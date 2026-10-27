@@ -23,6 +23,14 @@ const readBytes = (path) => new Uint8Array(readFileSync(path));
 
 const isZip = (bytes) => bytes[0] === 0x50 && bytes[1] === 0x4b;
 
+// A 3×2 PNG at 150 dpi.
+const PNG = Uint8Array.from(
+  Buffer.from(
+    "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082",
+    "hex",
+  ),
+);
+
 test("every synthetic template converts the sample record of advice", () => {
   const markdown = readFileSync(join(templates, "record-of-advice.md"), "utf8");
   const names = readdirSync(join(templates, "v2")).filter((n) => n.endsWith(".docx"));
@@ -50,24 +58,18 @@ test("options are optional and the result is deterministic for a given time", ()
 });
 
 test("images come from memory", () => {
-  const png = Uint8Array.from(
-    Buffer.from(
-      "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082",
-      "hex",
-    ),
-  );
   const { report } = lib.fromMarkdown("![Chart](./img/chart.png)\n", {
-    images: { "img/chart.png": png },
+    images: { "img/chart.png": PNG },
   });
   assert.equal(report.counts.images, 1);
   assert.deepEqual(report.warnings, []);
   const byUrl = lib.fromMarkdown("![Chart](https://cdn.example/a/chart.png?v=2)\n", {
-    images: { "https://cdn.example/a/chart.png?v=2": png },
+    images: { "https://cdn.example/a/chart.png?v=2": PNG },
   }).report;
   assert.equal(byUrl.counts.images, 1);
   // A key without an extension still gives the part one (Word refuses
   // a media part without a content type).
-  const { docx } = lib.fromMarkdown("![Chart](img-123)\n", { images: { "img-123": png } });
+  const { docx } = lib.fromMarkdown("![Chart](img-123)\n", { images: { "img-123": PNG } });
   assert.ok(Buffer.from(docx).includes("word/media/image1.png"));
   assert.ok(!Buffer.from(docx).includes("word/media/image1.\u0000"));
   assert.deepEqual(byUrl.warnings, []);
@@ -118,13 +120,6 @@ test("the starter reference document round-trips", () => {
   assert.equal(report.styles.code_block.name, "Source Code");
   assert.match(lib.version(), /^\d+\.\d+\.\d+/);
 });
-
-const PNG = Uint8Array.from(
-  Buffer.from(
-    "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082",
-    "hex",
-  ),
-);
 
 const LOGO = { "https://store.example/logo.png?token=t": PNG };
 // A source one byte over the serverless budget (384 KiB).
@@ -229,22 +224,17 @@ test("inspectReference reports the section, lifted branding and problems", () =>
   assert.ok(legacy.problems.some((p) => p.code === "old_compatibility_mode"));
 });
 
-test("the contents shows computed page numbers unless tocNumbers is false", () => {
+// The page numbers and entries themselves are proved natively
+// (crates/docrs/tests/markdown.rs); here only the report crosses the boundary.
+test("the contents report shows computed page numbers unless tocNumbers is false", () => {
   const markdown = "# One\n\nText.\n\n\\newpage\n\n# Two\n\n\\newpage\n\n\\newpage\n\n# Three\n";
-  const { docx, report } = lib.fromMarkdown(markdown, { toc: true });
-  const xml = documentXml(docx);
-  // Contents on page 1, One on 2, Two on 3, Three on 5.
-  const numbers = [...xml.matchAll(/ PAGEREF (\w+) \\h <\/w:instrText>.*?<w:t>(\d+)<\/w:t>/g)].map((m) => [m[1], m[2]]);
-  assert.deepEqual(numbers, [["one", "2"], ["two", "3"], ["three", "5"]]);
+  const { report } = lib.fromMarkdown(markdown, { toc: true });
   assert.deepEqual(report.toc, { entries: 3, pages: 5, missing_fonts: [], embedded_fonts: [] });
-  const plain = lib.fromMarkdown(markdown, { toc: true, tocNumbers: false });
-  assert.ok(!documentXml(plain.docx).includes("PAGEREF"));
-  assert.equal(plain.report.toc, null);
+  assert.equal(lib.fromMarkdown(markdown, { toc: true, tocNumbers: false }).report.toc, null);
 });
 
 test("headings without text get no contents entry", () => {
-  const { docx, report } = lib.fromHtml("<h2>A</h2><p>x</p><h1></h1><h2>B</h2><p>y</p>", { toc: true });
-  assert.equal((documentXml(docx).match(/ PAGEREF /g) ?? []).length, 2);
+  const { report } = lib.fromHtml("<h2>A</h2><p>x</p><h1></h1><h2>B</h2><p>y</p>", { toc: true });
   assert.equal(report.toc.entries, 2);
 });
 
