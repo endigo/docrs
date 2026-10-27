@@ -41,7 +41,7 @@ pub mod ct {
     pub const OPC_CORE_PROPERTIES: &str =
         "application/vnd.openxmlformats-package.core-properties+xml";
     /// Relationships.
-    pub const OPC_RELATIONSHIPS: &str = "application/vnd.openxmlformats-package.relationships+xml";
+    pub const OPC_RELATIONSHIPS: &str = super::rels::RELS_CONTENT_TYPE;
     /// Styles.
     pub const WML_STYLES: &str =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml";

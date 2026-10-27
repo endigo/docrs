@@ -16,6 +16,8 @@
 //! to a different URI is therefore a change, and two prefixes bound to the
 //! same URI are equal.
 
+use std::borrow::Cow;
+
 use super::tree::{NodeData, NodeId, XmlTree};
 use super::{MC_NS, XSI_NS};
 
@@ -102,13 +104,13 @@ fn doc_level(tree: &XmlTree) -> (Vec<DocNode<'_>>, Vec<DocNode<'_>>) {
     (prolog, epilog)
 }
 
-enum Child {
-    Text(String),
+enum Child<'a> {
+    Text(Cow<'a, str>),
     Node(NodeId),
 }
 
-fn normalized_children(tree: &XmlTree, id: NodeId) -> Vec<Child> {
-    let mut out: Vec<Child> = Vec::new();
+fn normalized_children(tree: &XmlTree, id: NodeId) -> Vec<Child<'_>> {
+    let mut out: Vec<Child<'_>> = Vec::new();
     for child in tree.children(id) {
         match tree.data(*child) {
             NodeData::Text(text) => {
@@ -116,9 +118,9 @@ fn normalized_children(tree: &XmlTree, id: NodeId) -> Vec<Child> {
                     continue;
                 }
                 if let Some(Child::Text(existing)) = out.last_mut() {
-                    existing.push_str(text);
+                    existing.to_mut().push_str(text);
                 } else {
-                    out.push(Child::Text(text.clone()));
+                    out.push(Child::Text(Cow::Borrowed(text)));
                 }
             }
             _ => out.push(Child::Node(*child)),

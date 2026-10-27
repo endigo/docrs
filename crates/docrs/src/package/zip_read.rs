@@ -258,24 +258,7 @@ fn read_archive_keeping(
 
 /// End-record discovery and central-directory envelope checks.
 fn preflight(archive: &[u8], limits: &Limits) -> Result<(u64, u64, u64)> {
-    let archive_size = archive.len();
-    let tail_size = archive_size.min(END_RECORD_SIZE + MAX_END_COMMENT);
-    let tail_start = archive_size - tail_size;
-    let tail = &archive[tail_start..];
-
-    let mut candidates = Vec::new();
-    let mut cursor = 0;
-    while let Some(found) = find(&tail[cursor..], SIG_END) {
-        let index = cursor + found;
-        cursor = index + 1;
-        if index + END_RECORD_SIZE > tail.len() {
-            continue;
-        }
-        let comment_length = u16_at(tail, index + 20) as usize;
-        if index + END_RECORD_SIZE + comment_length == tail.len() {
-            candidates.push(tail_start + index);
-        }
-    }
+    let candidates = end_record_offsets(archive);
     if candidates.is_empty() {
         return Err(malformed(
             "zip_missing_end_record",
@@ -833,7 +816,7 @@ fn read_members(
     }
 
     let mut actual_total: u64 = 0;
-    let mut inflated: Vec<Option<Vec<u8>>> = vec![None; members.len()];
+    let mut inflated: Vec<Vec<u8>> = vec![Vec::new(); members.len()];
     let content_types = members
         .iter()
         .position(|entry| entry.name == CONTENT_TYPES_NAME);
@@ -842,7 +825,9 @@ fn read_members(
         let start = validate_local_header(archive, entry, boundaries[&entry.header_offset])?;
         let data = inflate_member(archive, entry, start, limits, &mut actual_total)?;
         parse_content_types(&data)?;
-        inflated[index] = Some(if keep { data } else { Vec::new() });
+        if keep {
+            inflated[index] = data;
+        }
     }
     for (index, entry) in members.iter().enumerate() {
         if Some(index) == content_types {
@@ -850,14 +835,16 @@ fn read_members(
         }
         let start = validate_local_header(archive, entry, boundaries[&entry.header_offset])?;
         let data = inflate_member(archive, entry, start, limits, &mut actual_total)?;
-        inflated[index] = Some(if keep { data } else { Vec::new() });
+        if keep {
+            inflated[index] = data;
+        }
     }
     Ok(members
         .iter()
         .zip(inflated)
         .map(|(entry, data)| ZipMember {
             name: entry.name.clone(),
-            data: data.unwrap_or_default(),
+            data,
         })
         .collect())
 }
@@ -1099,20 +1086,31 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+/// Offsets of every end record whose comment length reaches exactly to the
+/// end of the file, scanning the last `END_RECORD_SIZE + MAX_END_COMMENT`
+/// bytes in order.
+fn end_record_offsets(archive: &[u8]) -> Vec<usize> {
+    let tail_size = archive.len().min(END_RECORD_SIZE + MAX_END_COMMENT);
+    let tail_start = archive.len() - tail_size;
+    let tail = &archive[tail_start..];
+    let mut offsets = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = find(&tail[cursor..], SIG_END) {
+        let index = cursor + found;
+        cursor = index + 1;
+        if index + END_RECORD_SIZE > tail.len() {
+            continue;
+        }
+        let comment_length = u16_at(tail, index + 20) as usize;
+        if index + END_RECORD_SIZE + comment_length == tail.len() {
+            offsets.push(tail_start + index);
+        }
+    }
+    offsets
+}
+
 /// True when the file ends with a structurally plausible end record (used by
 /// diagnosis to tell a prefixed archive from a non-ZIP).
 pub fn has_end_record(archive: &[u8]) -> bool {
-    let window = archive.len().min(END_RECORD_SIZE + MAX_END_COMMENT);
-    let tail = &archive[archive.len() - window..];
-    let mut end = tail.len();
-    while let Some(index) = tail[..end].windows(4).rposition(|w| w == SIG_END) {
-        if index + END_RECORD_SIZE <= tail.len() {
-            let comment = u16_at(tail, index + 20) as usize;
-            if index + END_RECORD_SIZE + comment == tail.len() {
-                return true;
-            }
-        }
-        end = index + 3;
-    }
-    false
+    !end_record_offsets(archive).is_empty()
 }
