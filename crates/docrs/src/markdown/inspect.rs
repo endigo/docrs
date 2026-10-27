@@ -81,8 +81,8 @@ fn story_summary(tree: &XmlTree) -> Value {
     })
 }
 
-/// The header and footer of each type the section shows (its own, or
-/// inherited from an earlier section), summarised.
+/// The header and footer of each type the output's section shows (the
+/// template's page 1 on page 1, its body pages' after), summarised.
 fn headers_footers(txn: &Txn<'_>, main: &str) -> Result<Value> {
     let mut out = json!({ "header": {}, "footer": {} });
     for story in stories(txn, main)? {
@@ -136,13 +136,12 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
             let margin = |side: &str| twips(tree, pg_mar, side);
             let left = margin("left").filter(|v| *v != 0).unwrap_or(1440);
             let right = margin("right").filter(|v| *v != 0).unwrap_or(1440);
-            let title_page = w_child(tree, *last, "titlePg")
-                .is_some_and(|t| !matches!(w_attr(tree, t, "val"), Some("0" | "false" | "off")));
+            let title_page = super::stories::output_section(tree)?.title_page;
             if sections.len() > 1 {
                 problem(
                     "multiple_sections",
                     format!(
-                        "The template has {} sections. The output keeps only the last one's page setup, headers and footers (headers it inherits from earlier sections are kept too); the earlier sections' layout is dropped with the sample content.",
+                        "The template has {} sections. The output keeps the last one's page setup; its page 1 shows the first section's page 1 header and footer and its other pages the last section's, inherited from earlier sections where it lacks them. The earlier sections' layout is dropped with the sample content.",
                         sections.len()
                     ),
                 );

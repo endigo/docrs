@@ -453,6 +453,47 @@ impl Resolver {
         }
     }
 
+    /// Reads the sample once and names the styles part.
+    fn prepare(&mut self, txn: &mut Txn<'_>) -> Result<String> {
+        if self.sample.is_none() {
+            self.sample = Some(Sample::read(txn)?);
+        }
+        if let Some(part) = &self.part {
+            return Ok(part.clone());
+        }
+        let part = crate::parts::ensure_styles_part(txn)?;
+        self.part = Some(part.clone());
+        Ok(part)
+    }
+
+    /// Gives a `List Bullet` or `List Number` style (`id`) the template
+    /// never writes text in the font and size of the template's own
+    /// bulleted (`bullets`) or numbered sample paragraphs, which sit in
+    /// another style, so the exported list looks like the template's.
+    pub(crate) fn restyle_list(
+        &mut self,
+        txn: &mut Txn<'_>,
+        id: &str,
+        bullets: bool,
+    ) -> Result<()> {
+        if self.prefer_own {
+            return Ok(());
+        }
+        let part = self.prepare(txn)?;
+        let sample = self.sample.as_ref().expect("sample read above");
+        if sample.text_styles.contains(&Some(id.to_string())) {
+            return Ok(());
+        }
+        let Some(look) = sample.list_looks.get(&bullets) else {
+            return Ok(());
+        };
+        let styles = txn.tree(&part)?;
+        if *look == run_look(&rpr_layers(styles, style_by_id(styles, id))).xml() {
+            return Ok(());
+        }
+        restyle(txn, &part, id, look)
+    }
+
     /// Style id for `role` (`None`: the default style, or a role left
     /// missing under the strict policy — the conversion then refuses).
     pub(crate) fn id(&mut self, txn: &mut Txn<'_>, role: Role) -> Result<Option<String>> {
@@ -471,17 +512,7 @@ impl Resolver {
             self.id(txn, Role::Compact)?;
             self.id(txn, Role::Table)?;
         }
-        if self.sample.is_none() {
-            self.sample = Some(Sample::read(txn)?);
-        }
-        let part = match &self.part {
-            Some(part) => part.clone(),
-            None => {
-                let part = crate::parts::ensure_styles_part(txn)?;
-                self.part = Some(part.clone());
-                part
-            }
-        };
+        let part = self.prepare(txn)?;
         let style = {
             let tree = txn.tree(&part)?;
             let default = default_style(tree, Kind::Paragraph);
@@ -721,7 +752,10 @@ impl Resolver {
         if !style.created && !self.prefer_own {
             let sample = self.sample.as_ref().expect("sample read above");
             let look = match role.heading_level() {
-                Some(level) => sample.heading_looks.get(&level).cloned(),
+                Some(level) => sample.heading_looks.get(&level).cloned().or_else(|| {
+                    let id = style.style_id.as_deref()?;
+                    sample.heading_font_to_follow(txn.tree(&part).ok()?, level, id)
+                }),
                 None if role.falls_back_to_default() => {
                     self.body_role_look(txn.tree(&part)?, role, &style)
                 }
@@ -902,6 +936,19 @@ impl Spacing {
     }
 }
 
+/// A style and the styles it is based on, nearest first.
+fn style_chain(styles: &XmlTree, style: Option<NodeId>) -> Vec<NodeId> {
+    let mut chain = Vec::new();
+    let mut current = style;
+    while let Some(node) = current.filter(|node| !chain.contains(node)) {
+        chain.push(node);
+        current = w_child(styles, node, "basedOn")
+            .and_then(|b| w_attr(styles, b, "val"))
+            .and_then(|id| style_by_id(styles, id));
+    }
+    chain
+}
+
 /// The spacing a paragraph style gives: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
 fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
@@ -913,21 +960,90 @@ fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
             .and_then(|d| w_child(styles, d, "pPr"))
             .and_then(|p| w_child(styles, p, "spacing")),
     );
-    let mut chain = Vec::new();
-    let mut current = style;
-    while let Some(node) = current.filter(|node| !chain.contains(node)) {
-        chain.push(node);
-        current = w_child(styles, node, "basedOn")
-            .and_then(|b| w_attr(styles, b, "val"))
-            .and_then(|id| style_by_id(styles, id));
-    }
-    for node in chain.into_iter().rev() {
+    for node in style_chain(styles, style).into_iter().rev() {
         spacing.apply(
             styles,
             w_child(styles, node, "pPr").and_then(|p| w_child(styles, p, "spacing")),
         );
     }
     spacing
+}
+
+/// A font a run property names: by name, or through the theme.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Font {
+    Named(String),
+    Theme(String),
+}
+
+/// The font and size a paragraph's text resolves to.
+struct RunLook {
+    ascii: Option<Font>,
+    hansi: Option<Font>,
+    size: Option<String>,
+}
+
+impl RunLook {
+    /// `w:rFonts` and `w:sz` for this look; empty when nothing is set.
+    fn xml(&self) -> String {
+        let mut attrs = String::new();
+        for (slot, font) in [("ascii", &self.ascii), ("hAnsi", &self.hansi)] {
+            match font {
+                Some(Font::Named(name)) => {
+                    attrs.push_str(&format!(" w:{slot}=\"{}\"", xml_escape(name)));
+                }
+                Some(Font::Theme(theme)) => {
+                    attrs.push_str(&format!(" w:{slot}Theme=\"{}\"", xml_escape(theme)));
+                }
+                None => {}
+            }
+        }
+        let mut out = String::new();
+        if !attrs.is_empty() {
+            out.push_str(&format!("<w:rFonts{attrs}/>"));
+        }
+        if let Some(size) = &self.size {
+            out.push_str(&format!("<w:sz w:val=\"{}\"/>", xml_escape(size)));
+        }
+        out
+    }
+}
+
+/// The run properties a paragraph style gives, nearest first: the style's
+/// own, each style it is based on, then the document defaults.
+fn rpr_layers(styles: &XmlTree, style: Option<NodeId>) -> Vec<(&XmlTree, NodeId)> {
+    style_chain(styles, style)
+        .into_iter()
+        .filter_map(|node| w_child(styles, node, "rPr"))
+        .chain(
+            w_child(styles, styles.root(), "docDefaults")
+                .and_then(|d| w_child(styles, d, "rPrDefault"))
+                .and_then(|d| w_child(styles, d, "rPr")),
+        )
+        .map(|rpr| (styles, rpr))
+        .collect()
+}
+
+/// The font and size `layers` of run properties resolve to, nearest first,
+/// as Word does: each font slot from the nearest `w:rFonts` that sets it,
+/// where a theme attribute beats the name on the same element.
+fn run_look(layers: &[(&XmlTree, NodeId)]) -> RunLook {
+    let font = |slot: &str| {
+        let theme = format!("{slot}Theme");
+        layers.iter().find_map(|(tree, rpr)| {
+            let fonts = w_child(tree, *rpr, "rFonts")?;
+            w_attr(tree, fonts, &theme)
+                .map(|value| Font::Theme(value.to_string()))
+                .or_else(|| w_attr(tree, fonts, slot).map(|name| Font::Named(name.to_string())))
+        })
+    };
+    RunLook {
+        ascii: font("ascii"),
+        hansi: font("hAnsi"),
+        size: layers.iter().find_map(|(tree, rpr)| {
+            w_child(tree, *rpr, "sz").and_then(|sz| w_attr(tree, sz, "val").map(str::to_string))
+        }),
+    }
 }
 
 /// Writes `spacing` into the style's paragraph properties in full, so no
@@ -937,7 +1053,7 @@ fn respace(txn: &mut Txn<'_>, part: &str, id: &str, spacing: &Spacing) -> Result
     let Some(style) = style_by_id(tree, id) else {
         return Ok(());
     };
-    let ppr = crate::oxml::get_or_add(tree, style, "pPr", STYLE_SEQ)?;
+    let ppr = crate::oxml::get_or_add(tree, style, "pPr", crate::authoring::STYLE_SEQ)?;
     if let Some(old) = w_child(tree, ppr, "spacing") {
         crate::authoring::remove(tree, old)?;
     }
@@ -977,38 +1093,12 @@ fn plurality<T: PartialEq + Clone>(values: impl Iterator<Item = (T, usize)>) -> 
     }
 }
 
-/// `CT_Style` child order.
-const STYLE_SEQ: &[&str] = &[
-    "name",
-    "aliases",
-    "basedOn",
-    "next",
-    "link",
-    "autoRedefine",
-    "hidden",
-    "uiPriority",
-    "semiHidden",
-    "unhideWhenUsed",
-    "qFormat",
-    "locked",
-    "personal",
-    "personalCompose",
-    "personalReply",
-    "rsid",
-    "pPr",
-    "rPr",
-    "tblPr",
-    "trPr",
-    "tcPr",
-    "tblStylePr",
-];
-
 fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
     let tree = txn.tree_mut(part)?;
     let Some(style) = style_by_id(tree, id) else {
         return Ok(());
     };
-    let rpr = crate::oxml::get_or_add(tree, style, "rPr", STYLE_SEQ)?;
+    let rpr = crate::oxml::get_or_add(tree, style, "rPr", crate::authoring::STYLE_SEQ)?;
     let wrapper = import_fragment(tree, rpr, &format!("<w:rPr xmlns:w=\"{W}\">{look}</w:rPr>"))?;
     for child in tree.child_elements(wrapper).collect::<Vec<_>>() {
         let local = tree.local_name(child).unwrap_or("").to_string();
@@ -1026,18 +1116,16 @@ fn restyle(txn: &mut Txn<'_>, part: &str, id: &str, look: &str) -> Result<()> {
         let old = w_child(tree, rpr, &local);
         // The sample's attributes override the style's one by one; the rest
         // stay. A font or colour set by name drops the theme attribute Word
-        // would otherwise prefer, and the other way round, unless the sample
-        // sets both.
+        // would otherwise prefer, and the other way round, short of what the
+        // sample sets itself.
         if let (Some(old), false) = (old, attrs.is_empty()) {
-            for (name, value) in &attrs {
-                tree.set_attr(old, Some(W), name, value)?;
-            }
             for (name, _) in &attrs {
                 for shadowed in shadowed_by(&local, name) {
-                    if !attrs.iter().any(|(set, _)| set == shadowed) {
-                        tree.remove_attr(old, Some(W), shadowed);
-                    }
+                    tree.remove_attr(old, Some(W), shadowed);
                 }
+            }
+            for (name, value) in &attrs {
+                tree.set_attr(old, Some(W), name, value)?;
             }
             tree.detach(child)?;
             continue;
@@ -1120,6 +1208,11 @@ pub(crate) struct Sample {
     body_spacings: BTreeMap<Option<String>, Vec<(Spacing, usize)>>,
     /// Styles of the top-level paragraphs that carry text, prose or not.
     text_styles: BTreeSet<Option<String>>,
+    /// The font and size, as Word resolves them, carrying the most
+    /// characters of the bulleted (`true`) and numbered sample paragraphs.
+    list_looks: BTreeMap<bool, String>,
+    /// Heading styles by id: named `heading N` or carrying an outline level.
+    heading_styles: BTreeMap<String, u8>,
     table_style: Option<String>,
     table: Option<Lifted>,
     table_look: Vec<(String, bool)>,
@@ -1172,16 +1265,14 @@ fn ordered_w_children(tree: &XmlTree, node: NodeId) -> Vec<NodeId> {
     children
 }
 
-/// The `w:` children of `node` named in `keep` and not in `skip`, as
+/// The `w:` children of `node` that `admit` lets through, as
 /// WordprocessingML in schema order.
-fn w_xml(tree: &XmlTree, node: NodeId, keep: Option<&[&str]>, skip: &[&str]) -> String {
+fn w_xml(tree: &XmlTree, node: NodeId, admit: impl Fn(&str) -> bool) -> String {
     let mut out = String::new();
     for child in ordered_w_children(tree, node) {
-        let local = tree.local_name(child).unwrap_or("");
-        if keep.is_some_and(|keep| !keep.contains(&local)) || skip.contains(&local) {
-            continue;
+        if admit(tree.local_name(child).unwrap_or("")) {
+            write_w(tree, child, &mut out);
         }
-        write_w(tree, child, &mut out);
     }
     out
 }
@@ -1230,7 +1321,9 @@ const LOOK_RPR: &[&str] = &[
 const EMPHASIS_RPR: &[&str] = &["b", "bCs", "i", "iCs", "u"];
 
 fn look_rpr(tree: &XmlTree, rpr: NodeId, skip: &[&str]) -> Option<String> {
-    let out = w_xml(tree, rpr, Some(LOOK_RPR), skip);
+    let out = w_xml(tree, rpr, |local| {
+        LOOK_RPR.contains(&local) && !skip.contains(&local)
+    });
     (!out.is_empty()).then_some(out)
 }
 
@@ -1261,18 +1354,47 @@ fn describe_rpr(rpr: &str) -> Value {
 }
 
 impl Sample {
-    /// Whether the template writes no text in this style while its prose is
-    /// elsewhere: in the default style, or, for a First Paragraph, in any
-    /// style at all.
+    /// Whether the template writes no prose in this style while its prose
+    /// is elsewhere: in the default style, or, for a First Paragraph, in
+    /// any style at all. Only prose counts as use: templates built from
+    /// Pandoc's sample reference carry one short line per style ("First
+    /// Paragraph."), a label rather than use, and a Body Text holding only
+    /// the steps of a closing section is not the body.
     fn unused(&self, name: &str, id: &str) -> bool {
-        if self.text_styles.contains(&Some(id.to_string())) {
-            return false;
-        }
-        if name.eq_ignore_ascii_case("First Paragraph") {
+        let elsewhere = if name.eq_ignore_ascii_case("First Paragraph") {
             !self.body_spacings.is_empty()
         } else {
             self.body_spacings.contains_key(&None)
+        };
+        elsewhere && !self.body_spacings.contains_key(&Some(id.to_string()))
+    }
+
+    /// The font an unused heading style still on the theme's font follows:
+    /// the one the practice set by name on the nearest higher level it does
+    /// use. A heading the template uses, or one with a named font anywhere
+    /// in its chain, is left as it is.
+    fn heading_font_to_follow(&self, styles: &XmlTree, level: u8, id: &str) -> Option<String> {
+        let used = |id: &str| self.text_styles.contains(&Some(id.to_string()));
+        let look = |id: &str| run_look(&rpr_layers(styles, style_by_id(styles, id)));
+        if used(id) || !matches!(look(id).ascii, Some(Font::Theme(_))) {
+            return None;
         }
+        let above = (1..level).rev().find_map(|above| {
+            self.heading_styles
+                .iter()
+                .find(|(id, l)| **l == above && used(id))
+                .map(|(id, _)| id.as_str())
+        })?;
+        let named = |font: Option<Font>| font.filter(|font| matches!(font, Font::Named(_)));
+        let above = look(above);
+        Some(
+            RunLook {
+                ascii: Some(named(above.ascii)?),
+                hansi: named(above.hansi),
+                size: None,
+            }
+            .xml(),
+        )
     }
 
     /// The spacing the body style takes from the prose, the unstyled
@@ -1352,13 +1474,15 @@ impl Sample {
         let mut body_runs: BTreeMap<Option<String>, Vec<(String, usize)>> = BTreeMap::new();
         let mut default_style: Option<String> = None;
         let mut tables: Vec<SampleTable> = Vec::new();
-        let mut heading_styles: BTreeMap<String, u8> = BTreeMap::new();
-        let styles_tree = match package
-            .part_related_by(package.main_part_name(), crate::package::rels::rt::STYLES)?
-        {
-            Some(name) => Some(package.xml(&name)?),
-            None => None,
+        let mut list_runs: BTreeMap<bool, Vec<(String, usize)>> = BTreeMap::new();
+        let related = |rel_type: &str| -> Result<Option<&XmlTree>> {
+            match package.part_related_by(package.main_part_name(), rel_type)? {
+                Some(name) => Ok(Some(package.xml(&name)?)),
+                None => Ok(None),
+            }
         };
+        let styles_tree = related(crate::package::rels::rt::STYLES)?;
+        let numbering_tree = related(crate::package::rels::rt::NUMBERING)?;
         if let Some(styles) = styles_tree {
             for style in w_children(styles, styles.root(), "style") {
                 let Some(id) = w_attr(styles, style, "styleId") else {
@@ -1383,7 +1507,7 @@ impl Sample {
                     .filter(|level| *level < 9)
                     .map(|level| level + 1);
                 if let Some(level) = by_name.or(by_outline).filter(|l| (1..=9).contains(l)) {
-                    heading_styles.insert(id.to_string(), level);
+                    sample.heading_styles.insert(id.to_string(), level);
                 }
             }
         }
@@ -1419,7 +1543,7 @@ impl Sample {
             let heading_level = ppr
                 .and_then(|p| w_child(tree, p, "pStyle"))
                 .and_then(|s| w_attr(tree, s, "val"))
-                .and_then(|id| heading_styles.get(id).copied());
+                .and_then(|id| sample.heading_styles.get(id).copied());
             if let (Some(level), true) = (heading_level, outline.is_none()) {
                 if first_run.is_some() {
                     heading_runs.entry(level).or_default().push(
@@ -1430,17 +1554,45 @@ impl Sample {
                 }
                 continue;
             }
+            if listed && outline.is_none() && first_run.is_some() {
+                let num_pr = ppr.and_then(|p| w_child(tree, p, "numPr"));
+                let value = |local: &str| {
+                    num_pr
+                        .and_then(|n| w_child(tree, n, local))
+                        .and_then(|v| w_attr(tree, v, "val"))
+                        .and_then(|v| v.parse::<i64>().ok())
+                };
+                if let (Some(styles), Some(numbering)) = (styles_tree, numbering_tree)
+                    && let Some(num_id) = value("numId").filter(|n| *n != 0)
+                    && let Some(format) =
+                        super::render::level_format(numbering, num_id, value("ilvl").unwrap_or(0))
+                    && format != "none"
+                {
+                    let style = style_id
+                        .as_deref()
+                        .or(default_style.as_deref())
+                        .and_then(|id| style_by_id(styles, id));
+                    let mut layers: Vec<(&XmlTree, NodeId)> =
+                        first_rpr.map(|rpr| (tree, rpr)).into_iter().collect();
+                    layers.extend(rpr_layers(styles, style));
+                    list_runs
+                        .entry(format == "bullet")
+                        .or_default()
+                        .push((run_look(&layers).xml(), chars));
+                }
+                continue;
+            }
             match outline {
                 Some(level) if level < 9 => {
                     sample.headings.entry(level + 1).or_insert_with(|| Lifted {
                         ppr: ppr
                             .map(|p| {
-                                w_xml(
-                                    tree,
-                                    p,
-                                    None,
-                                    &["pStyle", "numPr", "rPr", "sectPr", "pPrChange"],
-                                )
+                                w_xml(tree, p, |local| {
+                                    !matches!(
+                                        local,
+                                        "pStyle" | "numPr" | "rPr" | "sectPr" | "pPrChange"
+                                    )
+                                })
                             })
                             .unwrap_or_default(),
                         rpr: first_rpr
@@ -1527,6 +1679,11 @@ impl Sample {
                 sample.body_looks.insert(style, look);
             }
         }
+        for (bullets, runs) in list_runs {
+            if let Some(look) = plurality(runs.into_iter()).filter(|look| !look.is_empty()) {
+                sample.list_looks.insert(bullets, look);
+            }
+        }
         Ok(sample)
     }
 }
@@ -1597,7 +1754,7 @@ fn row_look(tree: &XmlTree, tr: NodeId) -> (String, String) {
 /// emphasis of the first run (the paragraph mark's when the cell is empty).
 fn cell_look(tree: &XmlTree, tc: NodeId) -> (String, String) {
     let cell = w_child(tree, tc, "tcPr")
-        .map(|tc_pr| w_xml(tree, tc_pr, Some(LOOK_TCPR), &[]))
+        .map(|tc_pr| w_xml(tree, tc_pr, |local| LOOK_TCPR.contains(&local)))
         .unwrap_or_default();
     let paragraphs: Vec<NodeId> = w_children(tree, tc, "p").collect();
     let run = paragraphs
@@ -1653,7 +1810,7 @@ fn read_table(tree: &XmlTree, tbl: NodeId) -> SampleTable {
         .and_then(|s| w_attr(tree, s, "val"))
         .map(str::to_string);
     let props = tbl_pr
-        .map(|tbl_pr| w_xml(tree, tbl_pr, Some(LOOK_TBLPR), &[]))
+        .map(|tbl_pr| w_xml(tree, tbl_pr, |local| LOOK_TBLPR.contains(&local)))
         .unwrap_or_default();
     let rows: Vec<NodeId> = w_children(tree, tbl, "tr").collect();
     let header = rows
@@ -1736,11 +1893,12 @@ fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
     if sides.is_empty() {
         return String::new();
     }
-    // CT_TblBorders order.
-    let order = [
-        "top", "left", "start", "bottom", "right", "end", "insideH", "insideV",
-    ];
-    sides.sort_by_key(|(side, _)| order.iter().position(|o| o == side).unwrap_or(order.len()));
+    sides.sort_by_key(|(side, _)| {
+        BORDERS_SEQ
+            .iter()
+            .position(|o| o == side)
+            .unwrap_or(BORDERS_SEQ.len())
+    });
     let mut out = String::from("<w:tblBorders>");
     for (side, attrs) in sides {
         out.push_str(&format!("<w:{side} {attrs}/>"));

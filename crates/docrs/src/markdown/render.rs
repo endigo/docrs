@@ -350,9 +350,9 @@ pub(crate) fn render(
         let blank_first_page = blank_first_page(tree, body_node);
         let anchor = match &options.placement {
             Placement::ReplaceBody => {
-                let inherited = inherited_references(tree)?;
+                let section = super::stories::output_section(tree)?;
                 clear_except(tree, body_node, "sectPr")?;
-                adopt_references(tree, body_node, &inherited)?;
+                set_references(tree, body_node, &section)?;
                 Anchor::End
             }
             Placement::Append => Anchor::End,
@@ -956,28 +956,42 @@ fn effective_spacing(styles: &XmlTree, style_id: Option<&str>) -> (Option<i64>, 
     )
 }
 
-/// Header and footer references the final section inherits from earlier
-/// sections (Word reuses the previous section's header of a type the
-/// section does not define): `(element, type, relationship id)`.
-pub(crate) fn inherited_references(tree: &XmlTree) -> Result<Vec<(&'static str, String, String)>> {
-    Ok(super::stories::effective_references(tree)?
-        .into_iter()
-        .filter(|(_, _, _, inherited)| *inherited)
-        .map(|(local, kind, r_id, _)| (local, kind, r_id))
-        .collect())
-}
-
-/// Write `references` into the body's final section properties, ahead of
-/// its other children.
-fn adopt_references(
+/// Writes what the output's section shows into the body's final section
+/// properties: the header and footer references it lacks are added ahead
+/// of its other children, those it does not show removed, and its distinct
+/// first page turned on or off.
+fn set_references(
     tree: &mut XmlTree,
     body_node: NodeId,
-    references: &[(&'static str, String, String)],
+    section: &super::stories::OutputSection,
 ) -> Result<()> {
     let Some(sect_pr) = w_child(tree, body_node, "sectPr") else {
         return Ok(());
     };
-    for (local, kind, r_id) in references {
+    let wanted: Vec<(&str, &str, &str)> = section
+        .references
+        .iter()
+        .map(|r| (r.element, r.kind.as_str(), r.r_id.as_str()))
+        .collect();
+    let mut kept: Vec<(&str, String, String)> = Vec::new();
+    for local in ["headerReference", "footerReference"] {
+        for node in w_children(tree, sect_pr, local).collect::<Vec<_>>() {
+            let kind = w_attr(tree, node, "type").unwrap_or("default").to_string();
+            let r_id = tree.attr(node, Some(R), "id").unwrap_or("").to_string();
+            if wanted.contains(&(local, kind.as_str(), r_id.as_str())) {
+                kept.push((local, kind, r_id));
+            } else {
+                crate::authoring::remove(tree, node)?;
+            }
+        }
+    }
+    for (local, kind, r_id) in wanted {
+        if kept
+            .iter()
+            .any(|(l, k, r)| (*l, k.as_str(), r.as_str()) == (local, kind, r_id))
+        {
+            continue;
+        }
         let reference = w_el(tree, sect_pr, local)?;
         set_w(tree, reference, "type", kind)?;
         tree.set_attr(reference, Some(R), "id", r_id)?;
@@ -990,6 +1004,16 @@ fn adopt_references(
             })
             .unwrap_or(tree.children(sect_pr).len());
         tree.insert(sect_pr, position, reference)?;
+    }
+    match (section.title_page, w_child(tree, sect_pr, "titlePg")) {
+        (true, None) => {
+            crate::oxml::get_or_add(tree, sect_pr, "titlePg", crate::authoring::SECT_PR_SEQ)?;
+        }
+        (true, Some(title_pg)) => {
+            tree.remove_attr(title_pg, Some(W), "val");
+        }
+        (false, Some(title_pg)) => crate::authoring::remove(tree, title_pg)?,
+        (false, None) => {}
     }
     Ok(())
 }
@@ -1023,7 +1047,8 @@ fn blank_first_page(tree: &XmlTree, body_node: NodeId) -> bool {
     blank >= 8
 }
 
-fn level_format(numbering: &XmlTree, num_id: i64, ilvl: i64) -> Option<String> {
+/// The `w:numFmt` of level `ilvl` of numbering instance `num_id`.
+pub(crate) fn level_format(numbering: &XmlTree, num_id: i64, ilvl: i64) -> Option<String> {
     let root = numbering.root();
     let int = |node: NodeId, name: &str| {
         w_attr(numbering, node, name).and_then(|v| v.parse::<i64>().ok())
@@ -2662,6 +2687,7 @@ impl<'p> Renderer<'_, '_, 'p> {
         // numbering), read from the document as opened, before the body was
         // replaced.
         let mut samples: Vec<(Option<String>, i64, i64)> = Vec::new();
+        let bound_styles: Vec<String>;
         {
             let tree = self.txn.tree(&styles_part)?;
             let paragraph_styles: Vec<NodeId> = w_children(tree, tree.root(), "style")
@@ -2743,6 +2769,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                     bound.insert(level, (Some(id.to_string()), num_id, ilvl));
                 }
             }
+            bound_styles = bound.values().filter_map(|(id, _, _)| id.clone()).collect();
             if bound.is_empty() {
                 // A sample list paragraph's style is taken only when it is a
                 // list style (it binds the numbering itself) or List
@@ -2925,10 +2952,14 @@ impl<'p> Renderer<'_, '_, 'p> {
                 }
             }
         }
-        Ok(Some(TemplateList {
+        let list = TemplateList {
             name: name.to_string(),
             levels,
-        }))
+        };
+        for id in &bound_styles {
+            self.styles.restyle_list(self.txn, id, bullets)?;
+        }
+        Ok(Some(list))
     }
 
     /// The abstract definition named `name`, added when missing.
@@ -4198,7 +4229,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn final_section_inherits_earlier_headers_it_lacks() {
+    fn the_output_section_shows_page_one_then_the_body_pages() {
+        // Section 1 (page 1): header rId1, footer rId2. The last section
+        // defines footer rId3 and inherits the header: page 1 differs from
+        // the body pages by its footer, so the section gets a distinct
+        // first page carrying page 1's header and footer.
         let xml = format!(
             "<w:document xmlns:w=\"{W}\" xmlns:r=\"{R}\"><w:body>\
              <w:p><w:pPr><w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId1\"/>\
@@ -4207,18 +4242,34 @@ mod tests {
              </w:body></w:document>"
         );
         let mut tree = crate::xml::parse_str(&xml).unwrap();
-        let inherited = inherited_references(&tree).unwrap();
+        let section = super::super::stories::output_section(&tree).unwrap();
+        assert!(section.title_page);
+        let mut shown: Vec<(&str, &str, &str, bool)> = section
+            .references
+            .iter()
+            .map(|r| (r.element, r.kind.as_str(), r.r_id.as_str(), r.inherited))
+            .collect();
+        shown.sort();
         assert_eq!(
-            inherited,
-            vec![("headerReference", "default".to_string(), "rId1".to_string())]
+            shown,
+            vec![
+                ("footerReference", "default", "rId3", false),
+                ("footerReference", "first", "rId2", true),
+                ("headerReference", "default", "rId1", true),
+                ("headerReference", "first", "rId1", true),
+            ]
         );
         let body_node = body(&tree).unwrap();
         clear_except(&mut tree, body_node, "sectPr").unwrap();
-        adopt_references(&mut tree, body_node, &inherited).unwrap();
+        set_references(&mut tree, body_node, &section).unwrap();
         let out = String::from_utf8(crate::xml::serialize(&tree)).unwrap();
         let header = out.find("headerReference").unwrap();
         assert!(header < out.find("pgSz").unwrap(), "{out}");
-        assert!(out.contains("rId3") && !out.contains("rId2"), "{out}");
+        assert!(
+            out.find("pgSz").unwrap() < out.find("titlePg").unwrap(),
+            "{out}"
+        );
+        assert_eq!(out.matches("Reference").count(), 4, "{out}");
     }
 
     #[test]

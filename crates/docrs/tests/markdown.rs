@@ -4,6 +4,7 @@
 //! exported file is also written there (`<test>.docx`) for inspection in
 //! Word, LibreOffice or pandoc (`tools/markdown_check.sh`).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use docrs::markdown::{
@@ -34,7 +35,7 @@ struct Export {
 
 impl Export {
     fn part(&self, name: &str) -> String {
-        String::from_utf8(docrs::xml::serialize(self.doc.package().xml(name).unwrap())).unwrap()
+        part_of(&self.doc, name)
     }
 
     fn body(&self) -> String {
@@ -1189,7 +1190,15 @@ fn html_blocks_convert_and_unknown_tags_are_reported() {
 }
 
 fn export_html(name: &str, html: &str, options: &MarkdownOptions) -> Export {
-    let mut doc = reference();
+    export_html_with(name, reference(), html, options)
+}
+
+fn export_html_with(
+    name: &str,
+    mut doc: Document,
+    html: &str,
+    options: &MarkdownOptions,
+) -> Export {
     let report = docrs::markdown::insert_html(&mut doc, html, options)
         .unwrap_or_else(|err| panic!("{name}: conversion failed: {err}"));
     let (bytes, _) = doc.patch_bytes().unwrap();
@@ -1366,24 +1375,14 @@ fn advice_export(name: &str) -> Export {
     advice_export_from(name, html_converted())
 }
 
-fn advice_export_from(name: &str, mut doc: Document) -> Export {
+fn advice_export_from(name: &str, doc: Document) -> Export {
     let options = MarkdownOptions {
         toc: Some(true),
         page_numbers: true,
         now: Some(docrs::clock::Timestamp::from_unix(ADVICE_NOW)),
         ..MarkdownOptions::default()
     };
-    let report = docrs::markdown::insert_html(&mut doc, ADVICE_HTML, &options).unwrap();
-    let (bytes, _) = doc.patch_bytes().unwrap();
-    if let Some(dir) = std::env::var_os("DOCRS_MARKDOWN_EXPORT") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(PathBuf::from(dir).join(format!("{name}.docx")), &bytes).unwrap();
-    }
-    Export {
-        doc: Document::open_bytes(&bytes, &Limits::default()).unwrap(),
-        report,
-        bytes,
-    }
+    export_html_with(name, doc, ADVICE_HTML, &options)
 }
 
 fn style_of(out: &Export, id: &str) -> String {
@@ -2994,6 +2993,16 @@ fn the_body_look_is_weighed_by_characters_outside_tables() {
 const SECTIONS: &str = "# Heading one\n\nFirst paragraph after a heading.\n\nSecond paragraph.\n\n\
 ## Heading two\n\nAnother first paragraph.\n";
 
+/// Exports `SECTIONS` with a synthetic template of these styles and body.
+fn export_synthetic(name: &str, styles: &str, body: &str) -> Export {
+    let template = synthetic(Synthetic {
+        styles,
+        body,
+        ..Synthetic::default()
+    });
+    export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
+}
+
 fn first_paragraph_style(rpr: &str) -> String {
     format!(
         "<w:style w:type=\"paragraph\" w:styleId=\"FirstParagraph\"><w:name w:val=\"First Paragraph\"/>\
@@ -3258,17 +3267,9 @@ fn the_body_spacing_follows_the_prose_in_normal() {
 #[test]
 fn body_spacing_is_added_followed_and_left_alone() {
     let long = "A body paragraph spaced by hand, long enough to carry the spacing.";
-    let export = |name: &str, styles: &str, body: &str| {
-        let template = synthetic(Synthetic {
-            styles,
-            body,
-            ..Synthetic::default()
-        });
-        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
-    };
     // Unstyled prose spaced by hand, no run look: the Body Text added for
     // it carries the spacing and nothing else.
-    let out = export(
+    let out = export_synthetic(
         "74-unstyled-prose-spaced-by-hand",
         "",
         &format!(
@@ -3292,7 +3293,7 @@ fn body_spacing_is_added_followed_and_left_alone() {
         spaced_paragraph(Some("BodyText"), long, LOOSE),
         spaced_paragraph(Some("BodyText"), long, LOOSE)
     );
-    let out = export(
+    let out = export_synthetic(
         "75-first-paragraph-follows-the-body-spacing",
         &format!("{BOOKMAN_BODY_TEXT}{}", first_paragraph_style("")),
         &prose,
@@ -3306,14 +3307,14 @@ fn body_spacing_is_added_followed_and_left_alone() {
         format!("<w:pPr>{LOOSE}</w:pPr>")
     );
     let own = "<w:pPr><w:spacing w:after=\"480\"/></w:pPr>";
-    let out = export(
+    let out = export_synthetic(
         "76-first-paragraph-with-spacing-of-its-own",
         &format!("{BOOKMAN_BODY_TEXT}{}", first_paragraph_style(own)),
         &prose,
     );
     assert_eq!(style_ppr(&out, "FirstParagraph"), own);
     // Half and half: no spacing leads, the style stays as it is.
-    let out = export(
+    let out = export_synthetic(
         "77-body-spacing-split",
         BOOKMAN_BODY_TEXT,
         &format!(
@@ -3449,8 +3450,7 @@ fn pictures_wider_than_the_page_or_taller_than_half_of_it_are_reported() {
 
 // ------------------------------ validator errors and the unused First Paragraph
 
-/// The repro content: a heading, two paragraphs, a table with a header
-/// row, a second heading and a paragraph.
+/// The repro content of the 2026-10-27 re-scoring, its `input.html`.
 const SECTIONS_HTML: &str = "<h1>Heading one</h1>\
     <p>First paragraph after a heading, long enough to read as body text.</p>\
     <p>Second paragraph, an ordinary body paragraph long enough to read as body text.</p>\
@@ -3459,26 +3459,38 @@ const SECTIONS_HTML: &str = "<h1>Heading one</h1>\
     <h2>Heading two</h2>\
     <p>Another first paragraph after a heading, long enough to read as body text.</p>";
 
-fn export_html_from(name: &str, mut doc: Document, html: &str) -> Export {
-    let report = docrs::markdown::insert_html(&mut doc, html, &MarkdownOptions::default())
-        .unwrap_or_else(|err| panic!("{name}: conversion failed: {err}"));
-    let (bytes, _) = doc.patch_bytes().unwrap();
-    if let Some(dir) = std::env::var_os("DOCRS_MARKDOWN_EXPORT") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(PathBuf::from(dir).join(format!("{name}.docx")), &bytes).unwrap();
-    }
-    Export {
-        doc: Document::open_bytes(&bytes, &Limits::default()).unwrap(),
-        report,
-        bytes,
-    }
+fn export_html_from(name: &str, doc: Document, html: &str) -> Export {
+    export_html_with(name, doc, html, &MarkdownOptions::default())
+}
+
+/// Exports the repro content with `fixture`, whose First Paragraph the
+/// template defines but writes no prose in: the paragraph after each
+/// heading takes Body Text, the template's First Paragraph is left as it
+/// is, and `inspect` agrees. Returns the inspection.
+fn assert_first_paragraph_passed_over(name: &str, fixture: &str) -> serde_json::Value {
+    let template = || fixture_template(fixture);
+    let out = export_html_from(name, template(), SECTIONS_HTML);
+    assert_eq!(
+        out.report.styles["first_paragraph"].style_id.as_deref(),
+        Some("BodyText")
+    );
+    let body = out.body();
+    assert_eq!(count(&body, "<w:pStyle w:val=\"BodyText\"/>"), 3);
+    assert!(!body.contains("FirstParagraph"), "{body}");
+    assert_eq!(
+        style_of(&out, "FirstParagraph"),
+        style_xml(&part_of(&template(), "word/styles.xml"), "FirstParagraph")
+    );
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["first_paragraph"]["name"], "Body Text");
+    inspection
 }
 
 fn part_of(doc: &Document, name: &str) -> String {
     String::from_utf8(docrs::xml::serialize(doc.package().xml(name).unwrap())).unwrap()
 }
 
-/// Every tag, once, in the order given.
+/// Each tag's first occurrence, in the order given.
 fn assert_in_order(xml: &str, tags: &[&str]) {
     let positions: Vec<usize> = tags
         .iter()
@@ -3518,20 +3530,14 @@ fn a_lifted_colour_keeps_its_value_beside_the_theme_colour() {
     let heading = "<w:style w:type=\"paragraph\" w:styleId=\"Heading1\"><w:name w:val=\"heading 1\"/>\
         <w:basedOn w:val=\"Normal\"/><w:pPr><w:outlineLvl w:val=\"0\"/></w:pPr>\
         <w:rPr><w:b/><w:color w:val=\"000000\" w:themeColor=\"text1\"/></w:rPr></w:style>";
-    let template = synthetic(Synthetic {
-        styles: heading,
-        body: &styled_paragraph(
+    let out = export_synthetic(
+        "80-heading-colour-by-value",
+        heading,
+        &styled_paragraph(
             "Heading1",
             "Sample heading",
             "<w:rPr><w:color w:val=\"C00000\"/></w:rPr>",
         ),
-        ..Synthetic::default()
-    });
-    let out = export_with(
-        "80-heading-colour-by-value",
-        SECTIONS,
-        Some(template),
-        &MarkdownOptions::default(),
     );
     let rpr = style_rpr(&out, "Heading1");
     assert!(rpr.contains("<w:color w:val=\"C00000\"/>"), "{rpr}");
@@ -3557,30 +3563,20 @@ fn lifted_properties_are_written_in_schema_order() {
     let heading = "<w:p><w:pPr><w:outlineLvl w:val=\"0\"/><w:jc w:val=\"center\"/><w:keepNext/>\
         <w:spacing w:before=\"240\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"32\"/><w:b/>\
         <w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>Hand-made heading</w:t></w:r></w:p>";
-    let cell = |text: &str, shaded: bool| {
-        let shading = if shaded {
-            "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"1F3A5F\"/>"
-        } else {
-            ""
-        };
-        format!(
-            "<w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/>\
-             <w:tcMar><w:left w:w=\"80\" w:type=\"dxa\"/><w:top w:w=\"40\" w:type=\"dxa\"/></w:tcMar>{shading}\
-             <w:tcBorders><w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"1F3A5F\"/>\
-             <w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"1F3A5F\"/></w:tcBorders></w:tcPr>\
-             <w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
-        )
-    };
-    let table = format!(
-        "<w:tbl><w:tblPr><w:tblW w:w=\"6000\" w:type=\"dxa\"/></w:tblPr>\
-         <w:tblGrid><w:gridCol w:w=\"3000\"/><w:gridCol w:w=\"3000\"/></w:tblGrid>\
-         <w:tr>{}{}</w:tr><w:tr>{}{}</w:tr><w:tr>{}{}</w:tr></w:tbl>",
-        cell("Asset", true),
-        cell("Value", true),
-        cell("Home", false),
-        cell("1", false),
-        cell("Car", false),
-        cell("2", false)
+    let shading = "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"1F3A5F\"/>";
+    let header = format!(
+        "<w:tcMar><w:left w:w=\"80\" w:type=\"dxa\"/><w:top w:w=\"40\" w:type=\"dxa\"/></w:tcMar>{shading}\
+         <w:tcBorders><w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"1F3A5F\"/>\
+         <w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"1F3A5F\"/></w:tcBorders>"
+    );
+    let plain = header.replace(shading, "");
+    let table = sample_table(
+        None,
+        &[
+            row(&["Asset", "Value"], &header, ""),
+            row(&["Home", "1"], &plain, ""),
+            row(&["Car", "2"], &plain, ""),
+        ],
     );
     let template = synthetic(Synthetic {
         body: &format!("{heading}{table}"),
@@ -3607,6 +3603,8 @@ fn lifted_properties_are_written_in_schema_order() {
             "<w:sz ",
         ],
     );
+    // The table-level order comes from how the lifted table is assembled;
+    // the margin sides inside it from the sort.
     let table = style_of(&out, "Table");
     assert_in_order(
         &table,
@@ -3638,22 +3636,10 @@ fn lifted_properties_are_written_in_schema_order() {
 fn an_unused_first_paragraph_style_is_passed_over_for_the_body() {
     // First Paragraph is defined (based on Normal, no look of its own) but
     // no paragraph uses it; the prose is Body Text.
-    let template = || fixture_template("first-paragraph-unused.docx");
-    let out = export_html_from("83-first-paragraph-unused", template(), SECTIONS_HTML);
-    assert_eq!(out.report.styles["first_paragraph"].name, "Body Text");
-    assert_eq!(
-        out.report.styles["first_paragraph"].style_id.as_deref(),
-        Some("BodyText")
+    let inspection = assert_first_paragraph_passed_over(
+        "83-first-paragraph-unused",
+        "first-paragraph-unused.docx",
     );
-    let body = out.body();
-    assert_eq!(count(&body, "<w:pStyle w:val=\"BodyText\"/>"), 3);
-    assert!(!body.contains("FirstParagraph"), "{body}");
-    assert_eq!(
-        style_of(&out, "FirstParagraph"),
-        style_xml(&part_of(&template(), "word/styles.xml"), "FirstParagraph")
-    );
-    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
-    assert_eq!(inspection["roles"]["first_paragraph"]["name"], "Body Text");
     assert_eq!(inspection["roles"]["body"]["name"], "Body Text");
 
     // The control: a First Paragraph the template uses, with a look of its
@@ -3677,14 +3663,7 @@ fn an_unused_first_paragraph_style_is_passed_over_for_the_body() {
 
     // When the prose is the default style, so is the first paragraph.
     let long = "A Normal paragraph, long enough to read as prose.";
-    let export = |name: &str, body: &str| {
-        let template = synthetic(Synthetic {
-            styles: &first_paragraph_style(""),
-            body,
-            ..Synthetic::default()
-        });
-        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
-    };
+    let export = |name: &str, body: &str| export_synthetic(name, &first_paragraph_style(""), body);
     let out = export(
         "85-first-paragraph-unused-normal-prose",
         &format!(
@@ -3724,13 +3703,10 @@ fn a_body_look_needs_prose_to_go_by() {
         assert!(!out.report.styles[role].created, "{role}");
     }
     let styles = out.part("word/styles.xml");
-    assert!(
-        !styles.contains("Template Body Text") && !styles.contains("Times"),
-        "{styles}"
-    );
+    assert!(!styles.contains("Template Body Text"), "{styles}");
     assert_eq!(
-        style_rpr(&out, "BodyText"),
-        "<w:rPr><w:sz w:val=\"30\"/><w:szCs w:val=\"30\"/></w:rPr>"
+        style_of(&out, "BodyText"),
+        style_xml(&part_of(&template(), "word/styles.xml"), "BodyText")
     );
     assert_eq!(count(&out.body(), "<w:pStyle w:val=\"BodyText\"/>"), 3);
     let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
@@ -3745,8 +3721,6 @@ fn a_body_look_needs_prose_to_go_by() {
         "{}",
         inspection["lifted"]
     );
-    let created = inspection["created_styles"].to_string();
-    assert!(!created.contains("Body Text"), "{created}");
 
     // Letterhead lines (under 40 characters) in a look of their own do not
     // lift it over the template's Body Text; the same look on prose does.
@@ -3758,12 +3732,7 @@ fn a_body_look_needs_prose_to_go_by() {
         let lines: String = (0..3)
             .map(|_| format!("<w:p><w:r>{rpr}<w:t>{text}</w:t></w:r></w:p>"))
             .collect();
-        let template = synthetic(Synthetic {
-            styles,
-            body: &lines,
-            ..Synthetic::default()
-        });
-        export_with(name, SECTIONS, Some(template), &MarkdownOptions::default())
+        export_synthetic(name, styles, &lines)
     };
     let out = export(
         "88-letterhead-lines",
@@ -3800,4 +3769,351 @@ fn a_body_look_needs_prose_to_go_by() {
         "",
     );
     assert_eq!(out.report.styles["body"].name, "Normal");
+}
+
+#[test]
+fn a_first_paragraph_holding_only_a_sample_label_is_not_used() {
+    // The template's only First Paragraph text is the line "First
+    // Paragraph.", one line per style as Pandoc's sample reference has;
+    // the prose is Body Text.
+    assert_first_paragraph_passed_over(
+        "92-first-paragraph-sample-label",
+        "first-paragraph-sample-label.docx",
+    );
+
+    // The same label beside no prose at all says nothing: First Paragraph
+    // stays in use.
+    let out = export_synthetic(
+        "93-sample-labels-only",
+        &format!("{BOOKMAN_BODY_TEXT}{}", first_paragraph_style("")),
+        &format!(
+            "{}{}",
+            styled_paragraph("FirstParagraph", "First Paragraph.", ""),
+            styled_paragraph("BodyText", "Body Text.", "")
+        ),
+    );
+    assert_eq!(out.report.styles["first_paragraph"].name, "First Paragraph");
+    assert_eq!(
+        count(&out.body(), "<w:pStyle w:val=\"FirstParagraph\"/>"),
+        2
+    );
+}
+
+/// The repro content for lists and deeper headings: a heading, a paragraph,
+/// two bullets, then headings two to four with a paragraph each.
+const LISTS_HTML: &str = "<h1>Heading one</h1>\
+    <p>First paragraph after a heading, long enough to read as body text.</p>\
+    <ul><li><p>A bullet point in the export.</p></li><li><p>Another bullet point in the export.</p></li></ul>\
+    <h2>Heading two</h2><p>Body text under heading two, long enough to read as body text.</p>\
+    <h3>Heading three</h3><p>Body text under heading three, long enough to read as body text.</p>\
+    <h4>Heading four</h4><p>Body text under heading four, long enough to read as body text.</p>";
+
+#[test]
+fn a_body_text_holding_only_steps_is_not_the_body() {
+    // Body Text holds two short lines and four numbered steps of a closing
+    // section; the prose, sixteen paragraphs, is Normal (Arial 11 pt).
+    let template = || fixture_template("body-text-steps-only.docx");
+    let out = export_html_from("94-body-text-steps-only", template(), LISTS_HTML);
+    for role in ["body", "first_paragraph", "compact"] {
+        assert_eq!(out.report.styles[role].name, "Normal", "{role}");
+        assert_eq!(out.report.styles[role].style_id, None, "{role}");
+    }
+    assert!(!out.body().contains("BodyText"), "{}", out.body());
+    assert_eq!(
+        style_of(&out, "BodyText"),
+        style_xml(&part_of(&template(), "word/styles.xml"), "BodyText")
+    );
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["body"]["name"], "Normal");
+
+    // A Body Text holding prose beside its steps is the body.
+    let prose = "A Body Text paragraph, long enough to read as the prose of the advice.";
+    let out = export_synthetic(
+        "95-body-text-prose-and-steps",
+        BOOKMAN_BODY_TEXT,
+        &format!(
+            "{}{}{}{}",
+            spaced_paragraph(None, prose, ""),
+            styled_paragraph("BodyText", prose, ""),
+            styled_paragraph("BodyText", "Review the following:", ""),
+            styled_paragraph("BodyText", "Do you wish to proceed?", "")
+        ),
+    );
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+}
+
+const BULLET_AND_DECIMAL_NUMBERING: &str = "<w:abstractNum w:abstractNumId=\"0\"><w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/>\
+    <w:lvlText w:val=\"\u{2022}\"/><w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl></w:abstractNum>\
+    <w:abstractNum w:abstractNumId=\"1\"><w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"decimal\"/>\
+    <w:lvlText w:val=\"%1.\"/><w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl></w:abstractNum>\
+    <w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num><w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>";
+
+/// A `List Bullet` (`num_id` 1) or `List Number` (2) style bound to its
+/// numbering, in the theme's minor font.
+fn list_style(id: &str, name: &str, num_id: u8) -> String {
+    format!(
+        "<w:style w:type=\"paragraph\" w:styleId=\"{id}\"><w:name w:val=\"{name}\"/><w:basedOn w:val=\"Normal\"/>\
+         <w:pPr><w:numPr><w:numId w:val=\"{num_id}\"/></w:numPr></w:pPr>\
+         <w:rPr><w:rFonts w:asciiTheme=\"minorHAnsi\" w:hAnsiTheme=\"minorHAnsi\"/></w:rPr></w:style>"
+    )
+}
+
+fn list_item(style: &str, num_id: u8, text: &str) -> String {
+    format!(
+        "<w:p><w:pPr><w:pStyle w:val=\"{style}\"/><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"{num_id}\"/></w:numPr></w:pPr>\
+         <w:r><w:t>{text}</w:t></w:r></w:p>"
+    )
+}
+
+#[test]
+fn an_unused_list_style_takes_the_sample_lists_font_and_size() {
+    // List Bullet binds the bullet numbering but no paragraph uses it; the
+    // template's bullets are List Paragraph (Arial from Normal, 11 pt from
+    // the defaults) in the theme's minor font by the style.
+    let template = || fixture_template("theme-default-list-bullet-and-heading-4.docx");
+    let out = export_html_from("96-theme-default-list-bullet", template(), LISTS_HTML);
+    assert_eq!(out.report.styles["list_bullet"].name, "List Bullet");
+    assert_eq!(
+        style_rpr(&out, "ListBullet"),
+        "<w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:sz w:val=\"22\"/></w:rPr>"
+    );
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"ListBullet\"/>"), 2);
+
+    // List Number the same way, from numbered paragraphs (Georgia 12 pt by
+    // List Paragraph); a List Bullet the template writes in keeps its font.
+    let list_paragraph = "<w:style w:type=\"paragraph\" w:styleId=\"ListParagraph\"><w:name w:val=\"List Paragraph\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:pPr><w:ind w:left=\"720\"/></w:pPr>\
+        <w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"24\"/></w:rPr></w:style>";
+    let template = synthetic(Synthetic {
+        styles: &format!(
+            "{list_paragraph}{}{}",
+            list_style("ListBullet", "List Bullet", 1),
+            list_style("ListNumber", "List Number", 2)
+        ),
+        body: &format!(
+            "{}{}{}",
+            list_item(
+                "ListParagraph",
+                2,
+                "The first numbered step in the template."
+            ),
+            list_item(
+                "ListParagraph",
+                2,
+                "The second numbered step in the template."
+            ),
+            list_item(
+                "ListBullet",
+                1,
+                "A bullet in the template's own List Bullet."
+            )
+        ),
+        numbering: BULLET_AND_DECIMAL_NUMBERING,
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "97-list-number-from-samples",
+        "- A bullet\n- Another bullet\n\n1. A step\n2. Another step\n",
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(
+        style_rpr(&out, "ListNumber"),
+        "<w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"24\"/></w:rPr>"
+    );
+    assert_eq!(
+        style_rpr(&out, "ListBullet"),
+        "<w:rPr><w:rFonts w:asciiTheme=\"minorHAnsi\" w:hAnsiTheme=\"minorHAnsi\"/></w:rPr>"
+    );
+}
+
+#[test]
+fn an_unused_heading_on_the_theme_font_follows_the_levels_in_use() {
+    // Headings 1 to 3 are used and set Arial by name; Heading 4 is unused
+    // and still on the theme's major font. It follows Heading 3's font and
+    // keeps the rest of its look.
+    let template = || fixture_template("theme-default-list-bullet-and-heading-4.docx");
+    let out = export_html_from("98-theme-default-heading-4", template(), LISTS_HTML);
+    let rpr = style_rpr(&out, "Heading4");
+    assert!(
+        rpr.contains("w:ascii=\"Arial\"")
+            && rpr.contains("w:hAnsi=\"Arial\"")
+            && !rpr.contains("Theme=")
+            && rpr.contains("<w:i/>")
+            && rpr.contains("<w:color w:val=\"2F5496\"/>"),
+        "{rpr}"
+    );
+    let template_styles = part_of(&template(), "word/styles.xml");
+    for id in ["Heading1", "Heading2", "Heading3"] {
+        assert_eq!(style_of(&out, id), style_xml(&template_styles, id), "{id}");
+    }
+
+    // The nearest level in use decides: Heading 2 (theme font, unused)
+    // follows Heading 1's Arial; Heading 3 names Georgia and is left alone;
+    // Heading 4 (theme font, used) is left alone, and so is Heading 5 behind
+    // it, since the nearest level in use has no named font.
+    let heading = |level: u8, rfonts: &str| {
+        format!(
+            "<w:style w:type=\"paragraph\" w:styleId=\"Heading{level}\"><w:name w:val=\"heading {level}\"/>\
+             <w:basedOn w:val=\"Normal\"/><w:pPr><w:outlineLvl w:val=\"{}\"/></w:pPr><w:rPr>{rfonts}<w:b/></w:rPr></w:style>",
+            level - 1
+        )
+    };
+    let theme = "<w:rFonts w:asciiTheme=\"majorHAnsi\" w:hAnsiTheme=\"majorHAnsi\"/>";
+    let template = synthetic(Synthetic {
+        styles: &format!(
+            "{}{}{}{}{}",
+            heading(1, "<w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/>"),
+            heading(2, theme),
+            heading(3, "<w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/>"),
+            heading(4, theme),
+            heading(5, theme)
+        ),
+        body: &format!(
+            "{}{}",
+            styled_paragraph("Heading1", "Sample heading one", ""),
+            styled_paragraph("Heading4", "Sample heading four", "")
+        ),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "99-heading-levels-follow-the-nearest-in-use",
+        "# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\nText.\n",
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(
+        style_rpr(&out, "Heading2"),
+        "<w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:b/></w:rPr>"
+    );
+    for id in ["Heading3", "Heading4", "Heading5"] {
+        let expected = if id == "Heading3" {
+            "<w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:b/></w:rPr>".to_string()
+        } else {
+            format!("<w:rPr>{theme}<w:b/></w:rPr>")
+        };
+        assert_eq!(style_rpr(&out, id), expected, "{id}");
+    }
+}
+
+/// The headers and footers the export's section shows: whether it has a
+/// distinct first page, and each story's text by (`header`/`footer`, type).
+fn section_stories(out: &Export) -> (bool, BTreeMap<(String, String), String>) {
+    let body = out.part("word/document.xml");
+    let sect_pr = &body[body.rfind("<w:sectPr").unwrap()..];
+    let rels = out.part("word/_rels/document.xml.rels");
+    let attr = |element: &str, name: &str| {
+        let key = format!("{name}=\"");
+        let at = element.find(&key).unwrap() + key.len();
+        element[at..at + element[at..].find('"').unwrap()].to_string()
+    };
+    let mut stories = BTreeMap::new();
+    for element in sect_pr.split('<') {
+        let Some(story) = ["header", "footer"]
+            .into_iter()
+            .find(|story| element.starts_with(&format!("w:{story}Reference")))
+        else {
+            continue;
+        };
+        let r_id = attr(element, "r:id");
+        let rel = rels
+            .split("<Relationship ")
+            .find(|rel| rel.contains(&format!("Id=\"{r_id}\"")))
+            .unwrap();
+        let part = out.part(&format!("word/{}", attr(rel, "Target")));
+        let text: String = part
+            .match_indices("<w:t")
+            .filter(|(at, _)| matches!(part[at + 4..].chars().next(), Some('>' | ' ')))
+            .map(|(at, _)| {
+                let rest = &part[at..];
+                let open = rest.find('>').unwrap() + 1;
+                rest[open..open + rest[open..].find('<').unwrap()].to_string()
+            })
+            .collect();
+        stories.insert((story.to_string(), attr(element, "w:type")), text);
+    }
+    (sect_pr.contains("<w:titlePg/>"), stories)
+}
+
+fn stories_of(entries: &[(&str, &str, &str)]) -> BTreeMap<(String, String), String> {
+    entries
+        .iter()
+        .map(|(story, kind, text)| ((story.to_string(), kind.to_string()), text.to_string()))
+        .collect()
+}
+
+#[test]
+fn page_one_shows_what_the_templates_page_one_shows() {
+    // Two-section templates: a cover or letter section whose page 1 carries
+    // the logo, then a section for the body pages. The export's single
+    // section shows page 1's header and footer on page 1 and the body
+    // pages' after, with a distinct first page when they differ.
+    let export = |name: &str, fixture: &str| {
+        section_stories(&export_html_from(
+            name,
+            fixture_template(fixture),
+            SECTIONS_HTML,
+        ))
+    };
+    // Section 1 has a distinct first page with the logo and a page 1
+    // footer; the last section turns the first page off and inherits.
+    let (title_page, stories) = export(
+        "100-first-page-header-in-first-section",
+        "first-page-header-in-first-section.docx",
+    );
+    assert!(title_page);
+    assert_eq!(
+        stories,
+        stories_of(&[
+            ("header", "first", "PAGE 1 LOGO"),
+            ("footer", "first", "Page 1 footer"),
+            ("footer", "default", "Body footer"),
+        ])
+    );
+    // No distinct first page anywhere; each section has its own default
+    // header and footer.
+    let (title_page, stories) = export(
+        "101-default-header-differs-by-section",
+        "default-header-differs-by-section.docx",
+    );
+    assert!(title_page);
+    assert_eq!(
+        stories,
+        stories_of(&[
+            ("header", "first", "PAGE 1 LOGO"),
+            ("footer", "first", "Page 1 footer"),
+            ("header", "default", "Body header"),
+            ("footer", "default", "Body footer"),
+        ])
+    );
+    // Section 1 shows a banner in its default header; the last section
+    // turns a distinct first page on with only a first-page footer, and
+    // inherits the rest: page 1 and the body pages are the same.
+    let (title_page, stories) = export(
+        "102-title-page-only-in-last-section",
+        "title-page-only-in-last-section.docx",
+    );
+    assert!(!title_page);
+    assert_eq!(
+        stories,
+        stories_of(&[
+            ("header", "default", "PAGE 1 BANNER"),
+            ("footer", "default", "Body footer"),
+        ])
+    );
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("default-header-differs-by-section.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection["section"]["title_page"], true);
+    let shown = &inspection["section"]["headers_footers"];
+    assert_eq!(shown["header"]["first"]["inherited"], true);
+    assert_eq!(shown["header"]["default"]["inherited"], false);
+    assert!(
+        inspection["problems"]
+            .to_string()
+            .contains("multiple_sections"),
+        "{inspection}"
+    );
 }
