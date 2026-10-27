@@ -134,7 +134,7 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   Latin font), and body text takes the look and the paragraph spacing the
   most of the template's prose (paragraphs of 40 characters or more)
   shows, a First Paragraph style the template
-  uses following it. A First Paragraph the template never writes text in,
+  uses following it. A First Paragraph the template writes no prose in,
   or a Body Text style it writes no text in while its prose is in Normal,
   is passed over for the body's style. Tables follow the style most sample
   tables use; a header fill or banding added by hand becomes a table style

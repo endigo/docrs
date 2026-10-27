@@ -1263,15 +1263,15 @@ fn describe_rpr(rpr: &str) -> Value {
 impl Sample {
     /// Whether the template writes no text in this style while its prose is
     /// elsewhere: in the default style, or, for a First Paragraph, in any
-    /// style at all.
+    /// style at all. A First Paragraph is used only by prose: templates
+    /// built from Pandoc's sample reference carry one short line per style
+    /// ("First Paragraph."), a label rather than use.
     fn unused(&self, name: &str, id: &str) -> bool {
-        if self.text_styles.contains(&Some(id.to_string())) {
-            return false;
-        }
+        let id = Some(id.to_string());
         if name.eq_ignore_ascii_case("First Paragraph") {
-            !self.body_spacings.is_empty()
+            !self.body_spacings.contains_key(&id) && !self.body_spacings.is_empty()
         } else {
-            self.body_spacings.contains_key(&None)
+            !self.text_styles.contains(&id) && self.body_spacings.contains_key(&None)
         }
     }
 

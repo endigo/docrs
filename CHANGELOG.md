@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.10 (2026-10-27)
+
+### Library
+
+- A First Paragraph style counts as used by the template only when it holds prose, a paragraph of 40 characters or more, as the body look does since 0.3.9; a short sample line such as "First Paragraph.", which templates built from Pandoc's sample reference carry for every style, no longer keeps the style in use. Such a template, whose prose is Body Text, gave the paragraph after each heading the First Paragraph style and so Normal's look; it now takes the body's style, as a template with no First Paragraph text does, and `inspectReference` reports the body's style under `roles.first_paragraph`. A First Paragraph holding prose, and a template with no prose at all, are unchanged.
+
 ## 0.3.9 (2026-10-27)
 
 ### Library

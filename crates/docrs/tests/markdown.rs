@@ -3801,3 +3801,45 @@ fn a_body_look_needs_prose_to_go_by() {
     );
     assert_eq!(out.report.styles["body"].name, "Normal");
 }
+
+#[test]
+fn a_first_paragraph_holding_only_a_sample_label_is_not_used() {
+    // The template's only First Paragraph text is the line "First
+    // Paragraph.", one line per style as Pandoc's sample reference has;
+    // the prose is Body Text.
+    let template = || fixture_template("first-paragraph-sample-label.docx");
+    let out = export_html_from("92-first-paragraph-sample-label", template(), SECTIONS_HTML);
+    assert_eq!(out.report.styles["first_paragraph"].name, "Body Text");
+    let body = out.body();
+    assert_eq!(count(&body, "<w:pStyle w:val=\"BodyText\"/>"), 3);
+    assert!(!body.contains("FirstParagraph"), "{body}");
+    assert_eq!(
+        style_of(&out, "FirstParagraph"),
+        style_xml(&part_of(&template(), "word/styles.xml"), "FirstParagraph")
+    );
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["first_paragraph"]["name"], "Body Text");
+
+    // The same label beside no prose at all says nothing: First Paragraph
+    // stays in use.
+    let template = synthetic(Synthetic {
+        styles: &format!("{BOOKMAN_BODY_TEXT}{}", first_paragraph_style("")),
+        body: &format!(
+            "{}{}",
+            styled_paragraph("FirstParagraph", "First Paragraph.", ""),
+            styled_paragraph("BodyText", "Body Text.", "")
+        ),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "93-sample-labels-only",
+        SECTIONS,
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(out.report.styles["first_paragraph"].name, "First Paragraph");
+    assert_eq!(
+        count(&out.body(), "<w:pStyle w:val=\"FirstParagraph\"/>"),
+        2
+    );
+}
