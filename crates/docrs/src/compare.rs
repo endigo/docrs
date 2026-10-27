@@ -20,8 +20,7 @@ use serde::Serialize;
 
 use crate::clock::Timestamp;
 use crate::difflib::{SequenceMatcher, Tag};
-use crate::normalize::content_hash;
-use crate::oxml::{self, insert_before_successors, w_el};
+use crate::oxml::{self, w_el};
 use crate::package::ct;
 use crate::package::is_xml_part_name;
 use crate::package::patch::{effective_content_types, parts_semantically_equal};
@@ -29,14 +28,18 @@ use crate::package::rels::{RELS_NS, base_uri, rels_member_for, resolve_target};
 use crate::package::zip_read::read_archive;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::{ReplaceOptions, apply_plan, plan_replace, validate_writable_text};
-use crate::search::{Atom, Span, include_atom, new_span_token, signature, story_atoms};
-use crate::story::{self, Anchor, BlockKind, View, iter_block_elements, subtree_text, table_text};
-use crate::tracked::{insert_after, insert_before, next_revision_id};
+use crate::revision::{is_revision_tag, is_scan_tag, remaining_markup};
+use crate::search::{Atom, Span, include_atom, new_span_token, story_atoms};
+use crate::story::{self, BlockKind, View, iter_block_elements, subtree_text, table_text};
+use crate::tracked::{
+    insert_after, insert_before, named_bookmarks_in, new_revision, next_revision_id_staged,
+    stamp_paragraph_mark,
+};
 use crate::txn::Txn;
 use crate::unicode::{casefold, is_py_space};
-use crate::wml::{W, is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};
+use crate::wml::{W, is_w, leading_text, node_children, w_attr, w_child, w_children};
 use crate::xml::{self, NodeData, NodeId, XML_NS, XmlTree};
-use crate::{Document, Error, Limits, RefusalKind, Result};
+use crate::{Document, Error, Limits, Result};
 
 /// Per-story block budget.
 pub const MAX_BLOCKS: usize = 10_000;
@@ -120,53 +123,6 @@ impl CompareResult {
     }
 }
 
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
-/// Tags upstream `Document.revisions` enumerates (`_REVISION_TYPES`).
-const REVISION_TAGS: &[&str] = &[
-    "ins",
-    "del",
-    "moveFrom",
-    "moveTo",
-    "rPrChange",
-    "pPrChange",
-    "tblPrChange",
-    "tblPrExChange",
-    "tblGridChange",
-    "trPrChange",
-    "tcPrChange",
-    "cellIns",
-    "cellDel",
-    "cellMerge",
-    "sectPrChange",
-    "numberingChange",
-    "customXmlInsRangeStart",
-    "customXmlDelRangeStart",
-    "customXmlMoveFromRangeStart",
-    "customXmlMoveToRangeStart",
-];
-
-/// Upstream `_MARKUP_SCAN_TAGS`.
-const MARKUP_SCAN_EXTRA: &[&str] = &[
-    "moveFromRangeStart",
-    "moveFromRangeEnd",
-    "moveToRangeStart",
-    "moveToRangeEnd",
-    "customXmlInsRangeEnd",
-    "customXmlDelRangeEnd",
-    "customXmlMoveFromRangeEnd",
-    "customXmlMoveToRangeEnd",
-];
-
-fn is_markup(tree: &XmlTree, node: NodeId) -> bool {
-    tree.ns_uri(node) == Some(W)
-        && tree.local_name(node).is_some_and(|local| {
-            REVISION_TAGS.contains(&local) || MARKUP_SCAN_EXTRA.contains(&local)
-        })
-}
-
 struct RawPackage {
     parts: BTreeMap<String, Vec<u8>>,
     order: Vec<String>,
@@ -183,7 +139,7 @@ fn read_raw_package(bytes: &[u8], label: &str, limits: &Limits) -> Result<RawPac
         .map(|m| (m.name, m.data))
         .collect();
     let unsafe_graph = |detail: String| {
-        unsupported(
+        Error::unsupported(
             "raw_graph",
             format!("the {label} package graph cannot be validated safely: {detail}"),
         )
@@ -194,7 +150,7 @@ fn read_raw_package(bytes: &[u8], label: &str, limits: &Limits) -> Result<RawPac
         .filter(|name| !reachable.contains(*name))
         .collect();
     if !unreachable.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unreachable_parts",
             format!(
                 "the {label} contains unreachable package part(s) {unreachable:?}; compare cannot preserve parts omitted by the OPC relationship graph"
@@ -202,7 +158,7 @@ fn read_raw_package(bytes: &[u8], label: &str, limits: &Limits) -> Result<RawPac
         ));
     }
     let Some(content_types) = parts.get("[Content_Types].xml") else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "no_content_types",
             format!("the {label} package has no [Content_Types].xml part"),
         ));
@@ -248,7 +204,7 @@ fn read_raw_package(bytes: &[u8], label: &str, limits: &Limits) -> Result<RawPac
         let tree = xml::parse(&parts[name], limits).map_err(|err| unsafe_graph(err.to_string()))?;
         if tree
             .descendants(tree.root())
-            .any(|node| is_markup(&tree, node))
+            .any(|node| is_scan_tag(&tree, node))
         {
             has_revisions = true;
             break;
@@ -279,14 +235,14 @@ fn reachable_raw_parts(parts: &BTreeMap<String, Vec<u8>>, label: &str) -> Result
         };
         reachable.insert(actual_rels.clone());
         let tree = xml::parse(&parts[actual_rels], &Limits::default()).map_err(|err| {
-            unsupported(
+            Error::unsupported(
                 "raw_graph",
                 format!("the {label} package graph cannot be validated safely: {err}"),
             )
         })?;
         let root = tree.root();
         if !tree.is(root, RELS_NS, "Relationships") {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "raw_graph",
                 format!("relationship part {actual_rels:?} has unexpected root"),
             ));
@@ -297,7 +253,7 @@ fn reachable_raw_parts(parts: &BTreeMap<String, Vec<u8>>, label: &str) -> Result
                 continue;
             }
             let Some(id) = tree.attr(rel, None, "Id") else {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "raw_graph",
                     format!(
                         "relationship part {rels_name:?} contains a relationship with a missing Id"
@@ -306,7 +262,7 @@ fn reachable_raw_parts(parts: &BTreeMap<String, Vec<u8>>, label: &str) -> Result
             };
             let normalized = id.split_whitespace().collect::<Vec<_>>().join(" ");
             if normalized.is_empty() {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "raw_graph",
                     format!(
                         "relationship part {rels_name:?} contains a relationship with an empty Id"
@@ -314,7 +270,7 @@ fn reachable_raw_parts(parts: &BTreeMap<String, Vec<u8>>, label: &str) -> Result
                 ));
             }
             if !ids.insert(normalized) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "raw_graph",
                     format!(
                         "relationship part {rels_name:?} contains duplicate relationship Id {id:?}"
@@ -325,7 +281,7 @@ fn reachable_raw_parts(parts: &BTreeMap<String, Vec<u8>>, label: &str) -> Result
                 continue;
             }
             let Some(target) = tree.attr(rel, None, "Target").filter(|t| !t.is_empty()) else {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "raw_graph",
                     format!(
                         "relationship part {rels_name:?} contains an internal relationship without a target"
@@ -335,7 +291,7 @@ fn reachable_raw_parts(parts: &BTreeMap<String, Vec<u8>>, label: &str) -> Result
             let target_name = resolve_target(base_uri(&source), target);
             let member = target_name.trim_start_matches('/');
             let Some(actual) = by_fold.get(&casefold(member)).copied() else {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "raw_graph",
                     format!("relationship part {actual_rels:?} targets missing part {member:?}"),
                 ));
@@ -364,7 +320,7 @@ fn refuse_unsupported_package_differences(
         .filter(|n| !revised.parts.contains_key(*n))
         .collect();
     if !added.is_empty() || !removed.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "package_parts_differ",
             format!(
                 "compare cannot redline package-part addition or removal (only-original: {removed:?}, only-revised: {added:?})"
@@ -386,7 +342,7 @@ fn refuse_unsupported_package_differences(
         {
             continue;
         }
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "package_part_changed",
             format!(
                 "compare cannot redline a change in package part {name:?}; make that change separately or compare documents whose non-story parts are equivalent"
@@ -825,7 +781,7 @@ fn aligned_opcodes(
     let middle_o = keys_o.len() - prefix - suffix;
     let middle_r = keys_r.len() - prefix - suffix;
     if middle_o.saturating_mul(middle_r) > MAX_SEQUENCE_CELLS {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "sequence_budget",
             format!(
                 "{subject} exceeds the sequence-matching budget ({middle_o} x {middle_r} > {MAX_SEQUENCE_CELLS} cells); split the documents"
@@ -856,56 +812,23 @@ fn aligned_opcodes(
 }
 
 impl Ctx<'_> {
-    fn overrides<'t>(&'t self, working: &'t XmlTree) -> BTreeMap<String, XmlTree> {
-        let mut map = self.finished.clone();
-        map.insert(self.part.clone(), working.clone());
-        map
+    /// Upstream `_next_revision_id` over the finished stories and `working`.
+    fn scan_next_id(&self, working: &XmlTree) -> Result<i64> {
+        next_revision_id_staged(self.document, |part| {
+            if part == self.part {
+                Some(working)
+            } else {
+                self.finished.get(part)
+            }
+        })
     }
 
     /// Upstream `_next_id`: max of the shared counter and the attached scan.
     fn next_id(&mut self, working: &XmlTree) -> Result<i64> {
-        let scanned = next_revision_id(self.document, &self.overrides(working))?;
-        let value = self.id_cell.max(scanned);
+        let value = self.id_cell.max(self.scan_next_id(working)?);
         self.id_cell = value + 1;
         Ok(value)
     }
-}
-
-fn new_revision(
-    tree: &mut XmlTree,
-    scope: NodeId,
-    local: &str,
-    id: i64,
-    author: &str,
-    date: &str,
-) -> Result<NodeId> {
-    let element = w_el(tree, scope, local)?;
-    oxml::set_w(tree, element, "id", &id.to_string())?;
-    oxml::set_w(tree, element, "author", author)?;
-    oxml::set_w(tree, element, "date", date)?;
-    Ok(element)
-}
-
-/// Upstream `blocks._stamp_paragraph_mark`.
-fn stamp_paragraph_mark(
-    tree: &mut XmlTree,
-    paragraph: NodeId,
-    local: &str,
-    id: i64,
-    author: &str,
-    date: &str,
-) -> Result<()> {
-    let ppr = oxml::get_or_add_ppr(tree, paragraph)?;
-    let rpr = match w_child(tree, ppr, "rPr") {
-        Some(existing) => existing,
-        None => {
-            let rpr = w_el(tree, ppr, "rPr")?;
-            insert_before_successors(tree, ppr, rpr, &["sectPr", "pPrChange"])?;
-            rpr
-        }
-    };
-    let mark = new_revision(tree, rpr, local, id, author, date)?;
-    tree.insert(rpr, 0, mark)
 }
 
 /// Upstream `blocks._wrap_paragraph_content_as_insertion`.
@@ -959,38 +882,6 @@ fn fldchar_unbalanced(tree: &XmlTree, element: NodeId) -> bool {
     depth != 0
 }
 
-/// Upstream `blocks._named_bookmarks_in`.
-fn named_bookmarks_in(tree: &XmlTree, paragraph: NodeId) -> Vec<String> {
-    let stream: Vec<NodeId> = iter_nodes(tree, paragraph).collect();
-    let mut starts: HashMap<Option<String>, (usize, String)> = HashMap::new();
-    let mut named: Vec<(Option<String>, String)> = Vec::new();
-    for (position, node) in stream.iter().enumerate() {
-        if is_w(tree, *node, "bookmarkStart") {
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            let name = w_attr(tree, *node, "name").unwrap_or("").to_string();
-            starts.insert(id.clone(), (position, name.clone()));
-            if name != "_GoBack" {
-                named.push((id, name));
-            }
-        } else if is_w(tree, *node, "bookmarkEnd") {
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            let Some((start, name)) = starts.remove(&id) else {
-                continue;
-            };
-            if name == "_GoBack" {
-                continue;
-            }
-            let has_text = stream[start + 1..position]
-                .iter()
-                .any(|inner| is_w(tree, *inner, "t") && !leading_text(tree, *inner).is_empty());
-            if !has_text {
-                named.retain(|(i, _)| *i != id);
-            }
-        }
-    }
-    named.into_iter().map(|(_, name)| name).collect()
-}
-
 fn refuse_unrepresentable_children(
     ctx: &Ctx<'_>,
     tree: &XmlTree,
@@ -1000,7 +891,7 @@ fn refuse_unrepresentable_children(
     for child in tree.child_elements(paragraph) {
         for local in ["sdt", "fldSimple"] {
             if is_w(tree, child, local) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "unrepresentable_child",
                     format!(
                         "compare cannot {verb} a paragraph containing <w:{local}> in {}; restructure the change or resolve it manually (a declared limit)",
@@ -1011,7 +902,7 @@ fn refuse_unrepresentable_children(
         }
     }
     if fldchar_unbalanced(tree, paragraph) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unbalanced_field",
             format!(
                 "compare cannot {verb} one paragraph of a multi-paragraph complex field in {} — the begin/end markers would unbalance (a declared limit)",
@@ -1022,7 +913,7 @@ fn refuse_unrepresentable_children(
     let mut named = named_bookmarks_in(tree, paragraph);
     if !named.is_empty() {
         named.sort();
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "named_bookmark",
             format!(
                 "compare cannot {verb} a paragraph carrying named bookmark(s) {named:?} in {} — cross-references would dangle (a declared limit)",
@@ -1137,7 +1028,7 @@ fn sanitize_source(ctx: &Ctx<'_>, source: &XmlTree, element: NodeId) -> Result<(
     let descendants: Vec<NodeId> = source.descendants(element).skip(1).collect();
     for (tag, description) in refused {
         if descendants.iter().any(|n| is_w(source, *n, tag)) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "insert_unrepresentable",
                 format!(
                     "compare cannot insert {description} in {} without changing its package relationships or behavior",
@@ -1150,7 +1041,7 @@ fn sanitize_source(ctx: &Ctx<'_>, source: &XmlTree, element: NodeId) -> Result<(
         let value = w_child(source, *num_pr, "numId").and_then(|n| w_attr(source, n, "val"));
         let numeric = value.and_then(|v| v.trim().parse::<i64>().ok());
         if !numeric.is_some_and(|n| ctx.numbering_ids.contains(&n)) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "undefined_numbering",
                 format!(
                     "compare cannot insert content referencing undefined numbering id {value:?} in {}",
@@ -1167,7 +1058,7 @@ fn sanitize_source(ctx: &Ctx<'_>, source: &XmlTree, element: NodeId) -> Result<(
         "commentReference",
     ] {
         if descendants.iter().any(|n| is_w(source, *n, tag)) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "insert_anchor",
                 format!(
                     "compare cannot insert bookmark or comment anchors in {}; their ids and targets cannot be transferred",
@@ -1177,7 +1068,7 @@ fn sanitize_source(ctx: &Ctx<'_>, source: &XmlTree, element: NodeId) -> Result<(
         }
     }
     if fldchar_unbalanced(source, element) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unbalanced_field",
             format!(
                 "compare cannot insert one paragraph of a multi-paragraph complex field in {} — the begin/end markers would unbalance (a declared limit)",
@@ -1216,7 +1107,7 @@ fn require_container_anchor(ctx: &Ctx<'_>, tree: &XmlTree, reference: NodeId) ->
         .parent(reference)
         .is_none_or(|parent| is_w(tree, parent, "txbxContent"))
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "text_box_block",
             format!(
                 "compare cannot add or remove whole blocks next to text-box content in {} (a declared limit)",
@@ -1225,7 +1116,7 @@ fn require_container_anchor(ctx: &Ctx<'_>, tree: &XmlTree, reference: NodeId) ->
         ));
     }
     if ctx.story.starts_with("word/footnotes") || ctx.story.starts_with("word/endnotes") {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "note_block",
             format!(
                 "compare cannot add or remove whole blocks in {}; note-content edits must stay within existing notes (a declared limit)",
@@ -1272,7 +1163,7 @@ fn insert_blocks(
         return Ok(());
     }
     let Some(last) = blocks_o.last() else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "empty_story",
             format!("compare cannot insert into the empty story {}", ctx.story),
         ));
@@ -1396,7 +1287,7 @@ fn refuse_merged_rows(ctx: &Ctx<'_>, tree: &XmlTree, rows: &[NodeId]) -> Result<
             .skip(1)
             .any(|n| is_w(tree, n, "gridSpan") || is_w(tree, n, "vMerge"))
         {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "merged_rows",
                 format!(
                     "compare cannot redline changed table rows containing merged cells in {} (a declared limit)",
@@ -1532,7 +1423,7 @@ fn token_regions(old: &str, new: &str) -> Result<Vec<(usize, usize, String)>> {
     let tokens_r = tokens(new);
     let cells = tokens_o.len().saturating_mul(tokens_r.len());
     if cells > MAX_TEXT_SEQUENCE_CELLS {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "token_budget",
             format!(
                 "paragraph token diff exceeds the sequence-matching budget ({cells} > {MAX_TEXT_SEQUENCE_CELLS} token cells); use granularity='block' or split the documents"
@@ -1612,36 +1503,21 @@ fn paragraph_span(
         return Ok(None);
     }
     let text: String = visible.chars().skip(start).take(end - start).collect();
+    let anchor_index = span_atoms[0].block_index;
     Ok(Some(Span {
-        incarnation: tree.incarnation(),
-        document: ctx.document.id(),
-        token: new_span_token(),
-        story: ctx.story.clone(),
-        part: ctx.part.clone(),
-        anchor: Anchor {
-            story: ctx.story.clone(),
-            index: span_atoms[0].block_index,
-            content_hash: content_hash(&text),
-        },
-        in_insert: span_atoms.iter().any(|a| a.in_insert),
-        in_delete: span_atoms
-            .iter()
-            .any(|a| a.in_delete || a.is_tag("delText")),
-        in_content_control: span_atoms.iter().any(|a| a.sdt.is_some()),
-        in_text_box: span_atoms.iter().any(|a| a.in_text_box),
-        in_field: span_atoms.iter().any(|a| a.in_field),
-        crosses_paragraphs: false,
-        signatures: span_atoms.iter().map(|a| signature(tree, a)).collect(),
-        atom_sequence: span_atoms.iter().map(|a| a.element).collect(),
         sequence_view: Some(View::Current),
-        atoms: span_atoms,
         start_offset,
         end_offset,
-        raw_start: 0,
-        match_start: 0,
-        match_policy: None,
-        view: View::Current,
-        text,
+        ..Span::from_atoms(
+            tree,
+            ctx.document.id(),
+            new_span_token(),
+            &ctx.story,
+            &ctx.part,
+            anchor_index,
+            text,
+            span_atoms,
+        )
     }))
 }
 
@@ -1656,7 +1532,7 @@ fn replace_paragraph_text(
     for (start, end, replacement) in regions.into_iter().rev() {
         let outcome = (|| -> Result<()> {
             let Some(span) = paragraph_span(ctx, tree, paragraph, start, end)? else {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "region_unmappable",
                     "region unmappable to atoms",
                 ));
@@ -1667,7 +1543,7 @@ fn replace_paragraph_text(
                 date: Some(ctx.stamp_ts),
                 preserve_revision: false,
             };
-            let next = next_revision_id(ctx.document, &ctx.overrides(tree))?;
+            let next = ctx.scan_next_id(tree)?;
             let plan = plan_replace(
                 ctx.document,
                 tree,
@@ -1682,7 +1558,7 @@ fn replace_paragraph_text(
         })();
         if let Err(err) = outcome {
             if err.is_refusal() {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "word_edit_refused",
                     format!(
                         "compare cannot safely redline this paragraph in {}; the text-edit primitive refused: {}",
@@ -1721,7 +1597,7 @@ fn compare_region(
         return compare_table(ctx, tree, revised, *element_o, *element_r);
     }
     if textless_story_bytes(tree, *element_o) != textless_story_bytes(revised, *element_r) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "text_with_format_change",
             format!(
                 "compare cannot combine a text edit with a formatting or structural change in {}; apply the formatting change separately",
@@ -1736,7 +1612,7 @@ fn compare_story(ctx: &mut Ctx<'_>, tree: &mut XmlTree, revised: &XmlTree) -> Re
     let blocks_o = story_blocks(tree, &ctx.story)?;
     let blocks_r = story_blocks(revised, &ctx.story)?;
     if blocks_o.len().max(blocks_r.len()) > MAX_BLOCKS {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "block_budget",
             format!(
                 "story {} exceeds the compare block budget ({MAX_BLOCKS} blocks); split the documents",
@@ -1765,7 +1641,7 @@ fn compare_story(ctx: &mut Ctx<'_>, tree: &mut XmlTree, revised: &XmlTree) -> Re
                         != canonical_story_bytes(revised, *element_r)
                     {
                         let preview: String = text.chars().take(80).collect();
-                        return Err(unsupported(
+                        return Err(Error::unsupported(
                             "formatting_difference",
                             format!(
                                 "compare cannot redline a formatting or structural difference in {}: {preview:?}",
@@ -1804,12 +1680,7 @@ fn story_revision_count(document: &Document) -> Result<usize> {
         let tree = document.package().xml(&story.part)?;
         count += tree
             .descendants(tree.root())
-            .filter(|n| {
-                tree.ns_uri(*n) == Some(W)
-                    && tree
-                        .local_name(*n)
-                        .is_some_and(|l| REVISION_TAGS.contains(&l))
-            })
+            .filter(|n| is_revision_tag(tree, *n))
             .count();
     }
     Ok(count)
@@ -1817,9 +1688,9 @@ fn story_revision_count(document: &Document) -> Result<usize> {
 
 /// Hook for materializing input revisions and proving the algebra; filled
 /// in by the revision engine (`crate::revision`).
-pub(crate) struct Verifier {
+struct Verifier {
     /// Resolve every revision (accept = true / reject = false).
-    pub resolve_all: fn(&mut Document, bool) -> Result<()>,
+    resolve_all: fn(&mut Document, bool) -> Result<()>,
 }
 
 /// `author` goes into every `w:author`: required, XML 1.0 text without
@@ -1852,7 +1723,7 @@ fn validate_author(author: &str) -> Result<()> {
 /// for the algebra proof; without it compare refuses inputs that need
 /// materialization and skips nothing silently (`algebra_unverified` is
 /// reported as a finding).
-pub(crate) fn compare_with(
+fn compare_with(
     original: &[u8],
     revised: &[u8],
     options: &CompareOptions,
@@ -1866,7 +1737,7 @@ pub(crate) fn compare_with(
     if options.materialize.is_none() {
         for (which, raw) in [("original", &raw_original), ("revised", &raw_revised)] {
             if raw.has_revisions {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "pending_revisions",
                     format!(
                         "the {which} document carries pending tracked revisions; compare would conflate them with its own redline. Pass materialize='accept' or 'reject' to resolve working copies first (the input files are not modified)"
@@ -1887,7 +1758,7 @@ pub(crate) fn compare_with(
         if story_revision_count(doc)? > 0 {
             match (options.materialize, verifier) {
                 (None, _) => {
-                    return Err(unsupported(
+                    return Err(Error::unsupported(
                         "pending_revisions",
                         format!(
                             "the {which} document carries pending tracked revisions; compare would conflate them with its own redline. Pass materialize='accept' or 'reject' to resolve working copies first (the input files are not modified)"
@@ -1895,7 +1766,7 @@ pub(crate) fn compare_with(
                     ));
                 }
                 (Some(_), None) => {
-                    return Err(unsupported(
+                    return Err(Error::unsupported(
                         "materialize_unavailable",
                         "revision materialization is not available in this build; nothing was changed",
                     ));
@@ -1944,7 +1815,7 @@ pub(crate) fn compare_with(
     if names_o != names_r {
         let only_o: Vec<&&String> = names_o.difference(&names_r).collect();
         let only_r: Vec<&&String> = names_r.difference(&names_o).collect();
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "story_parts_differ",
             format!(
                 "the documents carry different story parts (only-original: {only_o:?}, only-revised: {only_r:?}); compare cannot redline story-part addition or removal"
@@ -1964,13 +1835,13 @@ pub(crate) fn compare_with(
     let loaded_o: BTreeSet<String> = names_o.iter().map(|n| n.to_string()).collect();
     let loaded_r: BTreeSet<String> = names_r.iter().map(|n| n.to_string()).collect();
     if loaded_o != raw_o {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "story_unloadable",
             "the original package contains a story part compare could not load safely",
         ));
     }
     if loaded_r != raw_r {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "story_unloadable",
             "the revised package contains a story part compare could not load safely",
         ));
@@ -2052,7 +1923,7 @@ fn verify_algebra(
         (verifier.resolve_all)(&mut candidate, accept)?;
         let leftover = remaining_markup(&candidate)?;
         if !leftover.is_empty() {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "algebra_unproved",
                 format!(
                     "compare could not prove its {verb} contract; revision markup remains after verification: {leftover:?}"
@@ -2064,20 +1935,6 @@ fn verify_algebra(
     Ok(())
 }
 
-fn remaining_markup(document: &Document) -> Result<BTreeMap<String, usize>> {
-    let mut out = BTreeMap::new();
-    for story in story::stories(document) {
-        let tree = document.package().xml(&story.part)?;
-        for node in tree.descendants(tree.root()) {
-            if is_markup(tree, node) {
-                *out.entry(tree.local_name(node).unwrap_or("").to_string())
-                    .or_insert(0) += 1;
-            }
-        }
-    }
-    Ok(out)
-}
-
 fn assert_packages_match(
     actual: &[u8],
     expected: &[u8],
@@ -2085,7 +1942,7 @@ fn assert_packages_match(
     limits: &Limits,
 ) -> Result<()> {
     let fail = |detail: String| {
-        unsupported(
+        Error::unsupported(
             "algebra_unproved",
             format!("compare could not prove its {outcome} contract; {detail}"),
         )
@@ -2160,12 +2017,12 @@ pub fn compare(
         revised,
         options,
         limits,
-        crate::compare::default_verifier().as_ref(),
+        default_verifier().as_ref(),
     )
 }
 
 /// The verifier backed by the revision engine.
-pub(crate) fn default_verifier() -> Option<Verifier> {
+fn default_verifier() -> Option<Verifier> {
     fn resolve_all(document: &mut Document, accept: bool) -> Result<()> {
         let mut revisions = document.revisions()?;
         if accept {

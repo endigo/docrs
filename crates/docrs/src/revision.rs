@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
+use crate::links::next_sibling;
 use crate::normalize::content_hash;
 use crate::package::ct;
 use crate::package::rels::{RELS_NS, rels_member_for, rt};
@@ -34,11 +35,10 @@ use crate::protection::{OperationClass, refuse_if_protected};
 use crate::story::{self, BlockKind, Story, View};
 use crate::txn::Txn;
 use crate::unicode::py_strip;
-use crate::wml::{MC, W, first_choice_children, leading_text, node_children, w_attr};
+use crate::wml::{MC, R, W, first_choice_children, leading_text, node_children, w_attr};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, DocumentId, Error, RefusalKind, Result};
 
-pub(crate) const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const O_NS: &str = "urn:schemas-microsoft-com:office:office";
 pub(crate) const W15: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 
@@ -52,10 +52,6 @@ pub const RESOLVABLE_TYPES: &[&str] = &[
     "move_from",
     "move_to",
 ];
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
 
 /// Upstream `_REVISION_TYPES` (tag → type), by `w:` local name.
 fn base_revision_type(local: &str) -> Option<&'static str> {
@@ -161,17 +157,6 @@ fn raw_index(tree: &XmlTree, parent: NodeId, k: usize) -> usize {
         }
     }
     children.len()
-}
-
-/// lxml `getnext()`: the next element/comment/PI sibling.
-fn lxml_next(tree: &XmlTree, id: NodeId) -> Option<NodeId> {
-    let parent = tree.parent(id)?;
-    let children = tree.children(parent);
-    let index = children.iter().position(|child| *child == id)?;
-    children[index + 1..]
-        .iter()
-        .copied()
-        .find(|child| !matches!(tree.data(*child), NodeData::Text(_)))
 }
 
 /// Python `int(str)` for decimal ids.
@@ -494,6 +479,23 @@ impl NodeRef {
     }
 }
 
+/// Elements grouped by part, for membership tests without allocating.
+#[derive(Default)]
+struct NodeSet<'a>(HashMap<&'a str, HashSet<NodeId>>);
+
+impl<'a> NodeSet<'a> {
+    fn insert(&mut self, node: &'a NodeRef) {
+        self.0
+            .entry(node.part.as_str())
+            .or_default()
+            .insert(node.id);
+    }
+
+    fn contains(&self, part: &str, id: NodeId) -> bool {
+        self.0.get(part).is_some_and(|ids| ids.contains(&id))
+    }
+}
+
 /// Inert location evidence for a revision (`index` is `-1` for story-level
 /// section properties outside every block).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
@@ -566,7 +568,7 @@ impl Revision {
         if self.is_resolvable() {
             return Ok(());
         }
-        Err(unsupported(
+        Err(Error::unsupported(
             "unresolvable_revision_type",
             format!(
                 "cannot {verb} a {} revision: this revision type is enumerated but not resolvable by \
@@ -919,7 +921,7 @@ pub(crate) fn related_xml_part(
     let part = match txn.part_related_by(main, rel_type) {
         Ok(part) => part,
         Err(err) if err.reason() == "ambiguous_relationship" => {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_relationship",
                 format!(
                     "multiple {label} relationships make {purpose} ambiguous; nothing was changed"
@@ -933,7 +935,7 @@ pub(crate) fn related_xml_part(
         .content_type(&part)
         .is_some_and(|ct| ct::EAGER_XML.contains(&ct.as_str()));
     if !live {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "part_not_live_xml",
             format!("{label} part is not loaded as live XML; nothing was changed"),
         ));
@@ -953,12 +955,11 @@ struct MoveSite {
 }
 
 impl MoveSite {
-    fn elements(&self) -> Vec<NodeRef> {
-        let mut out = vec![self.start.clone()];
-        out.extend(self.end.clone());
-        out.extend(self.wrappers.iter().cloned());
-        out.extend(self.mark_stamps.iter().cloned());
-        out
+    fn elements(&self) -> impl Iterator<Item = &NodeRef> {
+        std::iter::once(&self.start)
+            .chain(self.end.iter())
+            .chain(self.wrappers.iter())
+            .chain(self.mark_stamps.iter())
     }
 }
 
@@ -970,14 +971,12 @@ struct MoveUnit {
 }
 
 impl MoveUnit {
-    fn elements(&self) -> Vec<NodeRef> {
-        let mut out = self.from_site.elements();
-        out.extend(self.to_site.elements());
-        out
+    fn elements(&self) -> impl Iterator<Item = &NodeRef> {
+        self.from_site.elements().chain(self.to_site.elements())
     }
 
     fn contains(&self, node: &NodeRef) -> bool {
-        self.elements().iter().any(|element| element == node)
+        self.elements().any(|element| element == node)
     }
 }
 
@@ -1013,8 +1012,7 @@ fn scan_story_moves(
                         orphans.push((node, "overlapping move ranges".to_string()));
                         orphans.extend(
                             site.elements()
-                                .into_iter()
-                                .map(|e| (e, "overlapping move ranges".to_string())),
+                                .map(|e| (e.clone(), "overlapping move ranges".to_string())),
                         );
                     } else if name.is_none_or(str::is_empty) {
                         orphans.push((node, "move range without a w:name".to_string()));
@@ -1089,7 +1087,7 @@ fn move_units(trees: &impl Trees, stories: &[Story]) -> Result<(Vec<MoveUnit>, O
                 tos.len()
             );
             for site in froms.iter().chain(tos.iter()) {
-                orphans.extend(site.elements().into_iter().map(|e| (e, reason.clone())));
+                orphans.extend(site.elements().map(|e| (e.clone(), reason.clone())));
             }
             continue;
         }
@@ -1101,7 +1099,7 @@ fn move_units(trees: &impl Trees, stories: &[Story]) -> Result<(Vec<MoveUnit>, O
                 tos[0].story
             );
             for site in froms.iter().chain(tos.iter()) {
-                orphans.extend(site.elements().into_iter().map(|e| (e, reason.clone())));
+                orphans.extend(site.elements().map(|e| (e.clone(), reason.clone())));
             }
             continue;
         }
@@ -1117,7 +1115,13 @@ fn move_units(trees: &impl Trees, stories: &[Story]) -> Result<(Vec<MoveUnit>, O
 }
 
 /// Upstream `_validate_moves`.
-fn validate_moves(ctx: &Ctx<'_, '_>, selected: &[Selected], author: Option<&str>) -> Result<()> {
+fn validate_moves(
+    ctx: &Ctx<'_, '_>,
+    selected: &[Selected],
+    units: &[MoveUnit],
+    orphans: &Orphans,
+    author: Option<&str>,
+) -> Result<()> {
     let move_nodes: Vec<&NodeRef> = selected
         .iter()
         .filter(|s| s.is_move())
@@ -1126,7 +1130,6 @@ fn validate_moves(ctx: &Ctx<'_, '_>, selected: &[Selected], author: Option<&str>
     if move_nodes.is_empty() {
         return Ok(());
     }
-    let (units, orphans) = move_units(&ctx.txn, ctx.stories)?;
     let mut touched: Vec<usize> = Vec::new();
     for node in move_nodes {
         if let Some(index) = units.iter().position(|unit| unit.contains(node)) {
@@ -1140,7 +1143,7 @@ fn validate_moves(ctx: &Ctx<'_, '_>, selected: &[Selected], author: Option<&str>
             .find(|(element, _)| element == node)
             .map(|(_, reason)| reason.clone())
             .unwrap_or_else(|| "its range markers were not found".to_string());
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unresolvable_move",
             format!(
                 "selected revisions include an unresolvable tracked move: {reason}; nothing was changed. \
@@ -1184,7 +1187,7 @@ fn validate_moves(ctx: &Ctx<'_, '_>, selected: &[Selected], author: Option<&str>
         }
         if authors.len() != 1 || authors[0] != author {
             authors.sort();
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "mixed_author_move",
                 format!(
                     "cannot resolve move {} with author={}: its compound move unit's authors differ ({}); \
@@ -1219,7 +1222,7 @@ fn marker_id(tree: &XmlTree, node: NodeId, note: bool) -> Result<i64> {
         Some(value) => Ok(value),
         None => {
             let name = tree.local_name(node).unwrap_or("");
-            Err(unsupported(
+            Err(Error::unsupported(
                 if note {
                     "malformed_note_id"
                 } else {
@@ -1328,20 +1331,20 @@ const TRANSPARENT_BLOCK_MARKERS: &[&str] = &[
 
 /// Upstream `_next_paragraph_sibling`.
 fn next_paragraph_sibling(tree: &XmlTree, paragraph: NodeId) -> Result<Option<NodeId>> {
-    let mut node = lxml_next(tree, paragraph);
+    let mut node = next_sibling(tree, paragraph);
     while let Some(current) = node {
         let local = w_local(tree, current);
         match local {
             Some("p") => return Ok(Some(current)),
             Some("tbl" | "sdt" | "sectPr") => return Ok(None),
             Some(l) if TRANSPARENT_BLOCK_MARKERS.contains(&l) => {
-                node = lxml_next(tree, current);
+                node = next_sibling(tree, current);
                 continue;
             }
             _ => {}
         }
         let name = tree.local_name(current).unwrap_or("#node").to_string();
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unsafe_paragraph_join",
             format!(
                 "cannot resolve a paragraph-mark revision across the {} block; its content boundary is not a \
@@ -1362,6 +1365,7 @@ fn paragraph_mark_applies(tree: &XmlTree, node: NodeId, accept: bool) -> bool {
 fn validate_paragraph_mark_joins(
     ctx: &Ctx<'_, '_>,
     selected: &[Selected],
+    units: &[MoveUnit],
     accept: bool,
 ) -> Result<()> {
     let mut marks: Vec<NodeRef> = selected
@@ -1374,13 +1378,10 @@ fn validate_paragraph_mark_joins(
         .filter(|s| s.is_move())
         .map(|s| &s.node)
         .collect();
-    if !moves.is_empty() {
-        let (units, _) = move_units(&ctx.txn, ctx.stories)?;
-        for unit in &units {
-            if moves.iter().any(|node| unit.contains(node)) {
-                marks.extend(unit.from_site.mark_stamps.iter().cloned());
-                marks.extend(unit.to_site.mark_stamps.iter().cloned());
-            }
+    for unit in units {
+        if moves.iter().any(|node| unit.contains(node)) {
+            marks.extend(unit.from_site.mark_stamps.iter().cloned());
+            marks.extend(unit.to_site.mark_stamps.iter().cloned());
         }
     }
     let mut seen = HashSet::new();
@@ -1400,8 +1401,12 @@ fn validate_paragraph_mark_joins(
 }
 
 /// Upstream `_resolution_discard_roots`.
-fn discard_roots(ctx: &Ctx<'_, '_>, selected: &[Selected], accept: bool) -> Result<Vec<NodeRef>> {
-    let (units, _) = move_units(&ctx.txn, ctx.stories)?;
+fn discard_roots(
+    ctx: &Ctx<'_, '_>,
+    selected: &[Selected],
+    units: &[MoveUnit],
+    accept: bool,
+) -> Result<Vec<NodeRef>> {
     let mut roots: Vec<NodeRef> = Vec::new();
     let add = |root: NodeRef, roots: &mut Vec<NodeRef>| {
         if !roots.contains(&root) {
@@ -1458,7 +1463,7 @@ fn discard_roots(ctx: &Ctx<'_, '_>, selected: &[Selected], accept: bool) -> Resu
                     add(NodeRef::new(&node.part, root), &mut roots);
                 }
                 _ => {
-                    return Err(unsupported(
+                    return Err(Error::unsupported(
                         "malformed_row_revision",
                         "malformed tracked-row revision cannot be resolved; nothing was changed",
                     ));
@@ -1480,6 +1485,7 @@ fn validate_destructive_closure(
     ctx: &Ctx<'_, '_>,
     roots: &[NodeRef],
     selected: &[Selected],
+    units: &[MoveUnit],
     accept: bool,
     author: Option<&str>,
     individual: bool,
@@ -1487,17 +1493,19 @@ fn validate_destructive_closure(
     if author.is_none() && !individual {
         return Ok(());
     }
-    let mut accounted: HashSet<NodeRef> = selected.iter().map(|s| s.node.clone()).collect();
+    let mut accounted = NodeSet::default();
+    for revision in selected {
+        accounted.insert(&revision.node);
+    }
     let moves: Vec<&NodeRef> = selected
         .iter()
         .filter(|s| s.is_move())
         .map(|s| &s.node)
         .collect();
-    if !moves.is_empty() {
-        let (units, _) = move_units(&ctx.txn, ctx.stories)?;
-        for unit in &units {
-            if moves.iter().any(|node| unit.contains(node)) {
-                accounted.extend(unit.elements());
+    for unit in units {
+        if moves.iter().any(|node| unit.contains(node)) {
+            for element in unit.elements() {
+                accounted.insert(element);
             }
         }
     }
@@ -1506,7 +1514,7 @@ fn validate_destructive_closure(
     for root in roots {
         let tree = ctx.tree(&root.part)?;
         for node in tree.descendants(root.id) {
-            if !is_scan_tag(tree, node) || accounted.contains(&NodeRef::new(&root.part, node)) {
+            if !is_scan_tag(tree, node) || accounted.contains(&root.part, node) {
                 continue;
             }
             let node_author = w_attr(tree, node, "author").unwrap_or("");
@@ -1535,7 +1543,7 @@ fn validate_destructive_closure(
     types.sort();
     if individual {
         let verb = if accept { "accept" } else { "reject" };
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "consumes_unselected_revisions",
             format!(
                 "cannot {verb} a {} revision individually: its destructive resolution would also consume nested \
@@ -1546,7 +1554,7 @@ fn validate_destructive_closure(
             ),
         ));
     }
-    Err(unsupported(
+    Err(Error::unsupported(
         "consumes_unselected_revisions",
         format!(
             "cannot resolve revisions with author={}: a selected destructive revision would also consume \
@@ -1585,11 +1593,17 @@ fn py_dict(counts: &BTreeMap<String, usize>) -> String {
     format!("{{{}}}", items.join(", "))
 }
 
-/// Upstream `_refuse_unaccounted_markup`.
-fn refuse_unaccounted_markup(ctx: &Ctx<'_, '_>) -> Result<()> {
+/// Upstream `_refuse_unaccounted_markup` (`enumerated` is the current
+/// revision enumeration, taken before any mutation).
+fn refuse_unaccounted_markup(
+    ctx: &Ctx<'_, '_>,
+    units: &[MoveUnit],
+    orphans: &Orphans,
+    enumerated: &[NodeRef],
+) -> Result<()> {
     let fallback = fallback_markup(ctx)?;
     if !fallback.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "fallback_revision_markup",
             format!(
                 "revision markup lives inside mc:AlternateContent fallback branches ({}); this package resolves \
@@ -1599,12 +1613,11 @@ fn refuse_unaccounted_markup(ctx: &Ctx<'_, '_>) -> Result<()> {
             ),
         ));
     }
-    let (units, orphans) = move_units(&ctx.txn, ctx.stories)?;
     if !orphans.is_empty() {
         let mut reasons: Vec<String> = orphans.iter().map(|(_, reason)| reason.clone()).collect();
         reasons.sort();
         reasons.dedup();
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unpaired_move_markup",
             format!(
                 "the document carries move markup this package cannot pair ({}); nothing was changed. Resolve \
@@ -1625,7 +1638,7 @@ fn refuse_unaccounted_markup(ctx: &Ctx<'_, '_>) -> Result<()> {
         .collect();
     marker_only.sort();
     if !marker_only.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "marker_only_move",
             format!(
                 "the document carries complete marker-only move units with no resolvable move content ({}); \
@@ -1634,18 +1647,20 @@ fn refuse_unaccounted_markup(ctx: &Ctx<'_, '_>) -> Result<()> {
             ),
         ));
     }
-    let mut accounted: HashSet<NodeRef> = enumerate(&ctx.txn, ctx.stories, ctx.document)?
-        .into_iter()
-        .map(|raw| raw.node)
-        .collect();
-    for unit in &units {
-        accounted.extend(unit.elements());
+    let mut accounted = NodeSet::default();
+    for node in enumerated {
+        accounted.insert(node);
+    }
+    for unit in units {
+        for element in unit.elements() {
+            accounted.insert(element);
+        }
     }
     let mut unaccounted = BTreeMap::new();
     for story in ctx.stories {
         let tree = ctx.tree(&story.part)?;
         for node in tree.descendants(tree.root()) {
-            if is_scan_tag(tree, node) && !accounted.contains(&NodeRef::new(&story.part, node)) {
+            if is_scan_tag(tree, node) && !accounted.contains(&story.part, node) {
                 *unaccounted
                     .entry(w_local(tree, node).unwrap_or("").to_string())
                     .or_default() += 1;
@@ -1653,7 +1668,7 @@ fn refuse_unaccounted_markup(ctx: &Ctx<'_, '_>) -> Result<()> {
         }
     }
     if !unaccounted.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unenumerable_revision_markup",
             format!(
                 "the document carries revision markup this package cannot enumerate ({}); nothing was changed. \
@@ -1678,19 +1693,15 @@ fn comment_range_ids_inside(tree: &XmlTree, node: NodeId) -> Result<Vec<i64>> {
 }
 
 fn note_ids_inside(tree: &XmlTree, node: NodeId, reference_tag: &'static str) -> Result<Vec<i64>> {
-    let tags: &[&str] = if reference_tag == "footnoteReference" {
-        &["footnoteReference"]
-    } else {
-        &["endnoteReference"]
-    };
-    iter_w(tree, node, tags)
+    let tags = [reference_tag];
+    iter_w(tree, node, &tags)
         .map(|reference| note_id(tree, reference))
         .collect()
 }
 
 fn is_relationship_attr(tree: &XmlTree, attr: &crate::xml::Attr) -> bool {
     match attr.ns.map(|ns| tree.uri(ns)) {
-        Some(R_NS) => true,
+        Some(R) => true,
         Some(O_NS) => &*attr.name.local == "relid",
         _ => false,
     }
@@ -1710,9 +1721,26 @@ pub(crate) fn relationship_values(tree: &XmlTree, node: NodeId) -> Vec<String> {
     out
 }
 
-const NOTE_KINDS: &[(&str, &str, &str, &str)] = &[
-    ("footnoteReference", "footnote", rt::FOOTNOTES, "footnotes"),
-    ("endnoteReference", "endnote", rt::ENDNOTES, "endnotes"),
+struct NoteKind {
+    reference_tag: &'static str,
+    body_tag: &'static str,
+    rel_type: &'static str,
+    label: &'static str,
+}
+
+const NOTE_KINDS: [NoteKind; 2] = [
+    NoteKind {
+        reference_tag: "footnoteReference",
+        body_tag: "footnote",
+        rel_type: rt::FOOTNOTES,
+        label: "footnotes",
+    },
+    NoteKind {
+        reference_tag: "endnoteReference",
+        body_tag: "endnote",
+        rel_type: rt::ENDNOTES,
+        label: "endnotes",
+    },
 ];
 
 /// Upstream `_validate_note_cleanup_graph`.
@@ -1728,9 +1756,14 @@ fn validate_note_cleanup_graph(ctx: &Ctx<'_, '_>) -> Result<()> {
     {
         roots.push(part);
     }
-    for (_, body_tag, rel_type, label) in NOTE_KINDS {
-        let Some(part) =
-            related_xml_part(&ctx.txn, &ctx.main, rel_type, label, "revision cleanup")?
+    for kind in &NOTE_KINDS {
+        let Some(part) = related_xml_part(
+            &ctx.txn,
+            &ctx.main,
+            kind.rel_type,
+            kind.label,
+            "revision cleanup",
+        )?
         else {
             continue;
         };
@@ -1738,7 +1771,7 @@ fn validate_note_cleanup_graph(ctx: &Ctx<'_, '_>) -> Result<()> {
             roots.push(part.clone());
         }
         let tree = ctx.tree(&part)?;
-        let tags = [*body_tag];
+        let tags = [kind.body_tag];
         for note in iter_w(tree, tree.root(), &tags) {
             note_id(tree, note)?;
         }
@@ -1751,8 +1784,8 @@ fn validate_note_cleanup_graph(ctx: &Ctx<'_, '_>) -> Result<()> {
         for comment in iter_w(tree, tree.root(), &["comment"]) {
             comment_id(tree, comment)?;
         }
-        for (reference_tag, ..) in NOTE_KINDS {
-            let tags = [*reference_tag];
+        for kind in &NOTE_KINDS {
+            let tags = [kind.reference_tag];
             for reference in iter_w(tree, tree.root(), &tags) {
                 note_id(tree, reference)?;
             }
@@ -1785,7 +1818,7 @@ fn validate_cleanup_dependencies(ctx: &Ctx<'_, '_>, roots: &[NodeRef]) -> Result
     partial.dedup();
     if !partial.is_empty() {
         let shown: Vec<String> = partial.iter().map(i64::to_string).collect();
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "partial_comment_cleanup",
             format!(
                 "revision cleanup would remove comment range markers while leaving their reference marks live \
@@ -1864,7 +1897,7 @@ fn validate_comment_cleanup_graph(
             is_discarded(part, ctx.tree(part)?, *node)
         };
         if !single_discarded {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_comment_cleanup",
                 format!(
                     "comment {id} has {} reference marks; revision cleanup requires exactly one reference inside \
@@ -1887,7 +1920,7 @@ fn validate_comment_cleanup_graph(
             }
         };
         if bodies != 1 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_comment_cleanup",
                 format!(
                     "comment {id} has {bodies} comment bodies; revision cleanup requires exactly one. Nothing was \
@@ -1896,7 +1929,7 @@ fn validate_comment_cleanup_graph(
             ));
         }
         if starts != ends || starts > 1 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "ambiguous_comment_cleanup",
                 format!("comment {id} has an ambiguous range-marker graph; nothing was changed"),
             ));
@@ -1905,23 +1938,26 @@ fn validate_comment_cleanup_graph(
     Ok(())
 }
 
-/// Upstream `_preflight_resolution`.
+/// Upstream `_preflight_resolution` (`enumerated`: the caller's freshness
+/// enumeration of the same trees).
 fn preflight(
     ctx: &Ctx<'_, '_>,
     selected: &[Selected],
+    enumerated: &[NodeRef],
     accept: bool,
     author: Option<&str>,
     require_clean: bool,
     individual: bool,
 ) -> Result<()> {
     validate_comment_marker_ids(ctx)?;
-    validate_moves(ctx, selected, author)?;
+    let (units, orphans) = move_units(&ctx.txn, ctx.stories)?;
+    validate_moves(ctx, selected, &units, &orphans, author)?;
     if require_clean {
-        refuse_unaccounted_markup(ctx)?;
+        refuse_unaccounted_markup(ctx, &units, &orphans, enumerated)?;
     }
-    validate_paragraph_mark_joins(ctx, selected, accept)?;
-    let roots = discard_roots(ctx, selected, accept)?;
-    validate_destructive_closure(ctx, &roots, selected, accept, author, individual)?;
+    validate_paragraph_mark_joins(ctx, selected, &units, accept)?;
+    let roots = discard_roots(ctx, selected, &units, accept)?;
+    validate_destructive_closure(ctx, &roots, selected, &units, accept, author, individual)?;
     validate_cleanup_dependencies(ctx, &roots)?;
     Ok(())
 }
@@ -1997,18 +2033,17 @@ fn note_reference_remains(ctx: &Ctx<'_, '_>, reference_tag: &'static str, id: i6
 }
 
 fn cleanup_note_bodies(ctx: &mut Ctx<'_, '_>, footnotes: &[i64], endnotes: &[i64]) -> Result<()> {
-    for (index, (reference_tag, body_tag, rel_type, label)) in NOTE_KINDS.iter().enumerate() {
-        let ids = if index == 0 { footnotes } else { endnotes };
+    for (kind, ids) in NOTE_KINDS.iter().zip([footnotes, endnotes]) {
         let mut removable = Vec::new();
         for id in ids {
-            if !note_reference_remains(ctx, reference_tag, *id)? && !removable.contains(id) {
+            if !note_reference_remains(ctx, kind.reference_tag, *id)? && !removable.contains(id) {
                 removable.push(*id);
             }
         }
         if removable.is_empty() {
             continue;
         }
-        let part = match ctx.txn.part_related_by(&ctx.main, rel_type) {
+        let part = match ctx.txn.part_related_by(&ctx.main, kind.rel_type) {
             Ok(Some(part)) => part,
             Ok(None) => continue,
             Err(err) => return Err(err),
@@ -2018,11 +2053,12 @@ fn cleanup_note_bodies(ctx: &mut Ctx<'_, '_>, footnotes: &[i64], endnotes: &[i64
             .content_type(&part)
             .is_some_and(|ct| ct::EAGER_XML.contains(&ct.as_str()))
         {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "part_not_live_xml",
                 format!(
-                    "{label} part is not loaded as live XML; cleanup cannot continue without leaving orphaned \
-                     note bodies"
+                    "{} part is not loaded as live XML; cleanup cannot continue without leaving orphaned \
+                     note bodies",
+                    kind.label
                 ),
             ));
         }
@@ -2030,7 +2066,7 @@ fn cleanup_note_bodies(ctx: &mut Ctx<'_, '_>, footnotes: &[i64], endnotes: &[i64
             let tree = ctx.tree(&part)?;
             let mut doomed = Vec::new();
             for note in tree.child_elements(tree.root()).collect::<Vec<_>>() {
-                if is_tag(tree, note, body_tag)
+                if is_tag(tree, note, kind.body_tag)
                     && w_attr(tree, note, "type").is_none()
                     && removable.contains(&note_id(tree, note)?)
                 {
@@ -2063,7 +2099,7 @@ fn cleanup_comments_extended(ctx: &mut Ctx<'_, '_>, paragraph_ids: &[String]) ->
         .content_type(&part)
         .is_some_and(|ct| ct::EAGER_XML.contains(&ct.as_str()))
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "part_not_live_xml",
             "commentsExtended is not loaded as live XML",
         ));
@@ -2148,7 +2184,7 @@ fn cleanup_comment_anchors(ctx: &mut Ctx<'_, '_>, comment_ids: &[i64]) -> Result
 /// Upstream `_discard_element`: detach a subtree and prune what only it used.
 fn discard_element(ctx: &mut Ctx<'_, '_>, node: &NodeRef) -> Result<()> {
     if !ctx.attached(node)? {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "detached_revision_subtree",
             "cannot discard a detached revision subtree; nothing was changed",
         ));
@@ -2187,40 +2223,14 @@ fn unwrap(tree: &mut XmlTree, node: NodeId) -> Result<()> {
     tree.detach(node)
 }
 
-/// lxml `element.tag = w:local` (rebuilt in place: same position, attributes
-/// and children).
-fn retag(tree: &mut XmlTree, node: NodeId, local: &str) -> Result<()> {
-    let parent = tree
-        .parent(node)
-        .ok_or_else(|| Error::internal("detached_retag", "retag of a detached element"))?;
-    let index = tree.index_in_parent(node).unwrap_or(0);
-    let attrs = tree
-        .element(node)
-        .map(|e| e.attrs.clone())
-        .unwrap_or_default();
-    let replacement = tree.create_element(node, W, local)?;
-    tree.insert(parent, index, replacement)?;
-    for attr in attrs {
-        let ns = attr.ns.map(|ns| tree.uri(ns).to_string());
-        tree.set_attr(replacement, ns.as_deref(), &attr.name.local, &attr.value)?;
-    }
-    let children: Vec<NodeId> = tree.children(node).to_vec();
-    for child in children {
-        tree.detach(child)?;
-        let end = tree.children(replacement).len();
-        tree.insert(replacement, end, child)?;
-    }
-    tree.detach(node)
-}
-
 fn resolve_deletion_reject(tree: &mut XmlTree, node: NodeId) -> Result<()> {
     let del_texts: Vec<NodeId> = iter_w(tree, node, &["delText"]).collect();
     for text in del_texts {
-        retag(tree, text, "t")?;
+        tree.set_local_name(text, "t")?;
     }
     let del_instr: Vec<NodeId> = iter_w(tree, node, &["delInstrText"]).collect();
     for text in del_instr {
-        retag(tree, text, "instrText")?;
+        tree.set_local_name(text, "instrText")?;
     }
     unwrap(tree, node)
 }
@@ -2381,14 +2391,14 @@ fn resolve_move(ctx: &mut Ctx<'_, '_>, node: &NodeRef, accept: bool) -> Result<(
         return resolve_move_unit(ctx, &unit, accept);
     }
     if let Some((_, reason)) = orphans.iter().find(|(element, _)| element == node) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "unresolvable_move",
             format!(
                 "cannot resolve this tracked move: {reason}; nothing was changed. Resolve it in Word instead"
             ),
         ));
     }
-    Err(unsupported(
+    Err(Error::unsupported(
         "unresolvable_move",
         "cannot resolve this tracked move: its range markers were not found; nothing was changed. Resolve it in \
          Word instead",
@@ -2429,7 +2439,7 @@ fn resolve_move_unit(ctx: &mut Ctx<'_, '_>, unit: &MoveUnit, accept: bool) -> Re
 }
 
 fn stale_error() -> Error {
-    unsupported(
+    Error::unsupported(
         "stale_revision",
         "cannot resolve a stale Revision; reacquire it from document.revisions. Nothing was changed",
     )
@@ -2492,7 +2502,7 @@ fn resolve_individual(document: &mut Document, revision: &Revision, accept: bool
         let mut ctx = Ctx::new(document, &stories);
         let current = signature_of(&ctx.txn, &stories, ctx.document)?;
         if *revision.signature != current || !ctx.is_in_story(&revision.node)? {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "stale_revision",
                 format!(
                     "cannot {verb} a stale Revision; reacquire it from document.revisions. Nothing was changed"
@@ -2505,7 +2515,7 @@ fn resolve_individual(document: &mut Document, revision: &Revision, accept: bool
             revision_type: revision.revision_type,
             is_paragraph_mark: revision.is_paragraph_mark,
         }];
-        preflight(&ctx, &selected, accept, None, false, true)?;
+        preflight(&ctx, &selected, &current, accept, None, false, true)?;
         resolve_one(&mut ctx, &revision.node, accept)?;
         ctx.txn.finish()?
     };
@@ -2527,7 +2537,7 @@ fn resolve_all(
         let mut ctx = Ctx::new(document, &stories);
         let current = signature_of(&ctx.txn, &stories, ctx.document)?;
         if *revisions.signature != current {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "stale_revisions",
                 "cannot resolve a stale Revisions snapshot; reacquire document.revisions. Nothing was changed",
             ));
@@ -2546,7 +2556,7 @@ fn resolve_all(
         unresolvable.sort();
         unresolvable.dedup();
         if !unresolvable.is_empty() {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "unresolvable_revision_type",
                 format!(
                     "selected revisions include {} which this package can enumerate but not resolve; nothing was \
@@ -2563,7 +2573,15 @@ fn resolve_all(
                 is_paragraph_mark: r.is_paragraph_mark,
             })
             .collect();
-        preflight(&ctx, &selected, accept, author, author.is_none(), false)?;
+        preflight(
+            &ctx,
+            &selected,
+            &current,
+            accept,
+            author,
+            author.is_none(),
+            false,
+        )?;
         let mut ordered: Vec<&Selected> = selected.iter().collect();
         ordered.sort_by_key(|s| {
             if s.is_move() {

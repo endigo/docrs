@@ -280,11 +280,11 @@ pub(crate) fn include_atom(atom: &Atom, view: View) -> bool {
 
 /// Assembled story text with a per-scalar `(atom index, offset)` map;
 /// paragraph separators have offset `-1`.
-pub(crate) fn assemble(tree: &XmlTree, atoms: &[Atom]) -> (String, Vec<(usize, isize)>) {
+pub(crate) fn assemble(tree: &XmlTree, atoms: &[&Atom]) -> (String, Vec<(usize, isize)>) {
     let mut text = String::new();
     let mut map = Vec::new();
     let mut previous: Option<&Atom> = None;
-    for (index, atom) in atoms.iter().enumerate() {
+    for (index, atom) in atoms.iter().copied().enumerate() {
         if let Some(previous) = previous
             && atom.paragraph != previous.paragraph
         {
@@ -455,6 +455,51 @@ pub struct Span {
 }
 
 impl Span {
+    /// A span over `atoms` holding `text`, with the context flags, signatures
+    /// and anchor derived from the atoms; the location fields (offsets, atom
+    /// sequence, policy, view) default and are set by the caller.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_atoms(
+        tree: &XmlTree,
+        document: DocumentId,
+        token: u64,
+        story: &str,
+        part: &str,
+        anchor_index: usize,
+        text: String,
+        atoms: Vec<Atom>,
+    ) -> Span {
+        Span {
+            incarnation: tree.incarnation(),
+            document,
+            token,
+            story: story.to_string(),
+            part: part.to_string(),
+            anchor: Anchor {
+                story: story.to_string(),
+                index: anchor_index,
+                content_hash: content_hash(&text),
+            },
+            in_insert: atoms.iter().any(|a| a.in_insert),
+            in_delete: atoms.iter().any(|a| a.in_delete || a.is_tag("delText")),
+            in_content_control: atoms.iter().any(|a| a.sdt.is_some()),
+            in_text_box: atoms.iter().any(|a| a.in_text_box),
+            in_field: atoms.iter().any(|a| a.in_field),
+            crosses_paragraphs: false,
+            signatures: atoms.iter().map(|a| signature(tree, a)).collect(),
+            atom_sequence: atoms.iter().map(|a| a.element).collect(),
+            sequence_view: None,
+            atoms,
+            start_offset: 0,
+            end_offset: 0,
+            raw_start: 0,
+            match_start: 0,
+            match_policy: None,
+            view: View::Current,
+            text,
+        }
+    }
+
     /// The located text (scalar-exact source characters).
     pub fn text(&self) -> &str {
         &self.text
@@ -577,17 +622,19 @@ impl Span {
     }
 }
 
+/// The spans of one story, plus the story's policy-space text and map (for
+/// `near` ranking).
 #[allow(clippy::too_many_arguments)]
 fn spans_for_story(
     document: &Document,
     tree: &XmlTree,
     story: &story::Story,
-    atoms: &[Atom],
+    atoms: &[&Atom],
     all_atoms: &[Atom],
     needle_match: &str,
     view: View,
     policy: MatchPolicy,
-) -> Result<Vec<Span>> {
+) -> Result<(Vec<Span>, String, Vec<usize>)> {
     let limits = document.package().limits();
     let (raw_text, char_map) = assemble(tree, atoms);
     let (match_text, match_map) = match_space(&raw_text, policy, limits)?;
@@ -638,47 +685,39 @@ fn spans_for_story(
         let (end_atom, end_offset) = char_map[raw_end - 1];
         let crosses = (raw_start..raw_end).any(|i| char_map[i].1 == -1)
             || atoms[start_atom].paragraph != atoms[end_atom].paragraph;
-        let span_atoms: Vec<Atom> = atoms[start_atom..=end_atom].to_vec();
+        let span_atoms: Vec<Atom> = atoms[start_atom..=end_atom]
+            .iter()
+            .map(|a| (*a).clone())
+            .collect();
         let text: String = raw_chars[raw_start..raw_end].iter().collect();
         let sequence_start = positions[&span_atoms[0].element];
         let sequence_end = positions[&span_atoms[span_atoms.len() - 1].element];
-        let span = Span {
-            incarnation: tree.incarnation(),
-            document: document.id(),
-            token: NEXT_SPAN_TOKEN.fetch_add(1, Ordering::Relaxed),
-            story: story.name.clone(),
-            part: story.part.clone(),
-            anchor: Anchor {
-                story: story.name.clone(),
-                index: span_atoms[0].block_index,
-                content_hash: content_hash(&text),
-            },
-            in_insert: span_atoms.iter().any(|a| a.in_insert),
-            in_delete: span_atoms
-                .iter()
-                .any(|a| a.in_delete || a.is_tag("delText")),
-            in_content_control: span_atoms.iter().any(|a| a.sdt.is_some()),
-            in_text_box: span_atoms.iter().any(|a| a.in_text_box),
-            in_field: span_atoms.iter().any(|a| a.in_field),
+        let anchor_index = span_atoms[0].block_index;
+        spans.push(Span {
             crosses_paragraphs: crosses,
-            signatures: span_atoms.iter().map(|a| signature(tree, a)).collect(),
             atom_sequence: all_atoms[sequence_start..=sequence_end]
                 .iter()
                 .map(|a| a.element)
                 .collect(),
-            sequence_view: None,
-            atoms: span_atoms,
             start_offset: start_offset as usize,
             end_offset: end_offset as usize + 1,
             raw_start,
             match_start: found_at,
             match_policy: Some(policy),
             view,
-            text,
-        };
-        spans.push(span);
+            ..Span::from_atoms(
+                tree,
+                document.id(),
+                new_span_token(),
+                &story.name,
+                &story.part,
+                anchor_index,
+                text,
+                span_atoms,
+            )
+        });
     }
-    Ok(spans)
+    Ok((spans, match_text, match_map))
 }
 
 /// Every span of `needle` (upstream `find_text`).
@@ -711,15 +750,14 @@ pub fn find_text(document: &Document, needle: &str, options: &FindOptions) -> Re
         }
         let tree = document.package().xml(&story.part)?;
         let all_atoms = story_atoms(tree, &story.name)?;
-        let atoms: Vec<Atom> = all_atoms
+        let atoms: Vec<&Atom> = all_atoms
             .iter()
             .filter(|a| include_atom(a, options.view))
-            .cloned()
             .collect();
         if atoms.is_empty() {
             continue;
         }
-        let spans = spans_for_story(
+        let (spans, match_text, match_map) = spans_for_story(
             document,
             tree,
             &story,
@@ -734,8 +772,6 @@ pub fn find_text(document: &Document, needle: &str, options: &FindOptions) -> Re
         }
         let mut near_positions = Vec::new();
         if let Some(near_match) = near_match.as_deref().filter(|n| !n.is_empty()) {
-            let (raw_text, _) = assemble(tree, &atoms);
-            let (match_text, match_map) = match_space(&raw_text, options.policy, limits)?;
             let index = ScalarIndex::new(&match_text);
             let near_len = near_match.chars().count();
             let mut from = 0usize;
