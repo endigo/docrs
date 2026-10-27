@@ -4,6 +4,7 @@
 //! exported file is also written there (`<test>.docx`) for inspection in
 //! Word, LibreOffice or pandoc (`tools/markdown_check.sh`).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use docrs::markdown::{
@@ -3841,5 +3842,330 @@ fn a_first_paragraph_holding_only_a_sample_label_is_not_used() {
     assert_eq!(
         count(&out.body(), "<w:pStyle w:val=\"FirstParagraph\"/>"),
         2
+    );
+}
+
+/// The repro content for lists and deeper headings: a heading, a paragraph,
+/// two bullets, then headings two to four with a paragraph each.
+const LISTS_HTML: &str = "<h1>Heading one</h1>\
+    <p>First paragraph after a heading, long enough to read as body text.</p>\
+    <ul><li><p>A bullet point in the export.</p></li><li><p>Another bullet point in the export.</p></li></ul>\
+    <h2>Heading two</h2><p>Body text under heading two, long enough to read as body text.</p>\
+    <h3>Heading three</h3><p>Body text under heading three, long enough to read as body text.</p>\
+    <h4>Heading four</h4><p>Body text under heading four, long enough to read as body text.</p>";
+
+#[test]
+fn a_body_text_holding_only_steps_is_not_the_body() {
+    // Body Text holds two short lines and four numbered steps of a closing
+    // section; the prose, sixteen paragraphs, is Normal (Arial 11 pt).
+    let template = || fixture_template("body-text-steps-only.docx");
+    let out = export_html_from("94-body-text-steps-only", template(), LISTS_HTML);
+    for role in ["body", "first_paragraph", "compact"] {
+        assert_eq!(out.report.styles[role].name, "Normal", "{role}");
+        assert_eq!(out.report.styles[role].style_id, None, "{role}");
+    }
+    assert!(!out.body().contains("BodyText"), "{}", out.body());
+    assert_eq!(
+        style_of(&out, "BodyText"),
+        style_xml(&part_of(&template(), "word/styles.xml"), "BodyText")
+    );
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["body"]["name"], "Normal");
+
+    // A Body Text holding prose beside its steps is the body.
+    let prose = "A Body Text paragraph, long enough to read as the prose of the advice.";
+    let template = synthetic(Synthetic {
+        styles: BOOKMAN_BODY_TEXT,
+        body: &format!(
+            "{}{}{}{}",
+            spaced_paragraph(None, prose, ""),
+            styled_paragraph("BodyText", prose, ""),
+            styled_paragraph("BodyText", "Review the following:", ""),
+            styled_paragraph("BodyText", "Do you wish to proceed?", "")
+        ),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "95-body-text-prose-and-steps",
+        SECTIONS,
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(out.report.styles["body"].name, "Body Text");
+}
+
+const BULLET_AND_DECIMAL_NUMBERING: &str = "<w:abstractNum w:abstractNumId=\"0\"><w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/>\
+    <w:lvlText w:val=\"\u{2022}\"/><w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl></w:abstractNum>\
+    <w:abstractNum w:abstractNumId=\"1\"><w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"decimal\"/>\
+    <w:lvlText w:val=\"%1.\"/><w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl></w:abstractNum>\
+    <w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num><w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>";
+
+/// A `List Bullet` (`num_id` 1) or `List Number` (2) style bound to its
+/// numbering, in the theme's minor font.
+fn list_style(id: &str, name: &str, num_id: u8) -> String {
+    format!(
+        "<w:style w:type=\"paragraph\" w:styleId=\"{id}\"><w:name w:val=\"{name}\"/><w:basedOn w:val=\"Normal\"/>\
+         <w:pPr><w:numPr><w:numId w:val=\"{num_id}\"/></w:numPr></w:pPr>\
+         <w:rPr><w:rFonts w:asciiTheme=\"minorHAnsi\" w:hAnsiTheme=\"minorHAnsi\"/></w:rPr></w:style>"
+    )
+}
+
+fn list_item(style: &str, num_id: u8, text: &str) -> String {
+    format!(
+        "<w:p><w:pPr><w:pStyle w:val=\"{style}\"/><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"{num_id}\"/></w:numPr></w:pPr>\
+         <w:r><w:t>{text}</w:t></w:r></w:p>"
+    )
+}
+
+#[test]
+fn an_unused_list_style_takes_the_sample_lists_font_and_size() {
+    // List Bullet binds the bullet numbering but no paragraph uses it; the
+    // template's bullets are List Paragraph (Arial from Normal, 11 pt from
+    // the defaults) in the theme's minor font by the style.
+    let template = || fixture_template("theme-default-list-bullet-and-heading-4.docx");
+    let out = export_html_from("96-theme-default-list-bullet", template(), LISTS_HTML);
+    assert_eq!(out.report.styles["list_bullet"].name, "List Bullet");
+    assert_eq!(
+        style_rpr(&out, "ListBullet"),
+        "<w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:sz w:val=\"22\"/></w:rPr>"
+    );
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"ListBullet\"/>"), 2);
+
+    // List Number the same way, from numbered paragraphs (Georgia 12 pt by
+    // List Paragraph); a List Bullet the template writes in keeps its font.
+    let list_paragraph = "<w:style w:type=\"paragraph\" w:styleId=\"ListParagraph\"><w:name w:val=\"List Paragraph\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:pPr><w:ind w:left=\"720\"/></w:pPr>\
+        <w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"24\"/></w:rPr></w:style>";
+    let template = synthetic(Synthetic {
+        styles: &format!(
+            "{list_paragraph}{}{}",
+            list_style("ListBullet", "List Bullet", 1),
+            list_style("ListNumber", "List Number", 2)
+        ),
+        body: &format!(
+            "{}{}{}",
+            list_item(
+                "ListParagraph",
+                2,
+                "The first numbered step in the template."
+            ),
+            list_item(
+                "ListParagraph",
+                2,
+                "The second numbered step in the template."
+            ),
+            list_item(
+                "ListBullet",
+                1,
+                "A bullet in the template's own List Bullet."
+            )
+        ),
+        numbering: BULLET_AND_DECIMAL_NUMBERING,
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "97-list-number-from-samples",
+        "- A bullet\n- Another bullet\n\n1. A step\n2. Another step\n",
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(
+        style_rpr(&out, "ListNumber"),
+        "<w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"24\"/></w:rPr>"
+    );
+    assert_eq!(
+        style_rpr(&out, "ListBullet"),
+        "<w:rPr><w:rFonts w:asciiTheme=\"minorHAnsi\" w:hAnsiTheme=\"minorHAnsi\"/></w:rPr>"
+    );
+}
+
+#[test]
+fn an_unused_heading_on_the_theme_font_follows_the_levels_in_use() {
+    // Headings 1 to 3 are used and set Arial by name; Heading 4 is unused
+    // and still on the theme's major font. It follows Heading 3's font and
+    // keeps the rest of its look.
+    let template = || fixture_template("theme-default-list-bullet-and-heading-4.docx");
+    let out = export_html_from("98-theme-default-heading-4", template(), LISTS_HTML);
+    let rpr = style_rpr(&out, "Heading4");
+    assert!(
+        rpr.contains("w:ascii=\"Arial\"")
+            && rpr.contains("w:hAnsi=\"Arial\"")
+            && !rpr.contains("Theme=")
+            && rpr.contains("<w:i/>")
+            && rpr.contains("<w:color w:val=\"2F5496\"/>"),
+        "{rpr}"
+    );
+    let template_styles = part_of(&template(), "word/styles.xml");
+    for id in ["Heading1", "Heading2", "Heading3"] {
+        assert_eq!(style_of(&out, id), style_xml(&template_styles, id), "{id}");
+    }
+
+    // The nearest level in use decides: Heading 2 (theme font, unused)
+    // follows Heading 1's Arial; Heading 3 names Georgia and is left alone;
+    // Heading 4 (theme font, used) is left alone, and so is Heading 5 behind
+    // it, since the nearest level in use has no named font.
+    let heading = |level: u8, rfonts: &str| {
+        format!(
+            "<w:style w:type=\"paragraph\" w:styleId=\"Heading{level}\"><w:name w:val=\"heading {level}\"/>\
+             <w:basedOn w:val=\"Normal\"/><w:pPr><w:outlineLvl w:val=\"{}\"/></w:pPr><w:rPr>{rfonts}<w:b/></w:rPr></w:style>",
+            level - 1
+        )
+    };
+    let theme = "<w:rFonts w:asciiTheme=\"majorHAnsi\" w:hAnsiTheme=\"majorHAnsi\"/>";
+    let template = synthetic(Synthetic {
+        styles: &format!(
+            "{}{}{}{}{}",
+            heading(1, "<w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/>"),
+            heading(2, theme),
+            heading(3, "<w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/>"),
+            heading(4, theme),
+            heading(5, theme)
+        ),
+        body: &format!(
+            "{}{}",
+            styled_paragraph("Heading1", "Sample heading one", ""),
+            styled_paragraph("Heading4", "Sample heading four", "")
+        ),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        "99-heading-levels-follow-the-nearest-in-use",
+        "# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\nText.\n",
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    assert_eq!(
+        style_rpr(&out, "Heading2"),
+        "<w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:b/></w:rPr>"
+    );
+    for id in ["Heading3", "Heading4", "Heading5"] {
+        let expected = if id == "Heading3" {
+            "<w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:b/></w:rPr>".to_string()
+        } else {
+            format!("<w:rPr>{theme}<w:b/></w:rPr>")
+        };
+        assert_eq!(style_rpr(&out, id), expected, "{id}");
+    }
+}
+
+/// The headers and footers the export's section shows: whether it has a
+/// distinct first page, and each story's text by (`header`/`footer`, type).
+fn section_stories(out: &Export) -> (bool, BTreeMap<(String, String), String>) {
+    let body = out.part("word/document.xml");
+    let sect_pr = &body[body.rfind("<w:sectPr").unwrap()..];
+    let rels = out.part("word/_rels/document.xml.rels");
+    let attr = |element: &str, name: &str| {
+        let key = format!("{name}=\"");
+        let at = element.find(&key).unwrap() + key.len();
+        element[at..at + element[at..].find('"').unwrap()].to_string()
+    };
+    let mut stories = BTreeMap::new();
+    for element in sect_pr.split('<') {
+        let Some(story) = ["header", "footer"]
+            .into_iter()
+            .find(|story| element.starts_with(&format!("w:{story}Reference")))
+        else {
+            continue;
+        };
+        let r_id = attr(element, "r:id");
+        let rel = rels
+            .split("<Relationship ")
+            .find(|rel| rel.contains(&format!("Id=\"{r_id}\"")))
+            .unwrap();
+        let part = out.part(&format!("word/{}", attr(rel, "Target")));
+        let text: String = part
+            .match_indices("<w:t")
+            .filter(|(at, _)| matches!(part[at + 4..].chars().next(), Some('>' | ' ')))
+            .map(|(at, _)| {
+                let rest = &part[at..];
+                let open = rest.find('>').unwrap() + 1;
+                rest[open..open + rest[open..].find('<').unwrap()].to_string()
+            })
+            .collect();
+        stories.insert((story.to_string(), attr(element, "w:type")), text);
+    }
+    (sect_pr.contains("<w:titlePg/>"), stories)
+}
+
+fn stories_of(entries: &[(&str, &str, &str)]) -> BTreeMap<(String, String), String> {
+    entries
+        .iter()
+        .map(|(story, kind, text)| ((story.to_string(), kind.to_string()), text.to_string()))
+        .collect()
+}
+
+#[test]
+fn page_one_shows_what_the_templates_page_one_shows() {
+    // Two-section templates: a cover or letter section whose page 1 carries
+    // the logo, then a section for the body pages. The export's single
+    // section shows page 1's header and footer on page 1 and the body
+    // pages' after, with a distinct first page when they differ.
+    let export = |name: &str, fixture: &str| {
+        section_stories(&export_html_from(
+            name,
+            fixture_template(fixture),
+            SECTIONS_HTML,
+        ))
+    };
+    // Section 1 has a distinct first page with the logo and a page 1
+    // footer; the last section turns the first page off and inherits.
+    let (title_page, stories) = export(
+        "100-first-page-header-in-first-section",
+        "first-page-header-in-first-section.docx",
+    );
+    assert!(title_page);
+    assert_eq!(
+        stories,
+        stories_of(&[
+            ("header", "first", "PAGE 1 LOGO"),
+            ("footer", "first", "Page 1 footer"),
+            ("footer", "default", "Body footer"),
+        ])
+    );
+    // No distinct first page anywhere; each section has its own default
+    // header and footer.
+    let (title_page, stories) = export(
+        "101-default-header-differs-by-section",
+        "default-header-differs-by-section.docx",
+    );
+    assert!(title_page);
+    assert_eq!(
+        stories,
+        stories_of(&[
+            ("header", "first", "PAGE 1 LOGO"),
+            ("footer", "first", "Page 1 footer"),
+            ("header", "default", "Body header"),
+            ("footer", "default", "Body footer"),
+        ])
+    );
+    // Section 1 shows a banner in its default header; the last section
+    // turns a distinct first page on with only a first-page footer, and
+    // inherits the rest: page 1 and the body pages are the same.
+    let (title_page, stories) = export(
+        "102-title-page-only-in-last-section",
+        "title-page-only-in-last-section.docx",
+    );
+    assert!(!title_page);
+    assert_eq!(
+        stories,
+        stories_of(&[
+            ("header", "default", "PAGE 1 BANNER"),
+            ("footer", "default", "Body footer"),
+        ])
+    );
+    let inspection = docrs::markdown::inspect(
+        &fixture_template("default-header-differs-by-section.docx"),
+        &MarkdownOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection["section"]["title_page"], true);
+    let shown = &inspection["section"]["headers_footers"];
+    assert_eq!(shown["header"]["first"]["inherited"], true);
+    assert_eq!(shown["header"]["default"]["inherited"], false);
+    assert!(
+        inspection["problems"]
+            .to_string()
+            .contains("multiple_sections"),
+        "{inspection}"
     );
 }

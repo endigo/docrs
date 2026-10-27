@@ -1,5 +1,5 @@
-//! The headers and footers the output's section shows (its own and those
-//! inherited from earlier sections), and the pictures they cannot show
+//! The headers and footers the output's section shows (the template's page
+//! 1 on page 1, its body pages' after), and the pictures they cannot show
 //! whole.
 
 use std::collections::BTreeMap;
@@ -8,40 +8,108 @@ use crate::Result;
 use crate::authoring::{R, WP, section_properties};
 use crate::txn::Txn;
 use crate::wml::{w_attr, w_child, w_children};
-use crate::xml::XmlTree;
+use crate::xml::{NodeId, XmlTree};
 
 const EMU_PER_TWIP: i64 = 635;
 const EMU_PER_CM: f64 = 360_000.0;
 
-/// The header and footer references the final section shows, its own and
-/// those it inherits (Word reuses the previous section's header of a type
-/// the section does not define): `(element, type, relationship id,
-/// inherited)`.
-pub(crate) fn effective_references(
-    tree: &XmlTree,
-) -> Result<Vec<(&'static str, String, String, bool)>> {
-    let sections = section_properties(tree)?;
-    let mut latest: BTreeMap<(&'static str, String), (String, bool)> = BTreeMap::new();
-    for (index, sect_pr) in sections.iter().enumerate() {
-        let own = index + 1 == sections.len();
-        for local in ["headerReference", "footerReference"] {
-            for reference in w_children(tree, *sect_pr, local) {
-                let kind = w_attr(tree, reference, "type")
-                    .unwrap_or("default")
-                    .to_string();
-                if let Some(r_id) = tree.attr(reference, Some(R), "id") {
-                    latest.insert((local, kind), (r_id.to_string(), !own));
-                }
-            }
-        }
-    }
-    Ok(latest
-        .into_iter()
-        .map(|((local, kind), (r_id, inherited))| (local, kind, r_id, inherited))
-        .collect())
+/// A header or footer reference the output's section shows.
+pub(crate) struct Reference {
+    /// `headerReference` or `footerReference`.
+    pub element: &'static str,
+    /// `default`, `first` or `even`.
+    pub kind: String,
+    pub r_id: String,
+    /// Not one the template's last section defines itself.
+    pub inherited: bool,
 }
 
-/// A header or footer the final section shows.
+/// What the output's single section shows in its headers and footers.
+pub(crate) struct OutputSection {
+    pub references: Vec<Reference>,
+    /// Whether it has a distinct first page (`w:titlePg`).
+    pub title_page: bool,
+}
+
+const STORIES: [&str; 2] = ["headerReference", "footerReference"];
+
+fn references(
+    tree: &XmlTree,
+    sect_pr: NodeId,
+) -> impl Iterator<Item = (&'static str, String, String)> + '_ {
+    STORIES.into_iter().flat_map(move |local| {
+        w_children(tree, sect_pr, local).filter_map(move |reference| {
+            let kind = w_attr(tree, reference, "type")
+                .unwrap_or("default")
+                .to_string();
+            let r_id = tree.attr(reference, Some(R), "id")?.to_string();
+            Some((local, kind, r_id))
+        })
+    })
+}
+
+/// Whether the section has a distinct first page (`w:titlePg` on).
+pub(crate) fn title_page(tree: &XmlTree, sect_pr: NodeId) -> bool {
+    w_child(tree, sect_pr, "titlePg")
+        .is_some_and(|t| !matches!(w_attr(tree, t, "val"), Some("0" | "false" | "off")))
+}
+
+/// The headers and footers the output's single section shows. Page 1 shows
+/// what the template's page 1 shows: the first section's first-page header
+/// and footer when it has a distinct first page, else its default ones. The
+/// other pages show the last section's default ones, inherited from an
+/// earlier section when it lacks them (Word reuses the previous section's
+/// header of a type the section does not define). When page 1 differs from
+/// the other pages, the section has a distinct first page with page 1's
+/// header and footer in the first-page slots.
+pub(crate) fn output_section(tree: &XmlTree) -> Result<OutputSection> {
+    let sections = section_properties(tree)?;
+    let (Some(first), Some(last)) = (sections.first(), sections.last()) else {
+        return Ok(OutputSection {
+            references: Vec::new(),
+            title_page: false,
+        });
+    };
+    let mut latest: BTreeMap<(&'static str, String), String> = BTreeMap::new();
+    for sect_pr in &sections {
+        for (local, kind, r_id) in references(tree, *sect_pr) {
+            latest.insert((local, kind), r_id);
+        }
+    }
+    let page_one_kind = if title_page(tree, *first) {
+        "first"
+    } else {
+        "default"
+    };
+    let page_one: BTreeMap<&'static str, String> = references(tree, *first)
+        .filter(|(_, kind, _)| kind == page_one_kind)
+        .map(|(local, _, r_id)| (local, r_id))
+        .collect();
+    let distinct = STORIES
+        .iter()
+        .any(|local| page_one.get(local) != latest.get(&(*local, "default".to_string())));
+    latest.retain(|(_, kind), _| kind != "first");
+    if distinct {
+        for (local, r_id) in page_one {
+            latest.insert((local, "first".to_string()), r_id);
+        }
+    }
+    let own: Vec<(&'static str, String, String)> = references(tree, *last).collect();
+    Ok(OutputSection {
+        references: latest
+            .into_iter()
+            .map(|((element, kind), r_id)| Reference {
+                inherited: !own.contains(&(element, kind.clone(), r_id.clone())),
+                element,
+                kind,
+                r_id,
+            })
+            .collect(),
+        title_page: distinct,
+    })
+}
+
+/// A header or footer the output's section shows.
 pub(crate) struct Story {
     /// `header` or `footer`.
     pub story: &'static str,
@@ -59,21 +127,21 @@ pub(crate) fn stories(txn: &Txn<'_>, main: &str) -> Result<Vec<Story>> {
     let main_uri = format!("/{}", main.trim_start_matches('/'));
     let base = crate::package::rels::base_uri(&main_uri);
     let mut out = Vec::new();
-    for (local, kind, r_id, inherited) in effective_references(tree)? {
+    for reference in output_section(tree)?.references {
         let part = rels
             .iter()
-            .find(|rel| rel.id == r_id && !rel.external)
+            .find(|rel| rel.id == reference.r_id && !rel.external)
             .map(|rel| rel.target_part_name(base))
             .and_then(|name| txn.resolve(&name));
         out.push(Story {
-            story: if local == "headerReference" {
+            story: if reference.element == "headerReference" {
                 "header"
             } else {
                 "footer"
             },
-            kind,
+            kind: reference.kind,
             part,
-            inherited,
+            inherited: reference.inherited,
         });
     }
     Ok(out)

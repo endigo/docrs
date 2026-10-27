@@ -135,11 +135,21 @@ docrs from-markdown examples/markdown/memo.md --reference examples/markdown/lett
   most of the template's prose (paragraphs of 40 characters or more)
   shows, a First Paragraph style the template
   uses following it. A First Paragraph the template writes no prose in,
-  or a Body Text style it writes no text in while its prose is in Normal,
-  is passed over for the body's style. Tables follow the style most sample
-  tables use; a header fill or banding added by hand becomes a table style
-  (`Template
-  Table` when the template already has a `Table` style).
+  or a Body Text style it writes no prose in (short lines and list items
+  do not count) while its prose is in Normal, is passed over for the
+  body's style. A `List Bullet` or `List Number` style the template never
+  writes in takes the font and size of its own bulleted or numbered sample
+  paragraphs, and a heading level it never uses, still in the theme's
+  font, takes the font it named on the nearest level it does use. Tables
+  follow the style most sample tables use; a header fill or banding added
+  by hand becomes a table style (`Template Table` when the template
+  already has a `Table` style).
+* Page 1 of the output shows the header and footer the template's page 1
+  shows (its first section's first-page ones when it has a distinct first
+  page, else its default ones); later pages show its last section's, which
+  inherit from earlier sections what the last lacks. When the two differ
+  the output's single section gets a distinct first page. Page size and
+  margins come from the last section.
 * A template whose first-page header draws a cover (and whose sample body
   leaves page 1 blank) keeps page 1 as the cover; `--no-cover-page` turns
   the cover off, `--cover-page` keeps page 1 as a cover whenever the first

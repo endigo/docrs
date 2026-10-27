@@ -387,7 +387,8 @@ export interface ReferenceInspection {
     headings: Record<string, RunLook>;
     table: { style_id: string | null; direct_formatting_lifted: boolean; look: Record<string, boolean> };
   };
-  /** The section whose page setup, headers and footers the output keeps (the last). */
+  /** The section whose page setup the output keeps (the last). Its page 1 shows the
+   *  template's page 1 header and footer, the other pages the last section's. */
   section: {
     count: number;
     used: "last";
@@ -435,7 +436,7 @@ export interface HeaderFooterSummary {
   /** Field names such as PAGE, NUMPAGES. */
   fields: string[];
   has_text: boolean;
-  /** Defined by an earlier section and inherited. */
+  /** Not defined by the template's last section itself: page 1's, or inherited from an earlier section. */
   inherited: boolean;
 }
 
