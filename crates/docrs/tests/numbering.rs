@@ -10,25 +10,13 @@ use support::*;
 
 const W_DECL: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
 
-fn open(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
-fn part_xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
-}
-
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 fn refusal(err: &docrs::Error) -> Option<RefusalKind> {
     err.refusal_kind()
 }
 
 #[test]
 fn reports_definitions_and_numbered_paragraphs() {
-    let doc = open("generated/feature-isolated/numbering-custom.docx");
+    let doc = open_fixture("generated/feature-isolated/numbering-custom.docx");
     let report = doc.list_numbering().unwrap();
     let custom = report.definitions.iter().find(|d| d.num_id == 42).unwrap();
     assert_eq!(custom.abstract_num_id, 90);
@@ -62,7 +50,7 @@ fn reports_definitions_and_numbered_paragraphs() {
 
 #[test]
 fn reads_the_libreoffice_remapped_definition() {
-    let doc = open("libreoffice/feature-isolated/numbering-custom.docx");
+    let doc = open_fixture("libreoffice/feature-isolated/numbering-custom.docx");
     let ids: Vec<(i64, String)> = doc
         .list_numbering()
         .unwrap()
@@ -82,7 +70,7 @@ fn reads_the_libreoffice_remapped_definition() {
 
 #[test]
 fn applies_an_existing_definition_and_reopens() {
-    let mut doc = open("generated/feature-isolated/numbering-custom.docx");
+    let mut doc = open_fixture("generated/feature-isolated/numbering-custom.docx");
     doc.apply_numbering(
         BlockTarget::Text("Introduction to the hand-numbered"),
         42,
@@ -99,8 +87,8 @@ fn applies_an_existing_definition_and_reopens() {
 
 #[test]
 fn refuses_undefined_definitions_and_levels_atomically() {
-    let mut doc = open("generated/feature-isolated/numbering-custom.docx");
-    let before = bytes(&doc);
+    let mut doc = open_fixture("generated/feature-isolated/numbering-custom.docx");
+    let before = snapshot(&doc);
     let err = doc
         .apply_numbering(BlockTarget::Text("Introduction"), 999, 0)
         .unwrap_err();
@@ -109,7 +97,7 @@ fn refuses_undefined_definitions_and_levels_atomically() {
         .apply_numbering(BlockTarget::Text("Introduction"), 42, 7)
         .unwrap_err();
     assert!(err.message().contains("level 7"));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 fn bare() -> Document {
@@ -125,12 +113,12 @@ fn bare() -> Document {
 #[test]
 fn creates_a_numbering_part_in_a_definitionless_document() {
     let mut doc = bare();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = doc
         .apply_numbering(BlockTarget::Text("Alpha"), 1, 0)
         .unwrap_err();
     assert!(err.message().contains("does not exist"));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let num_id = doc.ensure_bullet_definition().unwrap();
     assert_eq!(num_id, 1);
     assert_eq!(doc.ensure_bullet_definition().unwrap(), 1);
@@ -155,7 +143,7 @@ fn creates_a_numbering_part_in_a_definitionless_document() {
 
 #[test]
 fn ensure_is_idempotent_and_kinds_differ() {
-    let mut doc = open("generated/minimal-clean/minimal.docx");
+    let mut doc = open_fixture("generated/minimal-clean/minimal.docx");
     let bullet = doc.ensure_bullet_definition().unwrap();
     assert_eq!(bullet, doc.ensure_bullet_definition().unwrap());
     let decimal = doc.ensure_decimal_definition().unwrap();
@@ -168,7 +156,7 @@ fn ensure_is_idempotent_and_kinds_differ() {
 
 #[test]
 fn restarts_numbering_with_a_fresh_definition() {
-    let mut doc = open("generated/minimal-clean/minimal.docx");
+    let mut doc = open_fixture("generated/minimal-clean/minimal.docx");
     let num_id = doc.ensure_decimal_definition().unwrap();
     doc.apply_numbering(BlockTarget::Text("First body paragraph"), num_id, 0)
         .unwrap();
@@ -186,24 +174,24 @@ fn restarts_numbering_with_a_fresh_definition() {
 
 #[test]
 fn refuses_restarting_missing_or_customized_definitions() {
-    let mut doc = open("generated/minimal-clean/minimal.docx");
-    let before = bytes(&doc);
+    let mut doc = open_fixture("generated/minimal-clean/minimal.docx");
+    let before = snapshot(&doc);
     let err = doc.restart_numbering(999).unwrap_err();
     assert_eq!(refusal(&err), Some(RefusalKind::TargetNotFound));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let num_id = doc.ensure_decimal_definition().unwrap();
     let restarted = doc.restart_numbering(num_id).unwrap();
-    let edited = bytes(&doc);
+    let edited = snapshot(&doc);
     let err = doc.restart_numbering(restarted).unwrap_err();
     assert_eq!(refusal(&err), Some(RefusalKind::UnsupportedStructure));
     assert!(err.message().contains("level overrides"));
-    assert_eq!(bytes(&doc), edited);
+    assert_eq!(snapshot(&doc), edited);
 }
 
 #[test]
 fn applies_list_styles_by_ui_name() {
-    let mut doc = open("generated/minimal-clean/minimal.docx");
-    let before = bytes(&doc);
+    let mut doc = open_fixture("generated/minimal-clean/minimal.docx");
+    let before = snapshot(&doc);
     let err = doc
         .apply_list_style(
             BlockTarget::Text("Second body paragraph"),
@@ -211,7 +199,7 @@ fn applies_list_styles_by_ui_name() {
         )
         .unwrap_err();
     assert_eq!(refusal(&err), Some(RefusalKind::TargetNotFound));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     doc.apply_list_style(BlockTarget::Text("Second body paragraph"), "Heading 2")
         .unwrap();
     let block = doc
@@ -243,17 +231,17 @@ fn reports_numbered_table_cells_with_addresses() {
 
 #[test]
 fn protection_and_stale_targets_refuse_without_change() {
-    let mut doc = open("generated/feature-isolated/protected-readonly.docx");
-    let before = bytes(&doc);
+    let mut doc = open_fixture("generated/feature-isolated/protected-readonly.docx");
+    let before = snapshot(&doc);
     let err = doc.ensure_bullet_definition().unwrap_err();
     assert_eq!(refusal(&err), Some(RefusalKind::DocumentProtected));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 
-    let mut doc = open("generated/feature-isolated/numbering-custom.docx");
+    let mut doc = open_fixture("generated/feature-isolated/numbering-custom.docx");
     let span = doc
         .find_one("Introduction", &FindOptions::default())
         .unwrap();
-    let other = open("generated/feature-isolated/numbering-custom.docx");
+    let other = open_fixture("generated/feature-isolated/numbering-custom.docx");
     let foreign = other
         .find_one("Introduction", &FindOptions::default())
         .unwrap();

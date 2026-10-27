@@ -12,21 +12,9 @@ use support::*;
 
 const MINIMAL: &str = "generated/minimal-clean/minimal.docx";
 
-fn open(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
-fn xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
-}
-
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 #[test]
 fn authors_page_and_count_fields_in_a_header() {
-    let mut doc = open("generated/feature-isolated/header-footer-sections.docx");
+    let mut doc = open_fixture("generated/feature-isolated/header-footer-sections.docx");
     doc.add_page_number_field(BlockTarget::Text("Header for section one"))
         .unwrap();
     doc.add_page_count_field(BlockTarget::Text("Header for section one"))
@@ -40,20 +28,20 @@ fn authors_page_and_count_fields_in_a_header() {
     let header = reopened
         .find_one("Header for section one", &FindOptions::default())
         .unwrap();
-    let part = xml(&reopened, header.story());
+    let part = part_xml(&reopened, header.story());
     assert!(part.contains(r#"<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple><w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>1</w:t></w:r></w:fldSimple>"#));
-    assert!(xml(&reopened, "word/settings.xml").contains(r#"<w:updateFields w:val="true"/>"#));
+    assert!(part_xml(&reopened, "word/settings.xml").contains(r#"<w:updateFields w:val="true"/>"#));
 }
 
 #[test]
 fn authors_a_date_field_without_computing_a_date() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     doc.add_date_field(
         BlockTarget::Text("Second body paragraph"),
         Some("MMMM d, \"yyyy"),
     )
     .unwrap();
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     assert!(body.contains(r#"w:instr=" DATE \@ &quot;MMMM d, yyyy&quot; ""#));
     assert!(body.contains("<w:t>(date)</w:t>"));
     let span = doc.find_one("(date)", &FindOptions::default()).unwrap();
@@ -66,13 +54,13 @@ fn authors_a_date_field_without_computing_a_date() {
 
 #[test]
 fn authors_cross_references_in_three_kinds() {
-    let mut doc = open("generated/feature-isolated/bookmarks.docx");
+    let mut doc = open_fixture("generated/feature-isolated/bookmarks.docx");
     let target = BlockTarget::Text("Paragraph after the bookmarks.");
     for kind in ["text", "page", "number"] {
         doc.add_reference_field(target, "DefinedTerm", kind)
             .unwrap();
     }
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     assert!(body.contains(r#"w:instr=" REF DefinedTerm \h ""#));
     assert!(body.contains(r#"w:instr=" PAGEREF DefinedTerm \h ""#));
     assert!(body.contains(r#"w:instr=" REF DefinedTerm \r \h ""#));
@@ -81,8 +69,8 @@ fn authors_cross_references_in_three_kinds() {
 
 #[test]
 fn refuses_unknown_bookmarks_and_kinds_atomically() {
-    let mut doc = open(MINIMAL);
-    let before = bytes(&doc);
+    let mut doc = open_fixture(MINIMAL);
+    let before = snapshot(&doc);
     let err = doc
         .add_reference_field(BlockTarget::Text("Second body paragraph"), "Ghost", "text")
         .unwrap_err();
@@ -96,12 +84,12 @@ fn refuses_unknown_bookmarks_and_kinds_atomically() {
         )
         .unwrap_err();
     assert!(err.message().contains("kind"));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
 fn inserts_a_toc_complex_field_marked_dirty() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     doc.insert_toc_after(BlockTarget::Text("Minimal Clean Document"), (1, 3))
         .unwrap();
     let (out, report) = doc.patch_bytes().unwrap();
@@ -115,11 +103,11 @@ fn inserts_a_toc_complex_field_marked_dirty() {
         ]
     );
     let reopened = Document::open_bytes(&out, &Limits::default()).unwrap();
-    let body = xml(&reopened, "word/document.xml");
+    let body = part_xml(&reopened, "word/document.xml");
     assert!(body.contains(
         r#"<w:p><w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>Table of contents placeholder — update fields to build it.</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>"#
     ));
-    assert!(xml(&reopened, "word/settings.xml").contains("w:updateFields"));
+    assert!(part_xml(&reopened, "word/settings.xml").contains("w:updateFields"));
     let mut reopened = reopened;
     let span = reopened
         .find_one("Table of contents placeholder", &FindOptions::default())
@@ -134,8 +122,8 @@ fn inserts_a_toc_complex_field_marked_dirty() {
 
 #[test]
 fn toc_refuses_bad_levels_history_and_non_body_anchors() {
-    let mut doc = open(MINIMAL);
-    let before = bytes(&doc);
+    let mut doc = open_fixture(MINIMAL);
+    let before = snapshot(&doc);
     let err = doc
         .insert_toc_after(BlockTarget::Text("Minimal Clean Document"), (3, 1))
         .unwrap_err();
@@ -165,9 +153,9 @@ fn toc_refuses_bad_levels_history_and_non_body_anchors() {
                 .is_err()
         );
     }
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 
-    let mut headers = open("generated/feature-isolated/header-footer-sections.docx");
+    let mut headers = open_fixture("generated/feature-isolated/header-footer-sections.docx");
     let err = headers
         .insert_toc_after(BlockTarget::Text("Header for section one"), (1, 3))
         .unwrap_err();
@@ -176,25 +164,25 @@ fn toc_refuses_bad_levels_history_and_non_body_anchors() {
 
 #[test]
 fn refuses_field_authoring_on_protected_documents() {
-    let mut doc = open("generated/feature-isolated/protected-readonly.docx");
-    let before = bytes(&doc);
+    let mut doc = open_fixture("generated/feature-isolated/protected-readonly.docx");
+    let before = snapshot(&doc);
     let err = doc
         .add_page_number_field(BlockTarget::Text("This template is locked"))
         .unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::DocumentProtected));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
 fn captions_set_the_style_and_a_seq_field() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     doc.add_caption(
         BlockTarget::Text("Second body paragraph"),
         "Table 2-b",
         "Totals",
     )
     .unwrap();
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     assert!(body.contains(r#"<w:pStyle w:val="Caption"/>"#));
     assert!(body.contains(r#"<w:t xml:space="preserve">Table 2-b </w:t>"#));
     assert!(body.contains(r#"w:instr=" SEQ Table2b \* ARABIC ""#));
@@ -226,7 +214,7 @@ fn creates_the_settings_part_when_missing() {
             "word/settings.xml".to_string()
         ]
     );
-    assert!(xml(&doc, "word/settings.xml").contains(r#"w:updateFields w:val="true""#));
+    assert!(part_xml(&doc, "word/settings.xml").contains(r#"w:updateFields w:val="true""#));
 }
 
 #[test]

@@ -43,10 +43,6 @@ fn body(doc: &Document) -> String {
     xml[start..xml.len() - "</w:styles>".len()].to_string()
 }
 
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 const NORMAL: &str = "<w:docDefaults/><w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:rPr><w:b/></w:rPr></w:style>";
 
 #[test]
@@ -140,7 +136,7 @@ fn builtin_styles_use_the_python_docx_id_and_babel_fish() {
 fn refusals_change_nothing() {
     let mut doc = with_styles(NORMAL);
     let code = doc.add_style("Code", StyleType::Character, false).unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = doc
         .add_style("Normal", StyleType::Paragraph, false)
         .unwrap_err();
@@ -181,7 +177,7 @@ fn refusals_change_nothing() {
         ])
         .unwrap_err();
     assert_eq!(err.reason(), "value_out_of_range");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -193,9 +189,9 @@ fn delete_makes_the_handle_stale_and_leaves_others_fresh() {
     let err = a.info(&doc).unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::TargetNotFound));
     assert_eq!(err.reason(), "stale_handle");
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     assert!(a.delete(&mut doc).is_err());
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     assert_eq!(b.info(&doc).unwrap().name.as_deref(), Some("B"));
     assert_eq!(doc.styles().unwrap().len(), 2);
     let other = with_styles(NORMAL);

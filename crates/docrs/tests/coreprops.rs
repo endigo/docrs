@@ -44,10 +44,6 @@ fn ts(text: &str) -> Timestamp {
     Timestamp::parse(text).unwrap()
 }
 
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 /// Serialized core part without its XML declaration.
 fn core_tree_xml(doc: &Document) -> String {
     let xml =
@@ -117,7 +113,7 @@ fn assigns_new_values_to_every_property() {
     assert_eq!(props.version, "Version");
     let (_, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.changed_parts, vec!["docProps/core.xml".to_string()]);
-    let reopened = Document::open_bytes(&bytes(&doc), &Limits::default()).unwrap();
+    let reopened = reopen(&doc);
     assert_eq!(reopened.core_properties().unwrap(), props);
 }
 
@@ -275,7 +271,7 @@ fn default_part_is_created_on_first_write() {
     let mut changed = report.changed_parts.clone();
     changed.sort();
     assert_eq!(changed, vec!["[Content_Types].xml", "_rels/.rels"]);
-    let reopened = Document::open_bytes(&bytes(&doc), &Limits::default()).unwrap();
+    let reopened = reopen(&doc);
     assert_eq!(reopened.core_properties().unwrap(), props);
 }
 
@@ -292,14 +288,14 @@ fn stale_override_for_the_missing_part_is_replaced() {
     let mut doc = Document::open_bytes(&build_zip(&members), &Limits::default()).unwrap();
     doc.set_core_properties(&[text(CoreProperty::Title, "T")], None)
         .unwrap();
-    let reopened = Document::open_bytes(&bytes(&doc), &Limits::default()).unwrap();
+    let reopened = reopen(&doc);
     assert_eq!(reopened.core_properties().unwrap().title, "T");
 }
 
 #[test]
 fn refusals_change_nothing() {
     let mut doc = with_core(KNOWN);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let cases: Vec<(Vec<CorePropertyChange>, &str)> = vec![
         (
             vec![CorePropertyChange::new(
@@ -344,7 +340,7 @@ fn refusals_change_nothing() {
         let err = doc.set_core_properties(&changes, None).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidArgument);
         assert_eq!(err.reason(), reason);
-        assert_eq!(bytes(&doc), before);
+        assert_eq!(snapshot(&doc), before);
     }
     // 255 scalars (astral characters count once, as in Python) is fine.
     doc.set_core_properties(
@@ -365,7 +361,7 @@ fn refusals_change_nothing() {
     assert_eq!(props.version, "42");
     let mut bare =
         Document::open_bytes(&build_zip(&minimal_members()), &Limits::default()).unwrap();
-    let before = bytes(&bare);
+    let before = snapshot(&bare);
     assert!(
         bare.set_core_properties(
             &[CorePropertyChange::new(
@@ -376,6 +372,6 @@ fn refusals_change_nothing() {
         )
         .is_err()
     );
-    assert_eq!(bytes(&bare), before);
+    assert_eq!(snapshot(&bare), before);
     assert!(bare.patch_bytes().unwrap().1.added_parts.is_empty());
 }

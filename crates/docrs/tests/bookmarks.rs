@@ -11,26 +11,11 @@ use support::*;
 
 const DECLS: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
 
-fn open_fixture(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
 fn doc_with(body: &str) -> Document {
     let bytes = minimal_package_with(&format!(
         r#"<w:document {DECLS}><w:body>{body}<w:sectPr/></w:body></w:document>"#
     ));
     Document::open_bytes(&bytes, &Limits::default()).unwrap()
-}
-
-fn snapshot(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
-fn body_xml(doc: &Document) -> String {
-    String::from_utf8(docrs::xml::serialize(
-        doc.package().xml("word/document.xml").unwrap(),
-    ))
-    .unwrap()
 }
 
 fn find(doc: &Document, text: &str) -> docrs::Span {
@@ -90,7 +75,7 @@ fn creates_a_bookmark_on_an_exact_span() {
         info.to_json(),
         json!({"name": "KeyPhrase", "id": 1, "story": "word/document.xml", "text": "perfectly ordinary", "is_point": false})
     );
-    assert!(body_xml(&doc).contains(concat!(
+    assert!(document_xml(&doc).contains(concat!(
         r#"<w:p><w:r><w:t xml:space="preserve">First body paragraph with </w:t></w:r>"#,
         r#"<w:bookmarkStart w:id="1" w:name="KeyPhrase"/><w:r><w:t>perfectly ordinary</w:t></w:r><w:bookmarkEnd w:id="1"/>"#,
         r#"<w:r><w:t xml:space="preserve"> text.</w:t></w:r></w:p>"#

@@ -7,18 +7,6 @@ mod support;
 use docrs::{Document, FindOptions, Limits, RefusalKind};
 use support::*;
 
-fn open_fixture(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
-fn snapshot(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
-fn xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
-}
-
 fn find(doc: &Document, text: &str) -> docrs::Span {
     doc.find_one(text, &FindOptions::default()).unwrap()
 }
@@ -32,7 +20,7 @@ fn creates_note_parts_bodies_and_marks() {
     assert_eq!(doc.add_footnote(&mut span, "A & B <C>").unwrap(), 1);
     assert_eq!(doc.add_endnote(&mut span, "An endnote.").unwrap(), 1);
     assert_eq!(
-        xml(&doc, "word/footnotes.xml"),
+        part_xml(&doc, "word/footnotes.xml"),
         concat!(
             r#"<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">"#,
             r#"<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>"#,
@@ -41,7 +29,7 @@ fn creates_note_parts_bodies_and_marks() {
             r#"</w:footnotes>"#
         )
     );
-    assert!(xml(&doc, "word/document.xml").contains(concat!(
+    assert!(part_xml(&doc, "word/document.xml").contains(concat!(
         r#"<w:r><w:t>perfectly ordinary</w:t></w:r>"#,
         r#"<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteReference w:id="1"/></w:r>"#,
         r#"<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:endnoteReference w:id="1"/></w:r>"#,
@@ -64,7 +52,7 @@ fn stacked_marks_keep_insertion_order() {
     let first = doc.add_footnote(&mut span, "First").unwrap();
     let second = doc.add_footnote(&mut span, "Second").unwrap();
     assert_eq!((first, second), (1, 2));
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     let a = body.find(r#"<w:footnoteReference w:id="1"/>"#).unwrap();
     let b = body.find(r#"<w:footnoteReference w:id="2"/>"#).unwrap();
     assert!(a < b);
@@ -75,7 +63,7 @@ fn ids_follow_existing_notes() {
     let mut doc = open_fixture("generated/feature-isolated/footnotes-endnotes.docx");
     let mut span = find(&doc, "This sentence carries a footnote reference.");
     assert_eq!(doc.add_footnote(&mut span, "stacked").unwrap(), 2);
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     let existing = body.find(r#"<w:footnoteReference w:id="1"/>"#).unwrap();
     let added = body.find(r#"<w:footnoteReference w:id="2"/>"#).unwrap();
     assert!(existing < added, "new marks follow existing note marks");

@@ -3,9 +3,9 @@
 
 mod support;
 
+use docrs::Document;
 use docrs::package::rels::rt;
 use docrs::txn::{RelTarget, Txn};
-use docrs::{Document, Limits};
 use support::*;
 
 const IMAGE: &str = "word/media/image1.png";
@@ -29,10 +29,6 @@ fn package_with_image() -> Vec<u8> {
         RawMember::new("word/_rels/document.xml.rels", doc_rels.as_bytes()),
         RawMember::new(IMAGE, PNG_A),
     ])
-}
-
-fn open(bytes: &[u8]) -> Document {
-    Document::open_bytes(bytes, &Limits::default()).unwrap()
 }
 
 fn commit(doc: &mut Document, edit: impl FnOnce(&mut Txn<'_>)) {
@@ -68,7 +64,7 @@ fn unrelate_image(txn: &mut Txn<'_>) {
 #[test]
 fn remove_then_readd_in_one_transaction() {
     let original = package_with_image();
-    let mut doc = open(&original);
+    let mut doc = open_bytes(&original);
     commit(&mut doc, |txn| {
         txn.remove_part(IMAGE).unwrap();
         assert!(txn.resolve(IMAGE).is_none());
@@ -82,7 +78,7 @@ fn remove_then_readd_in_one_transaction() {
     assert_eq!(report.changed_parts, vec![IMAGE.to_string()]);
     assert!(report.added_parts.is_empty(), "{report:?}");
     assert!(report.removed_parts.is_empty(), "{report:?}");
-    let reopened = open(&saved);
+    let reopened = open_bytes(&saved);
     assert_eq!(image_bytes(&reopened, IMAGE), PNG_B);
     assert_eq!(
         reopened.package().part(IMAGE).unwrap().content_type(),
@@ -94,7 +90,7 @@ fn remove_then_readd_in_one_transaction() {
 #[test]
 fn readding_identical_bytes_restores_the_original_archive() {
     let original = package_with_image();
-    let mut doc = open(&original);
+    let mut doc = open_bytes(&original);
     commit(&mut doc, |txn| {
         txn.remove_part(IMAGE).unwrap();
         txn.add_binary_part(IMAGE, "image/png", PNG_A.to_vec())
@@ -107,7 +103,7 @@ fn readding_identical_bytes_restores_the_original_archive() {
 
 #[test]
 fn removed_staged_part_is_not_reported_removed_when_readded() {
-    let doc = open(&package_with_image());
+    let doc = open_bytes(&package_with_image());
     let mut txn = Txn::new(&doc);
     txn.remove_part(IMAGE).unwrap();
     txn.add_binary_part(IMAGE, "image/png", PNG_B.to_vec())
@@ -120,7 +116,7 @@ fn removed_staged_part_is_not_reported_removed_when_readded() {
 #[test]
 fn remove_commit_then_readd_in_a_later_transaction() {
     let original = package_with_image();
-    let mut doc = open(&original);
+    let mut doc = open_bytes(&original);
     commit(&mut doc, |txn| {
         unrelate_image(txn);
         txn.remove_part(IMAGE).unwrap();
@@ -130,7 +126,7 @@ fn remove_commit_then_readd_in_a_later_transaction() {
 
     let (removed_only, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.removed_parts, vec![IMAGE.to_string()]);
-    assert!(open(&removed_only).package().part(IMAGE).is_none());
+    assert!(open_bytes(&removed_only).package().part(IMAGE).is_none());
 
     commit(&mut doc, |txn| {
         assert!(txn.resolve(IMAGE).is_none());
@@ -150,7 +146,7 @@ fn remove_commit_then_readd_in_a_later_transaction() {
     let (saved, report) = doc.patch_bytes().unwrap();
     assert!(report.changed_parts.contains(&IMAGE.to_string()));
     assert!(report.removed_parts.is_empty(), "{report:?}");
-    let reopened = open(&saved);
+    let reopened = open_bytes(&saved);
     assert_eq!(image_bytes(&reopened, IMAGE), PNG_B);
     assert!(reopened.package().part(IMAGE).unwrap().is_reachable());
 
@@ -165,7 +161,7 @@ fn remove_commit_then_readd_in_a_later_transaction() {
 
 #[test]
 fn readded_xml_part_keeps_its_content_type_override() {
-    let mut doc = open(&package_with_settings(DOCUMENT_XML, SETTINGS_XML));
+    let mut doc = open_bytes(&package_with_settings(DOCUMENT_XML, SETTINGS_XML));
     let settings = "word/settings.xml";
     let settings_ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml";
     commit(&mut doc, |txn| {
@@ -175,7 +171,7 @@ fn readded_xml_part_keeps_its_content_type_override() {
     });
     let (saved, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.changed_parts, vec![settings.to_string()]);
-    let reopened = open(&saved);
+    let reopened = open_bytes(&saved);
     let part = reopened.package().part(settings).unwrap();
     assert_eq!(part.content_type(), Some(settings_ct));
     assert!(
@@ -186,7 +182,7 @@ fn readded_xml_part_keeps_its_content_type_override() {
 
 #[test]
 fn case_variant_of_a_removed_name_is_a_new_member() {
-    let mut doc = open(&package_with_image());
+    let mut doc = open_bytes(&package_with_image());
     let variant = "word/media/IMAGE1.png";
     commit(&mut doc, |txn| {
         txn.remove_part(IMAGE).unwrap();
@@ -199,14 +195,14 @@ fn case_variant_of_a_removed_name_is_a_new_member() {
     assert_eq!(report.removed_parts, vec![IMAGE.to_string()]);
     assert_eq!(report.added_parts, vec![variant.to_string()]);
     // The relationship resolves case-insensitively to the new member.
-    let reopened = open(&saved);
+    let reopened = open_bytes(&saved);
     assert_eq!(image_bytes(&reopened, variant), PNG_B);
     assert!(reopened.package().part(variant).unwrap().is_reachable());
 }
 
 #[test]
 fn case_folded_collision_with_a_live_part_is_still_refused() {
-    let doc = open(&package_with_image());
+    let doc = open_bytes(&package_with_image());
     let mut txn = Txn::new(&doc);
     let err = txn
         .add_binary_part("Word/Media/Image1.PNG", "image/png", PNG_B.to_vec())
@@ -224,7 +220,7 @@ fn case_folded_collision_with_a_live_part_is_still_refused() {
 
 #[test]
 fn removed_name_is_refused_again_once_readded() {
-    let doc = open(&package_with_image());
+    let doc = open_bytes(&package_with_image());
     let mut txn = Txn::new(&doc);
     txn.remove_part(IMAGE).unwrap();
     txn.add_binary_part(IMAGE, "image/png", PNG_B.to_vec())

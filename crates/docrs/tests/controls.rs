@@ -25,21 +25,6 @@ fn inline(pr: &str, text: &str) -> String {
     )
 }
 
-fn snapshot(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
-fn body_xml(doc: &Document) -> String {
-    String::from_utf8(docrs::xml::serialize(
-        doc.package().xml("word/document.xml").unwrap(),
-    ))
-    .unwrap()
-}
-
-fn reopen(doc: &Document) -> Document {
-    Document::open_bytes(&snapshot(doc), &Limits::default()).unwrap()
-}
-
 #[test]
 fn lists_the_placeholder_fixture_like_upstream() {
     let doc = Document::open_bytes(
@@ -81,7 +66,7 @@ fn text_values_clear_placeholder_state_and_survive_reopen() {
         ControlValue::Text("Paper Instruments LLC".into())
     );
     assert!(!control.showing_placeholder(&reopened).unwrap());
-    assert!(!body_xml(&reopened).contains("PlaceholderText"));
+    assert!(!document_xml(&reopened).contains("PlaceholderText"));
 }
 
 #[test]
@@ -93,7 +78,7 @@ fn checkboxes_flip_state_and_declared_glyph() {
     doc.set_control_value(true, Some("choice"), None).unwrap();
     let control = doc.control(Some("choice"), None).unwrap();
     assert_eq!(control.value(&doc).unwrap(), ControlValue::Checked(true));
-    let xml = body_xml(&doc);
+    let xml = document_xml(&doc);
     assert!(xml.contains(r#"<w14:checked w14:val="1"/>"#), "{xml}");
     assert!(xml.contains(
         r#"<w:r><w:rPr><w:rFonts w:ascii="Arial Unicode MS" w:hAnsi="Arial Unicode MS" w:eastAsia="Arial Unicode MS" w:cs="Arial Unicode MS"/></w:rPr><w:t>☑</w:t></w:r>"#
@@ -112,7 +97,7 @@ fn checkbox_without_checked_state_gains_one_first() {
         "☐",
     ));
     doc.set_control_value(true, Some("box"), None).unwrap();
-    assert!(body_xml(&doc).contains(r#"<w14:checkbox><w14:checked w14:val="1"/><w14:checkedState w14:val="2612"/></w14:checkbox>"#));
+    assert!(document_xml(&doc).contains(r#"<w14:checkbox><w14:checked w14:val="1"/><w14:checkedState w14:val="2612"/></w14:checkbox>"#));
 }
 
 #[test]
@@ -154,7 +139,7 @@ fn dates_format_in_utc_and_stamp_full_date() {
         text("all"),
         "Tuesday, Tue 02 Jan 01 24 03:04:05 3:4:5 03 3 AM A"
     );
-    let xml = body_xml(&doc);
+    let xml = document_xml(&doc);
     assert!(xml.contains(r#"w:fullDate="2026-07-09T23:30:00Z""#));
     assert!(xml.contains(r#"w:fullDate="2026-07-08T00:00:00Z""#));
 }
@@ -167,7 +152,7 @@ fn a_display_string_drops_a_stale_full_date() {
     ));
     doc.set_control_value("next Tuesday", Some("d"), None)
         .unwrap();
-    assert!(body_xml(&doc).contains("<w:date/>"));
+    assert!(document_xml(&doc).contains("<w:date/>"));
 }
 
 #[test]
@@ -224,7 +209,7 @@ fn empty_controls_get_content_matching_their_level() {
         .unwrap();
     doc.set_control_value("replacement", Some("inline"), None)
         .unwrap();
-    let xml = body_xml(&doc);
+    let xml = document_xml(&doc);
     assert!(xml.contains(r#"<w:sdtPr><w:tag w:val="block"/><w:text/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>replacement</w:t></w:r></w:p></w:sdtContent>"#), "{xml}");
     assert!(xml.contains(r#"<w:sdtPr><w:tag w:val="inline"/><w:text/></w:sdtPr><w:sdtContent><w:r><w:t>replacement</w:t></w:r></w:sdtContent>"#), "{xml}");
 }

@@ -13,14 +13,6 @@ use support::*;
 
 const INCH: i64 = 914_400;
 
-fn xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
-}
-
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 const HEADER_RT: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header";
 const W_DECL: &str = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"";
@@ -95,7 +87,7 @@ fn page_setup_reads_and_writes_like_upstream() {
     assert_eq!(setup.gutter, None);
     assert_eq!(setup.start_type, SectionStart::OddPage);
     assert!(setup.different_first_page_header_footer);
-    let document = xml(&doc, "word/document.xml");
+    let document = part_xml(&doc, "word/document.xml");
     assert!(
         document.contains("<w:type w:val=\"oddPage\"/>"),
         "{document}"
@@ -115,7 +107,7 @@ fn page_setup_reads_and_writes_like_upstream() {
             ],
         )
         .unwrap();
-    let document = xml(&doc, "word/document.xml");
+    let document = part_xml(&doc, "word/document.xml");
     assert!(!document.contains("w:orient"));
     assert!(!document.contains("<w:type"));
     assert!(!document.contains("titlePg"));
@@ -125,7 +117,7 @@ fn page_setup_reads_and_writes_like_upstream() {
 fn invalid_lengths_change_nothing() {
     let mut doc = Document::new();
     let section = doc.sections().unwrap().remove(0);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     for change in [
         SectionChange::LeftMargin(Some(-1)),
         SectionChange::TopMargin(Some(3_000_000_000)),
@@ -135,7 +127,7 @@ fn invalid_lengths_change_nothing() {
             .set(&mut doc, &[SectionChange::Gutter(Some(INCH)), change])
             .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidArgument);
-        assert_eq!(bytes(&doc), before);
+        assert_eq!(snapshot(&doc), before);
     }
 }
 
@@ -150,9 +142,9 @@ fn unlinking_creates_a_definition_from_the_template() {
     assert!(!header.is_linked_to_previous(&doc).unwrap());
     let (_, report) = doc.patch_bytes().unwrap();
     assert_eq!(report.added_parts, vec!["word/header1.xml".to_string()]);
-    let header_xml = xml(&doc, "word/header1.xml");
+    let header_xml = part_xml(&doc, "word/header1.xml");
     assert!(header_xml.contains("<w:p><w:pPr><w:pStyle w:val=\"Header\"/></w:pPr></w:p>"));
-    let document = xml(&doc, "word/document.xml");
+    let document = part_xml(&doc, "word/document.xml");
     assert!(
         document.contains("<w:headerReference w:type=\"default\" r:id=\""),
         "{document}"
@@ -169,10 +161,10 @@ fn unlinking_creates_a_definition_from_the_template() {
     paragraphs[0]
         .set_text(&mut doc, Some("Header text"))
         .unwrap();
-    assert!(xml(&doc, "word/header1.xml").contains("<w:t>Header text</w:t>"));
-    let before = bytes(&doc);
+    assert!(part_xml(&doc, "word/header1.xml").contains("<w:t>Header text</w:t>"));
+    let before = snapshot(&doc);
     header.set_linked_to_previous(&mut doc, false).unwrap();
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -209,7 +201,7 @@ fn removing_a_shared_reference_keeps_the_relationship() {
         .set_linked_to_previous(&mut doc, true)
         .unwrap();
     // rId7 is still referenced by section one (upstream would drop it).
-    assert!(xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId7\""));
+    assert!(part_xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId7\""));
     let first = sections[0]
         .header()
         .existing_definition(&doc)
@@ -223,12 +215,12 @@ fn removing_a_shared_reference_keeps_the_relationship() {
         .even_page_header()
         .set_linked_to_previous(&mut doc, true)
         .unwrap();
-    assert!(xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId9\""));
+    assert!(part_xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId9\""));
     sections[2]
         .header()
         .set_linked_to_previous(&mut doc, true)
         .unwrap();
-    assert!(!xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId9\""));
+    assert!(!part_xml(&doc, "word/_rels/document.xml.rels").contains("Id=\"rId9\""));
     let inherited = sections[2]
         .header()
         .existing_definition(&doc)
@@ -270,9 +262,9 @@ fn even_and_odd_setting() {
     assert!(!doc.odd_and_even_pages_header_footer().unwrap());
     doc.set_odd_and_even_pages_header_footer(true).unwrap();
     assert!(doc.odd_and_even_pages_header_footer().unwrap());
-    assert!(xml(&doc, "word/settings.xml").contains("<w:evenAndOddHeaders/>"));
+    assert!(part_xml(&doc, "word/settings.xml").contains("<w:evenAndOddHeaders/>"));
     doc.set_odd_and_even_pages_header_footer(false).unwrap();
-    assert!(!xml(&doc, "word/settings.xml").contains("evenAndOddHeaders"));
+    assert!(!part_xml(&doc, "word/settings.xml").contains("evenAndOddHeaders"));
     let mut bare =
         Document::open_bytes(&minimal_package_with(DOCUMENT_XML), &Limits::default()).unwrap();
     assert!(!bare.odd_and_even_pages_header_footer().unwrap());

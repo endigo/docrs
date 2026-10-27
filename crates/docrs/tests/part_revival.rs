@@ -49,10 +49,6 @@ fn readd_header_unchanged(doc: &mut Document) {
     doc.commit_for_tests(staged).unwrap();
 }
 
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 #[test]
 fn readding_a_member_starts_a_new_incarnation() {
     let mut doc = Document::open_bytes(&package_with_header(), &Limits::default()).unwrap();
@@ -68,7 +64,7 @@ fn readding_a_member_starts_a_new_incarnation() {
             .incarnation(),
         0
     );
-    let reopened = Document::open_bytes(&bytes(&doc), &Limits::default()).unwrap();
+    let reopened = reopen(&doc);
     assert_eq!(reopened.package().xml(HEADER).unwrap().incarnation(), 0);
 }
 
@@ -82,13 +78,13 @@ fn spans_into_the_old_member_are_stale() {
         .find(|span| span.story().contains("header"))
         .expect("the header is a story");
     readd_header_unchanged(&mut doc);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = doc
         .replace(&span, "Changed", &ReplaceOptions::default())
         .unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::TargetNotFound));
     assert_eq!(err.reason(), "story_replaced", "{err}");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let fresh = doc
         .find_text("Header text", &FindOptions::default())
         .unwrap()
@@ -113,12 +109,12 @@ fn blocks_into_the_old_member_are_stale() {
         .find(|block| block.part() == HEADER)
         .expect("the header paragraph is a block");
     readd_header_unchanged(&mut doc);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err =
         docrs::fields::add_page_number_field(&mut doc, BlockTarget::Block(&block)).unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::TargetNotFound));
     assert_eq!(err.reason(), "story_replaced", "{err}");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let fresh = doc
         .blocks(View::Current)
         .unwrap()

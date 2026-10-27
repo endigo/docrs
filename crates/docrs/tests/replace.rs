@@ -28,14 +28,6 @@ fn rb(props: &str, text: &str) -> String {
     format!(r#"<w:r><w:rPr>{props}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r>"#)
 }
 
-fn open(bytes: &[u8]) -> Document {
-    Document::open_bytes(bytes, &Limits::default()).unwrap()
-}
-
-fn snapshot(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
 fn body_text(doc: &Document) -> String {
     doc.blocks(View::Current)
         .unwrap()
@@ -58,7 +50,7 @@ fn plain() -> ReplaceOptions {
 #[test]
 fn split_run_phrase_replacement_round_trips_with_exact_budget() {
     let input = fixture("generated/feature-isolated/fragmented-runs.docx");
-    let mut doc = open(&input);
+    let mut doc = open_bytes(&input);
     let before = body_text(&doc);
     let word = before
         .split_whitespace()
@@ -99,7 +91,7 @@ fn refusals_are_atomic() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.docx");
     fs::write(&out, b"sentinel").unwrap();
-    let mut doc = open(&input);
+    let mut doc = open_bytes(&input);
     let cases: Vec<(&str, &str, ErrorKind)> = vec![
         (
             "beta\ngamma",
@@ -143,7 +135,7 @@ fn refusals_are_atomic() {
 
 #[test]
 fn ambiguous_and_missing_targets_refuse_before_editing() {
-    let mut doc = open(&bytes_with(&format!(
+    let mut doc = open_bytes(&bytes_with(&format!(
         "<w:p>{}</w:p>",
         r("the cat and the dog")
     )));
@@ -170,7 +162,7 @@ fn ambiguous_and_missing_targets_refuse_before_editing() {
 
 #[test]
 fn successful_edit_consumes_span_and_aliases() {
-    let mut doc = open(&bytes_with(&format!("<w:p>{}</w:p>", r("draft text"))));
+    let mut doc = open_bytes(&bytes_with(&format!("<w:p>{}</w:p>", r("draft text"))));
     let span = find(&doc, "draft");
     let alias = span.clone();
     doc.replace(&span, "final", &plain()).unwrap();
@@ -185,7 +177,7 @@ fn successful_edit_consumes_span_and_aliases() {
 #[test]
 fn identical_text_is_an_unchanged_report_and_keeps_the_span() {
     let input = bytes_with(&format!("<w:p>{}</w:p>", r("same text")));
-    let mut doc = open(&input);
+    let mut doc = open_bytes(&input);
     let span = find(&doc, "same");
     let report = doc.replace(&span, "same", &plain()).unwrap();
     assert!(!report.changed);
@@ -197,7 +189,7 @@ fn identical_text_is_an_unchanged_report_and_keeps_the_span() {
 
 #[test]
 fn unrelated_edits_keep_independent_spans_fresh_and_related_edits_stale_them() {
-    let mut doc = open(&bytes_with(&format!(
+    let mut doc = open_bytes(&bytes_with(&format!(
         "<w:p>{}</w:p><w:p>{}</w:p>",
         r("first paragraph"),
         r("second paragraph")
@@ -215,8 +207,8 @@ fn unrelated_edits_keep_independent_spans_fresh_and_related_edits_stale_them() {
 #[test]
 fn foreign_spans_refuse_as_boundary_violations() {
     let input = bytes_with(&format!("<w:p>{}</w:p>", r("shared words")));
-    let a = open(&input);
-    let mut b = open(&input);
+    let a = open_bytes(&input);
+    let mut b = open_bytes(&input);
     let span = find(&a, "shared");
     let before = snapshot(&b);
     let err = b.replace(&span, "other", &plain()).unwrap_err();
@@ -229,7 +221,7 @@ fn foreign_spans_refuse_as_boundary_violations() {
 
 #[test]
 fn historical_view_targets_are_inspection_only() {
-    let mut doc = open(&bytes_with(&format!("<w:p>{}</w:p>", r("plain words"))));
+    let mut doc = open_bytes(&bytes_with(&format!("<w:p>{}</w:p>", r("plain words"))));
     let span = doc
         .find_one(
             "plain",
@@ -248,7 +240,7 @@ fn historical_view_targets_are_inspection_only() {
 #[test]
 fn injected_late_failures_leave_document_and_span_unchanged() {
     let input = bytes_with(&format!("<w:p>{}</w:p>", r("stable words here")));
-    let mut doc = open(&input);
+    let mut doc = open_bytes(&input);
     let span = find(&doc, "stable");
     for point in [ReplacePoint::AfterStage, ReplacePoint::BeforeCommit] {
         fault::fail_at(point);
@@ -260,7 +252,7 @@ fn injected_late_failures_leave_document_and_span_unchanged() {
     doc.replace(&span, "changed", &plain()).unwrap();
     assert_eq!(body_text(&doc), "changed words here");
 
-    let mut doc = open(&input);
+    let mut doc = open_bytes(&input);
     fault::fail_at(ReplacePoint::BeforeCommit);
     assert!(
         doc.replace_all("e", "E", &ReplaceAllOptions::default())
@@ -272,7 +264,7 @@ fn injected_late_failures_leave_document_and_span_unchanged() {
 
 #[test]
 fn formatting_and_affix_localization() {
-    let mut doc = open(&bytes_with(&format!(
+    let mut doc = open_bytes(&bytes_with(&format!(
         "<w:p>{}{}</w:p><w:p>{}{}</w:p>",
         rb("<w:b/>", "Omeg"),
         rb("<w:i/>", "a point"),
@@ -288,7 +280,7 @@ fn formatting_and_affix_localization() {
     let report = doc.replace(&span, "Payment overdue", &plain()).unwrap();
     assert!(report.preserved_formatting_regions);
     assert_eq!(body_text(&doc), "Xmega poinX\nPayment overdue");
-    let mut doc = open(&bytes_with(&format!("<w:p>{}</w:p>", r("aa"))));
+    let mut doc = open_bytes(&bytes_with(&format!("<w:p>{}</w:p>", r("aa"))));
     let span = find(&doc, "aa");
     let err = doc.replace(&span, "aaa", &plain()).unwrap_err();
     assert_eq!(err.reason(), "ambiguous_affix_alignment");
@@ -296,7 +288,7 @@ fn formatting_and_affix_localization() {
 
 #[test]
 fn tab_is_kept_when_the_change_lies_beside_it() {
-    let mut doc = open(&bytes_with(
+    let mut doc = open_bytes(&bytes_with(
         "<w:p><w:r><w:t>Section 3.</w:t><w:tab/><w:t>Termination</w:t></w:r></w:p>",
     ));
     let span = find(&doc, "Section 3.\tTermination");
@@ -307,7 +299,7 @@ fn tab_is_kept_when_the_change_lies_beside_it() {
 
 #[test]
 fn bookmarks_and_positional_markers_are_respected() {
-    let mut doc = open(&bytes_with(&format!(
+    let mut doc = open_bytes(&bytes_with(&format!(
         r#"<w:p>{}<w:bookmarkStart w:id="1" w:name="Clause"/>{}<w:bookmarkEnd w:id="1"/>{}</w:p>"#,
         r("See "),
         r("clause"),
@@ -327,7 +319,7 @@ fn bookmarks_and_positional_markers_are_respected() {
             .reason(),
         "hollows_bookmark"
     );
-    let mut wide = open(&bytes_with(&format!(
+    let mut wide = open_bytes(&bytes_with(&format!(
         r#"<w:p>{}<w:bookmarkStart w:id="2" w:name="Wide"/>{}{}<w:bookmarkEnd w:id="2"/></w:p>"#,
         r("See "),
         r("clause"),
@@ -350,7 +342,7 @@ fn bookmarks_and_positional_markers_are_respected() {
 
 #[test]
 fn replace_all_reports_refusals_and_commits_the_rest_atomically() {
-    let mut doc = open(&bytes_with(&format!(
+    let mut doc = open_bytes(&bytes_with(&format!(
         r#"<w:p>{}</w:p><w:p><w:ins w:id="1" w:author="A">{}</w:ins></w:p><w:p>{}</w:p>"#,
         r("term one"),
         r("term two"),
@@ -387,7 +379,7 @@ fn protection_gate_follows_the_matrix() {
             ),
             &settings(edit),
         );
-        let mut doc = open(&bytes);
+        let mut doc = open_bytes(&bytes);
         let span = find(&doc, "locked");
         let result = doc.replace(&span, "open", &plain());
         assert_eq!(result.is_err(), refuses, "{edit}");

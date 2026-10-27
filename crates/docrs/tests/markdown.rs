@@ -4,6 +4,8 @@
 //! exported file is also written there (`<test>.docx`) for inspection in
 //! Word, LibreOffice or pandoc (`tools/markdown_check.sh`).
 
+mod support;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -12,16 +14,13 @@ use docrs::markdown::{
     role_styles,
 };
 use docrs::{Document, ErrorKind, Limits, RefusalKind};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use support::{part_xml, png_150dpi, repo_root};
 
 /// The attached example reference document (restyled starter, A4, header
 /// and footer).
 fn reference() -> Document {
     Document::open_path(
-        repo().join("examples/markdown/reference.docx"),
+        repo_root().join("examples/markdown/reference.docx"),
         &Limits::default(),
     )
     .expect("examples/markdown/reference.docx opens")
@@ -35,7 +34,7 @@ struct Export {
 
 impl Export {
     fn part(&self, name: &str) -> String {
-        part_of(&self.doc, name)
+        part_xml(&self.doc, name)
     }
 
     fn body(&self) -> String {
@@ -97,15 +96,6 @@ fn export(name: &str, markdown: &str) -> Export {
 
 fn count(haystack: &str, needle: &str) -> usize {
     haystack.matches(needle).count()
-}
-
-const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
-
-fn png_bytes() -> Vec<u8> {
-    (0..PNG_150DPI.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&PNG_150DPI[i..i + 2], 16).unwrap())
-        .collect()
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -460,9 +450,9 @@ fn tables_have_header_rows_alignment_widths_and_captions() {
 #[test]
 fn images_embed_scale_caption_and_fall_back() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("dot.png"), png_bytes()).unwrap();
+    std::fs::write(dir.path().join("dot.png"), png_150dpi()).unwrap();
     std::fs::copy(
-        repo().join("examples/markdown/images/banner.jpg"),
+        repo_root().join("examples/markdown/images/banner.jpg"),
         dir.path().join("wide photo.jpg"),
     )
     .unwrap();
@@ -473,7 +463,7 @@ fn images_embed_scale_caption_and_fall_back() {
     .unwrap();
     let markdown = format!(
         "![A dot](dot.png \"Dot\")\n\n![Wide](wide%20photo.jpg)\n\nInline ![i](data:image/png;base64,{}) here.\n\n![missing](nope.png)\n\n![svg](vector.svg)\n\n![remote](https://example.com/x.png)\n",
-        base64(&png_bytes())
+        base64(&png_150dpi())
     );
     let options = MarkdownOptions {
         resource_dir: Some(dir.path().to_path_buf()),
@@ -530,9 +520,9 @@ fn local_images_stay_inside_the_resource_directory() {
     let outer = tempfile::tempdir().unwrap();
     let dir = outer.path().join("docs");
     std::fs::create_dir_all(dir.join("img")).unwrap();
-    std::fs::write(dir.join("img/dot.png"), png_bytes()).unwrap();
+    std::fs::write(dir.join("img/dot.png"), png_150dpi()).unwrap();
     let secret = outer.path().join("secret.png");
-    std::fs::write(&secret, png_bytes()).unwrap();
+    std::fs::write(&secret, png_150dpi()).unwrap();
     let markdown = format!(
         "![in](img/dot.png)\n\n![dotted](./img/../img/dot.png)\n\n\
          ![up](../secret.png)\n\n![up missing](../nope.png)\n\n\
@@ -614,15 +604,15 @@ fn local_images_stay_inside_the_resource_directory() {
 
 #[test]
 fn without_a_resource_directory_no_file_is_read() {
-    let chart = repo().join("examples/markdown/images/chart.png");
+    let chart = repo_root().join("examples/markdown/images/chart.png");
     assert!(chart.exists());
     let markdown = format!(
         "![abs](<{}>)\n\n![rel](examples/markdown/images/chart.png)\n\n![given](./given.png)\n\n![inline](data:image/png;base64,{})\n",
         chart.display(),
-        base64(&png_bytes())
+        base64(&png_150dpi())
     );
     let options = MarkdownOptions {
-        images: [("given.png".to_string(), png_bytes())].into(),
+        images: [("given.png".to_string(), png_150dpi())].into(),
         ..MarkdownOptions::default()
     };
     let out = export_with("15-images-no-dir", &markdown, None, &options);
@@ -639,10 +629,10 @@ fn without_a_resource_directory_no_file_is_read() {
 fn supplied_image_keys_match_with_or_without_dot_slash_and_escapes() {
     let options = MarkdownOptions {
         images: [
-            ("a.png".to_string(), png_bytes()),
-            ("./b.png".to_string(), png_bytes()),
-            ("c d.png".to_string(), png_bytes()),
-            ("e%20f.png".to_string(), png_bytes()),
+            ("a.png".to_string(), png_150dpi()),
+            ("./b.png".to_string(), png_150dpi()),
+            ("c d.png".to_string(), png_150dpi()),
+            ("e%20f.png".to_string(), png_150dpi()),
         ]
         .into(),
         ..MarkdownOptions::default()
@@ -659,7 +649,7 @@ fn supplied_image_keys_match_with_or_without_dot_slash_and_escapes() {
 
 /// A PNG of `size` bytes or more (a padding chunk after the header).
 fn padded_png(size: usize) -> Vec<u8> {
-    let png = png_bytes();
+    let png = png_150dpi();
     let mut out = png[..33].to_vec();
     out.extend_from_slice(&(size as u32).to_be_bytes());
     out.extend_from_slice(b"zPAD");
@@ -692,7 +682,7 @@ fn images_larger_than_the_part_limit_are_left_out() {
     let markdown = format!(
         "![data](data:image/png;base64,{})\n\n![given](given.png)\n\n![file](big.png)\n\n![small](data:image/png;base64,{})\n",
         base64(&big),
-        base64(&png_bytes())
+        base64(&png_150dpi())
     );
     let (_, report) = convert(&markdown, Some(template()), &options).unwrap();
     assert_eq!(report.counts.images, 1);
@@ -730,14 +720,14 @@ fn malformed_images_become_warnings_and_zero_dpi_counts_as_96() {
     let image = docrs::image::Image::from_blob(&jpeg).unwrap();
     // Upstream's own sizing divides by the zero resolution.
     assert_eq!(image.width().unwrap_err().reason(), "zero_division");
-    let mut zero_width = png_bytes();
+    let mut zero_width = png_150dpi();
     zero_width[16..20].copy_from_slice(&[0; 4]);
     let options = MarkdownOptions {
         images: [
             ("zero-dpi.jpg".to_string(), jpeg),
-            ("truncated.png".to_string(), png_bytes()[..20].to_vec()),
+            ("truncated.png".to_string(), png_150dpi()[..20].to_vec()),
             ("zero-width.png".to_string(), zero_width),
-            ("dot.png".to_string(), png_bytes()),
+            ("dot.png".to_string(), png_150dpi()),
         ]
         .into(),
         ..MarkdownOptions::default()
@@ -1236,9 +1226,9 @@ fn editor_html_maps_every_construct() {
         images: [
             (
                 "https://store.example/logo.png?token=t".to_string(),
-                png_bytes(),
+                png_150dpi(),
             ),
-            ("img-7".to_string(), png_bytes()),
+            ("img-7".to_string(), png_150dpi()),
         ]
         .into(),
         ..MarkdownOptions::default()
@@ -1356,7 +1346,7 @@ fn inspection_reports_what_a_conversion_takes() {
 
 fn html_converted() -> Document {
     Document::open_path(
-        repo().join("tests/fixtures/markdown/html-converted-template.docx"),
+        repo_root().join("tests/fixtures/markdown/html-converted-template.docx"),
         &Limits::default(),
     )
     .expect("the HTML-converted template opens")
@@ -1556,7 +1546,8 @@ fn a_missing_toc_heading_follows_heading_1() {
 
 fn html_converted_with_footer_field(field: &str) -> Document {
     let bytes =
-        std::fs::read(repo().join("tests/fixtures/markdown/html-converted-template.docx")).unwrap();
+        std::fs::read(repo_root().join("tests/fixtures/markdown/html-converted-template.docx"))
+            .unwrap();
     let contents = docrs::package::zip_read::read_archive(&bytes, &Limits::default()).unwrap();
     let members: Vec<(String, Vec<u8>)> = contents
         .members
@@ -2003,10 +1994,11 @@ fn protected_references_need_acknowledgment() {
 
 #[test]
 fn conversions_are_deterministic() {
-    let markdown = std::fs::read_to_string(repo().join("examples/markdown/showcase.md")).unwrap();
+    let markdown =
+        std::fs::read_to_string(repo_root().join("examples/markdown/showcase.md")).unwrap();
     // Conversions stamp the document as created now.
     let options = MarkdownOptions {
-        resource_dir: Some(repo().join("examples/markdown")),
+        resource_dir: Some(repo_root().join("examples/markdown")),
         now: Some(docrs::clock::Timestamp::from_unix(1_700_000_000)),
         ..MarkdownOptions::default()
     };
@@ -2029,7 +2021,9 @@ fn empty_markdown_leaves_a_valid_empty_body() {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    repo().join("tests/fixtures/markdown/templates").join(name)
+    repo_root()
+        .join("tests/fixtures/markdown/templates")
+        .join(name)
 }
 
 fn fixture_template(name: &str) -> Document {
@@ -2290,7 +2284,7 @@ fn synthetic(template: Synthetic<'_>) -> Document {
         members.push(("word/_rels/footer1.xml.rels".into(), picture_rels.clone()));
     }
     if template.cover_height.is_some() || template.footer.is_some() {
-        members.push(("word/media/cover.png".into(), png_bytes()));
+        members.push(("word/media/cover.png".into(), png_150dpi()));
     }
     let title_pg = if template.cover_height.is_some() {
         "<w:titlePg/>"
@@ -2707,7 +2701,7 @@ fn a_cover_drawn_in_the_first_page_header_keeps_page_one() {
 #[test]
 fn supplied_images_without_an_extension_get_one() {
     let options = MarkdownOptions {
-        images: std::collections::BTreeMap::from([("img-123".to_string(), png_bytes())]),
+        images: std::collections::BTreeMap::from([("img-123".to_string(), png_150dpi())]),
         ..MarkdownOptions::default()
     };
     let out = export_with(
@@ -3532,15 +3526,11 @@ fn assert_first_paragraph_passed_over(name: &str, fixture: &str) -> serde_json::
     assert!(!body.contains("FirstParagraph"), "{body}");
     assert_eq!(
         style_of(&out, "FirstParagraph"),
-        style_xml(&part_of(&template(), "word/styles.xml"), "FirstParagraph")
+        style_xml(&part_xml(&template(), "word/styles.xml"), "FirstParagraph")
     );
     let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
     assert_eq!(inspection["roles"]["first_paragraph"]["name"], "Body Text");
     inspection
-}
-
-fn part_of(doc: &Document, name: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(name).unwrap())).unwrap()
 }
 
 /// Each tag's first occurrence, in the order given.
@@ -3759,7 +3749,7 @@ fn a_body_look_needs_prose_to_go_by() {
     assert!(!styles.contains("Template Body Text"), "{styles}");
     assert_eq!(
         style_of(&out, "BodyText"),
-        style_xml(&part_of(&template(), "word/styles.xml"), "BodyText")
+        style_xml(&part_xml(&template(), "word/styles.xml"), "BodyText")
     );
     assert_eq!(count(&out.body(), "<w:pStyle w:val=\"BodyText\"/>"), 3);
     let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
@@ -3874,7 +3864,7 @@ fn a_body_text_holding_only_steps_is_not_the_body() {
     assert!(!out.body().contains("BodyText"), "{}", out.body());
     assert_eq!(
         style_of(&out, "BodyText"),
-        style_xml(&part_of(&template(), "word/styles.xml"), "BodyText")
+        style_xml(&part_xml(&template(), "word/styles.xml"), "BodyText")
     );
     let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
     assert_eq!(inspection["roles"]["body"]["name"], "Normal");
@@ -3996,7 +3986,7 @@ fn an_unused_heading_on_the_theme_font_follows_the_levels_in_use() {
             && rpr.contains("<w:color w:val=\"2F5496\"/>"),
         "{rpr}"
     );
-    let template_styles = part_of(&template(), "word/styles.xml");
+    let template_styles = part_xml(&template(), "word/styles.xml");
     for id in ["Heading1", "Heading2", "Heading3"] {
         assert_eq!(style_of(&out, id), style_xml(&template_styles, id), "{id}");
     }
