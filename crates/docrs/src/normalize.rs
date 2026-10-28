@@ -60,9 +60,10 @@ pub fn normalize_text(value: &str) -> String {
 
 /// Normalized text plus, per normalized scalar, the source scalar index.
 pub fn normalized_with_map(value: &str) -> (String, Vec<usize>) {
-    let mut chars: Vec<char> = Vec::with_capacity(value.len());
+    let mut text = String::with_capacity(value.len());
     let mut map: Vec<usize> = Vec::with_capacity(value.len());
     let mut buffer = String::new();
+    let mut previous_space = false;
     for (index, c) in value.chars().enumerate() {
         let Some(mut out) = translated(c) else {
             continue;
@@ -73,26 +74,19 @@ pub fn normalized_with_map(value: &str) -> (String, Vec<usize>) {
         buffer.clear();
         casefold_char_into(out, &mut buffer);
         for folded in buffer.chars() {
-            chars.push(folded);
+            if folded == ' ' {
+                if previous_space {
+                    continue;
+                }
+                previous_space = true;
+            } else {
+                previous_space = false;
+            }
+            text.push(folded);
             map.push(index);
         }
     }
-    let mut text = String::with_capacity(chars.len());
-    let mut compact_map = Vec::with_capacity(map.len());
-    let mut previous_space = false;
-    for (c, source) in chars.into_iter().zip(map) {
-        if c == ' ' {
-            if previous_space {
-                continue;
-            }
-            previous_space = true;
-        } else {
-            previous_space = false;
-        }
-        text.push(c);
-        compact_map.push(source);
-    }
-    (text, compact_map)
+    (text, map)
 }
 
 /// First 8 hex digits of SHA-256 over the normalized text (upstream

@@ -14,13 +14,13 @@ use std::collections::BTreeMap;
 use docrs::clock::Timestamp;
 use docrs::markdown::{self, InputFormat, MarkdownOptions, Placement, Role, StylePolicy};
 use docrs::{Document, Error, Limits, Tolerance};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use wasm_bindgen::prelude::*;
 
 /// Options of [`from_markdown`], camelCase in JavaScript. Every field is
 /// optional; the defaults match the CLI's.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct Options {
     /// Reference document (`.docx` bytes) supplying styles, lists, page
@@ -329,8 +329,9 @@ pub fn styles_of(reference: Option<&[u8]>, options: &Options) -> Result<serde_js
     ))
 }
 
-#[wasm_bindgen(typescript_custom_section)]
-const TYPES: &str = r#"
+/// The package's TypeScript declarations (`docrs.d.ts`); `pub` because the
+/// custom section below only reads it on wasm32.
+pub const TYPINGS: &str = r#"
 /** Options of `fromMarkdown`; every field is optional. */
 export interface FromMarkdownOptions {
   /** Reference document (.docx bytes): styles, lists, page setup, headers, footers. */
@@ -508,6 +509,9 @@ export interface DocumentCliError extends Error {
 }
 "#;
 
+#[wasm_bindgen(typescript_custom_section)]
+const TYPES: &str = TYPINGS;
+
 fn js_error(error: &Error) -> JsValue {
     js_error_with(error, false)
 }
@@ -526,34 +530,20 @@ fn js_error_with(error: &Error, redact: bool) -> JsValue {
     js.into()
 }
 
-/// Option names, as JavaScript writes them (`Options` in camelCase).
-const OPTION_NAMES: &[&str] = &[
-    "reference",
-    "placeholder",
-    "append",
-    "styles",
-    "strictStyles",
-    "strict",
-    "toc",
-    "tocDepth",
-    "tocTitle",
-    "tocPageNumbers",
-    "tocNumbers",
-    "shiftHeadingLevel",
-    "smart",
-    "titleBlock",
-    "properties",
-    "captions",
-    "templateLists",
-    "pageNumbers",
-    "coverPage",
-    "images",
-    "strictPackage",
-    "acknowledgeProtection",
-    "now",
-    "limits",
-    "redact",
-];
+/// Option names, as JavaScript writes them (the fields of [`Options`] in
+/// camelCase, read off its serialization once).
+fn option_names() -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let fields = serde_json::to_value(Options::default()).expect("Options serialize");
+        fields
+            .as_object()
+            .expect("Options serialize as an object")
+            .keys()
+            .cloned()
+            .collect()
+    })
+}
 
 fn to_js(value: &serde_json::Value) -> JsValue {
     use serde::Serialize;
@@ -661,7 +651,7 @@ fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
     let given = js_sys::Object::new();
     for key in js_sys::Object::keys(&value).iter() {
         let name = key.as_string().unwrap_or_default();
-        if !OPTION_NAMES.contains(&name.as_str()) {
+        if !option_names().contains(&name) {
             return Err(js_error(&Error::invalid_argument(
                 "invalid_options",
                 format!("unknown option {name:?}"),
@@ -882,6 +872,8 @@ pub fn version() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     const PNG: [u8; 67] = [
@@ -968,15 +960,11 @@ mod tests {
     }
 
     #[test]
-    fn option_names_match_the_fields() {
-        let fields: Vec<String> = serde_json::to_value(OPTION_NAMES)
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|name| name.as_str().unwrap().to_string())
-            .collect();
-        for name in &fields {
+    fn option_names_are_the_fields_as_javascript_writes_them() {
+        let names = option_names();
+        assert!(names.contains(&"strictStyles".to_string()), "{names:?}");
+        for name in names {
+            assert!(!name.contains('_'), "{name}");
             let value = match name.as_str() {
                 "styles" | "images" => serde_json::json!({}),
                 "placeholder" | "tocTitle" => serde_json::json!("x"),
@@ -988,11 +976,140 @@ mod tests {
             let object = serde_json::json!({ name.as_str(): value });
             assert!(serde_json::from_value::<Options>(object).is_ok(), "{name}");
         }
-        let source = include_str!("lib.rs");
-        let start = source.find("pub struct Options {").unwrap();
-        let body = &source[start..start + source[start..].find("\n}").unwrap()];
-        let declared = body.matches("    pub ").count();
-        assert_eq!(declared, OPTION_NAMES.len());
+    }
+
+    /// The text between the braces of `export interface NAME { ... }` in
+    /// `TYPINGS`.
+    fn interface_body(name: &str) -> &'static str {
+        let start = TYPINGS
+            .find(&format!("export interface {name} "))
+            .unwrap_or_else(|| panic!("TYPINGS declares {name}"));
+        brace_block(&TYPINGS[start..])
+    }
+
+    /// The text inside the first `{` of `text` and its matching `}`.
+    fn brace_block(text: &str) -> &str {
+        let open = text.find('{').expect("a brace block");
+        let mut depth = 0usize;
+        for (i, c) in text[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &text[open + 1..open + i];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("unbalanced braces in {text}");
+    }
+
+    /// The object type of member `key` of a type body (`key: { ... }`).
+    fn member_body<'a>(body: &'a str, key: &str) -> &'a str {
+        let at = body
+            .find(&format!("{key}: {{"))
+            .unwrap_or_else(|| panic!("{key} is an object member"));
+        brace_block(&body[at..])
+    }
+
+    /// The names of the members at the top level of a type body (nested
+    /// object types and comments skipped).
+    fn member_names(body: &str) -> BTreeSet<String> {
+        let mut text = String::new();
+        let mut remaining = body;
+        while let Some(start) = remaining.find("/*") {
+            text.push_str(&remaining[..start]);
+            let end = remaining[start..]
+                .find("*/")
+                .map_or(remaining.len(), |e| start + e + 2);
+            remaining = &remaining[end..];
+        }
+        text.push_str(remaining);
+        let mut names = BTreeSet::new();
+        let mut depth = 0usize;
+        let mut word = String::new();
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                c if c.is_alphanumeric() || c == '_' => {
+                    word.push(c);
+                    continue;
+                }
+                mut mark => {
+                    if mark == '?' {
+                        mark = chars.next().unwrap_or(' ');
+                    }
+                    if depth == 0 && mark == ':' && !word.is_empty() {
+                        names.insert(word.clone());
+                    }
+                }
+            }
+            word.clear();
+        }
+        names
+    }
+
+    fn json_keys(value: &serde_json::Value) -> BTreeSet<String> {
+        value
+            .as_object()
+            .unwrap_or_else(|| panic!("an object, not {value}"))
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn typings_name_the_keys_the_reports_carry() {
+        let converted = convert(
+            "---\ntitle: Plan\n---\n\n# One\n\n![x](missing.png)\n",
+            InputFormat::Markdown,
+            Options {
+                toc: Some(true),
+                ..Options::default()
+            },
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        let report = &converted.report;
+        let declared = interface_body("MarkdownReport");
+        assert_eq!(json_keys(report), member_names(declared));
+        assert_eq!(
+            json_keys(&report["toc"]),
+            member_names(member_body(declared, "toc"))
+        );
+        assert_eq!(
+            json_keys(&report["warnings"][0]),
+            member_names(interface_body("MarkdownWarning"))
+        );
+
+        let inspection = inspect(&reference_document().unwrap(), &Options::default()).unwrap();
+        let declared = interface_body("ReferenceInspection");
+        assert_eq!(json_keys(&inspection), member_names(declared));
+        assert_eq!(
+            json_keys(&inspection["section"]),
+            member_names(member_body(declared, "section"))
+        );
+        let lifted = member_body(declared, "lifted");
+        assert_eq!(json_keys(&inspection["lifted"]), member_names(lifted));
+        assert_eq!(
+            json_keys(&inspection["lifted"]["table"]),
+            member_names(member_body(lifted, "table"))
+        );
+
+        let roles = styles_of(None, &Options::default()).unwrap();
+        assert_eq!(
+            json_keys(&roles[0]),
+            member_names(interface_body("RoleStyle"))
+        );
+
+        let error = timestamp_from_millis(-1.0).unwrap_err().to_json();
+        assert!(
+            member_names(interface_body("DocumentCliError")).is_subset(&json_keys(&error["error"]))
+        );
     }
 
     #[test]

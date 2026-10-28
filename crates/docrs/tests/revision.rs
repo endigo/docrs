@@ -10,10 +10,6 @@ use support::*;
 
 const W_DECLS: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml""#;
 
-fn open(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
 fn with_body(body: &str) -> Document {
     let bytes = minimal_package_with(&format!(
         r#"<w:document {W_DECLS}><w:body>{body}</w:body></w:document>"#
@@ -28,11 +24,6 @@ fn texts(doc: &Document) -> Vec<String> {
         .filter(|b| b.story == "word/document.xml")
         .map(|b| b.text)
         .collect()
-}
-
-fn reopen(doc: &Document) -> Document {
-    let (bytes, _) = doc.patch_bytes().unwrap();
-    Document::open_bytes(&bytes, &Limits::default()).unwrap()
 }
 
 fn refusal(err: &docrs::Error) -> RefusalKind {
@@ -58,7 +49,7 @@ const FIXTURES_WITH_REVISIONS: &[(&str, usize)] = &[
 fn every_fixture_resolves_to_zero_markup_both_ways() {
     for (rel, count) in FIXTURES_WITH_REVISIONS {
         for accept in [true, false] {
-            let mut doc = open(rel);
+            let mut doc = open_fixture(rel);
             let mut revisions = doc.revisions().unwrap();
             assert_eq!(revisions.len(), *count, "{rel}");
             assert!(revisions.remaining_unsupported().is_empty(), "{rel}");
@@ -84,7 +75,7 @@ fn every_fixture_resolves_to_zero_markup_both_ways() {
 
 #[test]
 fn enumeration_matches_the_oracle_payload() {
-    let doc = open("generated/feature-isolated/tracked-ins-del.docx");
+    let doc = open_fixture("generated/feature-isolated/tracked-ins-del.docx");
     let payload = doc.revisions().unwrap().to_json();
     assert_eq!(payload["schema"], "paper_revisions");
     assert_eq!(payload["version"], 4);
@@ -137,7 +128,7 @@ fn enumeration_matches_the_oracle_payload() {
 
 #[test]
 fn author_filter_and_individual_resolution() {
-    let mut doc = open("generated/feature-isolated/tracked-ins-del.docx");
+    let mut doc = open_fixture("generated/feature-isolated/tracked-ins-del.docx");
     let mut snapshot = doc.revisions().unwrap();
     assert_eq!(
         snapshot.accept_all(&mut doc, Some("Alice Editor")).unwrap(),
@@ -156,7 +147,7 @@ fn author_filter_and_individual_resolution() {
 
 #[test]
 fn multiround_reject_all_restores_the_original() {
-    let mut doc = open("generated/redline/multiround.docx");
+    let mut doc = open_fixture("generated/redline/multiround.docx");
     assert_eq!(
         doc.revisions().unwrap().reject_all(&mut doc, None).unwrap(),
         20
@@ -193,7 +184,7 @@ fn multiround_reject_all_restores_the_original() {
 #[test]
 fn moves_resolve_as_pairs_from_either_site() {
     let moved = "The indemnity clause relocated by tracked move.";
-    let mut doc = open("generated/feature-isolated/tracked-moves.docx");
+    let mut doc = open_fixture("generated/feature-isolated/tracked-moves.docx");
     let from = doc
         .revisions()
         .unwrap()
@@ -211,7 +202,7 @@ fn moves_resolve_as_pairs_from_either_site() {
     assert!(after.iter().position(|t| t == moved).unwrap() > middle);
     assert!(remaining_markup(&doc).unwrap().is_empty());
 
-    let mut doc = open("generated/feature-isolated/tracked-moves.docx");
+    let mut doc = open_fixture("generated/feature-isolated/tracked-moves.docx");
     let to = doc
         .revisions()
         .unwrap()
@@ -230,13 +221,13 @@ fn moves_resolve_as_pairs_from_either_site() {
 
 #[test]
 fn row_revisions_keep_or_remove_rows() {
-    let mut doc = open("generated/feature-isolated/row-revisions.docx");
+    let mut doc = open_fixture("generated/feature-isolated/row-revisions.docx");
     doc.revisions().unwrap().accept_all(&mut doc, None).unwrap();
     assert_eq!(texts(&doc)[1], "Item\nAmount\nFiling fee\n$100");
-    let mut doc = open("generated/feature-isolated/row-revisions.docx");
+    let mut doc = open_fixture("generated/feature-isolated/row-revisions.docx");
     doc.revisions().unwrap().reject_all(&mut doc, None).unwrap();
     assert_eq!(texts(&doc)[1], "Item\nAmount\nOld charge\n$50");
-    let types: Vec<&str> = open("generated/feature-isolated/row-revisions.docx")
+    let types: Vec<&str> = open_fixture("generated/feature-isolated/row-revisions.docx")
         .revisions()
         .unwrap()
         .iter()
@@ -248,7 +239,7 @@ fn row_revisions_keep_or_remove_rows() {
 
 #[test]
 fn closure_refusals_are_atomic() {
-    let mut doc = open("generated/feature-isolated/row-revisions.docx");
+    let mut doc = open_fixture("generated/feature-isolated/row-revisions.docx");
     let before = doc.patch_bytes().unwrap().0;
     let row_ins = doc
         .revisions()
@@ -336,8 +327,8 @@ fn stale_snapshots_and_revisions_refuse_without_change() {
 
 #[test]
 fn foreign_revisions_and_snapshots_are_boundary_violations() {
-    let mut a = open("generated/feature-isolated/tracked-ins-del.docx");
-    let mut b = open("generated/feature-isolated/tracked-ins-del.docx");
+    let mut a = open_fixture("generated/feature-isolated/tracked-ins-del.docx");
+    let mut b = open_fixture("generated/feature-isolated/tracked-ins-del.docx");
     let before = b.patch_bytes().unwrap().0;
     let mut snapshot = a.revisions().unwrap();
     let err = snapshot[0].accept(&mut b).unwrap_err();
@@ -350,7 +341,7 @@ fn foreign_revisions_and_snapshots_are_boundary_violations() {
 
 #[test]
 fn pending_revisions_survive_save_and_reopen_with_authorship() {
-    let mut doc = open("generated/redline/multiround.docx");
+    let mut doc = open_fixture("generated/redline/multiround.docx");
     let first = doc.revisions().unwrap()[0].clone();
     first.accept(&mut doc).unwrap();
     let live: Vec<serde_json::Value> = doc
@@ -372,7 +363,7 @@ fn pending_revisions_survive_save_and_reopen_with_authorship() {
 
 #[test]
 fn tracked_edit_algebra() {
-    let mut tracked = open("generated/feature-isolated/fragmented-runs.docx");
+    let mut tracked = open_fixture("generated/feature-isolated/fragmented-runs.docx");
     let span = tracked
         .find_one("$75–100/hr", &FindOptions::default())
         .unwrap();
@@ -383,7 +374,9 @@ fn tracked_edit_algebra() {
         preserve_revision: false,
     };
     tracked.replace(&span, "$85–110/hr", &options).unwrap();
-    let pristine = texts(&open("generated/feature-isolated/fragmented-runs.docx"));
+    let pristine = texts(&open_fixture(
+        "generated/feature-isolated/fragmented-runs.docx",
+    ));
     let mut rejected =
         Document::open_bytes(&tracked.patch_bytes().unwrap().0, &Limits::default()).unwrap();
     tracked
@@ -391,7 +384,7 @@ fn tracked_edit_algebra() {
         .unwrap()
         .accept_all(&mut tracked, None)
         .unwrap();
-    let mut plain = open("generated/feature-isolated/fragmented-runs.docx");
+    let mut plain = open_fixture("generated/feature-isolated/fragmented-runs.docx");
     let span = plain
         .find_one("$75–100/hr", &FindOptions::default())
         .unwrap();
@@ -409,7 +402,7 @@ fn tracked_edit_algebra() {
 
 #[test]
 fn large_documents_enumerate_and_resolve_promptly() {
-    let mut doc = open("generated/large/large-5000-paragraphs.docx");
+    let mut doc = open_fixture("generated/large/large-5000-paragraphs.docx");
     let started = std::time::Instant::now();
     let mut revisions = doc.revisions().unwrap();
     assert!(revisions.is_empty());
@@ -420,7 +413,7 @@ fn large_documents_enumerate_and_resolve_promptly() {
 
 #[test]
 fn protection_gates_resolution() {
-    let mut doc = open("generated/feature-isolated/protected-readonly.docx");
+    let mut doc = open_fixture("generated/feature-isolated/protected-readonly.docx");
     let err = doc
         .revisions()
         .unwrap()
@@ -485,7 +478,7 @@ fn discard_drops_only_unreferenced_relationships() {
 
 #[test]
 fn paragraph_mark_resolution_joins_and_splits() {
-    let mut doc = open("generated/feature-isolated/paragraph-merge.docx");
+    let mut doc = open_fixture("generated/feature-isolated/paragraph-merge.docx");
     let mark = doc
         .revisions()
         .unwrap()
@@ -499,7 +492,7 @@ fn paragraph_mark_resolution_joins_and_splits() {
             .iter()
             .any(|t| t == "This sentence continues onto the following line.")
     );
-    let mut doc = open("generated/feature-isolated/paragraph-merge.docx");
+    let mut doc = open_fixture("generated/feature-isolated/paragraph-merge.docx");
     let mark = doc
         .revisions()
         .unwrap()
@@ -517,7 +510,7 @@ fn paragraph_mark_resolution_joins_and_splits() {
 
 #[test]
 fn format_change_reject_restores_stored_properties() {
-    let mut doc = open("generated/feature-isolated/format-changes-rich.docx");
+    let mut doc = open_fixture("generated/feature-isolated/format-changes-rich.docx");
     let change = doc
         .revisions()
         .unwrap()
@@ -547,7 +540,7 @@ fn format_change_reject_restores_stored_properties() {
 fn a_failed_snapshot_refresh_leaves_document_and_snapshot_unchanged() {
     use docrs::revision::fault::{self, RevisionPoint};
     for accept in [true, false] {
-        let mut doc = open("generated/feature-isolated/tracked-ins-del.docx");
+        let mut doc = open_fixture("generated/feature-isolated/tracked-ins-del.docx");
         let before = doc.patch_bytes().unwrap().0;
         let mut revisions = doc.revisions().unwrap();
         fault::fail_at(RevisionPoint::Refresh);

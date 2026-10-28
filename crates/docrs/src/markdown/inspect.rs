@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use super::ast;
 use super::frontmatter::Metadata;
 use super::render;
-use super::stories::stories;
+use super::stories::{page_size, stories};
 use super::{MarkdownOptions, MarkdownReport, Placement};
 use crate::authoring::section_properties;
 use crate::package::rels::rt;
@@ -129,8 +129,7 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         Some(last) => {
             let pg_sz = w_child(tree, *last, "pgSz");
             let pg_mar = w_child(tree, *last, "pgMar");
-            let width = twips(tree, pg_sz, "w").unwrap_or(12240);
-            let height = twips(tree, pg_sz, "h").unwrap_or(15840);
+            let (width, height) = page_size(tree, Some(*last));
             let landscape = w_attr(tree, pg_sz.unwrap_or(*last), "orient") == Some("landscape")
                 || width > height;
             let margin = |side: &str| twips(tree, pg_mar, side);
@@ -209,6 +208,9 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     };
     let mut report = MarkdownReport::default();
     let mut trial = Txn::new(document);
+    let mut resolver =
+        super::styles::Resolver::new(trial_options.style_map.clone(), trial_options.style_policy)
+            .with_sample(sample);
     let outcome = render::render(
         &mut trial,
         &parsed,
@@ -216,8 +218,12 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         &trial_options,
         false,
         &mut report,
+        &mut resolver,
     );
     drop(trial);
+    let sample = resolver
+        .take_sample()
+        .expect("seeded before the trial render");
     if let Err(err) = &outcome {
         problem(
             "conversion_refused",
@@ -264,10 +270,9 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         .get("body")
         .filter(|body| !body.created)
         .and_then(|body| body.style_id.as_deref());
-    let styles = match package.part_related_by(&main, rt::STYLES)? {
-        Some(name) => Some(package.xml(&name)?),
-        None => None,
-    };
+    let styles = crate::styles::styles_part(document)?
+        .map(|name| package.xml(&name))
+        .transpose()?;
     let lifted = sample.summary(styles, body_style);
     Ok(json!({
         "schema_version": 1,

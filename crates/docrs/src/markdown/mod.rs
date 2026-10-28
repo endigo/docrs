@@ -402,7 +402,7 @@ pub fn insert_markdown(
     markdown: &str,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, markdown, InputFormat::Markdown, options, false)
+    insert_source(document, markdown, InputFormat::Markdown, options)
 }
 
 /// Render editor HTML into `document`: the same conversion as
@@ -412,7 +412,7 @@ pub fn insert_html(
     html: &str,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, html, InputFormat::Html, options, false)
+    insert_source(document, html, InputFormat::Html, options)
 }
 
 /// Render a TipTap document (`editor.getJSON()` as JSON text) into
@@ -427,7 +427,7 @@ pub fn insert_tiptap(
     json: &str,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, json, InputFormat::Tiptap, options, false)
+    insert_source(document, json, InputFormat::Tiptap, options)
 }
 
 /// Render `source` in `format` into `document`. Atomic.
@@ -497,6 +497,7 @@ fn insert_with(
     let staged = {
         let doc: &Document = document;
         let mut txn = Txn::new(doc);
+        let mut resolver = styles::Resolver::new(options.style_map.clone(), options.style_policy);
         render::render(
             &mut txn,
             &parsed,
@@ -504,6 +505,7 @@ fn insert_with(
             options,
             prefer_own_styles,
             &mut report,
+            &mut resolver,
         )?;
         if options.strict && !report.warnings.is_empty() {
             let summary: Vec<String> = report

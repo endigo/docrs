@@ -18,6 +18,7 @@ mod m6;
 mod ops;
 mod opsrun;
 mod oracle;
+mod report;
 mod synthetic;
 
 use std::collections::BTreeMap;
@@ -282,7 +283,7 @@ fn check(python: &Path, upstream_rev: &str, require_libreoffice: bool) -> Result
         verdicts.push((*name, verdict));
     }
     println!("== loader-smoke");
-    let loader_verdict = match loader::available() {
+    let loader_verdict = match loader::working_soffice() {
         Err(message) if !require_libreoffice => {
             println!("  {message}");
             "UNVERIFIED (no working LibreOffice; not a pass)".to_string()
@@ -400,19 +401,13 @@ fn kernel_parity(
     oracle::check_revision(upstream_rev)?;
     let work = tempfile::tempdir().map_err(|e| e.to_string())?;
     let root = work.path();
-    let mut items: Vec<(String, PathBuf)> = Vec::new();
     std::fs::create_dir_all(root.join("hostile")).map_err(|e| e.to_string())?;
-    for (name, bytes) in hostile::corpus() {
-        let path = root.join("hostile").join(format!(
-            "{}.docx",
-            crate::opsrun::case_safe_file_stem(&name)
-        ));
-        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-        items.push((name, path));
-    }
-    for rel in hostile::all_fixtures() {
-        items.push((format!("fixture:{rel}"), hostile::fixtures_dir().join(&rel)));
-    }
+    let mut items = hostile::materialize(&root.join("hostile"), hostile::corpus())?;
+    items.extend(
+        hostile::fixture_inputs(&[])
+            .into_iter()
+            .map(|(rel, path)| (format!("fixture:{rel}"), path)),
+    );
 
     let mut requests: Vec<Value> = Vec::new();
     let mut plan: Vec<(String, &'static str, Value)> = Vec::new();
@@ -508,8 +503,8 @@ fn kernel_parity(
                 "  {verdict:<10} {:<10} {:<48} rust={} python={}",
                 row["op"].as_str().unwrap_or(""),
                 row["case"].as_str().unwrap_or(""),
-                compact(&row["rust"]),
-                compact(&row["python"])
+                report::clipped(row["rust"].to_string(), 160),
+                report::clipped(row["python"].to_string(), 160)
             );
         }
     }
@@ -520,24 +515,11 @@ fn kernel_parity(
     for (case, why) in DEVIATIONS {
         println!("  documented deviation {case}: {why}");
     }
-    if let Some(path) = report_path {
-        let report = json!({"schema_version": 1, "upstream_rev": upstream_rev, "summary": summary, "rows": rows});
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(&report).unwrap_or_default(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
+    report::write_json(
+        report_path,
+        &json!({"schema_version": 1, "upstream_rev": upstream_rev, "summary": summary, "rows": rows}),
+    )?;
     Ok(!failed)
-}
-
-fn compact(value: &Value) -> String {
-    let mut text = value.to_string();
-    if text.len() > 160 {
-        text.truncate(160);
-        text.push('…');
-    }
-    text
 }
 
 /// `bench FILE OUT`: open, outline, find, replace, save timings (release).

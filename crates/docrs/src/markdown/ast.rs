@@ -61,6 +61,33 @@ pub(crate) fn warn_once(
     }
 }
 
+/// Add `item` to `list` unless it is already there.
+pub(crate) fn note_once(list: &mut Vec<String>, item: &str) {
+    if !list.iter().any(|known| known == item) {
+        list.push(item.to_string());
+    }
+}
+
+/// `inlines` as a paragraph, or as the plain content of a tight list item.
+pub(crate) fn paragraph(inlines: Vec<Inline>, plain: bool) -> Block {
+    if plain {
+        Block::Plain(inlines)
+    } else {
+        Block::Paragraph(inlines)
+    }
+}
+
+/// Whether an item's blocks make its list loose (a paragraph rather than
+/// plain content).
+fn loose(blocks: &[Block]) -> bool {
+    blocks.iter().any(|b| matches!(b, Block::Paragraph(_)))
+}
+
+/// Whether a list of `items` is tight: no item holds a paragraph.
+pub(crate) fn tight(items: &[ListItem]) -> bool {
+    items.iter().all(|item| !loose(&item.blocks))
+}
+
 /// Column alignment of a table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Align {
@@ -472,7 +499,7 @@ impl Level {
     }
 }
 
-struct Folder<'s> {
+struct Folder {
     stack: Vec<Level>,
     /// Open frames that count toward [`MAX_NESTING_DEPTH`].
     depth: usize,
@@ -484,7 +511,6 @@ struct Folder<'s> {
     dropped_styles: Vec<(usize, String)>,
     warnings: Vec<MarkdownWarning>,
     line_starts: Vec<usize>,
-    _source: &'s str,
 }
 
 fn line_of(line_starts: &[usize], offset: usize) -> usize {
@@ -509,7 +535,6 @@ pub(crate) fn parse(source: &str, smart_punctuation: bool) -> Result<Parsed> {
         dropped_styles: Vec::new(),
         warnings: Vec::new(),
         line_starts,
-        _source: source,
     };
     for (event, range) in Parser::new_ext(source, options(smart_punctuation)).into_offset_iter() {
         let line = line_of(&folder.line_starts, range.start);
@@ -753,7 +778,8 @@ fn split_scripts(text: &str) -> Vec<Inline> {
     out
 }
 
-fn plain_text(inlines: &[Inline]) -> String {
+/// Text of inline content as a reader sees it (alt text, captions, slugs).
+pub(crate) fn inline_text(inlines: &[Inline]) -> String {
     let mut out = String::new();
     for inline in inlines {
         match inline {
@@ -769,17 +795,12 @@ fn plain_text(inlines: &[Inline]) -> String {
             | Inline::Link {
                 content: children, ..
             }
-            | Inline::Image { alt: children, .. } => out.push_str(&plain_text(children)),
+            | Inline::Image { alt: children, .. } => out.push_str(&inline_text(children)),
             Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::FootnoteRef { .. } => {}
         }
     }
     out
-}
-
-/// Text of inline content as a reader sees it (alt text, captions, slugs).
-pub(crate) fn inline_text(inlines: &[Inline]) -> String {
-    plain_text(inlines)
 }
 
 fn html_tag(html: &str) -> Option<(String, bool)> {
@@ -874,7 +895,7 @@ fn is_comment(html: &str) -> bool {
     trimmed.starts_with("<!--") && trimmed.ends_with("-->")
 }
 
-impl Folder<'_> {
+impl Folder {
     fn top(&mut self) -> &mut Level {
         self.stack.last_mut().expect("level")
     }
@@ -1289,9 +1310,8 @@ impl Folder<'_> {
                 if !inlines.is_empty() {
                     blocks.push(Block::Plain(inlines));
                 }
-                let loose = blocks.iter().any(|b| matches!(b, Block::Paragraph(_)));
                 if let Frame::List { items, tight, .. } = &mut parent.frame {
-                    if loose {
+                    if loose(&blocks) {
                         *tight = false;
                     }
                     items.push(ListItem { task, blocks });
@@ -1409,7 +1429,7 @@ fn span_inline(kind: SpanKind, children: Vec<Inline>) -> Inline {
         SpanKind::Subscript => Inline::Subscript(children),
         SpanKind::Underline => Inline::Underline(children),
         SpanKind::Highlight => Inline::Highlight(children),
-        SpanKind::Code => Inline::Code(plain_text(&children)),
+        SpanKind::Code => Inline::Code(inline_text(&children)),
         SpanKind::Hidden => Inline::Text(String::new()),
         SpanKind::Html(_, inner) => span_inline(*inner, children),
         SpanKind::Format(format) => {

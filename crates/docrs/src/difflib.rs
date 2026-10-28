@@ -6,7 +6,7 @@
 //! element" junk heuristic for sequences of 200+ items and the order in
 //! which longest matches are extended.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 
 /// `(i, j, size)`: `a[i..i+size] == b[j..j+size]`.
@@ -33,7 +33,6 @@ pub struct SequenceMatcher<'a, T: Eq + Hash> {
     a: &'a [T],
     b: &'a [T],
     b2j: HashMap<&'a T, Vec<usize>>,
-    junk: HashSet<&'a T>,
 }
 
 impl<'a, T: Eq + Hash> SequenceMatcher<'a, T> {
@@ -60,18 +59,9 @@ impl<'a, T: Eq + Hash> SequenceMatcher<'a, T> {
                 b2j.remove(element);
             }
         }
-        // `bjunk` is empty without `isjunk`; popular elements are removed
-        // from b2j but are not "junk" for the extension loops.
-        SequenceMatcher {
-            a,
-            b,
-            b2j,
-            junk: HashSet::new(),
-        }
-    }
-
-    fn is_junk(&self, element: &T) -> bool {
-        self.junk.contains(element)
+        // Popular elements leave b2j but are not "junk": `bjunk` is empty
+        // without `isjunk`, so upstream's junk-extension passes never match.
+        SequenceMatcher { a, b, b2j }
     }
 
     /// Upstream `find_longest_match`.
@@ -79,8 +69,8 @@ impl<'a, T: Eq + Hash> SequenceMatcher<'a, T> {
         let (a, b) = (self.a, self.b);
         let (mut besti, mut bestj, mut bestsize) = (alo, blo, 0usize);
         let mut j2len: HashMap<usize, usize> = HashMap::new();
+        let mut next: HashMap<usize, usize> = HashMap::new();
         for (i, element) in a.iter().enumerate().take(ahi).skip(alo) {
-            let mut next: HashMap<usize, usize> = HashMap::new();
             if let Some(indices) = self.b2j.get(element) {
                 for &j in indices {
                     if j < blo {
@@ -103,36 +93,16 @@ impl<'a, T: Eq + Hash> SequenceMatcher<'a, T> {
                     }
                 }
             }
-            j2len = next;
+            std::mem::swap(&mut j2len, &mut next);
+            next.clear();
         }
-        while besti > alo
-            && bestj > blo
-            && !self.is_junk(&b[bestj - 1])
-            && a[besti - 1] == b[bestj - 1]
-        {
+        while besti > alo && bestj > blo && a[besti - 1] == b[bestj - 1] {
             besti -= 1;
             bestj -= 1;
             bestsize += 1;
         }
         while besti + bestsize < ahi
             && bestj + bestsize < bhi
-            && !self.is_junk(&b[bestj + bestsize])
-            && a[besti + bestsize] == b[bestj + bestsize]
-        {
-            bestsize += 1;
-        }
-        while besti > alo
-            && bestj > blo
-            && self.is_junk(&b[bestj - 1])
-            && a[besti - 1] == b[bestj - 1]
-        {
-            besti -= 1;
-            bestj -= 1;
-            bestsize += 1;
-        }
-        while besti + bestsize < ahi
-            && bestj + bestsize < bhi
-            && self.is_junk(&b[bestj + bestsize])
             && a[besti + bestsize] == b[bestj + bestsize]
         {
             bestsize += 1;

@@ -220,14 +220,18 @@ fn locate_live_block(document: &Document, block: &Block) -> Result<Located> {
 /// Upstream `_resolve_anchor_paragraph`: owner, freshness, current view,
 /// paragraph kind and the paragraph-mutation protection gate.
 pub fn resolve_anchor_paragraph(document: &Document, target: BlockTarget<'_>) -> Result<Located> {
-    require_owner(document, target, "anchor")?;
+    resolve_anchor_paragraph_for(document, target, "insert or remove paragraphs")
+}
+
+/// [`resolve_anchor_paragraph`] with the protection gate naming `operation`.
+pub(crate) fn resolve_anchor_paragraph_for(
+    document: &Document,
+    target: BlockTarget<'_>,
+    operation: &str,
+) -> Result<Located> {
     let located = locate_paragraph(document, target)?;
     require_current_view(target)?;
-    refuse_if_protected(
-        document,
-        "insert or remove paragraphs",
-        OperationClass::BodyContent,
-    )?;
+    refuse_if_protected(document, operation, OperationClass::BodyContent)?;
     Ok(located)
 }
 

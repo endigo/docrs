@@ -375,11 +375,16 @@ impl XmlTree {
     /// Attribute `{ns}local` (`ns = None` for unprefixed attributes).
     pub fn attr(&self, id: NodeId, ns: Option<&str>, local: &str) -> Option<&str> {
         let element = self.element(id)?;
-        element
+        let index = self.attr_index(id, ns, local)?;
+        Some(&element.attrs[index].value)
+    }
+
+    /// Position of attribute `{ns}local` among `id`'s attributes.
+    fn attr_index(&self, id: NodeId, ns: Option<&str>, local: &str) -> Option<usize> {
+        self.element(id)?
             .attrs
             .iter()
-            .find(|attr| &*attr.name.local == local && attr.ns.map(|n| self.uri(n)) == ns)
-            .map(|attr| attr.value.as_str())
+            .position(|attr| &*attr.name.local == local && attr.ns.map(|n| self.uri(n)) == ns)
     }
 
     /// First element child named `{ns}local`.
@@ -438,10 +443,24 @@ impl XmlTree {
     /// A lexical prefix bound to `uri` in scope at `id`, unshadowed.
     pub fn prefix_for(&self, id: NodeId, uri: &str) -> Option<Option<Box<str>>> {
         let ns = self.ns_id(uri)?;
-        self.in_scope(id)
-            .into_iter()
-            .find(|(_, bound)| *bound == Some(ns))
-            .map(|(prefix, _)| prefix)
+        let mut shadowed: Vec<Option<&str>> = Vec::new();
+        let mut current = Some(id);
+        while let Some(node) = current {
+            if let Some(element) = self.element(node) {
+                for decl in &element.ns_decls {
+                    let prefix = decl.prefix.as_deref();
+                    if shadowed.contains(&prefix) {
+                        continue;
+                    }
+                    if decl.uri == Some(ns) {
+                        return Some(decl.prefix.clone());
+                    }
+                    shadowed.push(prefix);
+                }
+            }
+            current = self.scope_parent(node);
+        }
+        None
     }
 
     /// Concatenated character data of `id`'s descendants.
@@ -485,16 +504,10 @@ impl XmlTree {
         local: &str,
         value: &str,
     ) -> Result<()> {
-        let existing = {
-            let element = self
-                .element(id)
-                .ok_or_else(|| Error::internal("not_element", "set_attr on a non-element"))?;
-            element
-                .attrs
-                .iter()
-                .position(|attr| &*attr.name.local == local && attr.ns.map(|n| self.uri(n)) == ns)
-        };
-        if let Some(index) = existing {
+        if self.element(id).is_none() {
+            return Err(Error::internal("not_element", "set_attr on a non-element"));
+        }
+        if let Some(index) = self.attr_index(id, ns, local) {
             if let NodeData::Element(element) = &mut self.slots[id.0 as usize].data {
                 element.attrs[index].value = value.to_string();
             }
@@ -530,22 +543,14 @@ impl XmlTree {
 
     /// Remove attribute `{ns}local`; returns whether it existed.
     pub fn remove_attr(&mut self, id: NodeId, ns: Option<&str>, local: &str) -> bool {
-        let position = match self.element(id) {
-            Some(element) => element
-                .attrs
-                .iter()
-                .position(|attr| &*attr.name.local == local && attr.ns.map(|n| self.uri(n)) == ns),
-            None => None,
+        let Some(index) = self.attr_index(id, ns, local) else {
+            return false;
         };
-        if let Some(index) = position {
-            if let NodeData::Element(element) = &mut self.slots[id.0 as usize].data {
-                element.attrs.remove(index);
-            }
-            self.touch(id);
-            true
-        } else {
-            false
+        if let NodeData::Element(element) = &mut self.slots[id.0 as usize].data {
+            element.attrs.remove(index);
         }
+        self.touch(id);
+        true
     }
 
     /// A new detached element `{ns}local` whose prefix is chosen from the
@@ -702,6 +707,9 @@ impl XmlTree {
     }
 
     fn check_relocation(&self, child: NodeId, destination: NodeId) -> Result<()> {
+        if self.origin_scope.get(&child) == Some(&destination) {
+            return Ok(());
+        }
         let own: Vec<Option<&str>> = self
             .element(child)
             .map(|element| {

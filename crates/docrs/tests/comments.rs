@@ -7,7 +7,6 @@ mod support;
 use docrs::clock::Timestamp;
 use docrs::commentops::{anchored_text, delete_comment, is_resolved, parent_of, reply, resolve};
 use docrs::comments::{add_comment, add_comment_paragraph, add_unanchored_comment};
-use docrs::xml::serialize;
 use docrs::{Document, ErrorKind, FindOptions, Limits, RefusalKind, View};
 use support::*;
 
@@ -22,10 +21,6 @@ fn target_doc() -> Document {
         r#"<w:document {W_DECLS}><w:body><w:p><w:r><w:t>comment target</w:t></w:r></w:p><w:p><w:r><w:t xml:space="preserve">Alpha </w:t></w:r><w:r><w:t>beta gamma</w:t></w:r></w:p></w:body></w:document>"#
     ));
     Document::open_bytes(&bytes, &Limits::default()).unwrap()
-}
-
-fn xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(serialize(doc.package().xml(part).unwrap())).unwrap()
 }
 
 fn refusal(err: &docrs::Error) -> RefusalKind {
@@ -66,9 +61,9 @@ fn span_comment_creates_parts_and_identity() {
             "word/commentsIds.xml"
         ]
     );
-    let comments = xml(&doc, "word/comments.xml");
+    let comments = part_xml(&doc, "word/comments.xml");
     assert!(comments.contains(r#"w14:paraId="10000001""#), "{comments}");
-    assert!(xml(&doc, "word/commentsIds.xml").contains(r#"w16cid:durableId="10000001""#));
+    assert!(part_xml(&doc, "word/commentsIds.xml").contains(r#"w16cid:durableId="10000001""#));
     assert_eq!(anchored_text(&doc, &comment).unwrap(), "comment target");
 }
 
@@ -80,7 +75,7 @@ fn replies_get_their_own_anchor_triple_and_thread_link() {
         .unwrap();
     let child = reply(&mut doc, &parent, "Reply", "Second Reviewer", None, date()).unwrap();
     assert_eq!(child.comment_id, 1);
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     let order: Vec<&str> = [
         r#"<w:commentRangeStart w:id="0"/>"#,
         r#"<w:commentRangeStart w:id="1"/>"#,
@@ -98,7 +93,7 @@ fn replies_get_their_own_anchor_triple_and_thread_link() {
     let mut sorted = positions.clone();
     sorted.sort();
     assert_eq!(positions, sorted);
-    let extended = xml(&doc, "word/commentsExtended.xml");
+    let extended = part_xml(&doc, "word/commentsExtended.xml");
     assert!(
         extended.contains(r#"w15:paraId="10000002" w15:done="0" w15:paraIdParent="10000001""#),
         "{extended}"
@@ -126,8 +121,8 @@ fn deleting_a_parent_removes_the_thread_and_handles_go_stale() {
     let child = reply(&mut doc, &parent, "Reply", "Second Reviewer", None, date()).unwrap();
     delete_comment(&mut doc, &parent).unwrap();
     assert!(doc.comments().unwrap().is_empty());
-    assert!(!xml(&doc, "word/document.xml").contains("commentR"));
-    assert!(!xml(&doc, "word/commentsIds.xml").contains("w16cid:commentId "));
+    assert!(!part_xml(&doc, "word/document.xml").contains("commentR"));
+    assert!(!part_xml(&doc, "word/commentsIds.xml").contains("w16cid:commentId "));
     let before = doc.patch_bytes().unwrap().0;
     let err = resolve(&mut doc, &child, true).unwrap_err();
     assert_eq!(refusal(&err), RefusalKind::TargetNotFound);
@@ -258,7 +253,7 @@ fn span_comment_isolates_edge_runs() {
     let span = find(&doc, "beta gam");
     let comment = span.comment(&mut doc, "Note", "R", None, date()).unwrap();
     assert_eq!(anchored_text(&doc, &comment).unwrap(), "beta gam");
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     assert!(body.contains(r#"<w:commentRangeStart w:id="0"/><w:r><w:t>beta gam</w:t></w:r><w:commentRangeEnd w:id="0"/>"#), "{body}");
     // Only a tail was split: the span still denotes its text (as upstream).
     let again = span.comment(&mut doc, "Again", "R", None, date()).unwrap();
@@ -360,7 +355,7 @@ fn comment_parts_rewritten(anchored: bool, from: &str, to: &str) -> Vec<u8> {
         "word/commentsIds.xml",
         "word/commentsExtensible.xml",
     ] {
-        let rewritten = xml(&doc, part).replace(from, to);
+        let rewritten = part_xml(&doc, part).replace(from, to);
         let tree = docrs::xml::parse_str(&rewritten).unwrap();
         doc.package_mut_for_tests().commit_tree(part, tree).unwrap();
     }
@@ -391,5 +386,5 @@ fn para_ids_refuse_to_reach_0x80000000() {
     let mut doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
     let parent = doc.comments().unwrap().iter().next().unwrap().clone();
     reply(&mut doc, &parent, "last one", "B", None, date()).unwrap();
-    assert!(xml(&doc, "word/comments.xml").contains(r#"w14:paraId="7FFFFFFF""#));
+    assert!(part_xml(&doc, "word/comments.xml").contains(r#"w14:paraId="7FFFFFFF""#));
 }

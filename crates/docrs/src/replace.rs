@@ -18,16 +18,20 @@
 //! Tracked replacement is planned for M5 and refuses explicitly.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Range;
 
 use serde::Serialize;
 
-use crate::normalize::content_hash;
+use crate::blocks::validate_xml_characters;
 use crate::protection::{OperationClass, refuse_if_protected};
-use crate::search::{
-    Atom, MatchPolicy, Span, find_text, include_atom, signature, slice_chars, story_atoms,
-};
+use crate::search::{Atom, MatchPolicy, Span, find_text, include_atom, signature, story_atoms};
 use crate::story::{self, Anchor, View};
-use crate::unicode::{is_py_space, py_strip};
+use crate::styles::py_int;
+use crate::tracked::{
+    add_tracked_run, hollowed_bookmarks, insert_after, new_revision, next_revision_id,
+    pieces_in_range, set_preserved_text,
+};
+use crate::unicode::is_py_space;
 use crate::wml::{self, W14, is_w, iter_nodes, leading_text, w_attr, w_child};
 use crate::xml::{self, NodeData, NodeId, XML_NS, XmlTree};
 use crate::{Document, Error, ErrorKind, FindOptions, RefusalKind, Result};
@@ -186,20 +190,16 @@ fn inject_before_commit() -> Result<()> {
     Ok(())
 }
 
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
 fn boundary(reason: &'static str, message: impl Into<String>) -> Error {
     Error::refusal(RefusalKind::BoundaryViolation, reason, message)
 }
 
 fn stale(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::TargetNotFound, reason, message)
+    Error::not_found(reason, message)
 }
 
 fn ambiguous_affix() -> Error {
-    unsupported(
+    Error::unsupported(
         "ambiguous_affix_alignment",
         "exact affix alignment is ambiguous; re-find and replace only the exact substring you intend to \
          change (for example, 'payment' with 'settlement')",
@@ -369,25 +369,9 @@ pub(crate) fn validate_fresh(
     Ok(())
 }
 
-fn is_xml_representable(c: char) -> bool {
-    matches!(c as u32, 0x09 | 0x0A | 0x0D | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
-}
-
 /// Upstream `_validate_writable_text`.
 pub(crate) fn validate_writable_text(value: &str, argument: &str) -> Result<()> {
-    let mut invalid: Vec<String> = value
-        .chars()
-        .filter(|c| !is_xml_representable(*c))
-        .map(|c| format!("U+{:04X}", c as u32))
-        .collect();
-    invalid.sort();
-    invalid.dedup();
-    if !invalid.is_empty() {
-        return Err(Error::invalid_argument(
-            "invalid_xml_characters",
-            format!("{argument} contains character(s) XML 1.0 cannot represent: {invalid:?}"),
-        ));
-    }
+    validate_xml_characters(value, argument)?;
     let mut found: Vec<char> = value
         .chars()
         .filter(|c| matches!(c, '\n' | '\r' | '\t' | '\u{b}' | '\u{c}'))
@@ -489,7 +473,7 @@ type Evidence = (String, Vec<NodeId>);
 
 fn destination_evidence(tree: &XmlTree, atom: &Atom) -> Result<Evidence> {
     let (Some(run), Some(paragraph)) = (atom.run, atom.paragraph) else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "not_run_text",
             "the changed interval is not ordinary run text; target a smaller plain-text span",
         ));
@@ -507,7 +491,7 @@ fn destination_evidence(tree: &XmlTree, atom: &Atom) -> Result<Evidence> {
         current = tree.parent(node);
     }
     if current != Some(paragraph) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "detached_from_paragraph",
             "the changed interval is detached from its owning paragraph; re-find the text",
         ));
@@ -608,14 +592,14 @@ pub(crate) fn refuse_intervening_positional_nodes(tree: &XmlTree, atoms: &[&Atom
                 .get(&id)
                 .cloned()
                 .unwrap_or_else(|| "<unnamed>".into());
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "crosses_bookmark",
                 format!(
                     "the changed interval crosses bookmark {name:?}; target a smaller span wholly inside or outside that bookmark"
                 ),
             ));
         }
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "crosses_positional_marker",
             "the changed interval crosses a positional marker or non-text run node whose anchoring cannot be \
              preserved; target a smaller span on one side",
@@ -624,19 +608,25 @@ pub(crate) fn refuse_intervening_positional_nodes(tree: &XmlTree, atoms: &[&Atom
     Ok(())
 }
 
-pub(crate) fn validate_one_inline_ancestry(tree: &XmlTree, atoms: &[&Atom]) -> Result<()> {
+/// Destination evidence of every atom, refused when the atoms sit under
+/// different inline wrapper owners.
+fn inline_ancestry_evidence(tree: &XmlTree, atoms: &[&Atom]) -> Result<Vec<Evidence>> {
     let evidence: Vec<Evidence> = atoms
         .iter()
         .map(|atom| destination_evidence(tree, atom))
         .collect::<Result<_>>()?;
     if evidence[1..].iter().any(|item| item.1 != evidence[0].1) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "crosses_inline_wrappers",
             "the changed interval crosses separate inline wrapper owners; target and replace a smaller span \
              within one wrapper, or edit each wrapper separately",
         ));
     }
-    Ok(())
+    Ok(evidence)
+}
+
+pub(crate) fn validate_one_inline_ancestry(tree: &XmlTree, atoms: &[&Atom]) -> Result<()> {
+    inline_ancestry_evidence(tree, atoms).map(|_| ())
 }
 
 fn control_type(tree: &XmlTree, sdt_pr: Option<NodeId>) -> &'static str {
@@ -663,14 +653,14 @@ fn control_type(tree: &XmlTree, sdt_pr: Option<NodeId>) -> &'static str {
 fn validate_control(tree: &XmlTree, sdt: NodeId) -> Result<()> {
     let sdt_pr = w_child(tree, sdt, "sdtPr");
     if sdt_pr.is_some_and(|pr| w_child(tree, pr, "dataBinding").is_some()) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "data_bound_control",
             "span lies in a data-bound control whose surface text Word re-syncs from custom XML; use the binding source instead",
         ));
     }
     let kind = control_type(tree, sdt_pr);
     if kind != "text" && kind != "rich_text" {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "typed_control",
             format!(
                 "span lies in a {kind} control whose display text is tied to machine-readable control state; set the control value instead"
@@ -680,7 +670,7 @@ fn validate_control(tree: &XmlTree, sdt: NodeId) -> Result<()> {
     if let Some(pr) = sdt_pr {
         let locks: Vec<NodeId> = wml::w_children(tree, pr, "lock").collect();
         if locks.len() > 1 {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "multiple_locks",
                 "control has multiple w:lock declarations; nothing was changed",
             ));
@@ -691,7 +681,7 @@ fn validate_control(tree: &XmlTree, sdt: NodeId) -> Result<()> {
                 Some("contentLocked" | "sdtContentLocked")
             )
         }) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "locked_control",
                 "control content is locked; nothing was changed",
             ));
@@ -712,7 +702,7 @@ pub(crate) fn validate_replaceable(
             } else {
                 "a tab or line break, or a no-break hyphen"
             };
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 if atom.barrier {
                     "crosses_unmodeled_content"
                 } else {
@@ -724,19 +714,19 @@ pub(crate) fn validate_replaceable(
             ));
         }
         if atom.is_tag("delText") || atom.in_delete {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "tracked_deletion",
                 "span includes tracked-deleted text; resolve the revision first or target visible text only",
             ));
         }
         if atom.is_tag("instrText") {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "field_instruction",
                 "span includes field-instruction text; editing field code internals is not supported",
             ));
         }
         if atom.in_field {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "field_result",
                 "span lies inside a field result (TOC entry, page number, date, cross-reference, …); Word \
                  regenerates field results on update, so the edit would silently vanish",
@@ -792,27 +782,6 @@ fn revision_ancestors(tree: &XmlTree, element: NodeId) -> Vec<NodeId> {
         .collect()
 }
 
-/// Python `int(str)` for decimal ids (ASCII digits, sign, underscores).
-fn py_int(value: &str) -> Option<i64> {
-    let trimmed = py_strip(value);
-    let (sign, digits) = match trimmed.strip_prefix('-') {
-        Some(rest) => (-1, rest),
-        None => (1, trimmed.strip_prefix('+').unwrap_or(trimmed)),
-    };
-    if digits.is_empty()
-        || digits.starts_with('_')
-        || digits.ends_with('_')
-        || digits.contains("__")
-    {
-        return None;
-    }
-    let cleaned: String = digits.chars().filter(|c| *c != '_').collect();
-    if !cleaned.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    cleaned.parse::<i64>().ok().map(|n| n * sign)
-}
-
 fn preserved_insertion_ids(tree: &XmlTree, span: &Span, authorize: bool) -> Result<Vec<i64>> {
     if !authorize {
         return Ok(Vec::new());
@@ -826,20 +795,20 @@ fn preserved_insertion_ids(tree: &XmlTree, span: &Span, authorize: bool) -> Resu
         return Ok(Vec::new());
     }
     if span.view != View::Current {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "preserve_requires_current_view",
             "preserve_revision requires a span selected with view='current'",
         ));
     }
     if wrappers.iter().any(Option::is_none) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "mixed_insertion_ownership",
             "span mixes base text and insertion-owned text; preserve one existing insertion at a time",
         ));
     }
     let wrapper = wrappers[0].unwrap_or(span.atoms[0].element);
     if !is_w(tree, wrapper, "ins") {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "tracked_move",
             "tracked moves cannot be edited in place; resolve the move first",
         ));
@@ -848,7 +817,7 @@ fn preserved_insertion_ids(tree: &XmlTree, span: &Span, authorize: bool) -> Resu
         .iter()
         .any(|candidate| *candidate != Some(wrapper))
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "multiple_insertions",
             "span crosses multiple tracked insertion wrappers; preserve one existing insertion at a time",
         ));
@@ -856,7 +825,7 @@ fn preserved_insertion_ids(tree: &XmlTree, span: &Span, authorize: bool) -> Resu
     for element in &span.atom_sequence {
         let ancestors = revision_ancestors(tree, *element);
         if ancestors.len() != 1 || ancestors[0] != wrapper {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "mixed_revision_history",
                 "span contains nested or mixed revision history that cannot be edited while preserving one insertion",
             ));
@@ -864,7 +833,7 @@ fn preserved_insertion_ids(tree: &XmlTree, span: &Span, authorize: bool) -> Resu
     }
     match w_attr(tree, wrapper, "id").and_then(py_int) {
         Some(id) => Ok(vec![id]),
-        None => Err(unsupported(
+        None => Err(Error::unsupported(
             "revision_id",
             "the preserved insertion has a missing or non-decimal w:id",
         )),
@@ -973,7 +942,6 @@ struct TrackedPlan {
     ins_rpr: Option<NodeId>,
     deleted_pieces: Vec<(Option<NodeId>, String)>,
     new_mid: String,
-    old_mid: String,
     del_id: Option<i64>,
     ins_id: Option<i64>,
     author: String,
@@ -986,6 +954,27 @@ fn piece_lengths(pieces: &[(Option<usize>, String)]) -> Vec<(Option<usize>, usiz
         .iter()
         .map(|(index, text)| (*index, text.chars().count()))
         .collect()
+}
+
+/// Each piece as `(atom index, its interval in the span text, base)`, where
+/// `base` is the interval start's offset inside the atom's own text
+/// (`span_start` for the first atom, 0 otherwise).
+fn piece_ranges(
+    pieces: &[(Option<usize>, usize)],
+    span_start: usize,
+) -> impl Iterator<Item = (Option<usize>, Range<usize>, usize)> + '_ {
+    pieces
+        .iter()
+        .scan(0usize, move |position, (atom_index, length)| {
+            let start = *position;
+            *position += length;
+            let base = if *atom_index == Some(0) {
+                span_start
+            } else {
+                0
+            };
+            Some((*atom_index, start..*position, base))
+        })
 }
 
 pub(crate) struct Outcome {
@@ -1003,11 +992,9 @@ fn writable_segments(
     end_offset: usize,
 ) -> Result<Vec<(usize, usize, usize)>> {
     let mut out = Vec::new();
-    let mut position = 0;
-    for (atom_index, length) in pieces {
-        let piece_end = position + length;
-        let start = start_offset.max(position);
-        let end = end_offset.min(piece_end);
+    for (atom_index, piece, base) in piece_ranges(pieces, span.start_offset) {
+        let start = start_offset.max(piece.start);
+        let end = end_offset.min(piece.end);
         if end > start {
             let Some(atom_index) = atom_index else {
                 return Err(boundary(
@@ -1015,17 +1002,15 @@ fn writable_segments(
                     "the changed interval crosses a paragraph boundary; replace one paragraph at a time",
                 ));
             };
-            let base = if *atom_index == 0 {
-                span.start_offset
-            } else {
-                0
-            };
-            out.push((*atom_index, base + start - position, base + end - position));
+            out.push((
+                atom_index,
+                base + start - piece.start,
+                base + end - piece.start,
+            ));
         }
-        position = piece_end;
     }
     if out.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "no_writable_region",
             "the changed interval has no writable text region; re-find and replace only the exact substring you intend to change",
         ));
@@ -1047,31 +1032,23 @@ pub(crate) fn ordinary_outcome(tree: &XmlTree, span: &Span, new_text: &str) -> R
     let pieces = piece_lengths(&span.pieces(tree));
     let segments = if changed_start == changed_end {
         let mut candidates: Vec<(usize, usize)> = Vec::new();
-        let mut position = 0;
-        for (atom_index, length) in &pieces {
-            let piece_end = position + length;
+        for (atom_index, piece, base) in piece_ranges(&pieces, span.start_offset) {
             if let Some(atom_index) = atom_index
-                && position <= changed_start
-                && changed_start <= piece_end
+                && piece.start <= changed_start
+                && changed_start <= piece.end
             {
-                let atom = &span.atoms[*atom_index];
+                let atom = &span.atoms[atom_index];
                 if !atom.is_synthetic()
                     && candidates
                         .iter()
-                        .all(|(existing, _)| existing != atom_index)
+                        .all(|(existing, _)| *existing != atom_index)
                 {
-                    let base = if *atom_index == 0 {
-                        span.start_offset
-                    } else {
-                        0
-                    };
-                    candidates.push((*atom_index, base + changed_start - position));
+                    candidates.push((atom_index, base + changed_start - piece.start));
                 }
             }
-            position = piece_end;
         }
         if candidates.is_empty() {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "no_insertion_region",
                 "the insertion point has no writable text region; re-find text on one side of the insertion point",
             ));
@@ -1083,7 +1060,7 @@ pub(crate) fn ordinary_outcome(tree: &XmlTree, span: &Span, new_text: &str) -> R
         let first = destination_evidence(tree, candidate_atoms[0])?;
         for atom in &candidate_atoms[1..] {
             if !same_destination(&first, &destination_evidence(tree, atom)?) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "ambiguous_insertion_destination",
                     "the insertion point has competing formatting or structural destinations; re-find a smaller span \
                      with one uniform destination or construct the intended formatting and structure explicitly",
@@ -1100,14 +1077,10 @@ pub(crate) fn ordinary_outcome(tree: &XmlTree, span: &Span, new_text: &str) -> R
             .collect();
         if !replacement.is_empty() && has_multiple_direct_rpr(tree, &changed_atoms)? {
             let final_index = segments[segments.len() - 1].0;
-            let mut position = 0;
-            for (atom_index, length) in &pieces {
-                let piece_end = position + length;
-                if *atom_index == Some(final_index) {
-                    changed_end = piece_end;
-                    break;
-                }
-                position = piece_end;
+            if let Some((_, piece, _)) = piece_ranges(&pieces, span.start_offset)
+                .find(|(atom_index, _, _)| *atom_index == Some(final_index))
+            {
+                changed_end = piece.end;
             }
             let suffix_to_keep = old.len() - changed_end;
             replacement = collect(&new[prefix..new.len() - suffix_to_keep]);
@@ -1187,17 +1160,13 @@ fn regional_text_assignments(
         .map(|(index, _, _)| &span.atoms[*index])
         .collect();
     if changed_atoms.iter().any(|atom| atom.is_synthetic()) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "crosses_break",
             "the changed interval crosses a tab or line break, a no-break hyphen, or other non-text run content; \
              replace the text segments on either side individually",
         ));
     }
-    validate_one_inline_ancestry(tree, &changed_atoms)?;
-    let evidence: Vec<Evidence> = changed_atoms
-        .iter()
-        .map(|atom| destination_evidence(tree, atom))
-        .collect::<Result<_>>()?;
+    let evidence = inline_ancestry_evidence(tree, &changed_atoms)?;
     let preserved = evidence[1..]
         .iter()
         .all(|item| same_destination(&evidence[0], item));
@@ -1242,29 +1211,19 @@ fn regional_text_assignments(
         census.map(|c| &c.bookmarks),
     );
     if !hollowed.is_empty() {
-        return Err(unsupported(
-            "hollows_bookmark",
-            format!(
-                "replacing this span would hollow out bookmark(s) {hollowed:?} — the targets of REF/PAGEREF \
-                 cross-references and TOC entries; narrow the span to inside the bookmark, or remove the \
-                 bookmark deliberately first"
-            ),
-        ));
+        return Err(hollows_bookmark_error(&hollowed));
     }
     refuse_intervening_positional_nodes(tree, &changed_atoms)?;
     Ok((assignments, preserved))
 }
 
 fn synthetic_positions(span: &Span, pieces: &[(Option<usize>, usize)]) -> HashSet<usize> {
-    let mut out = HashSet::new();
-    let mut cursor = 0;
-    for (atom_index, length) in pieces {
-        if atom_index.is_none_or(|index| span.atoms[index].is_synthetic()) {
-            out.extend(cursor..cursor + length);
-        }
-        cursor += length;
-    }
-    out
+    piece_ranges(pieces, span.start_offset)
+        .filter(|(atom_index, _, _)| {
+            atom_index.is_none_or(|index| span.atoms[index].is_synthetic())
+        })
+        .flat_map(|(_, piece, _)| piece)
+        .collect()
 }
 
 /// Upstream `Span._narrow_to_change`.
@@ -1294,25 +1253,17 @@ pub(crate) fn narrow_to_change(
     }
     let target_start = prefix;
     let target_end = old.len() - suffix;
-    let (start_index, mut start_offset, end_index, mut end_offset);
+    let (start_index, start_offset, end_index, mut end_offset);
     if target_start == target_end {
         let mut candidates: Vec<(usize, usize)> = Vec::new();
-        let mut position = 0;
-        for (atom_index, length) in &pieces {
-            let piece_end = position + length;
+        for (atom_index, piece, base) in piece_ranges(&pieces, span.start_offset) {
             if let Some(atom_index) = atom_index
-                && position <= target_start
-                && target_start <= piece_end
-                && !span.atoms[*atom_index].is_synthetic()
+                && piece.start <= target_start
+                && target_start <= piece.end
+                && !span.atoms[atom_index].is_synthetic()
             {
-                let base = if *atom_index == 0 {
-                    span.start_offset
-                } else {
-                    0
-                };
-                candidates.push((*atom_index, base + target_start - position));
+                candidates.push((atom_index, base + target_start - piece.start));
             }
-            position = piece_end;
         }
         let (Some(first), Some(last)) = (candidates.first(), candidates.last()) else {
             return Ok(None);
@@ -1324,31 +1275,24 @@ pub(crate) fn narrow_to_change(
     } else {
         let mut found_start: Option<(usize, usize)> = None;
         let mut found_end: Option<(usize, usize)> = None;
-        let mut position = 0;
-        for (atom_index, length) in &pieces {
-            let base = if *atom_index == Some(0) {
-                span.start_offset
-            } else {
-                0
-            };
-            if found_start.is_none() && position + length > target_start {
+        for (atom_index, piece, base) in piece_ranges(&pieces, span.start_offset) {
+            if found_start.is_none() && piece.end > target_start {
                 let Some(index) = atom_index else {
                     return Ok(None);
                 };
-                found_start = Some((*index, base + target_start - position));
+                found_start = Some((index, base + target_start - piece.start));
             }
-            if position + length >= target_end {
+            if piece.end >= target_end {
                 match atom_index {
                     None => {
                         if found_end.is_none() {
                             return Ok(None);
                         }
                     }
-                    Some(index) => found_end = Some((*index, base + target_end - position)),
+                    Some(index) => found_end = Some((index, base + target_end - piece.start)),
                 }
                 break;
             }
-            position += length;
         }
         let (Some(start), Some(end)) = (found_start, found_end) else {
             return Ok(None);
@@ -1358,7 +1302,6 @@ pub(crate) fn narrow_to_change(
         end_index = end.0;
         end_offset = end.1;
     }
-    let _ = &mut start_offset;
     let sub_atoms: Vec<Atom> = span.atoms[start_index..=end_index].to_vec();
     let sub_refs: Vec<&Atom> = sub_atoms.iter().collect();
     if !changed_new.is_empty()
@@ -1366,9 +1309,9 @@ pub(crate) fn narrow_to_change(
         && has_multiple_direct_rpr(tree, &sub_refs)?
     {
         let mut expanded_end = 0;
-        for (atom_index, length) in &pieces {
-            expanded_end += length;
-            if *atom_index == Some(end_index) {
+        for (atom_index, piece, _) in piece_ranges(&pieces, span.start_offset) {
+            expanded_end = piece.end;
+            if atom_index == Some(end_index) {
                 break;
             }
         }
@@ -1397,34 +1340,25 @@ pub(crate) fn narrow_to_change(
         _ => sub_atoms.iter().map(|a| a.element).collect(),
     };
     let first_paragraph = sub_atoms[0].paragraph;
+    let crosses_paragraphs = sub_atoms.iter().any(|a| a.paragraph != first_paragraph);
     let sub = Span {
         incarnation: span.incarnation,
-        document: span.document,
-        token: span.token,
-        story: span.story.clone(),
-        part: span.part.clone(),
-        anchor: Anchor {
-            story: span.story.clone(),
-            index: span.anchor.index,
-            content_hash: content_hash(&changed_old),
-        },
-        in_insert: sub_atoms.iter().any(|a| a.in_insert),
-        in_delete: sub_atoms.iter().any(|a| a.in_delete || a.is_tag("delText")),
-        in_content_control: sub_atoms.iter().any(|a| a.sdt.is_some()),
-        in_text_box: sub_atoms.iter().any(|a| a.in_text_box),
-        in_field: sub_atoms.iter().any(|a| a.in_field),
-        crosses_paragraphs: sub_atoms.iter().any(|a| a.paragraph != first_paragraph),
-        signatures: sub_atoms.iter().map(|a| signature(tree, a)).collect(),
+        crosses_paragraphs,
         atom_sequence,
         sequence_view: span.sequence_view,
-        text: changed_old,
-        atoms: sub_atoms,
         start_offset,
         end_offset,
-        raw_start: 0,
-        match_start: 0,
-        match_policy: None,
         view: span.view,
+        ..Span::from_atoms(
+            tree,
+            span.document,
+            span.token,
+            &span.story,
+            &span.part,
+            span.anchor.index,
+            changed_old,
+            sub_atoms,
+        )
     };
     Ok(Some((sub, changed_new)))
 }
@@ -1459,7 +1393,7 @@ pub(crate) fn plan_replace(
     validate_writable_text(new_text, "new_text")?;
     refuse_if_protected(document, "replace text", OperationClass::BodyContent)?;
     if span.view != View::Current {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "historical_view_target",
             format!(
                 "span was captured under view={:?}, which is inspection-only; re-find the text with view='current' to edit it",
@@ -1518,7 +1452,7 @@ pub(crate) fn plan_replace(
         && span.atoms.iter().any(|atom| atom.in_insert)
         && !options.preserve_revision
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "pending_insertion",
             "span intersects a pending tracked insertion; an untracked edit there would silently rewrite text the \
              revision history attributes to its author — accept or reject the revision first, or use tracked \
@@ -1527,7 +1461,7 @@ pub(crate) fn plan_replace(
     }
     let placeholders = placeholder_controls(tree, &span.atoms);
     if options.tracked && !placeholders.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "tracked_placeholder",
             "span lies in a form control still showing PLACEHOLDER prompt text; a tracked replacement would \
              fabricate a deletion of text that was never real content — fill the control untracked (or set the \
@@ -1537,7 +1471,7 @@ pub(crate) fn plan_replace(
     for sdt in &placeholders {
         let prompt = placeholder_prompt_text(tree, *sdt);
         if span.text != prompt {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "partial_placeholder",
                 format!(
                     "span covers only part of a placeholder prompt; replacing it would promote the leftover prompt \
@@ -1568,7 +1502,6 @@ pub(crate) fn plan_replace(
     if let Some(layering) = layering {
         let date = options.date.unwrap_or_else(crate::clock::Timestamp::now);
         return plan_tracked(
-            document,
             tree,
             span,
             new_text,
@@ -1590,27 +1523,8 @@ pub(crate) fn plan_replace(
     })
 }
 
-/// Upstream `_validate_xml_characters`.
-fn validate_xml_characters(value: &str, argument: &str) -> Result<()> {
-    let mut invalid: Vec<String> = value
-        .chars()
-        .filter(|c| !is_xml_representable(*c))
-        .map(|c| format!("U+{:04X}", c as u32))
-        .collect();
-    invalid.sort();
-    invalid.dedup();
-    if invalid.is_empty() {
-        Ok(())
-    } else {
-        Err(Error::invalid_argument(
-            "invalid_xml_characters",
-            format!("{argument} contains character(s) XML 1.0 cannot represent: {invalid:?}"),
-        ))
-    }
-}
-
 fn hollows_bookmark_error(hollowed: &[String]) -> Error {
-    unsupported(
+    Error::unsupported(
         "hollows_bookmark",
         format!(
             "replacing this span would hollow out bookmark(s) {hollowed:?} — the targets of REF/PAGEREF \
@@ -1618,57 +1532,6 @@ fn hollows_bookmark_error(hollowed: &[String]) -> Error {
              bookmark deliberately first"
         ),
     )
-}
-
-/// Upstream `_hollowed_bookmarks(atoms, end_offset)`.
-fn hollowed_bookmarks(tree: &XmlTree, atoms: &[Atom], end_offset: usize) -> Vec<String> {
-    let Some(paragraph) = atoms.first().and_then(|a| a.paragraph) else {
-        return Vec::new();
-    };
-    let mut emptied: HashSet<NodeId> = HashSet::new();
-    if atoms.len() > 2 {
-        emptied.extend(atoms[1..atoms.len() - 1].iter().map(|a| a.element));
-    }
-    if atoms.len() > 1 && end_offset >= atoms[atoms.len() - 1].text(tree).chars().count() {
-        emptied.insert(atoms[atoms.len() - 1].element);
-    }
-    if emptied.is_empty() {
-        return Vec::new();
-    }
-    let stream: Vec<NodeId> = iter_nodes(tree, paragraph).collect();
-    let mut starts: HashMap<Option<String>, (usize, String)> = HashMap::new();
-    let mut hollowed = Vec::new();
-    for (position, node) in stream.iter().enumerate() {
-        if is_w(tree, *node, "bookmarkStart") {
-            starts.insert(
-                w_attr(tree, *node, "id").map(str::to_string),
-                (
-                    position,
-                    w_attr(tree, *node, "name").unwrap_or("").to_string(),
-                ),
-            );
-        } else if is_w(tree, *node, "bookmarkEnd") {
-            let Some((start, name)) = starts.get(&w_attr(tree, *node, "id").map(str::to_string))
-            else {
-                continue;
-            };
-            if name == "_GoBack" {
-                continue;
-            }
-            let texts: Vec<NodeId> = stream[start + 1..position]
-                .iter()
-                .copied()
-                .filter(|inner| {
-                    (is_w(tree, *inner, "t") || is_w(tree, *inner, "delText"))
-                        && !leading_text(tree, *inner).is_empty()
-                })
-                .collect();
-            if !texts.is_empty() && texts.iter().all(|t| emptied.contains(t)) {
-                hollowed.push(name.clone());
-            }
-        }
-    }
-    hollowed
 }
 
 /// Upstream `_tracked_layering_context`.
@@ -1699,7 +1562,7 @@ fn tracked_layering_context(tree: &XmlTree, span: &Span, author: &str) -> Result
         }
     }
     if !(all_own && enclosing[0].is_none() && contiguous_tail) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "tracked_layering",
             "span overlaps a pending tracked insertion it cannot layer over (different author, a tracked move, or \
              base text following the insertion); accept or reject the existing revision first, or target text \
@@ -1712,75 +1575,9 @@ fn tracked_layering_context(tree: &XmlTree, span: &Span, author: &str) -> Result
     })
 }
 
-/// Upstream `_next_revision_id`: one above the highest revision id in any
-/// story (staged trees take precedence over live ones).
-pub(crate) fn next_revision_id(
-    document: &Document,
-    overrides: &BTreeMap<String, XmlTree>,
-) -> Result<i64> {
-    const TAGS: &[&str] = &[
-        "ins",
-        "del",
-        "moveFrom",
-        "moveTo",
-        "moveFromRangeStart",
-        "moveToRangeStart",
-        "rPrChange",
-        "pPrChange",
-        "tblPrChange",
-        "sectPrChange",
-        "cellIns",
-        "cellDel",
-        "cellMerge",
-    ];
-    let mut highest = 0i64;
-    for story in crate::story::stories(document) {
-        let tree = match overrides.get(&story.part) {
-            Some(tree) => tree,
-            None => document.package().xml(&story.part)?,
-        };
-        for node in tree.descendants(tree.root()) {
-            if tree.ns_uri(node) == Some(crate::wml::W)
-                && tree.local_name(node).is_some_and(|l| TAGS.contains(&l))
-                && let Some(value) = w_attr(tree, node, "id")
-                    .filter(|v| !v.is_empty())
-                    .and_then(py_int)
-            {
-                highest = highest.max(value);
-            }
-        }
-    }
-    Ok(highest + 1)
-}
-
-/// Upstream `_pieces_in_range`.
-fn pieces_in_range(
-    pieces: &[(Option<NodeId>, String)],
-    start: usize,
-    end: usize,
-) -> Vec<(Option<NodeId>, String)> {
-    let mut out: Vec<(Option<NodeId>, String)> = Vec::new();
-    let mut position = 0;
-    for (run, text) in pieces {
-        let length = text.chars().count();
-        let lo = start.max(position);
-        let hi = end.min(position + length);
-        if hi > lo {
-            let fragment = slice_chars(text, lo - position, hi - position);
-            match out.last_mut() {
-                Some((last_run, last_text)) if last_run == run => last_text.push_str(&fragment),
-                _ => out.push((*run, fragment)),
-            }
-        }
-        position += length;
-    }
-    out
-}
-
 /// Upstream `Span._tracked_replace`, as a plan.
 #[allow(clippy::too_many_arguments)]
 fn plan_tracked(
-    _document: &Document,
     tree: &XmlTree,
     span: &Span,
     new_text: &str,
@@ -1790,13 +1587,13 @@ fn plan_tracked(
     next_revision_id: i64,
 ) -> Result<Plan> {
     if span.story == "word/comments.xml" {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "tracked_in_comment",
             "tracked changes inside comment text are not representable; edit the comment untracked or reply instead",
         ));
     }
     if span.atoms.iter().any(|atom| atom.run.is_none()) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "not_in_run",
             "matched text is not inside a run; cannot anchor a revision",
         ));
@@ -1818,20 +1615,13 @@ fn plan_tracked(
     validate_one_inline_ancestry(tree, &changed_atoms)?;
     let first_run = first
         .run
-        .ok_or_else(|| unsupported("not_in_run", "matched text is not inside a run"))?;
+        .ok_or_else(|| Error::unsupported("not_in_run", "matched text is not inside a run"))?;
     let rpr = w_child(tree, first_run, "rPr");
-    let mut span_pieces = Vec::new();
-    for (index, atom) in span.atoms.iter().enumerate() {
-        let atom_text = atom.text(tree);
-        let length = atom_text.chars().count();
-        let start = if index == 0 { span.start_offset } else { 0 };
-        let end = if index == span.atoms.len() - 1 {
-            span.end_offset
-        } else {
-            length
-        };
-        span_pieces.push((atom.run, slice_chars(&atom_text, start, end)));
-    }
+    let span_pieces: Vec<(Option<NodeId>, String)> = span
+        .pieces(tree)
+        .into_iter()
+        .filter_map(|(index, piece)| index.map(|index| (span.atoms[index].run, piece)))
+        .collect();
     let mut deleted_pieces = pieces_in_range(&span_pieces, prefix_len, text.len() - suffix_len);
     let ins_source_run = changed_atoms.first().and_then(|a| a.run).or(first.run);
     let ins_rpr = ins_source_run.and_then(|run| w_child(tree, run, "rPr"));
@@ -1920,7 +1710,6 @@ fn plan_tracked(
             ins_rpr,
             deleted_pieces,
             new_mid,
-            old_mid,
             del_id,
             ins_id,
             author: author.to_string(),
@@ -1929,73 +1718,6 @@ fn plan_tracked(
         }),
         consume: true,
     })
-}
-
-/// Upstream `_set_preserved_text`.
-fn set_preserved_text(tree: &mut XmlTree, element: NodeId, text: &str) -> Result<()> {
-    wml::set_leading_text(tree, element, text)?;
-    let edge = text.chars().next().is_some_and(is_py_space)
-        || text.chars().last().is_some_and(is_py_space);
-    if edge {
-        tree.set_attr(element, Some(XML_NS), "space", "preserve")?;
-    } else {
-        tree.remove_attr(element, Some(XML_NS), "space");
-    }
-    Ok(())
-}
-
-fn insert_after(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "insertion anchor is detached"))?;
-    let index = tree.index_in_parent(anchor).unwrap_or(0) + 1;
-    tree.insert(parent, index, node)
-}
-
-fn new_revision(
-    tree: &mut XmlTree,
-    scope: NodeId,
-    local: &str,
-    id: i64,
-    author: &str,
-    date: &str,
-) -> Result<NodeId> {
-    let element = crate::oxml::w_el(tree, scope, local)?;
-    crate::oxml::set_w(tree, element, "id", &id.to_string())?;
-    crate::oxml::set_w(tree, element, "author", author)?;
-    crate::oxml::set_w(tree, element, "date", date)?;
-    Ok(element)
-}
-
-/// Upstream `CT_RunTrackChange.add_tracked_run`.
-fn add_tracked_run(
-    tree: &mut XmlTree,
-    revision: NodeId,
-    text: &str,
-    rpr: Option<NodeId>,
-    deleted: bool,
-) -> Result<()> {
-    let run = crate::oxml::w_el(tree, revision, "r")?;
-    if let Some(rpr) = rpr {
-        let copy = tree.deep_clone(rpr);
-        tree.insert(run, 0, copy)?;
-    }
-    if deleted {
-        let del_text = crate::oxml::w_el(tree, run, "delText")?;
-        if !text.is_empty() {
-            let node = tree.create_text(text);
-            tree.insert(del_text, 0, node)?;
-        }
-        if text.chars().next().is_some_and(is_py_space)
-            || text.chars().last().is_some_and(is_py_space)
-        {
-            tree.set_attr(del_text, Some(XML_NS), "space", "preserve")?;
-        }
-        crate::oxml::append(tree, run, del_text)?;
-    } else {
-        crate::oxml::add_t(tree, run, text)?;
-    }
-    crate::oxml::append(tree, revision, run)
 }
 
 fn apply_tracked(tree: &mut XmlTree, plan: &TrackedPlan) -> Result<()> {
@@ -2071,7 +1793,6 @@ fn apply_tracked(tree: &mut XmlTree, plan: &TrackedPlan) -> Result<()> {
             tree.detach(*own)?;
         }
     }
-    let _ = &plan.old_mid;
     Ok(())
 }
 
@@ -2135,7 +1856,7 @@ pub(crate) fn replace(
 }
 
 /// The staged tree must serialize to XML this crate re-reads identically.
-pub(crate) fn validate_staged(staged: &XmlTree, part: &str) -> Result<()> {
+fn validate_staged(staged: &XmlTree, part: &str) -> Result<()> {
     let bytes = xml::serialize(staged);
     let reparsed = xml::parse(&bytes, &crate::Limits::trusted()).map_err(|err| {
         Error::internal(
@@ -2213,7 +1934,6 @@ pub(crate) fn replace_all(
         by_story.entry(span.story.clone()).or_default().push(span);
     }
     let mut staged: BTreeMap<String, XmlTree> = BTreeMap::new();
-    let mut changed_parts: Vec<String> = Vec::new();
     let mut next_id = if options.replace.tracked {
         next_revision_id(document, &BTreeMap::new())?
     } else {
@@ -2270,7 +1990,6 @@ pub(crate) fn replace_all(
         }
         if touched {
             validate_staged(&working, &part)?;
-            changed_parts.push(part.clone());
             staged.insert(part, working);
         }
     }
@@ -2279,7 +1998,6 @@ pub(crate) fn replace_all(
     for (part, tree) in staged {
         document.package_mut().commit_tree(&part, tree)?;
     }
-    let _ = changed_parts;
     Ok(ReplaceAllReport {
         replaced_count: results.len(),
         results,

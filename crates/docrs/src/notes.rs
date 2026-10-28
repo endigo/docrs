@@ -5,24 +5,22 @@
 
 use crate::controls::refuse_control_surface;
 use crate::links::{
-    add_next, isolate_edge_runs, next_sibling, require_live_span, span_runs, validate_span_fresh,
+    isolate_edge_runs, next_sibling, require_live_span, span_runs, validate_span_fresh,
 };
+use crate::oxml::{add_t, append, w_el};
 use crate::package::ct;
 use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_writable_text;
 use crate::search::Span;
-use crate::txn::{RelTarget, Txn};
+use crate::tracked::insert_after;
+use crate::txn::Txn;
 use crate::unicode::casefold;
 use crate::wml::{W, is_w, w_attr};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
 const W_DECL: &str = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"";
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -54,14 +52,13 @@ fn ensure_notes_part(txn: &mut Txn<'_>, kind: Kind) -> Result<String> {
         Kind::Footnote => (rt::FOOTNOTES, "word/footnotes.xml", ct::WML_FOOTNOTES),
         Kind::Endnote => (rt::ENDNOTES, "word/endnotes.xml", ct::WML_ENDNOTES),
     };
-    let main = txn.document().package().main_part_name().to_string();
-    if let Some(existing) = txn.part_related_by(&main, rel_type)? {
-        return Ok(existing);
-    }
-    let tree = crate::parts::template(kind.template().as_bytes())?;
-    txn.add_xml_part(name, content_type, tree)?;
-    txn.relate_to(&main, rel_type, RelTarget::Part(name))?;
-    Ok(name.to_string())
+    crate::parts::ensure_part(
+        txn,
+        rel_type,
+        name,
+        content_type,
+        kind.template().as_bytes(),
+    )
 }
 
 /// The footnotes part and the next free footnote id, inside `txn` (the
@@ -112,9 +109,8 @@ fn is_note_mark(tree: &XmlTree, node: NodeId) -> bool {
 }
 
 fn append_new(tree: &mut XmlTree, parent: NodeId, local: &str) -> Result<NodeId> {
-    let child = tree.create_element(parent, W, local)?;
-    let end = tree.children(parent).len();
-    tree.insert(parent, end, child)?;
+    let child = w_el(tree, parent, local)?;
+    append(tree, parent, child)?;
     Ok(child)
 }
 
@@ -137,7 +133,7 @@ fn insert_note(document: &mut Document, span: &mut Span, text: &str, kind: Kind)
         validate_span_fresh(doc, span)?;
         let main_story = casefold(doc.package().main_part_name());
         if span.story != main_story {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "note_outside_body",
                 format!(
                     "footnotes and endnotes attach in the main document body (span is in {})",
@@ -146,13 +142,13 @@ fn insert_note(document: &mut Document, span: &mut Span, text: &str, kind: Kind)
             ));
         }
         if span.in_text_box {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "note_in_text_box",
                 "footnotes and endnotes cannot attach inside a text box",
             ));
         }
         if span.in_field {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "span_in_field_result",
                 "the span lies inside a field result; a note planted there is destroyed the next time the field updates",
             ));
@@ -178,9 +174,8 @@ fn insert_note(document: &mut Document, span: &mut Span, text: &str, kind: Kind)
         let ref_run = append_new(notes, paragraph, "r")?;
         append_new(notes, ref_run, &format!("{}Ref", kind.local()))?;
         let text_run = append_new(notes, paragraph, "r")?;
-        crate::oxml::add_t(notes, text_run, &format!(" {text}"))?;
-        let end = notes.children(root).len();
-        notes.insert(root, end, note)?;
+        add_t(notes, text_run, &format!(" {text}"))?;
+        append(notes, root, note)?;
 
         let tree = txn.tree_mut(&span.part)?;
         let mark = tree.create_element(last_run, W, "r")?;
@@ -188,7 +183,7 @@ fn insert_note(document: &mut Document, span: &mut Span, text: &str, kind: Kind)
         while let Some(sibling) = next_sibling(tree, anchor).filter(|s| is_note_mark(tree, *s)) {
             anchor = sibling;
         }
-        add_next(tree, anchor, mark)?;
+        insert_after(tree, anchor, mark)?;
         let rpr = append_new(tree, mark, "rPr")?;
         let align = append_new(tree, rpr, "vertAlign")?;
         tree.set_attr(align, Some(W), "val", "superscript")?;

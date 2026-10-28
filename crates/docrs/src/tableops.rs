@@ -15,11 +15,14 @@
 //! cells repeated per spanned grid column and vertically continued cells
 //! resolved to the cell that starts the merge.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
+use crate::blocks::validate_xml_characters;
 use crate::clock::Timestamp;
+use crate::controls::{remove_with_tail, tail_nodes};
 use crate::document::DocumentId;
 use crate::normalize::{content_hash, normalize_text};
+use crate::numbering::add_next;
 use crate::oxml::{add_t, append, w_el};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::{
@@ -27,24 +30,21 @@ use crate::replace::{
     placeholder_controls, refuse_intervening_positional_nodes, validate_fresh,
     validate_one_inline_ancestry, validate_replaceable, validate_writable_text,
 };
-use crate::search::{Atom, MatchPolicy, Span, collect_block_atoms, fresh_span_token, signature};
+use crate::revision::is_scan_tag;
+use crate::search::{
+    Atom, MatchPolicy, Span, collect_block_atoms, new_span_token, signature, slice_chars,
+};
 use crate::story::{self, Anchor, BlockKind, View, iter_block_elements};
 use crate::styles::py_int;
-use crate::txn::Txn;
-use crate::unicode::{is_py_space, py_strip};
-use crate::wml::{
-    W, is_w, leading_text, node_children, set_leading_text, w_attr, w_child, w_children,
+use crate::tracked::{
+    add_tracked_run, hollowed_bookmarks, insert_after, new_revision, next_revision_id,
+    pieces_in_range, set_preserved_text,
 };
-use crate::xml::{NodeData, NodeId, XML_NS, XmlTree};
+use crate::txn::Txn;
+use crate::unicode::py_strip;
+use crate::wml::{is_w, leading_text, node_children, paragraph_text, w_attr, w_child, w_children};
+use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
-
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
-fn not_found(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::TargetNotFound, reason, message)
-}
 
 fn malformed_table(message: impl Into<String>) -> Error {
     // python-docx raises a plain ValueError for these shapes.
@@ -99,7 +99,7 @@ fn locate(document: &Document, table: &Table) -> Result<NodeId> {
         ));
     }
     let stale = || {
-        not_found(
+        Error::not_found(
             "stale_table",
             "table handle is stale: its w:tbl was removed, moved or its story part replaced; find the table again",
         )
@@ -233,44 +233,6 @@ fn row_cells(tree: &XmlTree, tr: NodeId) -> Result<Vec<NodeId>> {
     Ok(out)
 }
 
-/// python-docx `CT_R.text`.
-fn run_text(tree: &XmlTree, run: NodeId) -> String {
-    let mut out = String::new();
-    for child in tree.child_elements(run) {
-        if tree.ns_uri(child) != Some(W) {
-            continue;
-        }
-        match tree.local_name(child).unwrap_or("") {
-            "t" => out.push_str(&leading_text(tree, child)),
-            "tab" | "ptab" => out.push('\t'),
-            "cr" => out.push('\n'),
-            "br" => {
-                if w_attr(tree, child, "type").unwrap_or("textWrapping") == "textWrapping" {
-                    out.push('\n');
-                }
-            }
-            "noBreakHyphen" => out.push('-'),
-            _ => {}
-        }
-    }
-    out
-}
-
-/// python-docx `CT_P.text` (direct runs and hyperlink runs).
-fn paragraph_text(tree: &XmlTree, paragraph: NodeId) -> String {
-    let mut out = String::new();
-    for child in tree.child_elements(paragraph) {
-        if is_w(tree, child, "r") {
-            out.push_str(&run_text(tree, child));
-        } else if is_w(tree, child, "hyperlink") {
-            for run in w_children(tree, child, "r") {
-                out.push_str(&run_text(tree, run));
-            }
-        }
-    }
-    out
-}
-
 fn cell_paragraphs(tree: &XmlTree, tc: NodeId) -> Vec<NodeId> {
     w_children(tree, tc, "p").collect()
 }
@@ -317,7 +279,7 @@ pub fn find_table(document: &Document, near_text: &str, policy: MatchPolicy) -> 
         MatchPolicy::Normalized => normalize_text(near_text),
     };
     if needle.is_empty() || (policy == MatchPolicy::Normalized && py_strip(&needle).is_empty()) {
-        return Err(not_found(
+        return Err(Error::not_found(
             "empty_near_text",
             "near_text must contain searchable text; an empty target cannot identify a table",
         ));
@@ -345,7 +307,7 @@ pub fn find_table(document: &Document, near_text: &str, policy: MatchPolicy) -> 
         }
     }
     match matches.as_slice() {
-        [] => Err(not_found(
+        [] => Err(Error::not_found(
             "no_table_match",
             format!("no table contains {near_text:?}"),
         )),
@@ -367,48 +329,8 @@ pub fn table_grid(document: &Document, table: &Table) -> Result<Vec<Vec<String>>
     grid_texts(document.package().xml(&table.part)?, tbl)
 }
 
-/// `_MARKUP_SCAN_TAGS` (revision markup of every kind).
-const MARKUP_SCAN_TAGS: &[&str] = &[
-    "ins",
-    "del",
-    "moveFrom",
-    "moveTo",
-    "rPrChange",
-    "pPrChange",
-    "tblPrChange",
-    "tblPrExChange",
-    "tblGridChange",
-    "trPrChange",
-    "tcPrChange",
-    "cellIns",
-    "cellDel",
-    "cellMerge",
-    "sectPrChange",
-    "numberingChange",
-    "customXmlInsRangeStart",
-    "customXmlDelRangeStart",
-    "customXmlMoveFromRangeStart",
-    "customXmlMoveToRangeStart",
-    "moveFromRangeStart",
-    "moveFromRangeEnd",
-    "moveToRangeStart",
-    "moveToRangeEnd",
-    "customXmlInsRangeEnd",
-    "customXmlDelRangeEnd",
-    "customXmlMoveFromRangeEnd",
-    "customXmlMoveToRangeEnd",
-];
-
-fn is_markup(tree: &XmlTree, node: NodeId) -> bool {
-    tree.element(node).is_some()
-        && tree.ns_uri(node) == Some(W)
-        && tree
-            .local_name(node)
-            .is_some_and(|local| MARKUP_SCAN_TAGS.contains(&local))
-}
-
 fn first_markup_in(tree: &XmlTree, root: NodeId) -> Option<NodeId> {
-    tree.descendants(root).find(|node| is_markup(tree, *node))
+    tree.descendants(root).find(|node| is_scan_tag(tree, *node))
 }
 
 fn local_of(tree: &XmlTree, node: NodeId) -> String {
@@ -451,7 +373,7 @@ fn refuse_row_op(
 ) -> Result<()> {
     let tr = all_rows[affected];
     if row_has_vmerge(tree, tr) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "vertical_merge_row",
             format!(
                 "row {affected} participates in a vertical merge; structural row operations there would corrupt \
@@ -463,7 +385,7 @@ fn refuse_row_op(
         .into_iter()
         .any(|tc| cell_has_nested_table(tree, tc))
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "nested_table_row",
             format!(
                 "row {affected} contains a nested table; refusing rather than duplicating or destroying it wholesale"
@@ -474,7 +396,7 @@ fn refuse_row_op(
         && split < all_rows.len()
         && row_continues_merge_from_above(tree, all_rows[split])
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "splits_vertical_merge",
             format!(
                 "inserting between rows {} and {split} would split a vertical merge",
@@ -486,7 +408,7 @@ fn refuse_row_op(
 }
 
 fn row_out_of_range(row: usize, count: usize) -> Error {
-    not_found(
+    Error::not_found(
         "row_out_of_range",
         format!("row {row} does not exist (0..{})", count as i64 - 1),
     )
@@ -503,29 +425,6 @@ pub struct UpdateCellOptions {
     pub date: Option<Timestamp>,
 }
 
-fn is_xml_representable(c: char) -> bool {
-    matches!(c as u32, 0x09 | 0x0A | 0x0D | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
-}
-
-/// Upstream `_validate_xml_characters`.
-fn validate_xml_characters(value: &str, argument: &str) -> Result<()> {
-    let mut invalid: Vec<String> = value
-        .chars()
-        .filter(|c| !is_xml_representable(*c))
-        .map(|c| format!("U+{:04X}", c as u32))
-        .collect();
-    invalid.sort();
-    invalid.dedup();
-    if invalid.is_empty() {
-        Ok(())
-    } else {
-        Err(Error::invalid_argument(
-            "invalid_xml_characters",
-            format!("{argument} contains character(s) XML 1.0 cannot represent: {invalid:?}"),
-        ))
-    }
-}
-
 /// `_cell_at`: (`w:tc`, owning `w:tr`).
 fn cell_at(tree: &XmlTree, tbl: NodeId, row: usize, column: usize) -> Result<NodeId> {
     let all_rows = rows(tree, tbl);
@@ -535,7 +434,7 @@ fn cell_at(tree: &XmlTree, tbl: NodeId, row: usize, column: usize) -> Result<Nod
     let offset = column as i64 - grid_before(tree, tr)?;
     let cells = row_cells(tree, tr)?;
     if offset < 0 || offset as usize >= cells.len() {
-        return Err(not_found(
+        return Err(Error::not_found(
             "column_has_no_cell",
             format!("layout-grid column {column} has no cell in row {row}"),
         ));
@@ -545,7 +444,7 @@ fn cell_at(tree: &XmlTree, tbl: NodeId, row: usize, column: usize) -> Result<Nod
 
 fn refuse_complex_cell(tree: &XmlTree, tc: NodeId, row: usize, column: usize) -> Result<()> {
     if cell_is_merged(tree, tc) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "merged_cell",
             format!(
                 "cell ({row}, {column}) participates in a merge (gridSpan/vMerge); editing it would silently \
@@ -554,7 +453,7 @@ fn refuse_complex_cell(tree: &XmlTree, tc: NodeId, row: usize, column: usize) ->
         ));
     }
     if cell_has_nested_table(tree, tc) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "nested_table_cell",
             format!(
                 "cell ({row}, {column}) contains a nested table; address the inner table directly instead"
@@ -569,13 +468,13 @@ fn refuse_whole_cell_semantics(tree: &XmlTree, tc: NodeId) -> Result<()> {
         .descendants(tc)
         .any(|node| is_w(tree, node, "fldChar") || is_w(tree, node, "fldSimple"))
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "cell_field",
             "cell contains a Word field; update its field/result explicitly",
         ));
     }
     if first_markup_in(tree, tc).is_some() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "cell_revision",
             "cell contains pending revision markup; resolve it before replacing the cell",
         ));
@@ -595,7 +494,7 @@ fn locate_table_block(document: &Document, tbl: NodeId, part: &str) -> Result<(S
             }
         }
     }
-    Err(not_found(
+    Err(Error::not_found(
         "table_not_in_traversal",
         "table is not part of this document's traversal",
     ))
@@ -635,14 +534,14 @@ pub fn update_cell(
         .filter(|p| !paragraph_text(tree, *p).is_empty())
         .collect();
     if populated.len() > 1 {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "multiple_paragraphs",
             "cell holds multiple paragraphs of text; update them individually through docx.search spans",
         ));
     }
     let (story_name, block_index) = locate_table_block(document, tbl, &part)?;
     let Some(target) = populated.first().or(paragraphs.first()).copied() else {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "cell_without_paragraph",
             "cell has no paragraph to hold text",
         ));
@@ -659,7 +558,7 @@ pub fn update_cell(
         &mut all_atoms,
     );
     if all_atoms.iter().any(Atom::is_synthetic) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "cell_non_text_content",
             "cell text contains a tab, break, no-break hyphen, or other visible run content that cannot be \
              represented by new_text; update its text segments individually instead",
@@ -671,7 +570,7 @@ pub fn update_cell(
         .collect();
     if atoms.is_empty() {
         if tree.descendants(tc).any(|node| is_w(tree, node, "sdt")) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "empty_cell_control",
                 "empty cell contains a content control; set it through Control.set_value() instead",
             ));
@@ -683,7 +582,7 @@ pub fn update_cell(
     let span = Span {
         incarnation: tree.incarnation(),
         document: document.id(),
-        token: fresh_span_token(),
+        token: new_span_token(),
         story: story_name.clone(),
         part: part.clone(),
         anchor: Anchor {
@@ -716,93 +615,6 @@ pub fn update_cell(
     crate::replace::replace(document, &span, new_text, &ReplaceOptions::default())
 }
 
-fn next_revision_id(document: &Document) -> Result<i64> {
-    const REVISION_TAGS: &[&str] = &[
-        "ins",
-        "del",
-        "moveFrom",
-        "moveTo",
-        "moveFromRangeStart",
-        "moveToRangeStart",
-        "rPrChange",
-        "pPrChange",
-        "tblPrChange",
-        "sectPrChange",
-        "cellIns",
-        "cellDel",
-        "cellMerge",
-    ];
-    let mut highest = 0i64;
-    for story in story::stories(document) {
-        let tree = document.package().xml(&story.part)?;
-        for node in tree.descendants(tree.root()) {
-            if tree.element(node).is_none()
-                || tree.ns_uri(node) != Some(W)
-                || !tree
-                    .local_name(node)
-                    .is_some_and(|local| REVISION_TAGS.contains(&local))
-            {
-                continue;
-            }
-            if let Some(value) = w_attr(tree, node, "id")
-                .filter(|v| !v.is_empty())
-                .and_then(py_int)
-            {
-                highest = highest.max(value);
-            }
-        }
-    }
-    Ok(highest + 1)
-}
-
-/// `CT_RunTrackChange.new(tag, id, author, date)`.
-fn new_track_change(
-    tree: &mut XmlTree,
-    scope: NodeId,
-    tag: &str,
-    id: i64,
-    author: &str,
-    date: Timestamp,
-) -> Result<NodeId> {
-    let element = w_el(tree, scope, tag)?;
-    tree.set_attr(element, Some(W), "id", &id.to_string())?;
-    tree.set_attr(element, Some(W), "author", author)?;
-    tree.set_attr(element, Some(W), "date", &date.to_xml())?;
-    Ok(element)
-}
-
-/// `CT_RunTrackChange.add_tracked_run`.
-fn add_tracked_run(
-    tree: &mut XmlTree,
-    change: NodeId,
-    text: &str,
-    rpr: Option<NodeId>,
-    deleted: bool,
-) -> Result<NodeId> {
-    let run = w_el(tree, change, "r")?;
-    append(tree, change, run)?;
-    if let Some(rpr) = rpr {
-        let copy = tree.deep_clone(rpr);
-        tree.insert(run, 0, copy)?;
-    }
-    if deleted {
-        let del_text = w_el(tree, run, "delText")?;
-        if !text.is_empty() {
-            let node = tree.create_text(text);
-            tree.insert(del_text, 0, node)?;
-        }
-        if text.chars().next().is_some_and(is_py_space)
-            || text.chars().last().is_some_and(is_py_space)
-        {
-            tree.set_attr(del_text, Some(XML_NS), "space", "preserve")?;
-        }
-        append(tree, run, del_text)?;
-    } else {
-        add_t(tree, run, text)?;
-    }
-    Ok(run)
-}
-
 fn fill_empty_cell(
     document: &mut Document,
     part: &str,
@@ -823,7 +635,7 @@ fn fill_empty_cell(
     };
     let revision_id = if options.tracked {
         validate_xml_characters(options.author.as_deref().unwrap_or(""), "author")?;
-        Some(next_revision_id(document)?)
+        Some(next_revision_id(document, &BTreeMap::new())?)
     } else {
         None
     };
@@ -839,9 +651,9 @@ fn fill_empty_cell(
             append(tree, paragraph, run)?;
         }
         Some(id) => {
-            let stamp = options.date.unwrap_or_else(Timestamp::now);
+            let stamp = options.date.unwrap_or_else(Timestamp::now).to_xml();
             let author = options.author.as_deref().unwrap_or("");
-            let ins = new_track_change(tree, paragraph, "ins", id, author, stamp)?;
+            let ins = new_revision(tree, paragraph, "ins", id, author, &stamp)?;
             add_tracked_run(tree, ins, new_text, None, false)?;
             append(tree, paragraph, ins)?;
             report.revision_ids.push(id);
@@ -850,128 +662,6 @@ fn fill_empty_cell(
     let staged = txn.finish()?;
     document.commit(staged)?;
     Ok(report)
-}
-
-/// Upstream `_hollowed_bookmarks(atoms, end_offset)`.
-fn hollowed_bookmarks(tree: &XmlTree, span: &Span) -> Vec<String> {
-    let Some(paragraph) = span.atoms.first().and_then(|a| a.paragraph) else {
-        return Vec::new();
-    };
-    let mut emptied: HashSet<NodeId> = HashSet::new();
-    if span.atoms.len() > 2 {
-        emptied.extend(
-            span.atoms[1..span.atoms.len() - 1]
-                .iter()
-                .map(|a| a.element),
-        );
-    }
-    let last = &span.atoms[span.atoms.len() - 1];
-    if span.atoms.len() > 1 && span.end_offset >= last.text(tree).chars().count() {
-        emptied.insert(last.element);
-    }
-    if emptied.is_empty() {
-        return Vec::new();
-    }
-    let stream: Vec<NodeId> = crate::wml::iter_nodes(tree, paragraph).collect();
-    let mut starts: Vec<(Option<String>, usize, String)> = Vec::new();
-    let mut hollowed = Vec::new();
-    for (position, node) in stream.iter().enumerate() {
-        if is_w(tree, *node, "bookmarkStart") {
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            let name = w_attr(tree, *node, "name").unwrap_or("").to_string();
-            starts.retain(|(existing, _, _)| *existing != id);
-            starts.push((id, position, name));
-        } else if is_w(tree, *node, "bookmarkEnd") {
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            let Some((_, start, name)) = starts.iter().find(|(existing, _, _)| *existing == id)
-            else {
-                continue;
-            };
-            if name == "_GoBack" {
-                continue;
-            }
-            let texts: Vec<NodeId> = stream[start + 1..position]
-                .iter()
-                .copied()
-                .filter(|inner| {
-                    (is_w(tree, *inner, "t") || is_w(tree, *inner, "delText"))
-                        && !leading_text(tree, *inner).is_empty()
-                })
-                .collect();
-            if !texts.is_empty() && texts.iter().all(|inner| emptied.contains(inner)) {
-                hollowed.push(name.clone());
-            }
-        }
-    }
-    hollowed
-}
-
-fn set_preserved_text(tree: &mut XmlTree, element: NodeId, text: &str) -> Result<()> {
-    set_leading_text(tree, element, text)?;
-    if text.chars().next().is_some_and(is_py_space) || text.chars().last().is_some_and(is_py_space)
-    {
-        tree.set_attr(element, Some(XML_NS), "space", "preserve")?;
-    } else {
-        tree.remove_attr(element, Some(XML_NS), "space");
-    }
-    Ok(())
-}
-
-/// Position just after `node` and its lxml tail (following text nodes).
-fn after_with_tail(tree: &XmlTree, node: NodeId) -> Result<(NodeId, usize)> {
-    let parent = tree
-        .parent(node)
-        .ok_or_else(|| Error::internal("detached_anchor", "insertion anchor is detached"))?;
-    let siblings = tree.children(parent);
-    let mut index = siblings
-        .iter()
-        .position(|child| *child == node)
-        .ok_or_else(|| {
-            Error::internal("detached_anchor", "anchor not among its parent's children")
-        })?
-        + 1;
-    while index < siblings.len() && matches!(tree.data(siblings[index]), NodeData::Text(_)) {
-        index += 1;
-    }
-    Ok((parent, index))
-}
-
-/// lxml `anchor.addnext(new)`.
-fn add_next(tree: &mut XmlTree, anchor: NodeId, new: NodeId) -> Result<()> {
-    let (parent, index) = after_with_tail(tree, anchor)?;
-    tree.insert(parent, index, new)
-}
-
-/// `(run, text)` pieces intersected with `[start, end)`, consecutive
-/// same-run pieces merged (upstream `_pieces_in_range`).
-fn pieces_in_range(
-    pieces: &[(Option<NodeId>, String)],
-    start: usize,
-    end: usize,
-) -> Vec<(Option<NodeId>, String)> {
-    let mut out: Vec<(Option<NodeId>, String)> = Vec::new();
-    let mut position = 0usize;
-    for (run, text) in pieces {
-        let length = text.chars().count();
-        let lo = start.max(position);
-        let hi = end.min(position + length);
-        if hi > lo {
-            let fragment: String = text.chars().skip(lo - position).take(hi - lo).collect();
-            match out.last_mut() {
-                Some(last) if last.0 == *run => last.1.push_str(&fragment),
-                _ => out.push((*run, fragment)),
-            }
-        }
-        position += length;
-    }
-    out
-}
-
-fn slice(text: &str, start: usize, end: usize) -> String {
-    text.chars()
-        .skip(start)
-        .take(end.saturating_sub(start))
-        .collect()
 }
 
 /// Upstream `Span._replace(tracked=True)`.
@@ -988,7 +678,7 @@ fn tracked_replace(
     let tree = document.package().xml(&span.part)?;
     validate_fresh(document, tree, span, None)?;
     if span.text == new_text {
-        return Err(not_found(
+        return Err(Error::not_found(
             "tracked_noop",
             "replacement equals the existing text; nothing to change",
         ));
@@ -999,9 +689,9 @@ fn tracked_replace(
         return tracked_replace(document, &sub, &sub_new, author, date);
     }
     validate_replaceable(tree, span, true)?;
-    let hollowed = hollowed_bookmarks(tree, span);
+    let hollowed = hollowed_bookmarks(tree, &span.atoms, span.end_offset);
     if !hollowed.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "hollows_bookmark",
             format!(
                 "replacing this span would hollow out bookmark(s) {hollowed:?} — the targets of REF/PAGEREF \
@@ -1011,7 +701,7 @@ fn tracked_replace(
         ));
     }
     if !placeholder_controls(tree, &span.atoms).is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "tracked_placeholder",
             "span lies in a form control still showing PLACEHOLDER prompt text; a tracked replacement would \
              fabricate a deletion of text that was never real content — fill the control untracked (or via \
@@ -1019,13 +709,13 @@ fn tracked_replace(
         ));
     }
     if span.story == "word/comments.xml" {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "tracked_comment_text",
             "tracked changes inside comment text are not representable; edit the comment untracked or reply instead",
         ));
     }
     if span.atoms.iter().any(|atom| atom.run.is_none()) {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "not_in_run",
             "matched text is not inside a run; cannot anchor a revision",
         ));
@@ -1034,7 +724,7 @@ fn tracked_replace(
     let total = span.text.chars().count();
     let prefix_len = outcome.changed_start;
     let suffix_len = total - outcome.changed_end;
-    let old_mid = slice(&span.text, outcome.changed_start, outcome.changed_end);
+    let old_mid = slice_chars(&span.text, outcome.changed_start, outcome.changed_end);
     let new_mid = outcome.replacement.clone();
     let changed_atoms: Vec<&Atom> = outcome
         .segments
@@ -1043,8 +733,8 @@ fn tracked_replace(
         .collect();
     refuse_intervening_positional_nodes(tree, &changed_atoms)?;
     validate_one_inline_ancestry(tree, &changed_atoms)?;
-    let stamp = date.unwrap_or_else(Timestamp::now);
-    let mut next_id = next_revision_id(document)?;
+    let stamp = date.unwrap_or_else(Timestamp::now).to_xml();
+    let mut next_id = next_revision_id(document, &BTreeMap::new())?;
     let first = span.atoms[0].clone();
     let last = span.atoms[span.atoms.len() - 1].clone();
     let first_run = first
@@ -1065,7 +755,7 @@ fn tracked_replace(
             } else {
                 length
             };
-            (atom.run, slice(&text, start, end))
+            (atom.run, slice_chars(&text, start, end))
         })
         .collect();
     let deleted_pieces = pieces_in_range(&span_pieces, prefix_len, total - suffix_len);
@@ -1080,12 +770,12 @@ fn tracked_replace(
         .collect();
 
     let first_text = first.text(tree);
-    let before = slice(&first_text, 0, span.start_offset);
+    let before = slice_chars(&first_text, 0, span.start_offset);
     let last_text = last.text(tree);
-    let after = slice(&last_text, span.end_offset, last_text.chars().count());
-    let prefix = slice(&span.text, 0, prefix_len);
+    let after = slice_chars(&last_text, span.end_offset, last_text.chars().count());
+    let prefix = slice_chars(&span.text, 0, prefix_len);
     let suffix = if suffix_len > 0 {
-        slice(&span.text, total - suffix_len, total)
+        slice_chars(&span.text, total - suffix_len, total)
     } else {
         String::new()
     };
@@ -1124,9 +814,7 @@ fn tracked_replace(
                 continue;
             }
             trailing.push(*node);
-            let (_, end) = after_with_tail(tree, *node)?;
-            let start = tree.index_in_parent(*node).unwrap_or(end) + 1;
-            trailing.extend_from_slice(&tree.children(first_run)[start.min(end)..end]);
+            trailing.extend(tail_nodes(tree, *node));
         }
     }
     let moved_run = if trailing.is_empty() {
@@ -1146,7 +834,7 @@ fn tracked_replace(
     let mut revision_ids = Vec::new();
     let mut insert_point = first_run;
     if !old_mid.is_empty() && !deleted_rprs.is_empty() {
-        let del = new_track_change(tree, first_run, "del", next_id, author, stamp)?;
+        let del = new_revision(tree, first_run, "del", next_id, author, &stamp)?;
         for (source_rpr, piece) in &deleted_rprs {
             add_tracked_run(tree, del, piece, *source_rpr, true)?;
         }
@@ -1156,7 +844,7 @@ fn tracked_replace(
         next_id += 1;
     }
     if !new_mid.is_empty() {
-        let ins = new_track_change(tree, first_run, "ins", next_id, author, stamp)?;
+        let ins = new_revision(tree, first_run, "ins", next_id, author, &stamp)?;
         add_tracked_run(tree, ins, &new_mid, ins_rpr, false)?;
         add_next(tree, insert_point, ins)?;
         insert_point = ins;
@@ -1191,7 +879,7 @@ fn tracked_replace(
 }
 
 fn template_refusal(row: usize, column: usize, detail: &str) -> Error {
-    unsupported(
+    Error::unsupported(
         "complex_template_cell",
         format!(
             "template row {row} physical cell {column} {detail}; populating it would discard or flatten \
@@ -1205,7 +893,7 @@ fn template_refusal(row: usize, column: usize, detail: &str) -> Error {
 /// inside any cell).
 fn refuse_tracked_template_row(tree: &XmlTree, tr: NodeId, row: usize) -> Result<()> {
     for node in tree.descendants(tr) {
-        if !is_markup(tree, node) {
+        if !is_scan_tag(tree, node) {
             continue;
         }
         let mut current = tree.parent(node);
@@ -1216,7 +904,7 @@ fn refuse_tracked_template_row(tree: &XmlTree, tr: NodeId, row: usize) -> Result
             current = tree.parent(ancestor);
         }
         if current.is_none_or(|ancestor| ancestor == tr) {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "tracked_template_row",
                 format!(
                     "template row {row} contains tracked revision metadata ({}); resolve its pending revisions \
@@ -1411,7 +1099,7 @@ pub fn insert_row_after<S: AsRef<str>>(
     }
     let template_index = copy_format_from.unwrap_or(row);
     if template_index >= all_rows.len() {
-        return Err(not_found(
+        return Err(Error::not_found(
             "copy_format_row_out_of_range",
             format!("copy_format_from row {template_index} does not exist"),
         ));
@@ -1425,7 +1113,7 @@ pub fn insert_row_after<S: AsRef<str>>(
         || grid_after(tree, template_tr)? != 0
         || (!has_grid_span && {
             let grid = w_child(tree, tbl, "tblGrid").ok_or_else(|| {
-                unsupported(
+                Error::unsupported(
                     "missing_table_grid",
                     "required ``w:tblGrid`` child element not present",
                 )
@@ -1433,7 +1121,7 @@ pub fn insert_row_after<S: AsRef<str>>(
             template_cells.len() != w_children(tree, grid, "gridCol").count()
         });
     if nonrectangular {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "nonrectangular_template",
             format!(
                 "template row {template_index} is nonrectangular: its physical cells do not map one-to-one to \
@@ -1453,7 +1141,7 @@ pub fn insert_row_after<S: AsRef<str>>(
     }
     refuse_row_op(tree, &all_rows, template_index, Some(row + 1))?;
     if has_grid_span {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "grid_span_template",
             format!(
                 "template row {template_index} contains horizontally merged cells (gridSpan); positional values \
@@ -1481,21 +1169,10 @@ pub fn insert_row_after<S: AsRef<str>>(
         .map(|(index, tc)| copied_cell_template_rpr(tree, *tc, template_index, index))
         .collect::<Result<Vec<_>>>()?;
     let anchor_tr = all_rows[row];
-    let template_tail: Option<String> = {
-        let parent = tree.parent(template_tr);
-        parent.and_then(|parent| {
-            let siblings = tree.children(parent);
-            let at = siblings.iter().position(|c| *c == template_tr)?;
-            let mut tail = String::new();
-            for sibling in &siblings[at + 1..] {
-                match tree.data(*sibling) {
-                    NodeData::Text(text) => tail.push_str(text),
-                    _ => break,
-                }
-            }
-            (!tail.is_empty()).then_some(tail)
-        })
-    };
+    let template_tail: String = tail_nodes(tree, template_tr)
+        .into_iter()
+        .filter_map(|text| tree.text(text))
+        .collect();
 
     let mut txn = Txn::new(document);
     let tree = txn.tree_mut(&part)?;
@@ -1510,29 +1187,12 @@ pub fn insert_row_after<S: AsRef<str>>(
             ));
         };
         // `paragraph.clear()`: every element child except pPr (with tails).
-        let doomed: Vec<NodeId> = {
-            let mut out = Vec::new();
-            let mut removing_tail = false;
-            for child in tree.children(paragraph).to_vec() {
-                match tree.data(child) {
-                    NodeData::Text(_) => {
-                        if removing_tail {
-                            out.push(child);
-                        }
-                    }
-                    NodeData::Element(_) => {
-                        removing_tail = !is_w(tree, child, "pPr");
-                        if removing_tail {
-                            out.push(child);
-                        }
-                    }
-                    _ => removing_tail = false,
-                }
-            }
-            out
-        };
+        let doomed: Vec<NodeId> = tree
+            .child_elements(paragraph)
+            .filter(|child| !is_w(tree, *child, "pPr"))
+            .collect();
         for node in doomed {
-            tree.detach(node)?;
+            remove_with_tail(tree, node)?;
         }
         let value = values.get(index).map(AsRef::as_ref).unwrap_or("");
         let run = w_el(tree, paragraph, "r")?;
@@ -1545,23 +1205,12 @@ pub fn insert_row_after<S: AsRef<str>>(
         }
     }
     add_next(tree, anchor_tr, new_tr)?;
-    if let Some(tail) = template_tail {
-        let text = tree.create_text(tail);
-        add_next_raw(tree, new_tr, text)?;
+    if !template_tail.is_empty() {
+        let text = tree.create_text(template_tail);
+        insert_after(tree, new_tr, text)?;
     }
     let staged = txn.finish()?;
     document.commit(staged)
-}
-
-/// Insert `new` immediately after `anchor` (no tail skipping).
-fn add_next_raw(tree: &mut XmlTree, anchor: NodeId, new: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "insertion anchor is detached"))?;
-    let index = tree.index_in_parent(anchor).ok_or_else(|| {
-        Error::internal("detached_anchor", "anchor not among its parent's children")
-    })?;
-    tree.insert(parent, index + 1, new)
 }
 
 /// Delete row `row` (upstream `delete_row`). Refuses the last remaining row,
@@ -1578,7 +1227,7 @@ pub fn delete_row(document: &mut Document, table: &Table, row: usize) -> Result<
     }
     refuse_row_op(tree, &all_rows, row, None)?;
     if all_rows.len() == 1 {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "last_row",
             "deleting the last remaining row would leave an invalid table; remove the table itself instead",
         ));
@@ -1586,15 +1235,7 @@ pub fn delete_row(document: &mut Document, table: &Table, row: usize) -> Result<
     let tr = all_rows[row];
     let mut txn = Txn::new(document);
     let tree = txn.tree_mut(&part)?;
-    // lxml `remove` takes the element's tail with it.
-    let (parent, end) = after_with_tail(tree, tr)?;
-    let start = tree
-        .index_in_parent(tr)
-        .ok_or_else(|| Error::internal("detached_row", "row not among its parent's children"))?;
-    let doomed: Vec<NodeId> = tree.children(parent)[start..end].to_vec();
-    for node in doomed {
-        tree.detach(node)?;
-    }
+    remove_with_tail(tree, tr)?;
     let staged = txn.finish()?;
     document.commit(staged)
 }

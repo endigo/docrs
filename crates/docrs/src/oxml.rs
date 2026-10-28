@@ -127,8 +127,19 @@ pub fn insert_before_successors(
     child: NodeId,
     successors: &[&str],
 ) -> Result<()> {
+    insert_before_successors_in(tree, parent, child, W, successors)
+}
+
+/// [`insert_before_successors`] for children in the namespace `ns`.
+pub fn insert_before_successors_in(
+    tree: &mut XmlTree,
+    parent: NodeId,
+    child: NodeId,
+    ns: &str,
+    successors: &[&str],
+) -> Result<()> {
     let position = tree.children(parent).iter().position(|existing| {
-        tree.ns_uri(*existing) == Some(W)
+        tree.ns_uri(*existing) == Some(ns)
             && tree
                 .local_name(*existing)
                 .is_some_and(|local| successors.contains(&local))
@@ -215,39 +226,9 @@ pub fn add_t(tree: &mut XmlTree, run: NodeId, text: &str) -> Result<NodeId> {
     Ok(t)
 }
 
-/// A detached `w:p` with one run holding `text` and optional style
-/// (upstream `blocks._new_paragraph`).
-pub fn new_paragraph(
-    tree: &mut XmlTree,
-    scope: NodeId,
-    text: &str,
-    style_id: Option<&str>,
-) -> Result<NodeId> {
-    let paragraph = w_el(tree, scope, "p")?;
-    if let Some(style) = style_id {
-        set_paragraph_style(tree, paragraph, Some(style))?;
-    }
-    let run = w_el(tree, paragraph, "r")?;
-    add_t(tree, run, text)?;
-    append(tree, paragraph, run)?;
-    Ok(paragraph)
-}
-
 /// EMU → twips with Python's `round` (banker's rounding).
 pub fn emu_to_twips(emu: i64) -> i64 {
-    let value = emu as f64 / 635.0;
-    let floor = value.floor();
-    let diff = value - floor;
-    let rounded = if (diff - 0.5).abs() < f64::EPSILON {
-        if floor as i64 % 2 == 0 {
-            floor
-        } else {
-            floor + 1.0
-        }
-    } else {
-        value.round()
-    };
-    rounded as i64
+    (emu as f64 / 635.0).round_ties_even() as i64
 }
 
 /// A detached `w:tbl` per `CT_Tbl.new_tbl(rows, cols, width)` with optional
@@ -315,6 +296,24 @@ pub fn new_table(
         }
     }
     Ok(tbl)
+}
+
+/// A detached `w:p` with one run holding `text` and optional style
+/// (upstream `blocks._new_paragraph`).
+pub fn new_paragraph(
+    tree: &mut XmlTree,
+    scope: NodeId,
+    text: &str,
+    style_id: Option<&str>,
+) -> Result<NodeId> {
+    let paragraph = w_el(tree, scope, "p")?;
+    if let Some(style) = style_id {
+        set_paragraph_style(tree, paragraph, Some(style))?;
+    }
+    let run = w_el(tree, paragraph, "r")?;
+    add_t(tree, run, text)?;
+    append(tree, paragraph, run)?;
+    Ok(paragraph)
 }
 
 /// True for element nodes in the `w:` namespace named `local`.

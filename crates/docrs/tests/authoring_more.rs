@@ -16,25 +16,6 @@ use support::*;
 
 const INCH: i64 = 914_400;
 const PT: i64 = 12_700;
-const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
-
-fn hex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
-        .collect()
-}
-
-fn document_xml(doc: &Document) -> String {
-    String::from_utf8(docrs::xml::serialize(
-        doc.package().xml("word/document.xml").unwrap(),
-    ))
-    .unwrap()
-}
-
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
 
 fn open_body(body: &str) -> Document {
     let xml = format!(
@@ -100,7 +81,7 @@ fn hanging_indents_and_flags_read_back() {
     assert_eq!(format.space_before, Some(12 * PT));
     assert_eq!(format.left_indent, Some(720 * 635));
     assert_eq!(format.first_line_indent, Some(-360 * 635));
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = p
         .set_format(
             &mut doc,
@@ -112,7 +93,7 @@ fn hanging_indents_and_flags_read_back() {
         )
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidArgument);
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -140,7 +121,7 @@ fn fonts_read_theme_colors_and_validate_first() {
     run.set_font(&mut doc, &[FontChange::Color(Some((0x12, 0x34, 0x56)))])
         .unwrap();
     assert!(document_xml(&doc).contains("<w:color w:val=\"123456\"/>"));
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = run
         .set_font(
             &mut doc,
@@ -151,7 +132,7 @@ fn fonts_read_theme_colors_and_validate_first() {
         )
         .unwrap_err();
     assert_eq!(err.reason(), "invalid_theme_color");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     run.set_font(&mut doc, &[FontChange::ThemeColor(None)])
         .unwrap();
     assert_eq!(run.font(&doc).unwrap().color.color_type, None);
@@ -183,10 +164,10 @@ fn tab_stops_stay_in_position_order() {
     assert_eq!(positions, vec![-INCH, INCH, 2 * INCH]);
     moved.set_leader(&mut doc, None).unwrap();
     assert_eq!(moved.values(&doc).unwrap().leader, "none");
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = p.delete_tab_stop(&mut doc, 7).unwrap_err();
     assert_eq!(err.reason(), "index_out_of_range");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     for _ in 0..3 {
         p.delete_tab_stop(&mut doc, -1).unwrap();
     }
@@ -197,7 +178,7 @@ fn tab_stops_stay_in_position_order() {
 #[test]
 fn inline_shapes_resize_extent_and_transform() {
     let mut doc = Document::new();
-    doc.add_picture(&hex(PNG_150DPI), None, None).unwrap();
+    doc.add_picture(&png_150dpi(), None, None).unwrap();
     let shapes = doc.inline_shapes().unwrap();
     assert_eq!(shapes.len(), 1);
     assert_eq!(shapes[0].shape_type(&doc).unwrap().name(), "PICTURE");
@@ -207,18 +188,18 @@ fn inline_shapes_resize_extent_and_transform() {
     let xml = document_xml(&doc);
     assert!(xml.contains("<wp:extent cx=\"914400\" cy=\"457200\"/>"));
     assert!(xml.contains("<a:ext cx=\"914400\" cy=\"457200\"/>"));
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     assert!(shapes[0].set_width(&mut doc, -1).is_err());
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let mut chart = open_body(
         "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"100\" cy=\"100\"/><wp:docPr id=\"1\" name=\"c\"/><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"/></a:graphic></wp:inline></w:drawing></w:r></w:p>",
     );
     let shape = chart.inline_shapes().unwrap().remove(0);
     assert_eq!(shape.shape_type(&chart).unwrap().name(), "CHART");
-    let before = bytes(&chart);
+    let before = snapshot(&chart);
     let err = shape.set_width(&mut chart, 5).unwrap_err();
     assert_eq!(err.reason(), "no_picture_element");
-    assert_eq!(bytes(&chart), before);
+    assert_eq!(snapshot(&chart), before);
 }
 
 #[test]
@@ -257,21 +238,21 @@ fn merging_cells_spans_and_moves_content() {
         Some(RefusalKind::TargetNotFound)
     );
     // Same top, different bottoms: upstream's inverted-L check refuses the span.
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let top_right = table.cell(&doc, 0, 2).unwrap();
     let err = merged.merge(&mut doc, &top_right).unwrap_err();
     assert_eq!(err.reason(), "invalid_span");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let other = doc.add_table(1, 1, None).unwrap();
     let foreign = other.cell(&doc, 0, 0).unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = table
         .cell(&doc, 2, 2)
         .unwrap()
         .merge(&mut doc, &foreign)
         .unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::BoundaryViolation));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -350,10 +331,10 @@ fn comment_ranges_wrap_runs_in_order() {
     let p = doc.add_paragraph("one", None).unwrap();
     let second = p.add_run(&mut doc, Some(" two"), None).unwrap();
     let first = p.runs(&doc).unwrap().remove(0);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = second.mark_comment_range(&mut doc, &first, 3).unwrap_err();
     assert_eq!(err.reason(), "comment_range_reversed");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     first.mark_comment_range(&mut doc, &second, 3).unwrap();
     assert!(document_xml(&doc).contains(
         "<w:commentRangeStart w:id=\"3\"/><w:r><w:t>one</w:t></w:r><w:r><w:t xml:space=\"preserve\"> two</w:t></w:r><w:commentRangeEnd w:id=\"3\"/><w:r><w:rPr><w:rStyle w:val=\"CommentReference\"/></w:rPr><w:commentReference w:id=\"3\"/></w:r>"
@@ -364,7 +345,7 @@ fn comment_ranges_wrap_runs_in_order() {
 fn pictures_from_a_path_use_the_file_name() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("logo.picture.PNG");
-    std::fs::write(&path, hex(PNG_150DPI)).unwrap();
+    std::fs::write(&path, png_150dpi()).unwrap();
     let mut doc = Document::new();
     let shape = doc.add_picture_file(&path, Some(INCH), None).unwrap();
     assert_eq!(shape.image_part, "word/media/image1.PNG");
@@ -494,10 +475,10 @@ fn hyperlink_address_retargets_and_clears_the_fragment() {
     );
     let p = doc.paragraphs().unwrap().remove(0);
     let link = p.hyperlinks(&doc).unwrap().remove(0);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let empty = link.set_address(&mut doc, "");
     assert_eq!(empty.unwrap_err().kind(), ErrorKind::InvalidArgument);
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     link.set_address(&mut doc, "http://new.example/").unwrap();
     let link = p.hyperlinks(&doc).unwrap().remove(0);
     assert_eq!(link.address(&doc).unwrap(), "http://new.example/");
@@ -516,12 +497,12 @@ fn hyperlink_address_retargets_and_clears_the_fragment() {
 fn images_from_a_path_keep_the_file_name() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("logo.picture.PNG");
-    std::fs::write(&path, hex(PNG_150DPI)).unwrap();
+    std::fs::write(&path, png_150dpi()).unwrap();
     let image = docrs::image::Image::from_file(&path).unwrap();
     assert_eq!(image.filename(), "logo.picture.PNG");
     assert_eq!(image.ext(), "PNG");
     assert_eq!(image.content_type(), "image/png");
-    let anonymous = docrs::image::Image::from_blob(&hex(PNG_150DPI)).unwrap();
+    let anonymous = docrs::image::Image::from_blob(&png_150dpi()).unwrap();
     assert_eq!(
         (anonymous.filename(), anonymous.ext()),
         ("image.png".to_string(), "png")

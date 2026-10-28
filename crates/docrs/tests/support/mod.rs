@@ -6,6 +6,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use docrs::{Document, Limits};
 use flate2::Compression;
 use flate2::write::DeflateEncoder;
 
@@ -35,6 +36,48 @@ pub fn all_fixtures() -> Vec<String> {
 
 pub fn is_corrupt_fixture(rel: &str) -> bool {
     rel.contains("/corrupt/")
+}
+
+/// A fixture opened with the default budgets.
+pub fn open_fixture(rel: &str) -> Document {
+    open_bytes(&fixture(rel))
+}
+
+pub fn open_bytes(bytes: &[u8]) -> Document {
+    Document::open_bytes(bytes, &Limits::default()).unwrap()
+}
+
+/// The package as a patch-save writes it.
+pub fn snapshot(doc: &Document) -> Vec<u8> {
+    doc.patch_bytes().unwrap().0
+}
+
+pub fn reopen(doc: &Document) -> Document {
+    open_bytes(&snapshot(doc))
+}
+
+/// A part serialized back to text.
+pub fn part_xml(doc: &Document, part: &str) -> String {
+    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
+}
+
+pub fn document_xml(doc: &Document) -> String {
+    part_xml(doc, "word/document.xml")
+}
+
+/// A 3×2 PNG at 150 dpi, as hex.
+pub const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
+
+/// Bytes from a hex string.
+pub fn hex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+pub fn png_150dpi() -> Vec<u8> {
+    hex(PNG_150DPI)
 }
 
 /// One raw member for [`build_zip`].

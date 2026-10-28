@@ -10,8 +10,9 @@ use crate::txn::Txn;
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
-const EMU_PER_TWIP: i64 = 635;
-const EMU_PER_CM: f64 = 360_000.0;
+use crate::units::EMU_PER_TWIP;
+
+const EMU_PER_CM: f64 = crate::units::EMU_PER_CM as f64;
 
 /// A header or footer reference the output's section shows.
 pub(crate) struct Reference {
@@ -123,16 +124,13 @@ pub(crate) struct Story {
 
 pub(crate) fn stories(txn: &Txn<'_>, main: &str) -> Result<Vec<Story>> {
     let tree = txn.tree(main)?;
-    let rels = txn.relationships(main)?;
-    let main_uri = format!("/{}", main.trim_start_matches('/'));
-    let base = crate::package::rels::base_uri(&main_uri);
+    let rels = txn.resolved_relationships(main)?;
     let mut out = Vec::new();
     for reference in output_section(tree)?.references {
         let part = rels
             .iter()
-            .find(|rel| rel.id == reference.r_id && !rel.external)
-            .map(|rel| rel.target_part_name(base))
-            .and_then(|name| txn.resolve(&name));
+            .find(|(rel, _)| rel.id == reference.r_id)
+            .map(|(_, member)| member.clone());
         out.push(Story {
             story: if reference.element == "headerReference" {
                 "header"
@@ -192,20 +190,27 @@ impl OversizedPicture {
     }
 }
 
-pub(crate) fn oversized_pictures(txn: &Txn<'_>, main: &str) -> Result<Vec<OversizedPicture>> {
-    let tree = txn.tree(main)?;
-    let Some(last) = section_properties(tree)?.last().copied() else {
-        return Ok(Vec::new());
-    };
-    let pg_sz = w_child(tree, last, "pgSz");
+/// Page width and height of a section in twips (`w:pgSz`), US Letter
+/// without one.
+pub(crate) fn page_size(tree: &XmlTree, sect_pr: Option<NodeId>) -> (i64, i64) {
+    let pg_sz = sect_pr.and_then(|s| w_child(tree, s, "pgSz"));
     let twips = |name: &str, fallback: i64| {
         pg_sz
             .and_then(|p| w_attr(tree, p, name))
             .and_then(|v| v.parse::<f64>().ok())
             .map_or(fallback, |v| v as i64)
     };
-    let page_width = twips("w", 12240) * EMU_PER_TWIP;
-    let page_height = twips("h", 15840) * EMU_PER_TWIP;
+    (twips("w", 12240), twips("h", 15840))
+}
+
+pub(crate) fn oversized_pictures(txn: &Txn<'_>, main: &str) -> Result<Vec<OversizedPicture>> {
+    let tree = txn.tree(main)?;
+    let Some(last) = section_properties(tree)?.last().copied() else {
+        return Ok(Vec::new());
+    };
+    let (page_width, page_height) = page_size(tree, Some(last));
+    let page_width = page_width * EMU_PER_TWIP;
+    let page_height = page_height * EMU_PER_TWIP;
     let mut out = Vec::new();
     for story in stories(txn, main)? {
         let Some(part) = &story.part else {

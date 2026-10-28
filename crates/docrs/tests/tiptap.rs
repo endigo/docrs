@@ -5,40 +5,33 @@
 //! mentions) come through from the JSON; what has no Word equivalent is
 //! reported; what is not a document is refused with nothing changed.
 
+mod support;
+
 use std::path::PathBuf;
 
 use docrs::markdown::{
     MAX_NESTING_DEPTH, MarkdownOptions, MarkdownReport, insert_html, insert_markdown, insert_tiptap,
 };
 use docrs::{Document, ErrorKind, Limits};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use support::{png_150dpi, repo_root};
 
 fn fixture(name: &str) -> String {
-    std::fs::read_to_string(repo().join("tests/fixtures/markdown/tiptap").join(name))
-        .unwrap_or_else(|err| panic!("{name}: {err}"))
+    std::fs::read_to_string(
+        repo_root()
+            .join("tests/fixtures/markdown/tiptap")
+            .join(name),
+    )
+    .unwrap_or_else(|err| panic!("{name}: {err}"))
 }
 
 /// The attached example reference document (restyled starter, A4, header
 /// and footer).
 fn reference() -> Document {
     Document::open_path(
-        repo().join("examples/markdown/reference.docx"),
+        repo_root().join("examples/markdown/reference.docx"),
         &Limits::default(),
     )
     .expect("examples/markdown/reference.docx opens")
-}
-
-/// A 3×2 PNG at 150 dpi.
-const PNG: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
-
-fn png_bytes() -> Vec<u8> {
-    (0..PNG.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&PNG[i..i + 2], 16).unwrap())
-        .collect()
 }
 
 struct Export {
@@ -139,11 +132,11 @@ fn page_options() -> MarkdownOptions {
         images: [
             (
                 "https://store.example/logo.png?token=t".to_string(),
-                png_bytes(),
+                png_150dpi(),
             ),
             (
                 "https://store.example/seal.png?token=s".to_string(),
-                png_bytes(),
+                png_150dpi(),
             ),
         ]
         .into(),
@@ -471,7 +464,7 @@ fn lists_tables_images_and_breaks_map_from_hand_written_nodes() {
              {"type":"text","text":"loose text "},{"type":"text","text":"joins","marks":[{"type":"italic"}]}"#),
         &MarkdownOptions {
             figure_captions: false,
-            images: [("img-1".to_string(), png_bytes())].into(),
+            images: [("img-1".to_string(), png_150dpi())].into(),
             ..MarkdownOptions::default()
         },
     );

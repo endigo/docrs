@@ -458,7 +458,6 @@ fn read_latent(tree: &XmlTree, element: NodeId) -> Result<LatentStyles> {
 pub(crate) fn read_styles(tree: &XmlTree, part: Option<String>) -> Result<Styles> {
     let root = tree.root();
     let styles = style_elements(tree)
-        .into_iter()
         .enumerate()
         .map(|(index, element)| read_style(tree, element, index))
         .collect::<Result<Vec<_>>>()?;
@@ -500,21 +499,35 @@ pub(crate) fn default_styles_tree() -> Result<XmlTree> {
 }
 
 /// Direct `w:style` children of the `w:styles` root.
-pub(crate) fn style_elements(tree: &XmlTree) -> Vec<NodeId> {
-    w_children(tree, tree.root(), "style").collect()
+pub(crate) fn style_elements(tree: &XmlTree) -> impl Iterator<Item = NodeId> + '_ {
+    w_children(tree, tree.root(), "style")
 }
 
 /// First `w:style` with `w:styleId == style_id` (`CT_Styles.get_by_id`).
 pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<NodeId> {
-    style_elements(tree)
-        .into_iter()
-        .find(|style| w_attr(tree, *style, "styleId") == Some(style_id))
+    style_elements(tree).find(|style| w_attr(tree, *style, "styleId") == Some(style_id))
+}
+
+/// A style and the styles it is based on, nearest first; a cycle or the
+/// sixteenth style ends the walk.
+#[cfg(feature = "markdown")]
+pub(crate) fn based_on_chain(tree: &XmlTree, start: Option<NodeId>) -> Vec<NodeId> {
+    const MAX_DEPTH: usize = 16;
+    let mut chain = Vec::new();
+    let mut current = start;
+    while let Some(node) = current.filter(|node| chain.len() < MAX_DEPTH && !chain.contains(node)) {
+        chain.push(node);
+        current = w_child(tree, node, "basedOn")
+            .and_then(|b| w_attr(tree, b, "val"))
+            .and_then(|id| style_element_by_id(tree, id));
+    }
+    chain
 }
 
 /// First `w:style` whose `w:name/@w:val` is `internal_name`
 /// (`CT_Styles.get_by_name`).
 pub(crate) fn style_element_by_name(tree: &XmlTree, internal_name: &str) -> Option<NodeId> {
-    style_elements(tree).into_iter().find(|style| {
+    style_elements(tree).find(|style| {
         w_child(tree, *style, "name").and_then(|name| w_attr(tree, name, "val"))
             == Some(internal_name)
     })
@@ -557,7 +570,11 @@ mod tests {
         assert_eq!(py_int(" 42 "), Some(42));
         assert_eq!(py_int("+4_2"), Some(42));
         assert_eq!(py_int("-7"), Some(-7));
+        assert_eq!(py_int(" 007 "), Some(7));
         assert_eq!(py_int("4__2"), None);
+        assert_eq!(py_int("_1"), None);
+        assert_eq!(py_int("1.0"), None);
+        assert_eq!(py_int("\u{0665}"), None);
         assert_eq!(py_int("x"), None);
         assert_eq!(py_int(""), None);
     }

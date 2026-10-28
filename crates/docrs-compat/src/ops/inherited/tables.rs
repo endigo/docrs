@@ -5,8 +5,8 @@ use docrs::authoring::{Cell, Table, TableDirection};
 use docrs::{Document, Result};
 use serde_json::{Value, json};
 
-use crate::ops::inherited::{bad, error_class, index_arg, pick, table};
-use crate::ops::{OpFn, Step};
+use crate::ops::inherited::{error_class, index_arg, pick, table};
+use crate::ops::{OpFn, Step, bad};
 
 fn rows_json(doc: &Document, target: &Table) -> Result<Value> {
     let mut rows = Vec::new();

@@ -12,19 +12,10 @@ use docrs::coreprops::{CoreProperty, CorePropertyChange, CoreValue};
 use docrs::sections::SectionChange;
 use docrs::styles::StyleType;
 use docrs::styles_write::{LatentDefaultsChange, LatentStyleChange, StyleChange};
-use docrs::{Document, ErrorKind, Limits, RefusalKind, Result};
-use support::{DOCUMENT_XML, package_with_settings};
+use docrs::{Document, ErrorKind, RefusalKind, Result};
+use support::{DOCUMENT_XML, open_bytes, package_with_settings, png_150dpi};
 
 const INCH: i64 = 914_400;
-const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
-
-fn png() -> Vec<u8> {
-    (0..PNG_150DPI.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&PNG_150DPI[i..i + 2], 16).unwrap())
-        .collect()
-}
-
 /// A document with something for every writer to touch, under `edit`.
 fn protected(edit: &str) -> Vec<u8> {
     let mut doc = Document::new();
@@ -32,7 +23,7 @@ fn protected(edit: &str) -> Vec<u8> {
     p.add_run(&mut doc, Some("gamma"), None).unwrap();
     p.add_tab_stop(&mut doc, INCH, "left", "dot").unwrap();
     doc.add_table(2, 2, None).unwrap();
-    doc.add_picture(&png(), None, None).unwrap();
+    doc.add_picture(&png_150dpi(), None, None).unwrap();
     doc.add_style("Gate Style", StyleType::Paragraph, false)
         .unwrap();
     doc.add_latent_style("Gate Latent").unwrap();
@@ -42,10 +33,6 @@ fn protected(edit: &str) -> Vec<u8> {
         .unwrap();
     doc.set_protection(edit).unwrap();
     doc.patch_bytes().unwrap().0
-}
-
-fn open(bytes: &[u8]) -> Document {
-    Document::open_bytes(bytes, &Limits::default()).unwrap()
 }
 
 fn para(doc: &Document) -> Paragraph {
@@ -58,7 +45,7 @@ fn table(doc: &Document) -> Table {
 
 fn picture_path() -> tempfile::TempPath {
     let file = tempfile::Builder::new().suffix(".png").tempfile().unwrap();
-    std::fs::write(file.path(), png()).unwrap();
+    std::fs::write(file.path(), png_150dpi()).unwrap();
     file.into_temp_path()
 }
 
@@ -80,7 +67,7 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
             d.add_table(1, 1, None).map(drop)
         }),
         ("Document::add_picture", false, |d| {
-            d.add_picture(&png(), None, None).map(drop)
+            d.add_picture(&png_150dpi(), None, None).map(drop)
         }),
         ("Document::add_picture_file", false, |d| {
             d.add_picture_file(picture_path(), None, None).map(drop)
@@ -159,7 +146,7 @@ fn writers() -> Vec<(&'static str, bool, Writer)> {
         }),
         ("Run::add_picture", false, |d| {
             para(d).runs(d)?[0]
-                .add_picture(d, &png(), None, None)
+                .add_picture(d, &png_150dpi(), None, None)
                 .map(drop)
         }),
         ("Run::add_picture_file", false, |d| {
@@ -302,7 +289,7 @@ fn every_inherited_writer_honours_the_protection_matrix() {
             } else {
                 body_allowed
             };
-            let mut doc = open(&bytes);
+            let mut doc = open_bytes(&bytes);
             let result = writer(&mut doc);
             if allowed {
                 result.unwrap_or_else(|err| panic!("{name} under {edit}: {err}"));
@@ -317,7 +304,7 @@ fn every_inherited_writer_honours_the_protection_matrix() {
             assert_eq!(err.reason(), "restrict_editing", "{name}");
             assert_eq!(doc.patch_bytes().unwrap().0, bytes, "{name} changed bytes");
 
-            let mut doc = open(&bytes);
+            let mut doc = open_bytes(&bytes);
             doc.acknowledge_protection().unwrap();
             writer(&mut doc).unwrap_or_else(|err| panic!("{name} acknowledged: {err}"));
             assert!(doc.protection_status().unwrap().enforced, "{name}");
@@ -330,7 +317,7 @@ fn ensure_styles_part_refuses_only_when_it_would_create_the_part() {
     let mut doc = Document::new();
     doc.set_protection("readOnly").unwrap();
     let bytes = doc.patch_bytes().unwrap().0;
-    let mut doc = open(&bytes);
+    let mut doc = open_bytes(&bytes);
     assert_eq!(doc.ensure_styles_part().unwrap(), "word/styles.xml");
     assert_eq!(doc.patch_bytes().unwrap().0, bytes);
 
@@ -338,7 +325,7 @@ fn ensure_styles_part_refuses_only_when_it_would_create_the_part() {
         DOCUMENT_XML,
         r#"<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:documentProtection w:edit="readOnly" w:enforcement="1"/></w:settings>"#,
     );
-    let mut bare = open(&bytes);
+    let mut bare = open_bytes(&bytes);
     let err = bare.ensure_styles_part().unwrap_err();
     assert_eq!(
         err.kind(),

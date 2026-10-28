@@ -47,7 +47,7 @@ fn eof() -> Error {
 }
 
 /// Python `round()` for floats (ties to even), then `int()`.
-fn py_round(value: f64) -> i64 {
+pub(crate) fn py_round(value: f64) -> i64 {
     value.round_ties_even() as i64
 }
 
@@ -159,7 +159,7 @@ impl Image {
                 err,
             )
         })?;
-        let mut image = Image::from_blob(&blob)?;
+        let mut image = Image::from_vec(blob)?;
         // The platform's base name, as `os.path.basename` (`ntpath` on Windows).
         image.filename = path
             .file_name()

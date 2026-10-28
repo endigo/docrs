@@ -1,29 +1,15 @@
 //! Inherited python-docx authoring API: XML effects frozen from the pinned
 //! oracle, refusal atomicity and live-handle freshness.
 
+mod support;
+
 use docrs::authoring::{
     BreakType, FontChange, LineSpacing, ParagraphFormat, SectionStart, Underline,
 };
 use docrs::{Document, ErrorKind, RefusalKind};
+use support::*;
 
-const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
 const GIF_5X7: &str = "47494638396105000700800000000000ffffff2c00000000010001000002024401003b";
-
-fn hex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
-        .collect()
-}
-
-fn document_xml(doc: &Document) -> String {
-    let tree = doc.package().xml("word/document.xml").unwrap();
-    String::from_utf8(docrs::xml::serialize(tree)).unwrap()
-}
-
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
 
 #[test]
 fn add_paragraph_with_text_and_style() {
@@ -65,25 +51,25 @@ fn headings_page_breaks_and_level_validation() {
     );
     doc.add_page_break().unwrap();
     assert!(document_xml(&doc).contains("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"));
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = doc.add_heading("x", 10).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidArgument);
     assert_eq!(err.reason(), "invalid_heading_level");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
 fn style_errors_change_nothing() {
     let mut doc = Document::new();
     doc.add_paragraph("seed", None).unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let unknown = doc.add_paragraph("x", Some("No Such Style")).unwrap_err();
     assert_eq!(unknown.reason(), "unknown_style");
     let wrong = doc.add_paragraph("x", Some("Emphasis")).unwrap_err();
     assert_eq!(wrong.reason(), "style_type_mismatch");
     let table = doc.add_table(1, 1, Some("Heading 1")).unwrap_err();
     assert_eq!(table.reason(), "style_type_mismatch");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     assert_eq!(doc.paragraphs().unwrap().len(), 1);
 }
 
@@ -111,7 +97,7 @@ fn tables_cells_rows_and_columns() {
     );
     table.set_style(&mut doc, Some("Table Grid")).unwrap();
     assert_eq!(table.style_id(&doc).unwrap().as_deref(), Some("TableGrid"));
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     assert_eq!(
         table.cell(&doc, 9, 0).unwrap_err().reason(),
         "cell_out_of_range"
@@ -120,19 +106,19 @@ fn tables_cells_rows_and_columns() {
         table.add_column(&mut doc, -1).unwrap_err().reason(),
         "value_out_of_range"
     );
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
 fn pictures_dedupe_by_sha1_and_allocate_ids() {
     let mut doc = Document::new();
-    let first = doc.add_picture(&hex(PNG_150DPI), None, None).unwrap();
+    let first = doc.add_picture(&png_150dpi(), None, None).unwrap();
     assert_eq!((first.width, first.height), (18288, 12192));
     assert_eq!(
         (first.r_id.as_str(), first.image_part.as_str()),
         ("rId9", "word/media/image1.png")
     );
-    let second = doc.add_picture(&hex(PNG_150DPI), None, Some(1000)).unwrap();
+    let second = doc.add_picture(&png_150dpi(), None, Some(1000)).unwrap();
     assert_eq!((second.width, second.height), (1500, 1000));
     assert_eq!(second.image_part, first.image_part);
     assert_eq!(second.r_id, first.r_id);
@@ -151,20 +137,20 @@ fn pictures_dedupe_by_sha1_and_allocate_ids() {
         ]
     );
     // Unlike upstream, a bad image leaves no empty paragraph behind.
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let count = doc.paragraphs().unwrap().len();
     assert_eq!(
         doc.add_picture(b"nope", None, None).unwrap_err().reason(),
         "unrecognized_image"
     );
     assert_eq!(
-        doc.add_picture(&hex(PNG_150DPI), Some(-1), None)
+        doc.add_picture(&png_150dpi(), Some(-1), None)
             .unwrap_err()
             .reason(),
         "value_out_of_range"
     );
     assert_eq!(doc.paragraphs().unwrap().len(), count);
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -199,7 +185,7 @@ fn runs_text_breaks_and_fonts() {
     assert_eq!(run.text(&doc).unwrap(), "a\tb\nc\n tail ");
     run.set_style(&mut doc, Some("Strong")).unwrap();
     assert!(document_xml(&doc).contains("<w:rPr><w:rStyle w:val=\"Strong\"/><w:rFonts"));
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = run
         .set_font(
             &mut doc,
@@ -208,7 +194,7 @@ fn runs_text_breaks_and_fonts() {
         .unwrap_err();
     assert_eq!(err.reason(), "value_out_of_range");
     assert_eq!(
-        bytes(&doc),
+        snapshot(&doc),
         before,
         "the earlier change in the batch was not applied"
     );
@@ -287,11 +273,11 @@ fn handles_are_local_and_fresh() {
         .unwrap();
     run.add_tab(&mut doc).unwrap();
     p.clear(&mut doc).unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let stale = run.set_text(&mut doc, "y").unwrap_err();
     assert_eq!(stale.refusal_kind(), Some(RefusalKind::TargetNotFound));
     assert_eq!(stale.reason(), "stale_handle");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let mut other = Document::new();
     let err = p.add_run(&mut other, Some("z"), None).unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::BoundaryViolation));
@@ -308,14 +294,14 @@ fn styles_part_is_created_on_demand() {
     let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>"#;
     let mut doc = Document::open_bytes(&build(xml), &docrs::Limits::default()).unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     assert_eq!(
         doc.add_paragraph("x", Some("Heading 1"))
             .unwrap_err()
             .reason(),
         "unknown_style"
     );
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let p = doc.paragraphs().unwrap().remove(0);
     p.set_style(&mut doc, None).unwrap();
     let (_, report) = doc.patch_bytes().unwrap();

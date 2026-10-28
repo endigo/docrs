@@ -7,12 +7,12 @@
 //! until [`Document::commit`] applies a [`Staged`] set, after every staged
 //! tree was validated; a refusal or error simply drops the transaction.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::package::content_types::{CT_NS, extension};
 use crate::package::rels::{
     RELS_CONTENT_TYPE, RELS_NS, Relationship, base_uri, relationships_from_tree, relative_ref,
-    rels_member_for,
+    rels_member_for, single_target, source_part_name,
 };
 use crate::unicode::casefold;
 use crate::xml::{self, XmlTree};
@@ -161,20 +161,7 @@ impl<'d> Txn<'d> {
             ));
         }
         let rels_member = rels_member_for(&format!("/{member}"));
-        let tree = self.tree_mut(CONTENT_TYPES)?;
-        let root = tree.root();
-        let part_name = casefold(&format!("/{member}"));
-        let overrides: Vec<_> = tree
-            .child_elements(root)
-            .filter(|node| tree.is(*node, CT_NS, "Override"))
-            .filter(|node| {
-                tree.attr(*node, None, "PartName")
-                    .is_some_and(|p| casefold(p) == part_name)
-            })
-            .collect();
-        for node in overrides {
-            tree.detach(node)?;
-        }
+        self.drop_content_type_override(&member)?;
         self.trees.remove(&member);
         self.binaries.remove(&member);
         self.removed.insert(member);
@@ -226,26 +213,50 @@ impl<'d> Txn<'d> {
         }
     }
 
+    /// Internal relationships from `source` with the member each targets;
+    /// one whose target is missing from the package is left out.
+    pub fn resolved_relationships(&self, source: &str) -> Result<Vec<(Relationship, String)>> {
+        let source_name = source_part_name(source);
+        let base = base_uri(&source_name);
+        Ok(self
+            .relationships(source)?
+            .into_iter()
+            .filter(|rel| !rel.external)
+            .filter_map(|rel| {
+                let member = self.resolve(&rel.target_part_name(base))?;
+                Some((rel, member))
+            })
+            .collect())
+    }
+
+    /// Members targeted by the internal relationships of any of `rel_types`
+    /// from `source`, in relationship order.
+    pub fn parts_related_by(&self, source: &str, rel_types: &[&str]) -> Result<Vec<String>> {
+        Ok(self
+            .resolved_relationships(source)?
+            .into_iter()
+            .filter(|(rel, _)| rel_types.contains(&rel.rel_type.as_str()))
+            .map(|(_, member)| member)
+            .collect())
+    }
+
+    /// Member targeted by the internal relationship `r_id` from `source`.
+    pub fn part_related_by_id(&self, source: &str, r_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .resolved_relationships(source)?
+            .into_iter()
+            .find(|(rel, _)| rel.id == r_id)
+            .map(|(_, member)| member))
+    }
+
     /// Member targeted by the single internal relationship of exact
     /// `rel_type` from `source` (upstream `part_related_by`).
     pub fn part_related_by(&self, source: &str, rel_type: &str) -> Result<Option<String>> {
         let source_name = source_part_name(source);
-        let matching: Vec<Relationship> = self
-            .relationships(source)?
-            .into_iter()
-            .filter(|rel| !rel.external && rel.rel_type == rel_type)
-            .collect();
-        match matching.as_slice() {
-            [] => Ok(None),
-            [rel] => Ok(self.resolve(&rel.target_part_name(base_uri(&source_name)))),
-            _ => Err(Error::refusal(
-                crate::RefusalKind::UnsupportedStructure,
-                "ambiguous_relationship",
-                format!(
-                    "multiple {rel_type} relationships from {source_name} make the target ambiguous"
-                ),
-            )),
-        }
+        Ok(
+            single_target(&self.relationships(source)?, rel_type, &source_name)?
+                .and_then(|target| self.resolve(&target)),
+        )
     }
 
     /// Upstream `next_partname("/word/header%d.xml")` with `{}` as the
@@ -308,6 +319,25 @@ impl<'d> Txn<'d> {
         self.doc.package().part(part).map(|p| p.current_bytes())
     }
 
+    /// Detach every `Override` for `member` from `[Content_Types].xml`.
+    pub fn drop_content_type_override(&mut self, member: &str) -> Result<()> {
+        let part_name = casefold(&format!("/{}", member.trim_start_matches('/')));
+        let tree = self.tree_mut(CONTENT_TYPES)?;
+        let root = tree.root();
+        let overrides: Vec<_> = tree
+            .child_elements(root)
+            .filter(|node| tree.is(*node, CT_NS, "Override"))
+            .filter(|node| {
+                tree.attr(*node, None, "PartName")
+                    .is_some_and(|p| casefold(p) == part_name)
+            })
+            .collect();
+        for node in overrides {
+            tree.detach(node)?;
+        }
+        Ok(())
+    }
+
     fn declare_content_type(&mut self, name: &str, content_type: &str) -> Result<()> {
         let ext = extension(&format!("/{name}")).to_lowercase();
         let tree = self.tree_mut(CONTENT_TYPES)?;
@@ -366,9 +396,10 @@ impl<'d> Txn<'d> {
         if let Some(rel) = existing.iter().find(|rel| matches(rel)) {
             return Ok(rel.id.clone());
         }
+        let taken: HashSet<&str> = existing.iter().map(|rel| rel.id.as_str()).collect();
         let r_id = (1..=existing.len() + 1)
             .map(|n| format!("rId{n}"))
-            .find(|candidate| existing.iter().all(|rel| rel.id != *candidate))
+            .find(|candidate| !taken.contains(candidate.as_str()))
             .unwrap_or_else(|| format!("rId{}", existing.len() + 1));
         let (target_ref, external) = match target {
             RelTarget::External(url) => (url.to_string(), true),
@@ -421,14 +452,6 @@ impl<'d> Txn<'d> {
             binaries: self.binaries,
             removed: self.removed,
         })
-    }
-}
-
-fn source_part_name(source: &str) -> String {
-    if source == "/" {
-        "/".to_string()
-    } else {
-        format!("/{}", source.trim_start_matches('/'))
     }
 }
 

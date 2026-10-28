@@ -4,10 +4,10 @@
 use docrs::clock::Timestamp;
 use docrs::commentops;
 use docrs::comments::{self, Comment};
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn supplied(step: &Step<'_>, name: &str, index: usize) -> bool {
     step.kwargs.contains_key(name) || step.args.len() > index
@@ -20,7 +20,7 @@ fn text(step: &Step<'_>, name: &str, index: usize, default: &str) -> Result<Stri
     step.param(name, index)
         .as_str()
         .map(str::to_string)
-        .ok_or_else(|| Error::invalid_argument("bad_case", format!("{name} must be a string")))
+        .ok_or_else(|| bad(format!("{name} must be a string")))
 }
 
 fn opt_text(step: &Step<'_>, name: &str, index: usize, default: Option<&str>) -> Option<String> {
@@ -32,26 +32,19 @@ fn opt_text(step: &Step<'_>, name: &str, index: usize, default: Option<&str>) ->
 
 /// Decode a `$date` argument (`None` when absent).
 pub(crate) fn date(step: &Step<'_>, name: &str, index: usize) -> Result<Option<Timestamp>> {
-    let value = step.param(name, index);
-    if value.is_null() {
-        return Ok(None);
-    }
-    let raw = value["$date"].as_str().ok_or_else(|| {
-        Error::invalid_argument("bad_case", format!("expected $date, got {value}"))
-    })?;
-    Timestamp::parse(raw).map(Some)
+    super::date(step.param(name, index))
 }
 
 fn comment(doc: &Document, step: &Step<'_>) -> Result<Comment> {
     let id = step
         .param("comment_id", 0)
         .as_i64()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "comment_id is required"))?;
+        .ok_or_else(|| bad("comment_id is required"))?;
     doc.comments()?
         .iter()
         .find(|c| c.comment_id == id)
         .cloned()
-        .ok_or_else(|| Error::invalid_argument("bad_case", format!("no comment {id}")))
+        .ok_or_else(|| bad(format!("no comment {id}")))
 }
 
 fn list(doc: &mut Document, _step: &Step<'_>) -> Result<Value> {
@@ -155,7 +148,7 @@ fn add_table(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let number = |name: &str, index: usize| {
         step.param(name, index)
             .as_i64()
-            .ok_or_else(|| Error::invalid_argument("bad_case", format!("{name} is required")))
+            .ok_or_else(|| bad(format!("{name} is required")))
     };
     let updated = comments::add_comment_table(
         doc,

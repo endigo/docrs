@@ -7,11 +7,7 @@ use docrs::clock::Timestamp;
 use docrs::{Document, Error, Result};
 use serde_json::Value;
 
-use super::{OpFn, Step, Target, strings, target};
-
-fn bad(message: impl Into<String>) -> Error {
-    Error::invalid_argument("bad_case", message)
-}
+use super::{OpFn, Step, Target, bad, strings, target};
 
 /// Decode `{"$date": "..."}` (or null).
 pub(crate) fn date(value: &Value) -> Result<Option<Timestamp>> {

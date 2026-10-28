@@ -18,10 +18,6 @@ use support::*;
 const W_DECL: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
 const MINIMAL: &str = "generated/minimal-clean/minimal.docx";
 
-fn open(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
 fn memory(texts: &[&str]) -> Document {
     let body: String = texts
         .iter()
@@ -48,17 +44,6 @@ fn texts(doc: &Document) -> Vec<String> {
         .collect()
 }
 
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
-fn body_xml(doc: &Document) -> String {
-    String::from_utf8(docrs::xml::serialize(
-        doc.package().xml("word/document.xml").unwrap(),
-    ))
-    .unwrap()
-}
-
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -69,7 +54,7 @@ fn refusal_of<T: std::fmt::Debug>(result: docrs::Result<T>) -> RefusalKind {
 
 #[test]
 fn inserts_a_section_after_a_string_anchor_within_the_part_budget() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     let result = doc
         .insert_section_after(
             BlockTarget::Text("First body paragraph"),
@@ -103,7 +88,7 @@ fn inserts_a_section_after_a_string_anchor_within_the_part_budget() {
 
 #[test]
 fn tracked_sections_stamp_runs_and_marks_with_deterministic_identity() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     let result = doc
         .insert_section_after(
             BlockTarget::Text("First body paragraph"),
@@ -118,7 +103,7 @@ fn tracked_sections_stamp_runs_and_marks_with_deterministic_identity() {
         )
         .unwrap();
     assert_eq!(result.revision_ids, vec![1, 2, 3]);
-    let xml = body_xml(&doc);
+    let xml = document_xml(&doc);
     assert!(xml.contains(
         r#"<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:rPr><w:ins w:id="1" w:author="Carol QA" w:date="2026-07-07T12:00:00Z"/></w:rPr></w:pPr><w:ins w:id="1" w:author="Carol QA" w:date="2026-07-07T12:00:00Z"><w:r><w:t>New Section</w:t></w:r></w:ins></w:p>"#
     ));
@@ -135,8 +120,8 @@ fn tracked_sections_stamp_runs_and_marks_with_deterministic_identity() {
 
 #[test]
 fn requires_an_author_when_tracked_and_validates_styles_first() {
-    let mut doc = open(MINIMAL);
-    let before = bytes(&doc);
+    let mut doc = open_fixture(MINIMAL);
+    let before = snapshot(&doc);
     let err = doc
         .insert_section_after(
             BlockTarget::Text("First body paragraph"),
@@ -161,14 +146,14 @@ fn requires_an_author_when_tracked_and_validates_styles_first() {
         )),
         RefusalKind::TargetNotFound
     );
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
 fn refuses_cross_paragraph_targets_before_protection_atomically() {
     let mut doc = memory(&["alpha end", "beta start", "after"]);
     doc.set_protection("readOnly").unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let span = doc
         .find_one("alpha end\nbeta start", &FindOptions::default())
         .unwrap();
@@ -187,7 +172,7 @@ fn refuses_cross_paragraph_targets_before_protection_atomically() {
         assert!(err.message().contains("wholly within one paragraph"));
         assert!(err.message().contains("explicit live Block"));
     }
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -224,7 +209,7 @@ fn live_blocks_follow_their_element_across_index_shifts() {
 fn refuses_foreign_historical_and_table_targets() {
     let source = memory(&["foreign"]);
     let mut doc = memory(&["local", "target"]);
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let foreign = source.blocks(View::Current).unwrap().remove(0);
     let none = SectionOptions {
         heading_style: None,
@@ -269,7 +254,7 @@ fn refuses_foreign_historical_and_table_targets() {
         refusal_of(tables.insert_section_after(BlockTarget::Text("cell"), "x", &[], &none)),
         RefusalKind::UnsupportedStructure
     );
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -282,7 +267,7 @@ fn stale_spans_refuse_before_protection() {
     doc.replace(&edit, "changed text", &Default::default())
         .unwrap();
     doc.set_protection("readOnly").unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     assert_eq!(
         refusal_of(doc.insert_section_after(
             BlockTarget::Span(&span),
@@ -295,7 +280,7 @@ fn stale_spans_refuse_before_protection() {
         )),
         RefusalKind::TargetNotFound
     );
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 fn count_named(tree: &XmlTree, root: docrs::xml::NodeId, local: &str) -> usize {
@@ -306,7 +291,7 @@ fn count_named(tree: &XmlTree, root: docrs::xml::NodeId, local: &str) -> usize {
 
 #[test]
 fn tracked_delete_keeps_each_runs_formatting_inside_the_deletion() {
-    let mut doc = open("generated/feature-isolated/fragmented-runs.docx");
+    let mut doc = open_fixture("generated/feature-isolated/fragmented-runs.docx");
     let result = doc
         .tracked_delete_paragraphs(
             ParagraphRange::one(BlockTarget::Text("Consulting rate")),
@@ -355,7 +340,7 @@ fn tracked_delete_keeps_each_runs_formatting_inside_the_deletion() {
 
 #[test]
 fn tracked_delete_selects_ranges_among_siblings() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     let result = doc
         .tracked_delete_paragraphs(
             ParagraphRange {
@@ -370,8 +355,8 @@ fn tracked_delete_selects_ranges_among_siblings() {
     assert_eq!(result.deleted_blocks, 2);
     assert_eq!(result.revision_ids, vec![1, 2]);
 
-    let mut tables = open("generated/feature-isolated/table-merged-nested.docx");
-    let before = bytes(&tables);
+    let mut tables = open_fixture("generated/feature-isolated/table-merged-nested.docx");
+    let before = snapshot(&tables);
     assert_eq!(
         refusal_of(tables.tracked_delete_paragraphs(
             ParagraphRange {
@@ -384,7 +369,7 @@ fn tracked_delete_selects_ranges_among_siblings() {
         )),
         RefusalKind::BoundaryViolation
     );
-    assert_eq!(bytes(&tables), before);
+    assert_eq!(snapshot(&tables), before);
     let result = tables
         .tracked_delete_paragraphs(
             ParagraphRange {
@@ -401,8 +386,8 @@ fn tracked_delete_selects_ranges_among_siblings() {
 
 #[test]
 fn tracked_delete_refusals_leave_documents_unchanged() {
-    let mut doc = open(MINIMAL);
-    let before = bytes(&doc);
+    let mut doc = open_fixture(MINIMAL);
+    let before = snapshot(&doc);
     let err = doc
         .tracked_delete_paragraphs(
             ParagraphRange {
@@ -423,10 +408,10 @@ fn tracked_delete_refusals_leave_documents_unchanged() {
         )
         .unwrap_err();
     assert!(err.message().contains("author"));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 
-    let mut controls = open("generated/feature-isolated/content-control.docx");
-    let before = bytes(&controls);
+    let mut controls = open_fixture("generated/feature-isolated/content-control.docx");
+    let before = snapshot(&controls);
     assert_eq!(
         refusal_of(controls.tracked_delete_paragraphs(
             ParagraphRange::one(BlockTarget::Text("Inline control follows")),
@@ -435,9 +420,9 @@ fn tracked_delete_refusals_leave_documents_unchanged() {
         )),
         RefusalKind::UnsupportedStructure
     );
-    assert_eq!(bytes(&controls), before);
+    assert_eq!(snapshot(&controls), before);
 
-    let mut gauntlet = open("generated/gauntlet/gauntlet.docx");
+    let mut gauntlet = open_fixture("generated/gauntlet/gauntlet.docx");
     let err = gauntlet
         .tracked_delete_paragraphs(
             ParagraphRange {
@@ -454,7 +439,7 @@ fn tracked_delete_refusals_leave_documents_unchanged() {
 
 #[test]
 fn tracked_replace_deletes_and_inserts_within_budget() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     let result = doc
         .tracked_replace_paragraphs(
             ParagraphRange::one(BlockTarget::Text("Second body paragraph")),
@@ -480,7 +465,7 @@ fn tracked_replace_deletes_and_inserts_within_budget() {
 
 #[test]
 fn inserts_paragraphs_lists_and_tables() {
-    let mut doc = open(MINIMAL);
+    let mut doc = open_fixture(MINIMAL);
     let blocks = vec![
         RichBlock::Paragraph(RichParagraph {
             runs: vec![
@@ -536,7 +521,7 @@ fn inserts_paragraphs_lists_and_tables() {
         .unwrap();
     assert!(table.text.contains("Uptime"));
     // Section width rule: 12240 - 1800 - 1800 twips over two columns.
-    assert!(body_xml(&reopened).contains(r#"<w:gridCol w:w="4320"/><w:gridCol w:w="4320"/>"#));
+    assert!(document_xml(&reopened).contains(r#"<w:gridCol w:w="4320"/><w:gridCol w:w="4320"/>"#));
     let numbered = reopened.list_numbering().unwrap().numbered_paragraphs;
     assert_eq!(numbered.len(), 2);
     assert_eq!(numbered[0].num_id, 10);
@@ -544,8 +529,8 @@ fn inserts_paragraphs_lists_and_tables() {
 
 #[test]
 fn tracked_rich_blocks_refuse_tables_and_validate_shapes() {
-    let mut doc = open(MINIMAL);
-    let before = bytes(&doc);
+    let mut doc = open_fixture(MINIMAL);
+    let before = snapshot(&doc);
     let table = |rows: Vec<Vec<String>>| RichBlock::Table(TableBlock { rows });
     assert_eq!(
         refusal_of(doc.insert_blocks_after(
@@ -581,7 +566,7 @@ fn tracked_rich_blocks_refuse_tables_and_validate_shapes() {
         )
         .unwrap_err();
     assert!(err.message().contains("kind"));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 
     let result = doc
         .insert_blocks_after(
@@ -632,7 +617,7 @@ fn tables_are_padded_where_word_would_fuse_them() {
         .unwrap();
     // table, pad, table, pad (story end)
     assert_eq!(result.inserted_blocks, 4);
-    let xml = body_xml(&doc);
+    let xml = document_xml(&doc);
     assert!(xml.contains("</w:tbl><w:p/><w:tbl>"));
     assert!(xml.ends_with("</w:tbl><w:p/></w:body></w:document>"));
     // no sections: 6 inches over one column

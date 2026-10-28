@@ -9,7 +9,7 @@ use docrs::textdiff::{pending_changes, text_diff};
 use docrs::{Document, Limits, View};
 use serde_json::{Value, json};
 
-use crate::{hostile, oracle};
+use crate::{hostile, oracle, report};
 
 struct XorShift(u64);
 
@@ -150,11 +150,7 @@ pub fn run(python: &Path) -> Result<bool, String> {
         "m6-parity: {}",
         serde_json::to_string(&summary).unwrap_or_default()
     );
-    for failure in failures.iter().take(10) {
-        let mut text = failure.to_string();
-        text.truncate(1200);
-        println!("  FAIL {text}");
-    }
+    report::print_failures("FAIL ", &failures, 10, 1200);
     Ok(failures.is_empty())
 }
 
@@ -314,17 +310,19 @@ pub fn run_compare(python: &Path) -> Result<bool, String> {
     let date = "2024-01-02T03:04:05Z";
     let mut requests = Vec::new();
     let mut plans: Vec<(String, Value, std::path::PathBuf, std::path::PathBuf)> = Vec::new();
-    let mut inputs: Vec<(String, std::path::PathBuf)> = hostile::all_fixtures()
-        .into_iter()
-        .filter(|rel| !rel.contains("/corrupt/") && !rel.contains("large"))
-        .map(|rel| {
-            let path = hostile::fixtures_dir().join(&rel);
-            (rel, path)
-        })
-        .collect();
+    let mut inputs = hostile::fixture_inputs(&["/corrupt/", "large"]);
     inputs.sort();
     for (index, (rel, path)) in inputs.iter().enumerate() {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        let has_revisions = Document::open_bytes(&bytes, &Limits::default())
+            .ok()
+            .and_then(|d| d.revisions().ok())
+            .is_some_and(|r| !r.is_empty());
+        let modes: &[Option<&str>] = if has_revisions {
+            &[None, Some("accept"), Some("reject")]
+        } else {
+            &[None]
+        };
         let mut pairs: Vec<(String, std::path::PathBuf)> = Vec::new();
         for (variant_index, (label, revised)) in variants(&bytes).into_iter().enumerate() {
             let revised_path = work.path().join(format!("v-{index}-{variant_index}.docx"));
@@ -338,15 +336,6 @@ pub fn run_compare(python: &Path) -> Result<bool, String> {
             ));
         }
         for (pair_index, (label, revised_path)) in pairs.into_iter().enumerate() {
-            let has_revisions = Document::open_bytes(&bytes, &Limits::default())
-                .ok()
-                .and_then(|d| d.revisions().ok())
-                .is_some_and(|r| !r.is_empty());
-            let modes: &[Option<&str>] = if has_revisions {
-                &[None, Some("accept"), Some("reject")]
-            } else {
-                &[None]
-            };
             let runs: Vec<(&str, Option<&str>)> = ["word", "block"]
                 .iter()
                 .flat_map(|g| modes.iter().map(move |m| (*g, *m)))
@@ -442,10 +431,6 @@ pub fn run_compare(python: &Path) -> Result<bool, String> {
         "compare-parity: {}",
         serde_json::to_string(&summary).unwrap_or_default()
     );
-    for failure in failures.iter().take(12) {
-        let mut text = failure.to_string();
-        text.truncate(1500);
-        println!("  FAIL {text}");
-    }
+    report::print_failures("FAIL ", &failures, 12, 1500);
     Ok(failures.is_empty())
 }

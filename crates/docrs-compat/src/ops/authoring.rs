@@ -2,19 +2,13 @@
 //! characterization (oracle helpers `ext.p4_*` in `tools/oracle/ext_p4.py`;
 //! the locators are documented there).
 
-use docrs::authoring::{
-    BreakType, FontChange, LineSpacing, Paragraph, ParagraphFormat, Run, SectionStart, Table,
-    Underline,
-};
+use docrs::authoring::{BreakType, FontChange, Paragraph, Run, SectionStart, Table, Underline};
 use docrs::image::{Image, upstream_exception};
 use docrs::{Document, Error, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step};
-
-fn bad(message: impl Into<String>) -> Error {
-    Error::invalid_argument("bad_case", message)
-}
+use super::inherited::{paragraph as para, parfmt_props, pick};
+use super::{OpFn, Step, bad};
 
 /// Decode `{"$p4_image": hex}` / `{"$p4_image_file": name}`.
 pub fn image_bytes(value: &Value) -> Result<Vec<u8>> {
@@ -34,41 +28,7 @@ pub fn image_bytes(value: &Value) -> Result<Vec<u8>> {
     Err(bad(format!("expected an image argument, got {value}")))
 }
 
-fn opt_str(value: &Value) -> Option<&str> {
-    value.as_str()
-}
-
-fn opt_i64(value: &Value) -> Option<i64> {
-    value.as_i64()
-}
-
-/// Python list indexing (negative from the end).
-fn pick<T: Clone>(items: &[T], index: i64, what: &str) -> Result<T> {
-    let len = items.len() as i64;
-    let real = if index < 0 { len + index } else { index };
-    if real < 0 || real >= len {
-        return Err(bad(format!("{what} index {index} out of range")));
-    }
-    Ok(items[real as usize].clone())
-}
-
-pub fn para(doc: &Document, key: &Value) -> Result<Paragraph> {
-    let paragraphs = doc.paragraphs()?;
-    if let Some(index) = key.as_i64() {
-        return pick(&paragraphs, index, "paragraph");
-    }
-    let wanted = key
-        .as_str()
-        .ok_or_else(|| bad(format!("bad paragraph locator {key}")))?;
-    for paragraph in paragraphs {
-        if paragraph.text(doc)? == wanted {
-            return Ok(paragraph);
-        }
-    }
-    Err(bad(format!("no paragraph with text {wanted:?}")))
-}
-
-pub fn run(doc: &Document, para_key: &Value, run_key: &Value) -> Result<Run> {
+fn run(doc: &mut Document, para_key: &Value, run_key: &Value) -> Result<Run> {
     let runs = para(doc, para_key)?.runs(doc)?;
     pick(
         &runs,
@@ -124,8 +84,8 @@ fn characterize(_doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 
 fn scaled(_doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let bytes = image_bytes(step.param("image", 0))?;
-    let width = opt_i64(step.param("width", 1));
-    let height = opt_i64(step.param("height", 2));
+    let width = step.param("width", 1).as_i64();
+    let height = step.param("height", 2).as_i64();
     Ok(
         match Image::from_blob(&bytes).and_then(|image| image.scaled_dimensions(width, height)) {
             Ok((cx, cy)) => json!([cx, cy]),
@@ -135,14 +95,14 @@ fn scaled(_doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 }
 
 fn add_paragraph(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
-    let text = opt_str(step.param("text", 0)).unwrap_or("");
-    let paragraph = doc.add_paragraph(text, opt_str(step.param("style", 1)))?;
+    let text = step.param("text", 0).as_str().unwrap_or("");
+    let paragraph = doc.add_paragraph(text, step.param("style", 1).as_str())?;
     para_summary(doc, &paragraph)
 }
 
 fn add_heading(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
-    let text = opt_str(step.param("text", 0)).unwrap_or("");
-    let level = opt_i64(step.param("level", 1)).unwrap_or(1);
+    let text = step.param("text", 0).as_str().unwrap_or("");
+    let level = step.param("level", 1).as_i64().unwrap_or(1);
     let paragraph = doc.add_heading(text, level)?;
     para_summary(doc, &paragraph)
 }
@@ -155,7 +115,7 @@ fn add_page_break(doc: &mut Document, _step: &Step<'_>) -> Result<Value> {
 fn add_table(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let rows = step.param("rows", 0).as_u64().ok_or_else(|| bad("rows"))? as usize;
     let cols = step.param("cols", 1).as_u64().ok_or_else(|| bad("cols"))? as usize;
-    let table = doc.add_table(rows, cols, opt_str(step.param("style", 2)))?;
+    let table = doc.add_table(rows, cols, step.param("style", 2).as_str())?;
     table_summary(doc, &table)
 }
 
@@ -167,14 +127,14 @@ fn add_picture(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let bytes = image_bytes(step.param("image", 0))?;
     let shape = doc.add_picture(
         &bytes,
-        opt_i64(step.param("width", 1)),
-        opt_i64(step.param("height", 2)),
+        step.param("width", 1).as_i64(),
+        step.param("height", 2).as_i64(),
     )?;
     Ok(shape_json(&shape))
 }
 
 fn add_section(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
-    let start = SectionStart::parse(opt_str(step.param("start_type", 0)).unwrap_or("nextPage"))?;
+    let start = SectionStart::parse(step.param("start_type", 0).as_str().unwrap_or("nextPage"))?;
     let section = doc.add_section(start)?;
     Ok(json!({"start_type": section.start_type.as_str()}))
 }
@@ -183,8 +143,8 @@ fn add_run(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let paragraph = para(doc, step.param("para", 0))?;
     let run = paragraph.add_run(
         doc,
-        opt_str(step.param("text", 1)),
-        opt_str(step.param("style", 2)),
+        step.param("text", 1).as_str(),
+        step.param("style", 2).as_str(),
     )?;
     Ok(json!({"text": run.text(doc)?}))
 }
@@ -193,15 +153,15 @@ fn insert_paragraph_before(doc: &mut Document, step: &Step<'_>) -> Result<Value>
     let paragraph = para(doc, step.param("para", 0))?;
     let new = paragraph.insert_paragraph_before(
         doc,
-        opt_str(step.param("text", 1)),
-        opt_str(step.param("style", 2)),
+        step.param("text", 1).as_str(),
+        step.param("style", 2).as_str(),
     )?;
     para_summary(doc, &new)
 }
 
 fn set_paragraph_text(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let paragraph = para(doc, step.param("para", 0))?;
-    paragraph.set_text(doc, opt_str(step.param("text", 1)))?;
+    paragraph.set_text(doc, step.param("text", 1).as_str())?;
     para_summary(doc, &paragraph)
 }
 
@@ -213,53 +173,19 @@ fn clear_paragraph(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 
 fn set_paragraph_style(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let paragraph = para(doc, step.param("para", 0))?;
-    paragraph.set_style(doc, opt_str(step.param("style", 1)))?;
+    paragraph.set_style(doc, step.param("style", 1).as_str())?;
     para_summary(doc, &paragraph)
 }
 
 fn set_alignment(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let paragraph = para(doc, step.param("para", 0))?;
-    paragraph.set_alignment(doc, opt_str(step.param("value", 1)))?;
+    paragraph.set_alignment(doc, step.param("value", 1).as_str())?;
     Ok(Value::Null)
-}
-
-fn tri(value: &Value) -> Option<Option<bool>> {
-    Some(value.as_bool())
 }
 
 fn paragraph_format(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let paragraph = para(doc, step.param("para", 0))?;
-    let props = step
-        .param("props", 1)
-        .as_object()
-        .ok_or_else(|| bad("props must be an object"))?;
-    let mut format = ParagraphFormat::default();
-    for (name, value) in props {
-        match name.as_str() {
-            "alignment" => format.alignment = Some(value.as_str().map(str::to_string)),
-            "left_indent" => format.left_indent = Some(value.as_i64()),
-            "right_indent" => format.right_indent = Some(value.as_i64()),
-            "first_line_indent" => format.first_line_indent = Some(value.as_i64()),
-            "space_before" => format.space_before = Some(value.as_i64()),
-            "space_after" => format.space_after = Some(value.as_i64()),
-            "line_spacing" => {
-                format.line_spacing = Some(if value.is_null() {
-                    None
-                } else if let Some(lines) = value["multiple"].as_f64() {
-                    Some(LineSpacing::Multiple(lines))
-                } else {
-                    Some(LineSpacing::Exactly(
-                        value["exact"].as_i64().ok_or_else(|| bad("line_spacing"))?,
-                    ))
-                })
-            }
-            "keep_together" => format.keep_together = tri(value),
-            "keep_with_next" => format.keep_with_next = tri(value),
-            "page_break_before" => format.page_break_before = tri(value),
-            "widow_control" => format.widow_control = tri(value),
-            other => return Err(bad(format!("unknown paragraph format property {other}"))),
-        }
-    }
+    let format = parfmt_props(step.param("props", 1))?;
     paragraph.set_format(doc, &format)?;
     Ok(Value::Null)
 }
@@ -270,13 +196,13 @@ fn run_text_value(doc: &Document, run: &Run) -> Result<Value> {
 
 fn set_run_text(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let run = run(doc, step.param("para", 0), step.param("run", 1))?;
-    run.set_text(doc, opt_str(step.param("text", 2)).unwrap_or(""))?;
+    run.set_text(doc, step.param("text", 2).as_str().unwrap_or(""))?;
     run_text_value(doc, &run)
 }
 
 fn run_add_text(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let run = run(doc, step.param("para", 0), step.param("run", 1))?;
-    run.add_text(doc, opt_str(step.param("text", 2)).unwrap_or(""))?;
+    run.add_text(doc, step.param("text", 2).as_str().unwrap_or(""))?;
     run_text_value(doc, &run)
 }
 
@@ -288,7 +214,7 @@ fn run_add_tab(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 
 fn run_add_break(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let run = run(doc, step.param("para", 0), step.param("run", 1))?;
-    let kind = match opt_str(step.param("kind", 2)).unwrap_or("line") {
+    let kind = match step.param("kind", 2).as_str().unwrap_or("line") {
         "line" => BreakType::Line,
         "page" => BreakType::Page,
         "column" => BreakType::Column,
@@ -309,7 +235,7 @@ fn run_clear(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 
 fn set_run_style(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let run = run(doc, step.param("para", 0), step.param("run", 1))?;
-    run.set_style(doc, opt_str(step.param("style", 2)))?;
+    run.set_style(doc, step.param("style", 2).as_str())?;
     Ok(Value::Null)
 }
 
@@ -358,8 +284,8 @@ fn run_add_picture(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let shape = run.add_picture(
         doc,
         &bytes,
-        opt_i64(step.param("width", 3)),
-        opt_i64(step.param("height", 4)),
+        step.param("width", 3).as_i64(),
+        step.param("height", 4).as_i64(),
     )?;
     Ok(shape_json(&shape))
 }
@@ -378,7 +304,7 @@ fn cell_set_text(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
         index(step.param("row", 1), "row")?,
         index(step.param("col", 2), "col")?,
     )?;
-    cell.set_text(doc, opt_str(step.param("text", 3)).unwrap_or(""))?;
+    cell.set_text(doc, step.param("text", 3).as_str().unwrap_or(""))?;
     Ok(json!({"text": cell.text(doc)?}))
 }
 
@@ -390,14 +316,17 @@ fn table_add_row(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 
 fn table_add_column(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let table = table(doc, step.param("table", 0))?;
-    let width = opt_i64(step.param("width", 1)).ok_or_else(|| bad("width"))?;
+    let width = step
+        .param("width", 1)
+        .as_i64()
+        .ok_or_else(|| bad("width"))?;
     table.add_column(doc, width)?;
     table_summary(doc, &table)
 }
 
 fn table_set_style(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let table = table(doc, step.param("table", 0))?;
-    table.set_style(doc, opt_str(step.param("style", 1)))?;
+    table.set_style(doc, step.param("style", 1).as_str())?;
     table_summary(doc, &table)
 }
 

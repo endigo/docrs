@@ -4,30 +4,25 @@
 //! oracle does; a returned table encodes as `{"type": "Table", "rows":
 //! [[cell text…]…]}` (see `tools/oracle/ext_p3.py`).
 
-use docrs::clock::Timestamp;
 use docrs::replace::ReplaceReport;
 use docrs::tableops::{Table, UpdateCellOptions};
 use docrs::{Document, Error, MatchPolicy, RefusalKind, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step};
-
-fn bad_case(message: impl Into<String>) -> Error {
-    Error::invalid_argument("bad_case", message)
-}
+use super::{OpFn, Step, bad, date};
 
 fn policy(value: &Value) -> Result<MatchPolicy> {
     match value {
         Value::Null => Ok(MatchPolicy::Exact),
         Value::String(token) => MatchPolicy::parse(token),
-        other => Err(bad_case(format!("match must be a string, got {other}"))),
+        other => Err(bad(format!("match must be a string, got {other}"))),
     }
 }
 
 fn table(doc: &Document, value: &Value) -> Result<Table> {
     let near = value["$table"]
         .as_str()
-        .ok_or_else(|| bad_case(format!("expected $table, got {value}")))?;
+        .ok_or_else(|| bad(format!("expected $table, got {value}")))?;
     doc.find_table(near, policy(&value["match"])?)
 }
 
@@ -48,7 +43,7 @@ fn report_json(report: &ReplaceReport) -> Value {
 fn index(value: &Value, what: &str) -> Result<std::result::Result<usize, i64>> {
     let number = value
         .as_i64()
-        .ok_or_else(|| bad_case(format!("{what} must be an integer, got {value}")))?;
+        .ok_or_else(|| bad(format!("{what} must be an integer, got {value}")))?;
     Ok(if number < 0 {
         Err(number)
     } else {
@@ -69,7 +64,7 @@ fn find_table(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let near = step
         .param("near_text", 0)
         .as_str()
-        .ok_or_else(|| bad_case("near_text is required"))?;
+        .ok_or_else(|| bad("near_text is required"))?;
     let found = doc.find_table(near, policy(step.param("match", 1))?)?;
     table_json(doc, &found)
 }
@@ -79,19 +74,11 @@ fn update_cell(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
     let new_text = step
         .param("new_text", 3)
         .as_str()
-        .ok_or_else(|| bad_case("new_text is required"))?;
-    let date = match step.kwarg("date") {
-        Value::Null => None,
-        value => Some(Timestamp::parse(
-            value["$date"]
-                .as_str()
-                .ok_or_else(|| bad_case("date must be {\"$date\": …}"))?,
-        )?),
-    };
+        .ok_or_else(|| bad("new_text is required"))?;
     let options = UpdateCellOptions {
         tracked: step.kwarg("tracked").as_bool().unwrap_or(false),
         author: step.kwarg("author").as_str().map(str::to_string),
-        date,
+        date: date(step.kwarg("date"))?,
     };
     let row = index(step.param("row", 1), "row")?;
     let column = index(step.param("column", 2), "column")?;

@@ -30,11 +30,7 @@ fn candidates() -> Vec<PathBuf> {
 }
 
 /// The LibreOffice binary the gate would use, or why none works.
-pub fn available() -> Result<PathBuf, String> {
-    working_soffice()
-}
-
-fn working_soffice() -> Result<PathBuf, String> {
+pub fn working_soffice() -> Result<PathBuf, String> {
     let mut problems = Vec::new();
     for candidate in candidates() {
         match Command::new(&candidate).arg("--version").output() {

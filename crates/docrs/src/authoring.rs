@@ -17,8 +17,10 @@
 //! protection (only paper-docx's own operations are).
 
 use crate::image::Image;
+use crate::links::append_moving;
 use crate::oxml::{
-    PPR_SEQ, RPR_SEQ, add_t, append, get_or_add, insert_before_successors, successors,
+    PPR_SEQ, RPR_SEQ, add_t, append, emu_to_twips, get_or_add, insert_before_successors,
+    insert_before_successors_in, set_w, successors, w_el,
 };
 use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
@@ -27,16 +29,7 @@ use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, DocumentId, Error, RefusalKind, Result};
 
-/// DrawingML wordprocessingDrawing (`wp:`).
-pub const WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
-/// DrawingML main (`a:`).
-pub const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
-/// DrawingML picture (`pic:`).
-pub const PIC: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
-/// Office relationships (`r:`).
-pub const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-const PICTURE_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+pub use crate::wml::{A, PIC, R, WP};
 
 /// Freshness evidence shared by every live authoring handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,14 +335,6 @@ pub(crate) fn host_rpr(tree: &mut XmlTree, element: NodeId, host: Host) -> Resul
     }
 }
 
-pub(crate) fn new_w(tree: &mut XmlTree, scope: NodeId, local: &str) -> Result<NodeId> {
-    tree.create_element(scope, W, local)
-}
-
-pub(crate) fn set_w(tree: &mut XmlTree, id: NodeId, local: &str, value: &str) -> Result<()> {
-    tree.set_attr(id, Some(W), local, value)
-}
-
 /// `insert_element_before(*successors)` for a new `w:local` child.
 pub(crate) fn add_w(
     tree: &mut XmlTree,
@@ -357,7 +342,7 @@ pub(crate) fn add_w(
     local: &str,
     after: &[&str],
 ) -> Result<NodeId> {
-    let child = new_w(tree, parent, local)?;
+    let child = w_el(tree, parent, local)?;
     insert_before_successors(tree, parent, child, after)?;
     Ok(child)
 }
@@ -401,11 +386,6 @@ pub(crate) fn paragraph_text(tree: &XmlTree, p: NodeId) -> String {
     out
 }
 
-/// `Emu(value).twips`: `int(round(emu / 635.0))`.
-fn twips(emu: i64) -> i64 {
-    (emu as f64 / 635.0).round_ties_even() as i64
-}
-
 pub(crate) fn check_range(value: i64, low: i128, high: i128, what: &str) -> Result<()> {
     if (value as i128) < low || (value as i128) > high {
         return Err(Error::invalid_argument(
@@ -419,13 +399,13 @@ pub(crate) fn check_range(value: i64, low: i128, high: i128, what: &str) -> Resu
 /// `ST_TwipsMeasure.to_xml` (XsdUnsignedLong validation on the EMU value).
 pub(crate) fn twips_measure(emu: i64, what: &str) -> Result<String> {
     check_range(emu, 0, u64::MAX as i128, what)?;
-    Ok(twips(emu).to_string())
+    Ok(emu_to_twips(emu).to_string())
 }
 
 /// `ST_SignedTwipsMeasure.to_xml` (XsdInt validation on the EMU value).
 pub(crate) fn signed_twips_measure(emu: i64, what: &str) -> Result<String> {
     check_range(emu, i32::MIN as i128, i32::MAX as i128, what)?;
-    Ok(twips(emu).to_string())
+    Ok(emu_to_twips(emu).to_string())
 }
 
 /// `ST_TwipsMeasure.convert_from_xml` → EMU.
@@ -534,21 +514,7 @@ impl StyleType {
 
 /// Upstream `BabelFish.ui2internal`.
 pub fn ui_to_internal(name: &str) -> &str {
-    match name {
-        "Caption" => "caption",
-        "Footer" => "footer",
-        "Header" => "header",
-        "Heading 1" => "heading 1",
-        "Heading 2" => "heading 2",
-        "Heading 3" => "heading 3",
-        "Heading 4" => "heading 4",
-        "Heading 5" => "heading 5",
-        "Heading 6" => "heading 6",
-        "Heading 7" => "heading 7",
-        "Heading 8" => "heading 8",
-        "Heading 9" => "heading 9",
-        other => other,
-    }
+    crate::styles::ui_to_internal(name)
 }
 
 pub(crate) fn on_off(value: &str) -> Result<bool> {
@@ -649,12 +615,12 @@ pub(crate) fn append_run_content(tree: &mut XmlTree, r: NodeId, text: &str) -> R
         match ch {
             '\t' => {
                 flush(tree, &mut buffer)?;
-                let tab = new_w(tree, r, "tab")?;
+                let tab = w_el(tree, r, "tab")?;
                 append(tree, r, tab)?;
             }
             '\r' | '\n' => {
                 flush(tree, &mut buffer)?;
-                let br = new_w(tree, r, "br")?;
+                let br = w_el(tree, r, "br")?;
                 append(tree, r, br)?;
             }
             other => buffer.push(other),
@@ -703,7 +669,7 @@ fn add_run_in(
         _ => None,
     };
     let tree = txn.tree_mut(part)?;
-    let r = new_w(tree, p, "r")?;
+    let r = w_el(tree, p, "r")?;
     append(tree, p, r)?;
     if let Some(text) = text.filter(|t| !t.is_empty()) {
         set_run_text(tree, r, text)?;
@@ -746,7 +712,7 @@ pub(crate) fn body(tree: &XmlTree) -> Result<NodeId> {
 /// `CT_Body.add_p()` (before `w:sectPr`).
 fn add_body_paragraph(tree: &mut XmlTree) -> Result<NodeId> {
     let body = body(tree)?;
-    let p = new_w(tree, body, "p")?;
+    let p = w_el(tree, body, "p")?;
     insert_before_successors(tree, body, p, &["sectPr"])?;
     Ok(p)
 }
@@ -775,19 +741,7 @@ pub(crate) fn image_parts(txn: &Txn<'_>) -> Result<Vec<String>> {
         visited: &mut Vec<String>,
         out: &mut Vec<String>,
     ) -> Result<()> {
-        let source_name = if source == "/" {
-            "/".to_string()
-        } else {
-            format!("/{source}")
-        };
-        let base = crate::package::rels::base_uri(&source_name).to_string();
-        for rel in txn.relationships(source)? {
-            if rel.external {
-                continue;
-            }
-            let Some(member) = txn.resolve(&rel.target_part_name(&base)) else {
-                continue;
-            };
+        for (rel, member) in txn.resolved_relationships(source)? {
             if rel.rel_type == rt::IMAGE && !out.contains(&member) {
                 out.push(member.clone());
             }
@@ -947,7 +901,7 @@ fn new_pic_inline(
         &[("noChangeAspect", "1")],
     )?;
     let graphic = child(tree, inline, A, "graphic", &[])?;
-    let data = child(tree, graphic, A, "graphicData", &[("uri", PICTURE_URI)])?;
+    let data = child(tree, graphic, A, "graphicData", &[("uri", PIC)])?;
     let pic = child(tree, data, PIC, "pic", &[])?;
     let nv = child(tree, pic, PIC, "nvPicPr", &[])?;
     child(tree, nv, PIC, "cNvPr", &[("id", "0"), ("name", filename)])?;
@@ -1004,7 +958,7 @@ pub(crate) fn add_picture_named(
         ));
     }
     let tree = txn.tree_mut(part)?;
-    let drawing = new_w(tree, r, "drawing")?;
+    let drawing = w_el(tree, r, "drawing")?;
     // Upstream names the picture after the reused part's `Image`, which is
     // `image.<ext>` for a part loaded from the package; a fresh part keeps
     // the file name it was created from.
@@ -1150,7 +1104,7 @@ impl Document {
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let p = add_body_paragraph(tree)?;
-        let r = new_w(tree, p, "r")?;
+        let r = w_el(tree, p, "r")?;
         append(tree, p, r)?;
         add_break_xml(tree, r, BreakType::Page)?;
         let handle = staged_handle(&txn, &part, p)?;
@@ -1188,7 +1142,7 @@ impl Document {
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let p = add_body_paragraph(tree)?;
-        let r = new_w(tree, p, "r")?;
+        let r = w_el(tree, p, "r")?;
         append(tree, p, r)?;
         let shape = add_picture_in(&mut txn, &part, r, image, width, height)?;
         commit!(self, txn, shape)
@@ -1206,7 +1160,7 @@ impl Document {
         let sentinel = match w_child(tree, body, "sectPr") {
             Some(existing) => existing,
             None => {
-                let sect = new_w(tree, body, "sectPr")?;
+                let sect = w_el(tree, body, "sectPr")?;
                 append(tree, body, sect)?;
                 sect
             }
@@ -1264,15 +1218,15 @@ pub(crate) fn new_tbl(
     } else {
         0
     };
-    let col_twips = twips(col_width).to_string();
-    let tbl = new_w(tree, scope, "tbl")?;
-    let pr = new_w(tree, tbl, "tblPr")?;
+    let col_twips = emu_to_twips(col_width).to_string();
+    let tbl = w_el(tree, scope, "tbl")?;
+    let pr = w_el(tree, tbl, "tblPr")?;
     append(tree, tbl, pr)?;
-    let tbl_w = new_w(tree, pr, "tblW")?;
+    let tbl_w = w_el(tree, pr, "tblW")?;
     set_w(tree, tbl_w, "type", "auto")?;
     set_w(tree, tbl_w, "w", "0")?;
     append(tree, pr, tbl_w)?;
-    let look = new_w(tree, pr, "tblLook")?;
+    let look = w_el(tree, pr, "tblLook")?;
     for (name, value) in [
         ("firstColumn", "1"),
         ("firstRow", "1"),
@@ -1294,28 +1248,28 @@ pub(crate) fn new_tbl(
         }
         Ok(())
     };
-    let grid = new_w(tree, tbl, "tblGrid")?;
+    let grid = w_el(tree, tbl, "tblGrid")?;
     append(tree, tbl, grid)?;
     blank(tree, grid)?;
     for _ in 0..cols {
-        let col = new_w(tree, grid, "gridCol")?;
+        let col = w_el(tree, grid, "gridCol")?;
         set_w(tree, col, "w", &col_twips)?;
         append(tree, grid, col)?;
     }
     for _ in 0..rows {
-        let tr = new_w(tree, tbl, "tr")?;
+        let tr = w_el(tree, tbl, "tr")?;
         append(tree, tbl, tr)?;
         blank(tree, tr)?;
         for _ in 0..cols {
-            let tc = new_w(tree, tr, "tc")?;
+            let tc = w_el(tree, tr, "tc")?;
             append(tree, tr, tc)?;
-            let tc_pr = new_w(tree, tc, "tcPr")?;
+            let tc_pr = w_el(tree, tc, "tcPr")?;
             append(tree, tc, tc_pr)?;
-            let tc_w = new_w(tree, tc_pr, "tcW")?;
+            let tc_w = w_el(tree, tc_pr, "tcW")?;
             set_w(tree, tc_w, "type", "dxa")?;
             set_w(tree, tc_w, "w", &col_twips)?;
             append(tree, tc_pr, tc_w)?;
-            let p = new_w(tree, tc, "p")?;
+            let p = w_el(tree, tc, "p")?;
             append(tree, tc, p)?;
         }
     }
@@ -1331,7 +1285,7 @@ fn add_break_xml(tree: &mut XmlTree, r: NodeId, kind: BreakType) -> Result<()> {
         BreakType::LineClearRight => (Some("textWrapping"), Some("right")),
         BreakType::LineClearAll => (Some("textWrapping"), Some("all")),
     };
-    let br = new_w(tree, r, "br")?;
+    let br = w_el(tree, r, "br")?;
     append(tree, r, br)?;
     // `w:type` defaults to "textWrapping": assigning the default writes nothing.
     if let Some(type_) = type_.filter(|t| *t != "textWrapping") {
@@ -1414,15 +1368,15 @@ fn set_cell_width(tree: &mut XmlTree, tc: NodeId, emu: i64) -> Result<()> {
     let tc_pr = get_or_add_first(tree, tc, "tcPr")?;
     let tc_w = get_or_add(tree, tc_pr, "tcW", TCPR_SEQ)?;
     set_w(tree, tc_w, "type", "dxa")?;
-    let value = twips(emu);
+    let value = emu_to_twips(emu);
     check_range(value, i32::MIN as i128, i32::MAX as i128, "w:w")?;
     set_w(tree, tc_w, "w", &value.to_string())
 }
 
 /// `CT_Row.add_tc()` (`<w:tc><w:p/></w:tc>` appended).
 fn add_tc(tree: &mut XmlTree, tr: NodeId) -> Result<NodeId> {
-    let tc = new_w(tree, tr, "tc")?;
-    let p = new_w(tree, tc, "p")?;
+    let tc = w_el(tree, tr, "tc")?;
+    let p = w_el(tree, tc, "p")?;
     append(tree, tc, p)?;
     append(tree, tr, tc)?;
     Ok(tc)
@@ -2018,7 +1972,7 @@ impl Paragraph {
         let index = tree
             .index_in_parent(self.h.element)
             .ok_or_else(|| Error::internal("detached_paragraph", "live paragraph has no index"))?;
-        let p = new_w(tree, parent, "p")?;
+        let p = w_el(tree, parent, "p")?;
         tree.insert(parent, index, p)?;
         fill_paragraph(&mut txn, &self.h.part, p, text, style)?;
         let handle = staged_handle(&txn, &self.h.part, p)?;
@@ -2602,7 +2556,7 @@ impl Run {
     /// Upstream `Run.add_tab()`.
     pub fn add_tab(&self, doc: &mut Document) -> Result<()> {
         self.edit(doc, |tree, r| {
-            let tab = new_w(tree, r, "tab")?;
+            let tab = w_el(tree, r, "tab")?;
             append(tree, r, tab)
         })
     }
@@ -2706,8 +2660,7 @@ impl Table {
     /// Upstream `Table.cell(row, col)` over the layout grid.
     pub fn cell(&self, doc: &Document, row: usize, col: usize) -> Result<Cell> {
         let tree = self.live(doc)?;
-        let cells = table_cells(tree, self.h.element)?;
-        let cols = w_children(tree, tbl_grid(tree, self.h.element)?, "gridCol").count();
+        let (cells, cols) = grid(tree, self.h.element)?;
         let index = row.checked_mul(cols).and_then(|i| i.checked_add(col));
         let tc = index.and_then(|i| cells.get(i)).copied().ok_or_else(|| {
             Error::invalid_argument(
@@ -2730,11 +2683,9 @@ impl Table {
         let tbl = self.h.element;
         let grid = tbl_grid(tree, tbl)?;
         let widths: Vec<Option<i64>> = w_children(tree, grid, "gridCol")
-            .collect::<Vec<_>>()
-            .into_iter()
             .map(|col| w_attr(tree, col, "w").map(parse_twips_measure).transpose())
             .collect::<Result<_>>()?;
-        let tr = new_w(tree, tbl, "tr")?;
+        let tr = w_el(tree, tbl, "tr")?;
         append(tree, tbl, tr)?;
         for width in widths {
             let tc = add_tc(tree, tr)?;
@@ -2801,9 +2752,9 @@ impl Cell {
         let tree = txn.tree_mut(&self.h.part)?;
         let tc = self.h.element;
         clear_except(tree, tc, "tcPr")?;
-        let p = new_w(tree, tc, "p")?;
+        let p = w_el(tree, tc, "p")?;
         append(tree, tc, p)?;
-        let r = new_w(tree, p, "r")?;
+        let r = w_el(tree, p, "r")?;
         append(tree, p, r)?;
         set_run_text(tree, r, text)?;
         commit!(doc, txn, ())
@@ -2999,7 +2950,7 @@ fn add_container_paragraph(
     kind: ContainerKind,
 ) -> Result<NodeId> {
     let tree = txn.tree_mut(part)?;
-    let p = new_w(tree, element, "p")?;
+    let p = w_el(tree, element, "p")?;
     if kind == ContainerKind::Body {
         insert_before_successors(tree, element, p, &["sectPr"])?;
     } else {
@@ -3123,7 +3074,7 @@ impl Length {
 
     /// `Length.twips` (`int(round(emu / 635.0))`, ties to even).
     pub fn twips(self) -> i64 {
-        twips(self.0)
+        emu_to_twips(self.0)
     }
 }
 
@@ -3253,7 +3204,7 @@ fn get_or_add_trpr(tree: &mut XmlTree, tr: NodeId) -> Result<NodeId> {
     if let Some(existing) = w_child(tree, tr, "trPr") {
         return Ok(existing);
     }
-    let tr_pr = new_w(tree, tr, "trPr")?;
+    let tr_pr = w_el(tree, tr, "trPr")?;
     match w_child(tree, tr, "tblPrEx") {
         Some(ex) => {
             let index = tree
@@ -3264,33 +3215,6 @@ fn get_or_add_trpr(tree: &mut XmlTree, tr: NodeId) -> Result<NodeId> {
         None => insert_first(tree, tr, tr_pr)?,
     }
     Ok(tr_pr)
-}
-
-/// lxml `parent.append(child)` for an attached `child`: the element moves
-/// together with its tail text.
-fn move_append(tree: &mut XmlTree, parent: NodeId, child: NodeId) -> Result<()> {
-    let mut tail = Vec::new();
-    if let Some(old_parent) = tree.parent(child) {
-        let siblings = tree.children(old_parent).to_vec();
-        if let Some(index) = siblings.iter().position(|n| *n == child) {
-            for node in &siblings[index + 1..] {
-                if matches!(tree.data(*node), NodeData::Text(_)) {
-                    tail.push(*node);
-                } else {
-                    break;
-                }
-            }
-        }
-        tree.detach(child)?;
-        for node in &tail {
-            tree.detach(*node)?;
-        }
-    }
-    append(tree, parent, child)?;
-    for node in tail {
-        append(tree, parent, node)?;
-    }
-    Ok(())
 }
 
 fn grid(tree: &XmlTree, tbl: NodeId) -> Result<(Vec<NodeId>, usize)> {
@@ -3504,9 +3428,9 @@ fn move_content_to(tree: &mut XmlTree, tc: NodeId, other: NodeId) -> Result<()> 
         remove(tree, last)?;
     }
     for item in tc_block_items(tree, tc) {
-        move_append(tree, other, item)?;
+        append_moving(tree, other, item)?;
     }
-    let p = new_w(tree, tc, "p")?;
+    let p = w_el(tree, tc, "p")?;
     append(tree, tc, p)
 }
 
@@ -4235,7 +4159,7 @@ impl InlineShapeRef {
         let graphic = required_child(tree, self.h.element, A, "graphic")?;
         let data = required_child(tree, graphic, A, "graphicData")?;
         Ok(match tree.attr(data, None, "uri") {
-            Some(PICTURE_URI) => {
+            Some(PIC) => {
                 let blip = tree
                     .first_child_named(data, PIC, "pic")
                     .and_then(|pic| tree.first_child_named(pic, PIC, "blipFill"))
@@ -4292,14 +4216,7 @@ impl InlineShapeRef {
                     "sp3d",
                     "extLst",
                 ];
-                let index = tree.children(sp_pr).iter().position(|n| {
-                    tree.ns_uri(*n) == Some(A)
-                        && tree.local_name(*n).is_some_and(|l| successors.contains(&l))
-                });
-                match index {
-                    Some(index) => tree.insert(sp_pr, index, xfrm)?,
-                    None => append(tree, sp_pr, xfrm)?,
-                }
+                insert_before_successors_in(tree, sp_pr, xfrm, A, &successors)?;
                 xfrm
             }
         };
@@ -4389,7 +4306,7 @@ fn insert_tab_in_order(
     leader: &str,
 ) -> Result<NodeId> {
     let pos_xml = signed_twips_measure(pos, "w:pos")?;
-    let tab = new_w(tree, tabs, "tab")?;
+    let tab = w_el(tree, tabs, "tab")?;
     set_w(tree, tab, "pos", &pos_xml)?;
     set_w(tree, tab, "val", alignment)?;
     if leader != "none" {
@@ -4677,7 +4594,7 @@ impl Document {
         let mut txn = Txn::new(self);
         let tree = txn.tree_mut(&part)?;
         let p = add_body_paragraph(tree)?;
-        let r = new_w(tree, p, "r")?;
+        let r = w_el(tree, p, "r")?;
         append(tree, p, r)?;
         let shape = add_picture_named(&mut txn, &part, r, &bytes, Some(&name), width, height)?;
         commit!(self, txn, shape)

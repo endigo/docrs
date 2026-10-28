@@ -129,6 +129,16 @@ impl Error {
         Self::refusal(RefusalKind::MalformedPackage, reason, message)
     }
 
+    /// Shorthand for a [`RefusalKind::UnsupportedStructure`] refusal.
+    pub fn unsupported(reason: &'static str, message: impl Into<String>) -> Self {
+        Self::refusal(RefusalKind::UnsupportedStructure, reason, message)
+    }
+
+    /// Shorthand for a [`RefusalKind::TargetNotFound`] refusal.
+    pub fn not_found(reason: &'static str, message: impl Into<String>) -> Self {
+        Self::refusal(RefusalKind::TargetNotFound, reason, message)
+    }
+
     /// An invalid caller argument.
     pub fn invalid_argument(reason: &'static str, message: impl Into<String>) -> Self {
         Error {

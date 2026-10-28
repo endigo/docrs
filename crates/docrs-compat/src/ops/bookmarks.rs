@@ -1,14 +1,14 @@
 //! Ops adapters for upstream `docx.bookmarks`.
 
-use docrs::{Document, Error, Result};
+use docrs::{Document, Result};
 use serde_json::Value;
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn name_arg<'a>(step: &'a Step<'_>, index: usize) -> Result<&'a str> {
     step.param("name", index)
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "name is required"))
+        .ok_or_else(|| bad("name is required"))
 }
 
 fn list_bookmarks(doc: &mut Document, _step: &Step<'_>) -> Result<Value> {

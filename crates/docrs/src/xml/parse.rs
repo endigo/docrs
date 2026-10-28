@@ -14,11 +14,12 @@
 //! Resource budgets ([`Limits`]) are checked as content is consumed and
 //! surface as [`XmlError::Limit`], never as malformed input.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::XmlError;
 use super::chars::{is_name_char, is_name_start_char, is_ncname, is_xml_char, is_xml_space};
-use super::decode::decode;
+use super::decode::decode_cow;
 use super::tree::{
     Attr, Element, NodeData, NodeId, NsDecl, QName, XmlDecl, XmlTree, check_reserved_binding,
 };
@@ -26,7 +27,7 @@ use crate::{Error, Limits};
 
 /// Parse `bytes` (any supported encoding) into a tree.
 pub fn parse(bytes: &[u8], limits: &Limits) -> Result<XmlTree, XmlError> {
-    let (text, encoding) = decode(bytes)?;
+    let (text, encoding) = decode_cow(bytes)?;
     let text = normalize_line_endings(text);
     let mut parser = Parser {
         s: &text,
@@ -39,7 +40,7 @@ pub fn parse(bytes: &[u8], limits: &Limits) -> Result<XmlTree, XmlError> {
     Ok(parser.tree)
 }
 
-fn normalize_line_endings(text: String) -> String {
+fn normalize_line_endings(text: Cow<'_, str>) -> Cow<'_, str> {
     if !text.contains('\r') {
         return text;
     }
@@ -55,7 +56,7 @@ fn normalize_line_endings(text: String) -> String {
             out.push(c);
         }
     }
-    out
+    Cow::Owned(out)
 }
 
 struct RawAttr<'a> {

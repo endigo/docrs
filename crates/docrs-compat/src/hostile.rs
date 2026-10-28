@@ -3,8 +3,42 @@
 #[path = "../../docrs/tests/support/mod.rs"]
 mod support;
 
+use std::path::{Path, PathBuf};
+
 use support::*;
 pub use support::{all_fixtures, fixtures_dir};
+
+/// `(name, path)` of every upstream fixture whose path contains none of
+/// `skip`.
+pub fn fixture_inputs(skip: &[&str]) -> Vec<(String, PathBuf)> {
+    all_fixtures()
+        .into_iter()
+        .filter(|rel| !skip.iter().any(|needle| rel.contains(needle)))
+        .map(|rel| {
+            let path = fixtures_dir().join(&rel);
+            (rel, path)
+        })
+        .collect()
+}
+
+/// Write `documents` into `dir` as `<case-safe name>.docx`: `(name, path)`
+/// for each.
+pub fn materialize(
+    dir: &Path,
+    documents: impl IntoIterator<Item = (String, Vec<u8>)>,
+) -> Result<Vec<(String, PathBuf)>, String> {
+    documents
+        .into_iter()
+        .map(|(name, bytes)| {
+            let path = dir.join(format!(
+                "{}.docx",
+                crate::opsrun::case_safe_file_stem(&name)
+            ));
+            std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+            Ok((name, path))
+        })
+        .collect()
+}
 
 /// `(name, bytes)` for every generated case.
 pub fn corpus() -> Vec<(String, Vec<u8>)> {
@@ -543,11 +577,6 @@ pub fn m3_extra_cases(name: &str) -> Vec<serde_json::Value> {
     }
 }
 
-/// Synthetic documents for M4 authoring cases (see `synthetic/`).
-pub fn m4_documents() -> Vec<(String, Vec<u8>)> {
-    crate::synthetic::documents()
-}
-
 /// A `synthetic:<name>` document's bytes. The builders are deterministic,
 /// so the whole catalogue is built once and shared (the first of a
 /// repeated name wins, as a linear search would find it).
@@ -559,7 +588,7 @@ pub fn synthetic_document(name: &str) -> Option<&'static [u8]> {
         for (name, bytes) in synthetic_documents()
             .into_iter()
             .chain(m3_documents())
-            .chain(m4_documents())
+            .chain(crate::synthetic::documents())
         {
             all.entry(name).or_insert(bytes);
         }

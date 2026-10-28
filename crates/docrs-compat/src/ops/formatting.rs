@@ -7,14 +7,14 @@ use docrs::styles::{LatentStyle, Style, StyleType, Styles, internal_to_ui, ui_to
 use docrs::{BlockKind, Document, Error, FindOptions, Result, View};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step, span};
-
-fn bad_case(message: impl Into<String>) -> Error {
-    Error::invalid_argument("bad_case", message)
-}
+use super::{OpFn, Step, bad, span};
 
 fn format_of(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
-    let value = step.param("target", 0);
+    format_of_target(doc, step.param("target", 0))
+}
+
+/// `formatting.format_of` of a `$paragraph`, `$run` or `$span` target.
+fn format_of_target(doc: &Document, value: &Value) -> Result<Value> {
     if let Some(text) = value.get("$paragraph").and_then(Value::as_str) {
         let mut spec = value.clone();
         spec["$span"] = Value::String(text.to_string());
@@ -45,7 +45,7 @@ fn style_type(value: &Value) -> Result<StyleType> {
     StyleType::from_xml(
         value
             .as_str()
-            .ok_or_else(|| bad_case(format!("style type must be a token, got {value}")))?,
+            .ok_or_else(|| bad(format!("style type must be a token, got {value}")))?,
     )
 }
 
@@ -127,7 +127,7 @@ fn p3_styles(doc: &mut Document, _step: &Step<'_>) -> Result<Value> {
 fn text_arg<'a>(step: &'a Step<'_>, name: &str, index: usize) -> Result<&'a str> {
     step.param(name, index)
         .as_str()
-        .ok_or_else(|| bad_case(format!("{name} must be a string")))
+        .ok_or_else(|| bad(format!("{name} must be a string")))
 }
 
 fn p3_style(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
@@ -189,16 +189,9 @@ fn p3_babel(_doc: &mut Document, step: &Step<'_>) -> Result<Value> {
 }
 
 fn p3_format_value(doc: &mut Document, step: &Step<'_>) -> Result<Value> {
-    let key = text_arg(step, "key", 1)?.to_string();
-    let target = step.param("target", 0).clone();
-    let args = [target];
-    let inner = Step {
-        op: "formatting.format_of",
-        args: &args,
-        kwargs: &serde_json::Map::new(),
-    };
-    let report = format_of(doc, &inner)?;
-    Ok(report["properties"][key.as_str()]["value"].clone())
+    let key = text_arg(step, "key", 1)?;
+    let report = format_of_target(doc, step.param("target", 0))?;
+    Ok(report["properties"][key]["value"].clone())
 }
 
 fn sweep_error(err: Error) -> Result<Value> {

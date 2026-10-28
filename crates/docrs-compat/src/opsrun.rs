@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use docrs::package::content_types::{CT_NS, ContentTypes, parse_content_types};
+use docrs::package::content_types::{ContentTypes, parse_content_types};
 use docrs::package::rels::{base_uri, parse_relationships};
 use docrs::package::zip_read::{ZipContents, read_archive};
 use docrs::xml::{self, trees_equivalent};
@@ -25,7 +25,7 @@ use docrs::{Document, FindOptions, Limits, View};
 use serde_json::{Value, json};
 
 use crate::ops::{self, Step};
-use crate::{hostile, oracle};
+use crate::{hostile, oracle, report};
 
 fn strip_volatile(value: &Value) -> Value {
     match value {
@@ -58,11 +58,7 @@ pub fn rust_run(bytes: &[u8], steps: &[Value], out: &Path) -> Value {
             results.push(json!({"outcome": "unsupported_op", "op": name}));
             continue;
         };
-        let call = Step {
-            op: name,
-            args,
-            kwargs,
-        };
+        let call = Step { args, kwargs };
         results.push(match adapter(&mut doc, &call) {
             Ok(value) => json!({"outcome": "ok", "value": value}),
             Err(err) => json!({"outcome": "error", "category": err.code(), "reason": err.reason(), "message": err.message()}),
@@ -76,7 +72,8 @@ pub fn rust_run(bytes: &[u8], steps: &[Value], out: &Path) -> Value {
     }
 }
 
-fn names(value: &Value) -> BTreeSet<String> {
+/// The strings of a JSON array, as a set.
+pub(crate) fn names(value: &Value) -> BTreeSet<String> {
     value
         .as_array()
         .into_iter()
@@ -127,7 +124,6 @@ fn part_equivalent(name: &str, a: &ZipContents, b: &ZipContents) -> bool {
         let (Ok(tx), Ok(ty)) = (parse_content_types(x), parse_content_types(y)) else {
             return false;
         };
-        let _ = CT_NS;
         return a
             .members
             .iter()
@@ -293,7 +289,7 @@ fn compare(
 pub fn run(
     dir: &Path,
     python: Option<&Path>,
-    report: Option<&Path>,
+    report_path: Option<&Path>,
     filter: Option<&str>,
 ) -> Result<bool, String> {
     let dir = if dir.is_relative() {
@@ -391,21 +387,13 @@ pub fn run(
         serde_json::to_string(&summary).unwrap_or_default()
     );
     for failure in &failures {
-        let mut text = format!("  FAIL {} :: {}", failure["case"], failure["problems"]);
-        if text.len() > 1500 {
-            text.truncate(1500);
-            text.push('…');
-        }
-        println!("{text}");
+        let text = format!("  FAIL {} :: {}", failure["case"], failure["problems"]);
+        println!("{}", report::clipped(text, 1500));
     }
-    if let Some(path) = report {
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(&json!({"summary": summary, "failures": failures}))
-                .unwrap_or_default(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
+    report::write_json(
+        report_path,
+        &json!({"summary": summary, "failures": failures}),
+    )?;
     Ok(failures.is_empty())
 }
 

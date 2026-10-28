@@ -32,12 +32,9 @@ use serde_json::{Map, Value};
 
 use super::ast::{
     Align, Block, CellSpan, Inline, ListItem, MAX_NESTING_DEPTH, Parsed, TABLE_CLAMPED_MESSAGE,
-    warn_once,
+    note_once, paragraph, tight, warn_once,
 };
-use super::html::{
-    HtmlCell, HtmlRow, SpanFormat, aligned, assemble_table, css_align, css_color, css_pixels,
-    first_family, half_points,
-};
+use super::html::{HtmlCell, HtmlRow, SpanFormat, aligned, assemble_table, css_align, css_pixels};
 use crate::{Error, Result};
 
 /// The line every warning of a JSON conversion is filed under; the document
@@ -246,18 +243,6 @@ fn is_page_break(kind: &str) -> bool {
         .eq_ignore_ascii_case("pagebreak")
 }
 
-fn refs(values: &[Value]) -> Vec<&Value> {
-    values.iter().collect()
-}
-
-fn paragraph(inlines: Vec<Inline>, plain: bool) -> Block {
-    if plain {
-        Block::Plain(inlines)
-    } else {
-        Block::Paragraph(inlines)
-    }
-}
-
 /// Join a link onto an equal link before it: an editor writes one link as a
 /// text node per change of formatting.
 fn push(out: &mut Vec<Inline>, inline: Inline) {
@@ -293,22 +278,15 @@ struct Converter {
 
 impl Converter {
     fn note_node(&mut self, kind: &str) {
-        if !self.unknown_nodes.iter().any(|known| known == kind) {
-            self.unknown_nodes.push(kind.to_string());
-        }
+        note_once(&mut self.unknown_nodes, kind);
     }
 
     fn note_mark(&mut self, kind: &str) {
-        if !self.unknown_marks.iter().any(|known| known == kind) {
-            self.unknown_marks.push(kind.to_string());
-        }
+        note_once(&mut self.unknown_marks, kind);
     }
 
     fn drop_attr(&mut self, attribute: &str, on: &str) {
-        let note = format!("{attribute} on {on}");
-        if !self.dropped.contains(&note) {
-            self.dropped.push(note);
-        }
+        note_once(&mut self.dropped, &format!("{attribute} on {on}"));
     }
 
     /// The alignment a block asks for. The editor's default (`null` in
@@ -333,7 +311,7 @@ impl Converter {
     fn with_pictures(
         &mut self,
         own: Option<Align>,
-        content: &[&Value],
+        content: &[Value],
         parent: &str,
     ) -> Option<Align> {
         let mut align = own;
@@ -359,30 +337,31 @@ impl Converter {
     /// paragraph of its own.
     fn blocks(&mut self, nodes: &[Value], plain: bool, parent: &str) -> Result<Vec<Block>> {
         let mut out = Vec::new();
-        let mut pending: Vec<&Value> = Vec::new();
-        for value in nodes {
+        // The inline nodes since `start` run together into one paragraph.
+        let mut start = 0;
+        for (index, value) in nodes.iter().enumerate() {
             let node = read(value, &inside(parent))?;
             if is_inline(node.kind) {
                 let align = (node.kind == "image").then(|| self.align(&node)).flatten();
                 if align.is_none() {
-                    pending.push(value);
                     continue;
                 }
-                self.flush(&mut pending, plain, parent, &mut out)?;
+                self.flush(&nodes[start..index], plain, parent, &mut out)?;
                 let picture = paragraph(vec![self.image(&node)], plain);
                 out.extend(aligned(align, vec![picture]));
-                continue;
+            } else {
+                self.flush(&nodes[start..index], plain, parent, &mut out)?;
+                self.block(&node, plain, &mut out)?;
             }
-            self.flush(&mut pending, plain, parent, &mut out)?;
-            self.block(&node, plain, &mut out)?;
+            start = index + 1;
         }
-        self.flush(&mut pending, plain, parent, &mut out)?;
+        self.flush(&nodes[start..], plain, parent, &mut out)?;
         Ok(out)
     }
 
     fn flush(
         &mut self,
-        pending: &mut Vec<&Value>,
+        pending: &[Value],
         plain: bool,
         parent: &str,
         out: &mut Vec<Block>,
@@ -391,7 +370,6 @@ impl Converter {
             return Ok(());
         }
         let inlines = self.inlines(pending, parent)?;
-        pending.clear();
         let blank = inlines
             .iter()
             .all(|inline| matches!(inline, Inline::Text(text) if text.trim().is_empty()));
@@ -405,24 +383,22 @@ impl Converter {
         let kind = node.kind;
         match kind {
             "paragraph" => {
-                let content = refs(node.content);
-                let inlines = self.inlines(&content, kind)?;
+                let inlines = self.inlines(node.content, kind)?;
                 let align = self.align(node);
-                let align = self.with_pictures(align, &content, kind);
+                let align = self.with_pictures(align, node.content, kind);
                 out.extend(aligned(align, vec![paragraph(inlines, plain)]));
             }
             "heading" => {
                 let level = node
                     .number_attr("level")
                     .map_or(1, |level| level.clamp(1.0, 9.0) as u8);
-                let content = refs(node.content);
                 let heading = Block::Heading {
                     level,
                     id: node.text_attr("id").map(str::to_string),
-                    content: self.inlines(&content, kind)?,
+                    content: self.inlines(node.content, kind)?,
                 };
                 let align = self.align(node);
-                let align = self.with_pictures(align, &content, kind);
+                let align = self.with_pictures(align, node.content, kind);
                 out.extend(aligned(align, vec![heading]));
             }
             "blockquote" => {
@@ -513,10 +489,9 @@ impl Converter {
     }
 
     fn summary(&mut self, node: &Node, plain: bool, out: &mut Vec<Block>) -> Result<()> {
-        let content = refs(node.content);
-        let inlines = self.inlines(&content, node.kind)?;
+        let inlines = self.inlines(node.content, node.kind)?;
         if !inlines.is_empty() {
-            let align = self.with_pictures(None, &content, node.kind);
+            let align = self.with_pictures(None, node.content, node.kind);
             let summary = paragraph(vec![Inline::Strong(inlines)], plain);
             out.extend(aligned(align, vec![summary]));
         }
@@ -539,7 +514,7 @@ impl Converter {
         Ok(text)
     }
 
-    fn inlines(&mut self, nodes: &[&Value], parent: &str) -> Result<Vec<Inline>> {
+    fn inlines(&mut self, nodes: &[Value], parent: &str) -> Result<Vec<Inline>> {
         let mut out: Vec<Inline> = Vec::new();
         for value in nodes {
             let node = read(value, &inside(parent))?;
@@ -583,7 +558,7 @@ impl Converter {
                 }
                 other => {
                     self.note_node(other);
-                    out.extend(self.inlines(&refs(node.content), other)?);
+                    out.extend(self.inlines(node.content, other)?);
                 }
             }
         }
@@ -596,7 +571,6 @@ impl Converter {
         let mut format = SpanFormat::default();
         let mut code = false;
         let mut link: Option<(String, String)> = None;
-        let mut highlight_given = false;
         for value in marks {
             let mark = read(value, &format!("a mark of a {on:?} node"))?;
             match mark.kind {
@@ -619,13 +593,11 @@ impl Converter {
                 }
                 "highlight" => match mark.text_attr("color") {
                     None => format.default_highlight = true,
-                    Some(color) => match css_color(color) {
-                        Some(color) => {
-                            format.style.highlight = color;
-                            highlight_given = true;
+                    Some(color) => {
+                        if !format.highlight(color) {
+                            self.drop_attr("color", "highlight");
                         }
-                        None => self.drop_attr("color", "highlight"),
-                    },
+                    }
                 },
                 "textStyle" => {
                     for (name, value) in mark.attrs.into_iter().flatten() {
@@ -634,39 +606,27 @@ impl Converter {
                             Value::Number(number) => number.to_string(),
                             _ => continue,
                         };
-                        match name.as_str() {
-                            "color" => match css_color(&text) {
-                                Some(Some(color)) => format.style.color = Some(color),
-                                Some(None) => {}
-                                None => self.drop_attr("color", "textStyle"),
-                            },
-                            "fontFamily" => {
-                                format.style.font =
-                                    first_family(&text).or(format.style.font.take());
+                        let property = match name.as_str() {
+                            "color" => "color",
+                            "fontFamily" => "font-family",
+                            "fontSize" => "font-size",
+                            "backgroundColor" => "background-color",
+                            "lineHeight" => {
+                                self.drop_attr("lineHeight", "textStyle");
+                                continue;
                             }
-                            "fontSize" => match css_pixels(&text) {
-                                Some(px) => format.style.size = Some(half_points(px)),
-                                None => self.drop_attr("fontSize", "textStyle"),
-                            },
-                            "backgroundColor" => match css_color(&text) {
-                                Some(color) => {
-                                    if !highlight_given {
-                                        format.style.highlight = color;
-                                    }
-                                    highlight_given = true;
-                                }
-                                None => self.drop_attr("backgroundColor", "textStyle"),
-                            },
-                            "lineHeight" => self.drop_attr("lineHeight", "textStyle"),
                             // An app's own attribute.
-                            _ => {}
+                            _ => continue,
+                        };
+                        if !format.declare(property, &text) {
+                            self.drop_attr(name, "textStyle");
                         }
                     }
                 }
                 other => self.note_mark(other),
             }
         }
-        if highlight_given {
+        if format.highlight_given() {
             format.default_highlight = false;
         }
         let content = vec![if code {
@@ -737,16 +697,13 @@ impl Converter {
                 },
             });
         }
-        let tight = items
-            .iter()
-            .all(|item| !item.blocks.iter().any(|b| matches!(b, Block::Paragraph(_))));
         Ok(Block::List {
             start: ordered.then(|| {
                 node.number_attr("start")
                     .filter(|start| *start >= 0.0)
                     .map_or(1, |start| start as u64)
             }),
-            tight,
+            tight: tight(&items),
             items,
         })
     }
@@ -767,7 +724,7 @@ impl Converter {
                 let cell = HtmlCell {
                     blocks: self.blocks(std::slice::from_ref(row_value), true, node.kind)?,
                     span: CellSpan::default(),
-                    colwidth: vec![None],
+                    colwidth: Vec::new(),
                 };
                 rows.push(HtmlRow {
                     header: false,
@@ -784,7 +741,7 @@ impl Converter {
                     cells.push(HtmlCell {
                         blocks: self.blocks(std::slice::from_ref(cell_value), true, row.kind)?,
                         span: CellSpan::default(),
-                        colwidth: vec![None],
+                        colwidth: Vec::new(),
                     });
                     continue;
                 }
@@ -794,7 +751,7 @@ impl Converter {
                     rowspan: cell.span_attr("rowspan"),
                     valign: None,
                 };
-                let mut colwidth: Vec<Option<f64>> = match cell.attr("colwidth") {
+                let colwidth: Vec<Option<f64>> = match cell.attr("colwidth") {
                     Some(Value::Array(widths)) => widths
                         .iter()
                         .map(|width| width.as_f64().filter(|w| w.is_finite() && *w > 0.0))
@@ -804,9 +761,6 @@ impl Converter {
                     }
                     _ => Vec::new(),
                 };
-                if colwidth.is_empty() && span.colspan == 1 {
-                    colwidth.push(None);
-                }
                 // Tiptap 3.32's cell `align`, as `<td align>`.
                 let align = cell.text_attr("align").and_then(css_align);
                 let blocks = self.blocks(cell.content, true, cell.kind)?;

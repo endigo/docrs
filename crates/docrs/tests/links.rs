@@ -13,23 +13,11 @@ const URL: &str = "https://example.com/a";
 const HYPERLINK_RT: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 
-fn open_fixture(rel: &str) -> Document {
-    Document::open_bytes(&fixture(rel), &Limits::default()).unwrap()
-}
-
 fn doc_with(body: &str) -> Document {
     let bytes = minimal_package_with(&format!(
         r#"<w:document {DECLS}><w:body>{body}<w:sectPr/></w:body></w:document>"#
     ));
     Document::open_bytes(&bytes, &Limits::default()).unwrap()
-}
-
-fn snapshot(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
-fn xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
 }
 
 fn find(doc: &Document, text: &str) -> docrs::Span {
@@ -49,7 +37,7 @@ fn hyperlink_rels(doc: &Document, source: &str) -> Vec<(String, String)> {
 #[test]
 fn wraps_a_phrase_and_defines_the_style() {
     let mut doc = open_fixture("generated/minimal-clean/minimal.docx");
-    assert!(!xml(&doc, "word/styles.xml").contains(r#"w:styleId="Hyperlink""#));
+    assert!(!part_xml(&doc, "word/styles.xml").contains(r#"w:styleId="Hyperlink""#));
     let span = find(&doc, "perfectly ordinary");
     let link = doc.add_hyperlink(&span, URL).unwrap();
     assert_eq!(
@@ -58,12 +46,12 @@ fn wraps_a_phrase_and_defines_the_style() {
     );
     let rels = hyperlink_rels(&doc, "/word/document.xml");
     assert_eq!(rels.len(), 1);
-    let body = xml(&doc, "word/document.xml");
+    let body = part_xml(&doc, "word/document.xml");
     assert!(body.contains(&format!(
         r#"<w:r><w:t xml:space="preserve">First body paragraph with </w:t></w:r><w:hyperlink r:id="{}" w:history="1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>perfectly ordinary</w:t></w:r></w:hyperlink><w:r><w:t xml:space="preserve"> text.</w:t></w:r>"#,
         rels[0].0
     )), "{body}");
-    assert!(xml(&doc, "word/styles.xml").ends_with(
+    assert!(part_xml(&doc, "word/styles.xml").ends_with(
         r#"<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/></w:style></w:styles>"#
     ));
     let (_, report) = doc.patch_bytes().unwrap();

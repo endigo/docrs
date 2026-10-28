@@ -2,16 +2,11 @@
 //! pinned oracle, `docx.image.image.Image.from_blob`). Inputs are tiny
 //! images generated from code (see `tests/ops/m4-image-characterize.json`).
 
+mod support;
+
 use docrs::image::{Image, ImageFormat, upstream_exception};
+use support::{PNG_150DPI, hex};
 
-fn hex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
-        .collect()
-}
-
-const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
 const PNG_NO_IHDR: &str =
     "89504e470d0a1a0a0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082";
 const PNG_TRUNCATED: &str = "89504e470d0a1a0a0000000d4948445200000002000000020802000000fdd49a730000000b49444154789c636000030000070001b286acf4";

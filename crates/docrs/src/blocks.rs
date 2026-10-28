@@ -13,6 +13,8 @@
 //!
 //! Every operation validates first and stages its writes in a [`Txn`].
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use crate::anchor::{
@@ -20,16 +22,19 @@ use crate::anchor::{
     resolve_anchor_paragraph,
 };
 use crate::clock::Timestamp;
+use crate::image::py_round;
 use crate::numbering::{
-    ListKind, StylesView, add_next, ensure_definition_in, lxml_children, py_int, set_p_style,
-    validated_style_id,
+    ListKind, StylesView, add_next, ensure_definition_in, set_p_style, validated_style_id,
 };
-use crate::oxml::{self, add_t, append, get_or_add_ppr, insert_before_successors, set_w, w_el};
+use crate::oxml::{self, add_t, append, get_or_add_ppr, set_w, w_el};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_writable_text;
-use crate::story::{self, count_fldchar_delta, iter_block_elements};
+use crate::revision::w_local;
+use crate::story::{count_fldchar_delta, iter_block_elements};
+use crate::styles::py_int;
+use crate::tracked::{named_bookmarks_in, new_revision, next_revision_id};
 use crate::txn::Txn;
-use crate::wml::{W, is_w, iter_nodes, leading_text, w_attr, w_child, w_children};
+use crate::wml::{is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
@@ -175,10 +180,6 @@ fn value_error(reason: &'static str, message: impl Into<String>) -> Error {
     Error::invalid_argument(reason, message)
 }
 
-fn unsupported(reason: &'static str, message: impl Into<String>) -> Error {
-    Error::refusal(RefusalKind::UnsupportedStructure, reason, message)
-}
-
 fn is_xml_representable(c: char) -> bool {
     matches!(c as u32, 0x09 | 0x0A | 0x0D | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
 }
@@ -215,7 +216,7 @@ fn refuse_cell_anchor(tree: &XmlTree, paragraph: NodeId) -> Result<()> {
         .parent(paragraph)
         .is_some_and(|parent| is_w(tree, parent, "tc"))
     {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "cell_anchor",
             "anchor resolves inside a table cell; block insertion targets body-level paragraphs — anchor on a \
              paragraph outside the table",
@@ -224,9 +225,26 @@ fn refuse_cell_anchor(tree: &XmlTree, paragraph: NodeId) -> Result<()> {
     Ok(())
 }
 
-/// Upstream `_field_open_flags` for a paragraph: complex-field state before
-/// and after the block containing it.
-fn field_open_flags(tree: &XmlTree, story: &str, element: NodeId) -> Result<(bool, bool)> {
+/// Upstream `_field_open_flags`: complex-field state before and after the
+/// block containing `element` (a top-level content control is measured
+/// among the body children).
+pub(crate) fn field_open_flags(
+    tree: &XmlTree,
+    story: &str,
+    element: NodeId,
+) -> Result<(bool, bool)> {
+    if let Some(body) = w_child(tree, tree.root(), "body")
+        && is_w(tree, element, "sdt")
+        && tree.parent(element) == Some(body)
+    {
+        let mut depth = 0i64;
+        for child in node_children(tree, body) {
+            if child == element {
+                return Ok((depth > 0, depth + count_fldchar_delta(tree, element) > 0));
+            }
+            depth = (depth + count_fldchar_delta(tree, child)).max(0);
+        }
+    }
     let mut depth = 0i64;
     for block in iter_block_elements(tree, story)? {
         let contains = block.element == element
@@ -256,47 +274,13 @@ pub(crate) fn refuse_paragraph_in_open_field(
         open_before || open_after
     };
     if blocked {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "inside_open_field",
             "target lies inside a field result that spans paragraphs (a TOC or similar); Word regenerates field \
              results on update, so content written there would silently vanish",
         ));
     }
     Ok(())
-}
-
-/// Upstream `_named_bookmarks_in`: names of non-point, non-`_GoBack`
-/// bookmarks with a marker in `paragraph`.
-fn named_bookmarks_in(tree: &XmlTree, paragraph: NodeId) -> Vec<String> {
-    let stream: Vec<NodeId> = iter_nodes(tree, paragraph).collect();
-    let mut starts: std::collections::HashMap<Option<String>, (usize, String)> =
-        std::collections::HashMap::new();
-    let mut named: Vec<(Option<String>, String)> = Vec::new();
-    for (position, node) in stream.iter().enumerate() {
-        if is_w(tree, *node, "bookmarkStart") {
-            let name = w_attr(tree, *node, "name").unwrap_or("").to_string();
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            starts.insert(id.clone(), (position, name.clone()));
-            if name != "_GoBack" {
-                named.push((id, name));
-            }
-        } else if is_w(tree, *node, "bookmarkEnd") {
-            let id = w_attr(tree, *node, "id").map(str::to_string);
-            let Some((start, name)) = starts.remove(&id) else {
-                continue;
-            };
-            if name == "_GoBack" {
-                continue;
-            }
-            let has_text = stream[start + 1..position]
-                .iter()
-                .any(|inner| is_w(tree, *inner, "t") && !leading_text(tree, *inner).is_empty());
-            if !has_text {
-                named.retain(|(candidate, _)| *candidate != id);
-            }
-        }
-    }
-    named.into_iter().map(|(_, name)| name).collect()
 }
 
 const TRANSPARENT_PARAGRAPH_CHILDREN: &[&str] = &[
@@ -317,14 +301,6 @@ const SAFE_RUN_CHILDREN: &[&str] = &[
     "lastRenderedPageBreak",
 ];
 
-fn w_local(tree: &XmlTree, node: NodeId) -> Option<&str> {
-    if tree.element(node).is_some() && tree.ns_uri(node) == Some(W) {
-        tree.local_name(node)
-    } else {
-        None
-    }
-}
-
 fn display_tag(tree: &XmlTree, node: NodeId) -> String {
     match tree.data(node) {
         NodeData::Element(_) => tree.local_name(node).unwrap_or("").to_string(),
@@ -338,7 +314,7 @@ fn display_tag(tree: &XmlTree, node: NodeId) -> String {
 fn validate_deletable_paragraph(tree: &XmlTree, paragraph: NodeId) -> Result<()> {
     let hollowable = named_bookmarks_in(tree, paragraph);
     if !hollowable.is_empty() {
-        return Err(unsupported(
+        return Err(Error::unsupported(
             "named_bookmark",
             format!(
                 "paragraph carries named bookmark(s) {hollowable:?} — the targets of REF/PAGEREF/TOC references; \
@@ -347,7 +323,7 @@ fn validate_deletable_paragraph(tree: &XmlTree, paragraph: NodeId) -> Result<()>
             ),
         ));
     }
-    for child in lxml_children(tree, paragraph) {
+    for child in node_children(tree, paragraph) {
         let local = w_local(tree, child);
         if local == Some("pPr")
             || local.is_some_and(|l| TRANSPARENT_PARAGRAPH_CHILDREN.contains(&l))
@@ -355,7 +331,7 @@ fn validate_deletable_paragraph(tree: &XmlTree, paragraph: NodeId) -> Result<()>
             continue;
         }
         if local != Some("r") {
-            return Err(unsupported(
+            return Err(Error::unsupported(
                 "non_run_content",
                 format!(
                     "tracked paragraph delete supports plain runs only; found {:?} content (hyperlinks, controls \
@@ -364,9 +340,9 @@ fn validate_deletable_paragraph(tree: &XmlTree, paragraph: NodeId) -> Result<()>
                 ),
             ));
         }
-        for run_child in lxml_children(tree, child) {
+        for run_child in node_children(tree, child) {
             if !w_local(tree, run_child).is_some_and(|l| SAFE_RUN_CHILDREN.contains(&l)) {
-                return Err(unsupported(
+                return Err(Error::unsupported(
                     "non_text_run",
                     format!(
                         "tracked paragraph delete supports text-only runs; found {:?} inside a run",
@@ -407,45 +383,14 @@ fn new_track_change(
     revision_id: i64,
     stamp: Stamp<'_>,
 ) -> Result<NodeId> {
-    let element = w_el(tree, scope, tag)?;
-    set_w(tree, element, "id", &revision_id.to_string())?;
-    set_w(tree, element, "author", stamp.author)?;
-    set_w(tree, element, "date", &stamp.date.to_xml())?;
-    Ok(element)
-}
-
-/// Upstream `_next_revision_id`: one above the highest revision id anywhere.
-fn next_revision_id(document: &Document) -> Result<i64> {
-    const REVISION_TAGS: &[&str] = &[
-        "ins",
-        "del",
-        "moveFrom",
-        "moveTo",
-        "moveFromRangeStart",
-        "moveToRangeStart",
-        "rPrChange",
-        "pPrChange",
-        "tblPrChange",
-        "sectPrChange",
-        "cellIns",
-        "cellDel",
-        "cellMerge",
-    ];
-    let mut highest = 0i64;
-    for story in story::stories(document) {
-        let tree = document.package().xml(&story.part)?;
-        for node in tree.descendants(tree.root()) {
-            if !w_local(tree, node).is_some_and(|l| REVISION_TAGS.contains(&l)) {
-                continue;
-            }
-            if let Some(value) = w_attr(tree, node, "id").filter(|v| !v.is_empty())
-                && let Some(value) = py_int(value)
-            {
-                highest = highest.max(value);
-            }
-        }
-    }
-    Ok(highest + 1)
+    new_revision(
+        tree,
+        scope,
+        tag,
+        revision_id,
+        stamp.author,
+        &stamp.date.to_xml(),
+    )
 }
 
 /// Upstream `_stamp_paragraph_mark`.
@@ -456,17 +401,14 @@ fn stamp_paragraph_mark(
     revision_id: i64,
     stamp: Stamp<'_>,
 ) -> Result<()> {
-    let ppr = get_or_add_ppr(tree, paragraph)?;
-    let rpr = match w_child(tree, ppr, "rPr") {
-        Some(existing) => existing,
-        None => {
-            let rpr = w_el(tree, ppr, "rPr")?;
-            insert_before_successors(tree, ppr, rpr, &["sectPr", "pPrChange"])?;
-            rpr
-        }
-    };
-    let change = new_track_change(tree, rpr, tag, revision_id, stamp)?;
-    tree.insert(rpr, 0, change)
+    crate::tracked::stamp_paragraph_mark(
+        tree,
+        paragraph,
+        tag,
+        revision_id,
+        stamp.author,
+        &stamp.date.to_xml(),
+    )
 }
 
 /// Detach `node` and its tail text (lxml moves an element with its tail).
@@ -497,7 +439,8 @@ fn wrap_paragraph_content_as_insertion(
 ) -> Result<()> {
     let ins = new_track_change(tree, paragraph, "ins", revision_id, stamp)?;
     append(tree, paragraph, ins)?;
-    for child in lxml_children(tree, paragraph) {
+    let children: Vec<NodeId> = node_children(tree, paragraph).collect();
+    for child in children {
         if child == ins || w_local(tree, child) == Some("pPr") {
             continue;
         }
@@ -508,41 +451,6 @@ fn wrap_paragraph_content_as_insertion(
     Ok(())
 }
 
-/// lxml retag (`element.tag = w:local`): same position, attributes and
-/// children under a new name.
-fn retag(tree: &mut XmlTree, node: NodeId, local: &str) -> Result<()> {
-    let parent = tree
-        .parent(node)
-        .ok_or_else(|| Error::internal("retag", "node is detached"))?;
-    let index = tree.index_in_parent(node).unwrap_or(0);
-    let renamed = w_el(tree, parent, local)?;
-    let attrs: Vec<(Option<String>, String, String)> = tree
-        .element(node)
-        .map(|element| {
-            element
-                .attrs
-                .iter()
-                .map(|attr| {
-                    (
-                        attr.ns.map(|ns| tree.uri(ns).to_string()),
-                        attr.name.local.to_string(),
-                        attr.value.clone(),
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    for (ns, name, value) in attrs {
-        tree.set_attr(renamed, ns.as_deref(), &name, &value)?;
-    }
-    tree.insert(parent, index, renamed)?;
-    for child in tree.children(node).to_vec() {
-        tree.detach(child)?;
-        append(tree, renamed, child)?;
-    }
-    tree.detach(node)
-}
-
 /// Upstream `_mark_paragraph_deleted`; returns the deleted visible text.
 fn mark_paragraph_deleted(
     tree: &mut XmlTree,
@@ -551,7 +459,7 @@ fn mark_paragraph_deleted(
     stamp: Stamp<'_>,
 ) -> Result<String> {
     let text = paragraph_visible_text(tree, paragraph);
-    let children = lxml_children(tree, paragraph);
+    let children: Vec<NodeId> = node_children(tree, paragraph).collect();
     let mut placement = None;
     let mut moved = Vec::new();
     let mut proof_errs = Vec::new();
@@ -593,7 +501,7 @@ fn mark_paragraph_deleted(
         .filter(|node| w_local(tree, *node) == Some("t"))
         .collect();
     for t in texts {
-        retag(tree, t, "delText")?;
+        tree.set_local_name(t, "delText")?;
     }
     stamp_paragraph_mark(tree, paragraph, "del", revision_id, stamp)?;
     Ok(text)
@@ -696,7 +604,7 @@ pub fn insert_section_after(
         date: options.date.unwrap_or_else(Timestamp::now),
     };
     let first_revision = if options.tracked {
-        Some(next_revision_id(document)?)
+        Some(next_revision_id(document, &BTreeMap::new())?)
     } else {
         None
     };
@@ -888,7 +796,7 @@ fn tracked_range_edit(
         author,
         date: date.unwrap_or_else(Timestamp::now),
     };
-    let mut next_id = next_revision_id(document)?;
+    let mut next_id = next_revision_id(document, &BTreeMap::new())?;
     finish_styles(&mut txn, styles_missing)?;
     let tree = txn.tree_mut(&part)?;
     let mut deleted_text = Vec::new();
@@ -973,7 +881,7 @@ fn validate_rich_blocks(
             }
             RichBlock::Table(table) => {
                 if tracked {
-                    return Err(unsupported(
+                    return Err(Error::unsupported(
                         "tracked_table",
                         "tracked table insertion is not supported (Word marks table revisions row-by-row; that \
                          vocabulary is a later phase) — insert the table untracked or as text",
@@ -1042,21 +950,6 @@ fn twips_measure_emu(value: &str) -> Result<i64> {
         )
     })?;
     Ok(twips * 635)
-}
-
-/// Python `round()` for floats (half to even).
-fn py_round(value: f64) -> i64 {
-    let floor = value.floor();
-    let diff = value - floor;
-    if diff == 0.5 {
-        if (floor as i64) % 2 == 0 {
-            floor as i64
-        } else {
-            floor as i64 + 1
-        }
-    } else {
-        value.round() as i64
-    }
 }
 
 /// Upstream `_new_table` width rule: last section's page width minus its
@@ -1176,7 +1069,7 @@ pub fn insert_blocks_after(
         0
     };
     let first_revision = if tracked {
-        Some(next_revision_id(document)?)
+        Some(next_revision_id(document, &BTreeMap::new())?)
     } else {
         None
     };

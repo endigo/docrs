@@ -48,8 +48,8 @@ fn children_named<'a>(
 fn has_picture_xml(tree: &XmlTree, drawing: NodeId) -> bool {
     tree.child_elements(drawing)
         .filter(|c| tree.is(*c, WP, "inline") || tree.is(*c, WP, "anchor"))
-        .flat_map(|frame| children_named(tree, frame, A, "graphic").collect::<Vec<_>>())
-        .flat_map(|graphic| children_named(tree, graphic, A, "graphicData").collect::<Vec<_>>())
+        .flat_map(move |frame| children_named(tree, frame, A, "graphic"))
+        .flat_map(move |graphic| children_named(tree, graphic, A, "graphicData"))
         .any(|data| children_named(tree, data, PIC, "pic").next().is_some())
 }
 
@@ -57,9 +57,7 @@ fn has_picture_xml(tree: &XmlTree, drawing: NodeId) -> bool {
 fn blips(tree: &XmlTree, drawing: NodeId) -> Vec<NodeId> {
     tree.descendants(drawing)
         .filter(|node| *node != drawing && tree.is(*node, PIC, "blipFill"))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .flat_map(|fill| children_named(tree, fill, A, "blip").collect::<Vec<_>>())
+        .flat_map(move |fill| children_named(tree, fill, A, "blip"))
         .collect()
 }
 
@@ -162,7 +160,7 @@ impl Drawing {
             .package()
             .part(member)
             .ok_or_else(|| Error::internal("image_part", "resolved image part vanished"))?;
-        Image::from_blob(&part.current_bytes())
+        Image::from_vec(part.current_bytes().into_owned())
     }
 
     /// Upstream `Drawing.replace_picture(image)`: swap the picture's bytes,

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use docrs::{Document, FindOptions};
 use serde_json::{Value, json};
 
-use crate::{hostile, m3, oracle};
+use crate::{hostile, m3, opsrun, oracle, report};
 
 fn contains(path: &Path, needle: &str) -> bool {
     Document::open(path)
@@ -81,7 +81,7 @@ fn check_expect(case: &Value, rust: &Value, out: &Path, sentinel: &[u8]) -> Vec<
 /// (id, cases, rust results, rust outputs) for one case file.
 type CaseRun = (String, Vec<Value>, Vec<Value>, Vec<PathBuf>);
 
-pub fn run(dir: &Path, python: Option<&Path>, report: Option<&Path>) -> Result<bool, String> {
+pub fn run(dir: &Path, python: Option<&Path>, report_path: Option<&Path>) -> Result<bool, String> {
     let dir = if dir.is_relative() {
         oracle::repo_root().join(dir)
     } else {
@@ -165,17 +165,10 @@ pub fn run(dir: &Path, python: Option<&Path>, report: Option<&Path>) -> Result<b
             {
                 oracle_checked += 1;
                 let agree = if rust["outcome"] == "ok" && py["outcome"] == "ok" {
-                    let mut r = rust["result"].clone();
-                    r.as_object_mut().map(|o| o.remove("schema"));
-                    let mut p = m3::normalize_python_result(&py["result"], case["all"] == true);
-                    p.as_object_mut().map(|o| o.remove("schema"));
-                    let parts: Vec<String> = rust["patch"]["changed_parts"]
-                        .as_array()
+                    let parts: Vec<String> = opsrun::names(&rust["patch"]["changed_parts"])
                         .into_iter()
-                        .flatten()
-                        .filter_map(|v| v.as_str().map(str::to_string))
                         .collect();
-                    r == p
+                    m3::reports_equal(rust, py, case["all"] == true)
                         && m3::parts_equivalent(
                             out,
                             Path::new(case["out"].as_str().unwrap_or("")),
@@ -199,12 +192,6 @@ pub fn run(dir: &Path, python: Option<&Path>, report: Option<&Path>) -> Result<b
     for failure in &failures {
         println!("  FAIL {failure}");
     }
-    if let Some(path) = report {
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(&json!({"failures": failures})).unwrap_or_default(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
+    report::write_json(report_path, &json!({"failures": failures}))?;
     Ok(failures.is_empty())
 }

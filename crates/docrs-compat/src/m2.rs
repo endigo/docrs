@@ -7,7 +7,7 @@ use docrs::story::BlockKind;
 use docrs::{Document, FindOptions, Limits, MatchPolicy, View};
 use serde_json::{Value, json};
 
-use crate::{hostile, oracle};
+use crate::{hostile, oracle, report};
 
 const VIEWS: [View; 3] = [View::Current, View::Original, View::All];
 
@@ -154,26 +154,15 @@ fn rust_find(doc: &Document, query: &Value) -> Value {
     }
 }
 
-pub fn run(python: &Path, report: Option<&Path>) -> Result<bool, String> {
+pub fn run(python: &Path, report_path: Option<&Path>) -> Result<bool, String> {
     let mut requests = Vec::new();
     let mut expected: Vec<(String, &'static str, Value)> = Vec::new();
     let work = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let mut inputs: Vec<(String, std::path::PathBuf)> = hostile::all_fixtures()
-        .into_iter()
-        .filter(|rel| !rel.contains("/corrupt/"))
-        .map(|rel| {
-            let path = hostile::fixtures_dir().join(&rel);
-            (rel, path)
-        })
-        .collect();
-    for (name, bytes) in hostile::synthetic_documents() {
-        let path = work.path().join(format!(
-            "{}.docx",
-            crate::opsrun::case_safe_file_stem(&name)
-        ));
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-        inputs.push((name, path));
-    }
+    let mut inputs = hostile::fixture_inputs(&["/corrupt/"]);
+    inputs.extend(hostile::materialize(
+        work.path(),
+        hostile::synthetic_documents(),
+    )?);
     for (rel, path) in inputs {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
         let doc =
@@ -263,21 +252,10 @@ pub fn run(python: &Path, report: Option<&Path>) -> Result<bool, String> {
         "m2-parity: {}",
         serde_json::to_string(&summary).unwrap_or_default()
     );
-    for failure in failures.iter().take(12) {
-        let mut text = failure.to_string();
-        if text.len() > 900 {
-            text.truncate(900);
-            text.push('…');
-        }
-        println!("  MISMATCH {text}");
-    }
-    if let Some(path) = report {
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(&json!({"summary": summary, "failures": failures}))
-                .unwrap_or_default(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
+    report::print_failures("MISMATCH ", &failures, 12, 900);
+    report::write_json(
+        report_path,
+        &json!({"summary": summary, "failures": failures}),
+    )?;
     Ok(failures.is_empty())
 }

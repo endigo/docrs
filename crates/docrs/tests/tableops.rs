@@ -8,7 +8,6 @@ mod support;
 use docrs::clock::Timestamp;
 use docrs::package::zip_read::read_archive;
 use docrs::tableops::UpdateCellOptions;
-use docrs::xml;
 use docrs::{Document, ErrorKind, Limits, MatchPolicy, RefusalKind};
 use support::*;
 
@@ -73,26 +72,7 @@ fn simple() -> Document {
             vec![tc(&pt("cell 10")), tc(&pt("cell 11"))],
         ],
     );
-    open(&with_body(&format!("{}{table}<w:p/>", pt("before"))))
-}
-
-fn open(bytes: &[u8]) -> Document {
-    Document::open_bytes(bytes, &Limits::default()).unwrap()
-}
-
-fn snapshot(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
-}
-
-fn document_xml(doc: &Document) -> String {
-    String::from_utf8(xml::serialize(
-        doc.package().xml("word/document.xml").unwrap(),
-    ))
-    .unwrap()
-}
-
-fn reopen(doc: &Document) -> Document {
-    open(&snapshot(doc))
+    open_bytes(&with_body(&format!("{}{table}<w:p/>", pt("before"))))
 }
 
 fn tracked(author: &str) -> UpdateCellOptions {
@@ -142,7 +122,7 @@ fn find_table_matches_one_physical_cell_and_refuses_ambiguity() {
         "one table holding several matching cells is one match"
     );
 
-    let two = open(&with_body(&format!(
+    let two = open_bytes(&with_body(&format!(
         "{}{}",
         tbl(1, &[vec![tc(&pt("dup marker A"))]]),
         tbl(1, &[vec![tc(&pt("dup marker B"))]])
@@ -156,7 +136,7 @@ fn find_table_matches_one_physical_cell_and_refuses_ambiguity() {
 
 #[test]
 fn merged_grid_matches_python_docx_row_cells() {
-    let doc = open(&fixture(MERGED));
+    let doc = open_bytes(&fixture(MERGED));
     // Frozen from the oracle: `[[c.text for c in row.cells] for row in rows]`.
     assert_eq!(
         grid(&doc, "R1C0"),
@@ -187,7 +167,7 @@ fn update_cell_routes_through_replacement_with_exact_budget() {
         serde_json::json!(["word/document.xml"])
     );
     assert_eq!(json["added_parts"], serde_json::json!([]));
-    let reopened = open(&bytes);
+    let reopened = open_bytes(&bytes);
     assert_eq!(grid(&reopened, "updated value")[0][1], "updated value");
     assert_eq!(doc.table_grid(&table).unwrap()[0][1], "updated value");
 }
@@ -195,7 +175,7 @@ fn update_cell_routes_through_replacement_with_exact_budget() {
 #[test]
 fn update_cell_fills_an_empty_cell_untracked_and_tracked() {
     let body = tbl(1, &[vec![tc("<w:p/>")], vec![tc(&pt("marker"))]]);
-    let mut doc = open(&with_body(&body));
+    let mut doc = open_bytes(&with_body(&body));
     let table = doc.find_table("marker", MatchPolicy::Exact).unwrap();
     let report = doc
         .update_cell(&table, 0, 0, "was empty", &UpdateCellOptions::default())
@@ -204,7 +184,7 @@ fn update_cell_fills_an_empty_cell_untracked_and_tracked() {
     assert_eq!(report.deleted_text, "");
     assert!(document_xml(&doc).contains("<w:tc><w:tcPr><w:tcW w:type=\"dxa\" w:w=\"4320\"/></w:tcPr><w:p><w:r><w:t>was empty</w:t></w:r></w:p></w:tc>"));
 
-    let mut doc = open(&with_body(&body));
+    let mut doc = open_bytes(&with_body(&body));
     let table = doc.find_table("marker", MatchPolicy::Exact).unwrap();
     let report = doc
         .update_cell(&table, 0, 0, "was empty", &tracked("Carol QA"))
@@ -252,7 +232,7 @@ fn tracked_update_keeps_each_source_runs_formatting() {
         rp("<w:i/>", "beta "),
         r("gamma")
     );
-    let mut doc = open(&with_body(&tbl(2, &[vec![tc(&pt("mid")), tc(&cell)]])));
+    let mut doc = open_bytes(&with_body(&tbl(2, &[vec![tc(&pt("mid")), tc(&cell)]])));
     let table = doc.find_table("mid", MatchPolicy::Exact).unwrap();
     let report = doc
         .update_cell(&table, 0, 1, "alpha BETA gamma", &tracked("Carol QA"))
@@ -305,7 +285,7 @@ fn update_cell_argument_and_address_refusals() {
 
 #[test]
 fn cell_wise_guards_refuse_atomically_and_leave_neighbours_editable() {
-    let mut doc = open(&fixture(MERGED));
+    let mut doc = open_bytes(&fixture(MERGED));
     let table = doc.find_table("R1C0", MatchPolicy::Exact).unwrap();
     let before = snapshot(&doc);
     for (row, column, reason) in [
@@ -393,7 +373,7 @@ fn structure_refusals_leave_the_package_byte_identical() {
         ),
     ];
     for (marker, cell, kind) in cells {
-        let mut doc = open(&with_body(&tbl(2, &[vec![tc(&pt(marker)), tc(&cell)]])));
+        let mut doc = open_bytes(&with_body(&tbl(2, &[vec![tc(&pt(marker)), tc(&cell)]])));
         let table = doc.find_table(marker, MatchPolicy::Exact).unwrap();
         let before = snapshot(&doc);
         for options in [UpdateCellOptions::default(), tracked("A")] {
@@ -444,7 +424,7 @@ fn insert_row_copies_uniform_template_formatting_exactly() {
         run("uniform "),
         run("template")
     );
-    let mut doc = open(&with_body(&body));
+    let mut doc = open_bytes(&with_body(&body));
     let table = doc
         .find_table("uniform template", MatchPolicy::Exact)
         .unwrap();
@@ -455,7 +435,7 @@ fn insert_row_copies_uniform_template_formatting_exactly() {
         patch.to_json()["changed_parts"],
         serde_json::json!(["word/document.xml"])
     );
-    let reopened = open(&bytes);
+    let reopened = open_bytes(&bytes);
     assert_eq!(
         grid(&reopened, "uniform template"),
         strings(&[&["uniform template"], &["replacement value"]])
@@ -516,7 +496,7 @@ fn row_operations_follow_python_docx_and_refuse_atomically() {
 
 #[test]
 fn merged_rows_refuse_and_grid_span_rows_delete() {
-    let mut doc = open(&fixture(MERGED));
+    let mut doc = open_bytes(&fixture(MERGED));
     let table = doc.find_table("R1C0", MatchPolicy::Exact).unwrap();
     let before = snapshot(&doc);
     let reason = |err: docrs::Error| err.reason();
@@ -562,7 +542,7 @@ fn complex_and_tracked_templates_refuse_before_population() {
         "<w:p><w:r><w:rPr><w:b/></w:rPr><w:t></w:t></w:r></w:p>".to_string(),
     ];
     for cell in complex {
-        let mut doc = open(&with_body(&tbl(
+        let mut doc = open_bytes(&with_body(&tbl(
             2,
             &[vec![tc(&pt("valid first")), tc(&cell)]],
         )));
@@ -581,7 +561,7 @@ fn complex_and_tracked_templates_refuse_before_population() {
     );
     let body =
         format!("<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"4320\"/></w:tblGrid>{row}</w:tbl>");
-    let mut doc = open(&with_body(&body));
+    let mut doc = open_bytes(&with_body(&body));
     let table = doc.find_table("template", MatchPolicy::Exact).unwrap();
     let before = snapshot(&doc);
     let err = doc

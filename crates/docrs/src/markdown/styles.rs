@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::numbering::import_fragment;
-use crate::styles::{internal_to_ui, style_id_from_name, ui_to_internal};
+use crate::styles::{StyleType, internal_to_ui, style_id_from_name, ui_to_internal};
 use crate::txn::Txn;
 use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
@@ -118,24 +118,6 @@ pub enum Role {
     Toc8,
     /// Level 9 entries.
     Toc9,
-}
-
-/// Style kinds a role can take.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
-    Paragraph,
-    Character,
-    Table,
-}
-
-impl Kind {
-    fn xml(self) -> &'static str {
-        match self {
-            Kind::Paragraph => "paragraph",
-            Kind::Character => "character",
-            Kind::Table => "table",
-        }
-    }
 }
 
 impl Role {
@@ -305,11 +287,11 @@ impl Role {
         })
     }
 
-    pub(crate) fn kind(self) -> Kind {
+    pub(crate) fn kind(self) -> StyleType {
         match self {
-            Role::InlineCode | Role::Hyperlink | Role::FootnoteReference => Kind::Character,
-            Role::Table => Kind::Table,
-            _ => Kind::Paragraph,
+            Role::InlineCode | Role::Hyperlink | Role::FootnoteReference => StyleType::Character,
+            Role::Table => StyleType::Table,
+            _ => StyleType::Paragraph,
         }
     }
 
@@ -367,20 +349,20 @@ pub struct RoleStyle {
     pub created: bool,
 }
 
-fn find_style(tree: &XmlTree, name: &str, kind: Kind) -> Option<NodeId> {
+pub(super) fn find_style(tree: &XmlTree, name: &str, kind: StyleType) -> Option<NodeId> {
     let wanted = ui_to_internal(name).to_lowercase();
     w_children(tree, tree.root(), "style").find(|style| {
-        w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.xml()
+        w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.as_xml()
             && w_child(tree, *style, "name")
                 .and_then(|n| w_attr(tree, n, "val"))
                 .is_some_and(|v| v.to_lowercase() == wanted)
     })
 }
 
-fn default_style(tree: &XmlTree, kind: Kind) -> Option<NodeId> {
+fn default_style(tree: &XmlTree, kind: StyleType) -> Option<NodeId> {
     w_children(tree, tree.root(), "style").find(|style| {
-        w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.xml()
-            && matches!(w_attr(tree, *style, "default"), Some("1" | "true" | "on"))
+        w_attr(tree, *style, "type").unwrap_or("paragraph") == kind.as_xml()
+            && w_attr(tree, *style, "default").is_some_and(crate::styles::on_off)
     })
 }
 
@@ -459,6 +441,15 @@ impl Resolver {
         }
     }
 
+    pub(crate) fn with_sample(mut self, sample: Sample) -> Resolver {
+        self.sample = Some(sample);
+        self
+    }
+
+    pub(crate) fn take_sample(&mut self) -> Option<Sample> {
+        self.sample.take()
+    }
+
     /// Reads the sample once and names the styles part.
     fn prepare(&mut self, txn: &mut Txn<'_>) -> Result<String> {
         if self.sample.is_none() {
@@ -524,7 +515,7 @@ impl Resolver {
         let part = self.prepare(txn)?;
         let style = {
             let tree = txn.tree(&part)?;
-            let default = default_style(tree, Kind::Paragraph);
+            let default = default_style(tree, StyleType::Paragraph);
             if let Some(name) = self.overrides.get(&role) {
                 let Some(style) = find_style(tree, name, role.kind()) else {
                     return Err(Error::invalid_argument(
@@ -532,7 +523,7 @@ impl Resolver {
                         format!(
                             "the style map sends {} to {name:?}, but the reference document has no {} style with that name",
                             role.key(),
-                            role.kind().xml()
+                            role.kind().as_xml()
                         ),
                     ));
                 };
@@ -570,12 +561,11 @@ impl Resolver {
                     // The sample tables beat the style names: Word lets nobody
                     // create a style called "Table", so a template's is often
                     // an empty leftover while its sample tables carry the look.
-                    let sample_style = sample.table_style.as_deref().and_then(|id| {
-                        w_children(tree, tree.root(), "style").find(|s| {
-                            w_attr(tree, *s, "styleId") == Some(id)
-                                && w_attr(tree, *s, "type") == Some("table")
-                        })
-                    });
+                    let sample_style = sample
+                        .table_style
+                        .as_deref()
+                        .and_then(|id| style_by_id(tree, id))
+                        .filter(|s| w_attr(tree, *s, "type") == Some("table"));
                     match (&sample.table, sample_style) {
                         (Some(_), _) => None,
                         (None, Some(style)) => Some(style),
@@ -586,22 +576,14 @@ impl Resolver {
                     // header cells' counts when it is not the body cells';
                     // one the template also writes other text in is left as
                     // it is, a shared hand look going to a style created on it.
-                    let header = role == Role::TableHeader;
-                    let contents = resolved
-                        .get(&Role::TableContents)
-                        .and_then(|contents| contents.style_id.as_deref());
-                    let look = sample
-                        .cell_looks
-                        .get(&header)
-                        .is_some_and(|look| !look.is_empty());
+                    let look = sample.cell_look(role).is_some();
                     sample
-                        .cell_styles
-                        .get(&header)
+                        .cell_style(role)
                         .and_then(|id| style_by_id(tree, id))
                         .filter(|style| {
                             let id = w_attr(tree, *style, "styleId").unwrap_or("");
                             w_attr(tree, *style, "type").unwrap_or("paragraph") == "paragraph"
-                                && (!header || Some(id) != contents)
+                                && self.own_cell_style(role, id)
                                 && (!look || sample.dedicated_to_cells(id))
                         })
                         .or_else(|| by_name(candidates))
@@ -671,7 +653,7 @@ impl Resolver {
                 }
                 StylePolicy::Create => {
                     let body = match role.kind() {
-                        Kind::Paragraph
+                        StyleType::Paragraph
                             if role.heading_level().is_none()
                                 && !matches!(role, Role::Title | Role::Subtitle | Role::Body) =>
                         {
@@ -699,7 +681,7 @@ impl Resolver {
                             let tree = txn.tree(&part).ok();
                             let exists = |name: &str| {
                                 tree.is_some_and(|tree| {
-                                    find_style(tree, name, Kind::Table).is_some()
+                                    find_style(tree, name, StyleType::Table).is_some()
                                 })
                             };
                             if exists("Table") {
@@ -719,14 +701,12 @@ impl Resolver {
                         // Table Contents, which may carry the body cells'
                         // hand formatting.
                         Role::TableContents | Role::TableHeader => {
-                            let header = role == Role::TableHeader;
                             let tree = txn.tree(&part)?;
-                            let rpr = sample.cell_looks.get(&header).cloned().unwrap_or_default();
+                            let rpr = sample.cell_look(role).unwrap_or_default().to_string();
                             let own = sample
-                                .cell_styles
-                                .get(&header)
+                                .cell_style(role)
                                 .filter(|id| style_by_id(tree, id).is_some())
-                                .cloned();
+                                .map(str::to_string);
                             match own {
                                 Some(own) => Some(Lifted {
                                     rpr,
@@ -735,16 +715,14 @@ impl Resolver {
                                 }),
                                 None => {
                                     body = self
-                                        .resolved
-                                        .get(&Role::Compact)
-                                        .and_then(|c| c.style_id.clone())
+                                        .resolved_id(Role::Compact)
+                                        .map(str::to_string)
                                         .or(body);
-                                    let table = self
-                                        .resolved
-                                        .get(&Role::Table)
-                                        .and_then(|t| t.style_id.clone());
                                     Some(Lifted {
-                                        ppr: table_cell_spacing(tree, table.as_deref()),
+                                        ppr: table_cell_spacing(
+                                            tree,
+                                            self.resolved_id(Role::Table),
+                                        ),
                                         rpr,
                                         ..Lifted::default()
                                     })
@@ -789,18 +767,10 @@ impl Resolver {
                     // Headings, titles and contents entries normally sit on
                     // the default style; when the body font had to be lifted
                     // from the template's sample text they take it too.
-                    let lifted_body = self
-                        .resolved
-                        .get(&Role::Body)
-                        .filter(|b| b.created)
-                        .and_then(|b| b.style_id.clone());
-                    if role.toc_level().is_some() {
-                        body = lifted_body.clone();
-                    }
-                    if role.heading_level().is_some()
+                    if role.toc_level().is_some()
+                        || role.heading_level().is_some()
                         || matches!(role, Role::Title | Role::Subtitle | Role::TocHeading)
                     {
-                        self.id(txn, Role::Body)?;
                         body = self
                             .resolved
                             .get(&Role::Body)
@@ -830,24 +800,12 @@ impl Resolver {
                 // A style the template keeps for its cells takes the hand
                 // formatting the sample cells share; header cells on the
                 // body cells' style took it there.
-                None if matches!(role, Role::TableContents | Role::TableHeader) => {
-                    let header = role == Role::TableHeader;
-                    let contents = self
-                        .resolved
-                        .get(&Role::TableContents)
-                        .and_then(|contents| contents.style_id.as_deref());
-                    let id = style.style_id.as_deref();
-                    (id.is_some_and(|id| sample.dedicated_to_cells(id))
-                        && (!header || id != contents))
-                        .then(|| {
-                            sample
-                                .cell_looks
-                                .get(&header)
-                                .filter(|look| !look.is_empty())
-                        })
-                        .flatten()
-                        .cloned()
-                }
+                None if matches!(role, Role::TableContents | Role::TableHeader) => style
+                    .style_id
+                    .as_deref()
+                    .filter(|id| sample.dedicated_to_cells(id) && self.own_cell_style(role, id))
+                    .and_then(|_| sample.cell_look(role))
+                    .map(str::to_string),
                 None => None,
             };
             if let (Some(look), Some(id)) = (look, style.style_id.as_deref()) {
@@ -908,11 +866,21 @@ impl Resolver {
         };
         sample.body_looks.get(&key).cloned()
     }
+
+    /// The style id `role` resolved to (`None`: not resolved, or the
+    /// default style).
+    fn resolved_id(&self, role: Role) -> Option<&str> {
+        self.resolved.get(&role)?.style_id.as_deref()
+    }
+
+    /// Whether paragraph style `id` counts as `role`'s own cell style: a
+    /// header style that is the body cells' resolved style is not.
+    fn own_cell_style(&self, role: Role, id: &str) -> bool {
+        role != Role::TableHeader || self.resolved_id(Role::TableContents) != Some(id)
+    }
 }
 
-fn style_by_id(tree: &XmlTree, id: &str) -> Option<NodeId> {
-    w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
-}
+pub(super) use crate::styles::style_element_by_id as style_by_id;
 
 /// Whether a paragraph style shows only the default style's look in the
 /// respect `own` tests: neither it nor a parent short of the default has
@@ -924,7 +892,7 @@ fn wears_default(
     body: Option<&str>,
     own: fn(&XmlTree, NodeId) -> bool,
 ) -> bool {
-    let default = default_style(tree, Kind::Paragraph);
+    let default = default_style(tree, StyleType::Paragraph);
     let mut seen: Vec<String> = Vec::new();
     let mut next = Some(id.to_string());
     while let Some(id) = next.take() {
@@ -1025,18 +993,7 @@ impl Spacing {
     }
 }
 
-/// A style and the styles it is based on, nearest first.
-fn style_chain(styles: &XmlTree, style: Option<NodeId>) -> Vec<NodeId> {
-    let mut chain = Vec::new();
-    let mut current = style;
-    while let Some(node) = current.filter(|node| !chain.contains(node)) {
-        chain.push(node);
-        current = w_child(styles, node, "basedOn")
-            .and_then(|b| w_attr(styles, b, "val"))
-            .and_then(|id| style_by_id(styles, id));
-    }
-    chain
-}
+pub(super) use crate::styles::based_on_chain as style_chain;
 
 /// The spacing a paragraph style gives: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
@@ -1146,22 +1103,22 @@ fn respace(txn: &mut Txn<'_>, part: &str, id: &str, spacing: &Spacing) -> Result
     if let Some(old) = w_child(tree, ppr, "spacing") {
         crate::authoring::remove(tree, old)?;
     }
-    let wrapper = import_fragment(
-        tree,
-        ppr,
-        &format!("<w:pPr xmlns:w=\"{W}\">{}</w:pPr>", spacing.xml()),
-    )?;
-    let element = tree
-        .child_elements(wrapper)
-        .next()
-        .expect("the spacing element");
-    tree.detach(element)?;
+    let element = crate::oxml::w_el(tree, ppr, "spacing")?;
     crate::oxml::insert_before_successors(
         tree,
         ppr,
         element,
         crate::oxml::successors(crate::oxml::PPR_SEQ, "spacing"),
-    )
+    )?;
+    for (name, value) in [
+        ("before", &spacing.before),
+        ("after", &spacing.after),
+        ("line", &spacing.line),
+        ("lineRule", &spacing.line_rule),
+    ] {
+        crate::oxml::set_w(tree, element, name, value)?;
+    }
+    Ok(())
 }
 
 /// The value carrying the most weight, when one beats every other.
@@ -1305,14 +1262,20 @@ pub(crate) struct Sample {
     table_style: Option<String>,
     table: Option<Lifted>,
     table_look: Vec<(String, bool)>,
-    /// The paragraph style, not the default, carrying the most text of the
-    /// sample tables' header (`true`) and body cells.
-    cell_styles: BTreeMap<bool, String>,
-    /// The run look set by hand carrying the most text of those cells, when
-    /// they hold any text (empty: plain, or no shared look).
-    cell_looks: BTreeMap<bool, String>,
+    /// What the sample tables' header (`Role::TableHeader`) and body
+    /// (`Role::TableContents`) cells share, for the cells holding text.
+    cells: BTreeMap<Role, CellSample>,
     /// Paragraph styles the template's headers and footers write in.
     story_styles: BTreeSet<String>,
+}
+
+/// What the text of a sample table's header or body cells shares: the
+/// paragraph style, not the default, carrying the most text, and the run
+/// look set by hand carrying the most (`None`: plain, or no shared look).
+#[derive(Debug, Default, Clone, PartialEq)]
+struct CellSample {
+    style: Option<String>,
+    look: Option<String>,
 }
 
 /// Characters from which a sample paragraph is prose the body look and
@@ -1501,14 +1464,23 @@ impl Sample {
         !self.text_styles.contains(&Some(id.to_string())) && !self.story_styles.contains(id)
     }
 
+    fn cell_style(&self, role: Role) -> Option<&str> {
+        self.cells.get(&role)?.style.as_deref()
+    }
+
+    fn cell_look(&self, role: Role) -> Option<&str> {
+        self.cells.get(&role)?.look.as_deref()
+    }
+
     /// Whether the sample tables' header cells show a text look of their
     /// own: set by hand, or a body-cell style or look that is not theirs.
     /// Without one they take the body cells' style.
     fn header_text_differs(&self) -> bool {
-        let look = |header: bool| self.cell_looks.get(&header).filter(|look| !look.is_empty());
-        self.cell_looks.contains_key(&true)
-            && (look(true) != look(false)
-                || self.cell_styles.get(&true) != self.cell_styles.get(&false))
+        let plain = CellSample::default();
+        let body = self.cells.get(&Role::TableContents).unwrap_or(&plain);
+        self.cells
+            .get(&Role::TableHeader)
+            .is_some_and(|header| header != body)
     }
 
     /// The spacing the body style takes from the prose, the unstyled
@@ -1518,7 +1490,7 @@ impl Sample {
     fn body_spacing(&self, styles: &XmlTree, body_style: Option<&str>) -> Option<Spacing> {
         let node = match body_style {
             Some(id) => Some(style_by_id(styles, id)?),
-            None => default_style(styles, Kind::Paragraph),
+            None => default_style(styles, StyleType::Paragraph),
         };
         let own = style_spacing(styles, node);
         let buckets = [None, body_style.map(str::to_string)];
@@ -1543,7 +1515,7 @@ impl Sample {
             rpr: rpr.unwrap_or_default(),
             ppr: spacing.map(|spacing| spacing.xml()).unwrap_or_default(),
             // Named apart from a Body Text the template keeps unused.
-            name: find_style(styles, "Body Text", Kind::Paragraph)
+            name: find_style(styles, "Body Text", StyleType::Paragraph)
                 .is_some()
                 .then(|| "Template Body Text".to_string()),
             ..Lifted::default()
@@ -1575,12 +1547,12 @@ impl Sample {
                     .map(|(flag, on)| (flag.clone(), Value::Bool(*on)))
                     .collect::<serde_json::Map<String, Value>>(),
                 "cell_styles": {
-                    "header": self.cell_styles.get(&true),
-                    "body": self.cell_styles.get(&false),
+                    "header": self.cell_style(Role::TableHeader),
+                    "body": self.cell_style(Role::TableContents),
                 },
                 "cell_text": {
-                    "header": self.cell_looks.get(&true).filter(|look| !look.is_empty()).map(|look| describe_rpr(look)),
-                    "body": self.cell_looks.get(&false).filter(|look| !look.is_empty()).map(|look| describe_rpr(look)),
+                    "header": self.cell_look(Role::TableHeader).map(describe_rpr),
+                    "body": self.cell_look(Role::TableContents).map(describe_rpr),
                 },
             },
         })
@@ -1598,24 +1570,21 @@ impl Sample {
         let mut tables: Vec<SampleTable> = Vec::new();
         let mut list_runs: BTreeMap<bool, Vec<(String, usize)>> = BTreeMap::new();
         let related = |rel_type: &str| -> Result<Option<&XmlTree>> {
-            match package.part_related_by(package.main_part_name(), rel_type)? {
-                Some(name) => Ok(Some(package.xml(&name)?)),
-                None => Ok(None),
-            }
+            package
+                .part_related_by(package.main_part_name(), rel_type)?
+                .map(|name| package.xml(&name))
+                .transpose()
         };
         let styles_tree = related(crate::package::rels::rt::STYLES)?;
         let numbering_tree = related(crate::package::rels::rt::NUMBERING)?;
         let main = package.main_part_name();
-        let main_uri = format!("/{}", main.trim_start_matches('/'));
-        let base = crate::package::rels::base_uri(&main_uri);
-        for rel in txn.relationships(main)? {
-            use crate::package::rels::rt::{FOOTER, HEADER};
-            if rel.external || !matches!(rel.rel_type.as_str(), HEADER | FOOTER) {
-                continue;
-            }
-            let Some(part) = txn.resolve(&rel.target_part_name(base)) else {
-                continue;
-            };
+        for part in txn.parts_related_by(
+            main,
+            &[
+                crate::package::rels::rt::HEADER,
+                crate::package::rels::rt::FOOTER,
+            ],
+        )? {
             let story = txn.tree(&part)?;
             for node in story.descendants(story.root()) {
                 if story.is(node, W, "pStyle")
@@ -1630,7 +1599,7 @@ impl Sample {
                 let Some(id) = w_attr(styles, style, "styleId") else {
                     continue;
                 };
-                if matches!(w_attr(styles, style, "default"), Some("1" | "true" | "on"))
+                if w_attr(styles, style, "default").is_some_and(crate::styles::on_off)
                     && w_attr(styles, style, "type").unwrap_or("paragraph") == "paragraph"
                 {
                     default_style = Some(id.to_string());
@@ -1663,29 +1632,30 @@ impl Sample {
                 continue;
             }
             let ppr = w_child(tree, block, "pPr");
-            let style_id = ppr
-                .and_then(|p| w_child(tree, p, "pStyle"))
-                .and_then(|s| w_attr(tree, s, "val"))
+            let p_style = para_style_id(tree, block);
+            let style_id = p_style
                 .filter(|id| Some(*id) != default_style.as_deref())
                 .map(str::to_string);
-            let listed = ppr.and_then(|p| w_child(tree, p, "numPr")).is_some();
-            let first_run = w_children(tree, block, "r")
-                .find(|r| !crate::authoring::run_text(tree, *r).trim().is_empty());
+            let num_pr = ppr.and_then(|p| w_child(tree, p, "numPr"));
+            let listed = num_pr.is_some();
+            let mut first_run = None;
+            let mut chars = 0;
+            for run in w_children(tree, block, "r") {
+                let text = crate::authoring::run_text(tree, run);
+                if first_run.is_none() && !text.trim().is_empty() {
+                    first_run = Some(run);
+                }
+                chars += text.chars().count();
+            }
             let first_rpr = first_run.and_then(|r| w_child(tree, r, "rPr"));
             if first_run.is_some() {
                 sample.text_styles.insert(style_id.clone());
             }
-            let chars: usize = w_children(tree, block, "r")
-                .map(|r| crate::authoring::run_text(tree, r).chars().count())
-                .sum();
             let outline = ppr
                 .and_then(|p| w_child(tree, p, "outlineLvl"))
                 .and_then(|o| w_attr(tree, o, "val"))
                 .and_then(|v| v.parse::<u8>().ok());
-            let heading_level = ppr
-                .and_then(|p| w_child(tree, p, "pStyle"))
-                .and_then(|s| w_attr(tree, s, "val"))
-                .and_then(|id| sample.heading_styles.get(id).copied());
+            let heading_level = p_style.and_then(|id| sample.heading_styles.get(id).copied());
             if let (Some(level), true) = (heading_level, outline.is_none()) {
                 if first_run.is_some() {
                     heading_runs.entry(level).or_default().push(
@@ -1697,7 +1667,6 @@ impl Sample {
                 continue;
             }
             if listed && outline.is_none() && first_run.is_some() {
-                let num_pr = ppr.and_then(|p| w_child(tree, p, "numPr"));
                 let value = |local: &str| {
                     num_pr
                         .and_then(|n| w_child(tree, n, local))
@@ -1803,22 +1772,25 @@ impl Sample {
                     lifted.based_on = style.clone();
                     lifted
                 });
-                for header in [true, false] {
-                    let cells = || {
-                        group
-                            .iter()
-                            .flat_map(|t| t.text.iter())
-                            .filter(move |(h, _)| *h == header)
-                            .map(|(_, text)| text)
-                    };
-                    if cells().next().is_none() {
+                for (role, header) in [(Role::TableHeader, true), (Role::TableContents, false)] {
+                    let cells: Vec<&CellText> = group
+                        .iter()
+                        .flat_map(|t| t.text.iter())
+                        .filter(|(h, _)| *h == header)
+                        .map(|(_, text)| text)
+                        .collect();
+                    if cells.is_empty() {
                         continue;
                     }
-                    if let Some(Some(id)) = plurality(cells().map(|c| (c.style.clone(), c.chars))) {
-                        sample.cell_styles.insert(header, id);
-                    }
-                    let look = plurality(cells().map(|c| (c.look.clone(), c.chars)));
-                    sample.cell_looks.insert(header, look.unwrap_or_default());
+                    let style = plurality(cells.iter().map(|c| (c.style.as_deref(), c.chars)));
+                    let look = plurality(cells.iter().map(|c| (c.look.as_str(), c.chars)));
+                    sample.cells.insert(
+                        role,
+                        CellSample {
+                            style: style.flatten().map(str::to_string),
+                            look: look.filter(|look| !look.is_empty()).map(str::to_string),
+                        },
+                    );
                 }
                 sample.table_style = style;
             }
@@ -1885,26 +1857,28 @@ fn most_common<T: PartialEq + Clone>(values: impl Iterator<Item = T>) -> Option<
         .map(|(_, value)| value.clone())
 }
 
+/// `w:tblLook` flag names with their bits in the hexadecimal `w:val`.
+pub(super) const TBL_LOOK_FLAGS: [(&str, u32); 6] = [
+    ("firstRow", 0x20),
+    ("lastRow", 0x40),
+    ("firstColumn", 0x80),
+    ("lastColumn", 0x100),
+    ("noHBand", 0x200),
+    ("noVBand", 0x400),
+];
+
 /// `w:tblLook` flags of a table, from the attributes Word 2010 writes or
 /// else decoded from the older hexadecimal `w:val`.
 fn table_look(tree: &XmlTree, tbl: NodeId) -> Vec<(String, bool)> {
-    const FLAGS: [(&str, u32); 6] = [
-        ("firstRow", 0x20),
-        ("lastRow", 0x40),
-        ("firstColumn", 0x80),
-        ("lastColumn", 0x100),
-        ("noHBand", 0x200),
-        ("noVBand", 0x400),
-    ];
     let Some(look) = w_child(tree, tbl, "tblPr").and_then(|p| w_child(tree, p, "tblLook")) else {
         return Vec::new();
     };
     let bits = w_attr(tree, look, "val").and_then(|v| u32::from_str_radix(v, 16).ok());
-    FLAGS
+    TBL_LOOK_FLAGS
         .iter()
         .filter_map(|(name, bit)| {
             let on = match w_attr(tree, look, name) {
-                Some(value) => Some(matches!(value, "1" | "true" | "on")),
+                Some(value) => Some(crate::styles::on_off(value)),
                 None => bits.map(|bits| bits & bit != 0),
             }?;
             Some((name.to_string(), on))
@@ -1928,37 +1902,43 @@ fn cell_look(tree: &XmlTree, tc: NodeId) -> String {
         .unwrap_or_default()
 }
 
-/// The text of a cell, `None` when it holds none.
+/// The paragraph's `w:pStyle` id.
+fn para_style_id(tree: &XmlTree, p: NodeId) -> Option<&str> {
+    w_child(tree, p, "pPr")
+        .and_then(|ppr| w_child(tree, ppr, "pStyle"))
+        .and_then(|s| w_attr(tree, s, "val"))
+}
+
+/// The text of a cell, `None` when it holds none; `skip` names the run
+/// properties left out of its look.
 fn cell_text(
     tree: &XmlTree,
     tc: NodeId,
-    header: bool,
+    skip: &[&str],
     default_style: Option<&str>,
 ) -> Option<CellText> {
-    let paragraphs: Vec<NodeId> = w_children(tree, tc, "p").collect();
-    let runs: Vec<NodeId> = paragraphs
-        .iter()
-        .flat_map(|p| w_children(tree, *p, "r").collect::<Vec<_>>())
-        .collect();
-    let chars: usize = runs
-        .iter()
-        .map(|r| crate::authoring::run_text(tree, *r).trim().chars().count())
-        .sum();
+    let mut first_paragraph = None;
+    let mut first_run = None;
+    let mut chars = 0;
+    for p in w_children(tree, tc, "p") {
+        first_paragraph.get_or_insert(p);
+        for r in w_children(tree, p, "r") {
+            let count = crate::authoring::run_text(tree, r).trim().chars().count();
+            if count > 0 {
+                first_run.get_or_insert(r);
+                chars += count;
+            }
+        }
+    }
     if chars == 0 {
         return None;
     }
-    let style = paragraphs
-        .first()
-        .and_then(|p| w_child(tree, *p, "pPr"))
-        .and_then(|p| w_child(tree, p, "pStyle"))
-        .and_then(|s| w_attr(tree, s, "val"))
+    let style = first_paragraph
+        .and_then(|p| para_style_id(tree, p))
         .filter(|id| Some(*id) != default_style)
         .map(str::to_string);
-    let skip: &[&str] = if header { &[] } else { EMPHASIS_RPR };
-    let look = runs
-        .iter()
-        .find(|r| !crate::authoring::run_text(tree, **r).trim().is_empty())
-        .and_then(|r| w_child(tree, *r, "rPr"))
+    let look = first_run
+        .and_then(|r| w_child(tree, r, "rPr"))
         .and_then(|r| look_rpr(tree, r, skip))
         .unwrap_or_default();
     Some(CellText { style, look, chars })
@@ -2012,7 +1992,7 @@ fn read_table(tree: &XmlTree, tbl: NodeId, default_style: Option<&str>) -> Sampl
     let body_cells = rows
         .iter()
         .skip(1)
-        .flat_map(|tr| w_children(tree, *tr, "tc").collect::<Vec<_>>())
+        .flat_map(|tr| w_children(tree, *tr, "tc"))
         .map(|tc| cell_look(tree, tc))
         .collect();
     let row_firsts = rows
@@ -2025,10 +2005,11 @@ fn read_table(tree: &XmlTree, tbl: NodeId, default_style: Option<&str>) -> Sampl
         .iter()
         .enumerate()
         .flat_map(|(index, tr)| {
+            let header = index == 0;
+            let skip: &[&str] = if header { &[] } else { EMPHASIS_RPR };
             w_children(tree, *tr, "tc")
-                .filter_map(|tc| cell_text(tree, tc, index == 0, default_style))
-                .map(|text| (index == 0, text))
-                .collect::<Vec<_>>()
+                .filter_map(move |tc| cell_text(tree, tc, skip, default_style))
+                .map(move |text| (header, text))
         })
         .collect();
     SampleTable {
@@ -2113,13 +2094,17 @@ fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
 /// The table style a group of alike sample tables adds by hand: borders,
 /// shading and margins; `None` when nothing visible is added. The cells'
 /// text look goes to the cell paragraph styles instead
-/// (`Sample::cell_looks`), where every reader applies it and a header size
+/// (`Sample::cell_look`), where every reader applies it and a header size
 /// is not overridden by the body's.
 fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
     let representative = group.first()?;
     let mut props = representative.props.clone();
     let header = &representative.header;
-    let body_cell = most_common(group.iter().flat_map(|t| t.body_cells.iter().cloned()));
+    let body_cell = most_common(
+        group
+            .iter()
+            .flat_map(|t| t.body_cells.iter().map(String::as_str)),
+    );
     // Shading alone separates banded rows; borders are shared.
     let shading = |cell: &str| {
         cell.find("<w:shd ")
@@ -2129,10 +2114,10 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
         Some(shd) => cell.replacen(&shd, "", 1),
         None => cell.to_string(),
     };
-    let (whole_tcpr, conditional) = match body_cell {
-        None => (header.clone(), String::new()),
+    let mut conditional = String::new();
+    let whole_tcpr = match body_cell {
+        None => header.clone(),
         Some(body_cell) => {
-            let mut conditional = String::new();
             let firsts = &representative.row_firsts;
             let banded = firsts.len() == 2
                 && shading(&firsts[1]) != shading(&firsts[0])
@@ -2145,16 +2130,16 @@ fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
                         ));
                     }
                 }
-                without_shading(&body_cell)
+                without_shading(body_cell)
             } else {
-                body_cell.clone()
+                body_cell.to_string()
             };
             if *header != body_cell && !header.is_empty() {
                 conditional.push_str(&format!(
                     "<w:tblStylePr w:type=\"firstRow\"><w:tblPr/><w:tcPr>{header}</w:tcPr></w:tblStylePr>"
                 ));
             }
-            (whole_tcpr, conditional)
+            whole_tcpr
         }
     };
     let whole_tcpr = if whole_tcpr.contains("<w:tcBorders>") {
@@ -2227,29 +2212,12 @@ pub(crate) fn header_color_override(
     table_style: Option<&str>,
     cell_style: Option<&str>,
 ) -> Option<String> {
-    let by_id = |id: &str| {
-        w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
-    };
-    let chain = |start: Option<NodeId>| {
-        let mut out = Vec::new();
-        let mut current = start;
-        while let Some(style) = current {
-            if out.contains(&style) || out.len() > 16 {
-                break;
-            }
-            out.push(style);
-            current = w_child(tree, style, "basedOn")
-                .and_then(|b| w_attr(tree, b, "val"))
-                .and_then(by_id);
-        }
-        out
-    };
     let color = |rpr: Option<NodeId>| {
         rpr.and_then(|r| w_child(tree, r, "color"))
             .and_then(|c| w_attr(tree, c, "val"))
             .map(str::to_string)
     };
-    let header = chain(table_style.and_then(by_id))
+    let header = style_chain(tree, table_style.and_then(|id| style_by_id(tree, id)))
         .into_iter()
         .find_map(|style| {
             w_children(tree, style, "tblStylePr")
@@ -2257,18 +2225,16 @@ pub(crate) fn header_color_override(
                 .and_then(|c| color(w_child(tree, c, "rPr")))
         })?;
     let cell_start = cell_style
-        .and_then(by_id)
-        .or_else(|| default_style(tree, Kind::Paragraph));
-    let paragraph = chain(cell_start)
+        .and_then(|id| style_by_id(tree, id))
+        .or_else(|| default_style(tree, StyleType::Paragraph));
+    let paragraph = style_chain(tree, cell_start)
         .into_iter()
         .find_map(|style| color(w_child(tree, style, "rPr")))?;
     (!paragraph.eq_ignore_ascii_case(&header)).then_some(header)
 }
 
 fn table_cell_spacing(tree: &XmlTree, table_style: Option<&str>) -> String {
-    let style = table_style.and_then(|id| {
-        w_children(tree, tree.root(), "style").find(|s| w_attr(tree, *s, "styleId") == Some(id))
-    });
+    let style = table_style.and_then(|id| style_by_id(tree, id));
     let spacing = style.and_then(|style| {
         let whole = w_children(tree, style, "tblStylePr")
             .find(|c| w_attr(tree, *c, "type") == Some("wholeTable"))
@@ -2299,9 +2265,7 @@ fn internal_name(role: Role) -> String {
 }
 
 fn unique_id(tree: &XmlTree, base: &str) -> String {
-    let taken = |id: &str| {
-        w_children(tree, tree.root(), "style").any(|s| w_attr(tree, s, "styleId") == Some(id))
-    };
+    let taken = |id: &str| style_by_id(tree, id).is_some();
     if !taken(base) {
         return base.to_string();
     }
@@ -2311,10 +2275,10 @@ fn unique_id(tree: &XmlTree, base: &str) -> String {
         .expect("an unused style id")
 }
 
-/// Formatting of a created definition: `(pPr, rPr, table extras)` bodies,
+/// Formatting of a created definition: `pPr`, `rPr` and table-style bodies,
 /// children in schema order.
-fn definition(role: Role) -> (&'static str, &'static str, &'static str) {
-    match role {
+fn definition(role: Role) -> Lifted {
+    let (ppr, rpr, extra): (&str, &str, &str) = match role {
         Role::Title => (
             "<w:keepNext/><w:keepLines/><w:spacing w:before=\"480\" w:after=\"240\"/><w:jc w:val=\"center\"/>",
             "<w:b/><w:bCs/><w:color w:val=\"17365D\"/><w:sz w:val=\"36\"/><w:szCs w:val=\"36\"/>",
@@ -2474,13 +2438,18 @@ fn definition(role: Role) -> (&'static str, &'static str, &'static str) {
             "",
             "",
         ),
+    };
+    Lifted {
+        ppr: ppr.to_string(),
+        rpr: rpr.to_string(),
+        extra: extra.to_string(),
+        ..Lifted::default()
     }
 }
 
 /// The left indent paragraph style `id` sets itself, in twips.
 fn style_indent_left(tree: &XmlTree, id: &str) -> i64 {
-    w_children(tree, tree.root(), "style")
-        .find(|style| w_attr(tree, *style, "styleId") == Some(id))
+    style_by_id(tree, id)
         .and_then(|style| w_child(tree, style, "pPr"))
         .and_then(|ppr| w_child(tree, ppr, "ind"))
         .and_then(|ind| w_attr(tree, ind, "left").or_else(|| w_attr(tree, ind, "start")))
@@ -2496,8 +2465,9 @@ fn create(
     next: Option<String>,
     lifted: Option<Lifted>,
 ) -> Result<RoleStyle> {
-    let custom_name = lifted.as_ref().and_then(|l| l.name.clone());
-    let lifted_base = lifted.as_ref().and_then(|l| l.based_on.clone());
+    let lifted = lifted.unwrap_or_else(|| definition(role));
+    let custom_name = lifted.name.clone();
+    let lifted_base = lifted.based_on.clone();
     let internal = custom_name.clone().unwrap_or_else(|| internal_name(role));
     let builtin = custom_name.is_none()
         && !matches!(
@@ -2525,14 +2495,12 @@ fn create(
     let based_on = lifted_base.or(body).or_else(|| {
         default_style(tree, kind).and_then(|d| w_attr(tree, d, "styleId").map(str::to_string))
     });
-    let (ppr, rpr, extra) = definition(role);
-    let (ppr, rpr, extra): (String, String, String) = match lifted {
-        Some(lifted) => (lifted.ppr, lifted.rpr, lifted.extra),
-        None => (ppr.to_string(), rpr.to_string(), extra.to_string()),
-    };
+    let Lifted {
+        ppr, rpr, extra, ..
+    } = lifted;
     let mut xml = format!(
         "<w:style xmlns:w=\"{W}\" w:type=\"{}\" w:styleId=\"{}\"{}>",
-        kind.xml(),
+        kind.as_xml(),
         xml_escape(&id),
         if builtin { "" } else { " w:customStyle=\"1\"" }
     );
@@ -2551,7 +2519,7 @@ fn create(
         99
     };
     xml.push_str(&format!("<w:uiPriority w:val=\"{priority}\"/>"));
-    if kind != Kind::Table {
+    if kind != StyleType::Table {
         xml.push_str("<w:qFormat/>");
     }
     if !ppr.is_empty() {

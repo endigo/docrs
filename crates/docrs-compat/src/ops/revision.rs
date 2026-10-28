@@ -5,7 +5,7 @@ use docrs::revision::{Revision, Revisions};
 use docrs::{Document, Error, Result};
 use serde_json::{Value, json};
 
-use super::{OpFn, Step};
+use super::{OpFn, Step, bad};
 
 fn author(step: &Step<'_>) -> Option<String> {
     step.param("author", 0).as_str().map(str::to_string)
@@ -109,7 +109,7 @@ fn replace(doc: &mut Document, step: &Step<'_>, tracked: bool) -> Result<Value> 
     let text = step
         .param("text", 1)
         .as_str()
-        .ok_or_else(|| Error::invalid_argument("bad_case", "text is required"))?
+        .ok_or_else(|| bad("text is required"))?
         .to_string();
     let options = docrs::ReplaceOptions {
         tracked,

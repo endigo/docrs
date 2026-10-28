@@ -6,18 +6,7 @@ use docrs::coreprops::{CoreProperties, CoreProperty, CorePropertyChange, CoreVal
 use docrs::{Document, Result};
 use serde_json::{Map, Value, json};
 
-use crate::ops::inherited::bad;
-use crate::ops::{OpFn, Step};
-
-fn date(value: &Value) -> Result<Option<Timestamp>> {
-    match value {
-        Value::Null => Ok(None),
-        other => match other["$date"].as_str() {
-            Some(text) => Timestamp::parse(text).map(Some),
-            None => Err(bad(format!("expected {{\"$date\": ...}}, got {other}"))),
-        },
-    }
-}
+use crate::ops::{OpFn, Step, bad, date};
 
 /// `p7_coreprops._props`.
 fn props_json(props: &CoreProperties) -> Value {

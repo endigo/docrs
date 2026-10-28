@@ -6,49 +6,17 @@
 //! placeholder result text and arms `w:updateFields`: this crate never
 //! computes a field's value.
 
-use crate::anchor::{
-    BlockTarget, locate_paragraph, require_current_view, resolve_anchor_paragraph,
-};
+use crate::anchor::{BlockTarget, resolve_anchor_paragraph, resolve_anchor_paragraph_for};
 use crate::blocks::{insert_after, refuse_paragraph_in_open_field};
-use crate::numbering::{py_int, set_p_style};
+use crate::numbering::set_p_style;
 use crate::oxml::{add_t, append, set_w, w_el};
-use crate::protection::{OperationClass, refuse_if_protected};
+use crate::sections::insert_settings_child;
 use crate::story;
+use crate::styles::py_int;
 use crate::txn::Txn;
 use crate::wml::{W, w_attr, w_child};
 use crate::xml::{NodeId, XML_NS, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
-
-/// `CT_Settings` children that follow `w:updateFields`.
-const UPDATE_FIELDS_SUCCESSORS: &[(&str, &str)] = &[
-    (W, "hdrShapeDefaults"),
-    (W, "footnotePr"),
-    (W, "endnotePr"),
-    (W, "compat"),
-    (W, "docVars"),
-    (W, "rsids"),
-    (
-        "http://schemas.openxmlformats.org/officeDocument/2006/math",
-        "mathPr",
-    ),
-    (W, "attachedSchema"),
-    (W, "themeFontLang"),
-    (W, "clrSchemeMapping"),
-    (W, "doNotIncludeSubdocsInStats"),
-    (W, "doNotAutoCompressPictures"),
-    (W, "forceUpgrade"),
-    (W, "captions"),
-    (W, "readModeInkLockDown"),
-    (W, "smartTagType"),
-    (
-        "http://schemas.openxmlformats.org/schemaLibrary/2006/main",
-        "schemaLibrary",
-    ),
-    (W, "shapeDefaults"),
-    (W, "doNotEmbedSmartTags"),
-    (W, "decimalSymbol"),
-    (W, "listSeparator"),
-];
 
 /// Reference kinds for [`add_reference_field`].
 pub const REFERENCE_KINDS: &[&str] = &["number", "page", "text"];
@@ -64,15 +32,7 @@ pub(crate) fn set_update_fields_on_open(txn: &mut Txn<'_>) -> Result<()> {
     }
     let element = w_el(tree, root, "updateFields")?;
     set_w(tree, element, "val", "true")?;
-    let position = tree.children(root).iter().position(|child| {
-        UPDATE_FIELDS_SUCCESSORS
-            .iter()
-            .any(|(ns, local)| tree.is(*child, ns, local))
-    });
-    match position {
-        Some(index) => tree.insert(root, index, element),
-        None => append(tree, root, element),
-    }
+    insert_settings_child(tree, root, element, "updateFields")
 }
 
 /// Upstream `_simple_field`.
@@ -100,9 +60,7 @@ fn paragraph_target(
     paragraph: BlockTarget<'_>,
     operation: &str,
 ) -> Result<Target> {
-    let located = locate_paragraph(document, paragraph)?;
-    require_current_view(paragraph)?;
-    refuse_if_protected(document, operation, OperationClass::BodyContent)?;
+    let located = resolve_anchor_paragraph_for(document, paragraph, operation)?;
     Ok(Target {
         part: located.part,
         element: located.element,
@@ -275,6 +233,21 @@ pub(crate) fn fld_char_run(
     Ok(run)
 }
 
+/// A detached run holding `instruction` as `w:instrText`, spaces preserved.
+pub(crate) fn instr_text_run(
+    tree: &mut XmlTree,
+    scope: NodeId,
+    instruction: &str,
+) -> Result<NodeId> {
+    let run = w_el(tree, scope, "r")?;
+    let instr = w_el(tree, run, "instrText")?;
+    tree.set_attr(instr, Some(XML_NS), "space", "preserve")?;
+    let text = tree.create_text(instruction);
+    tree.insert(instr, 0, text)?;
+    append(tree, run, instr)?;
+    Ok(run)
+}
+
 /// Insert a TOC complex field in a new paragraph after `anchor` (main body
 /// only), marked dirty; `levels` maps to `\o "low-high"`.
 pub fn insert_toc_after(
@@ -309,12 +282,11 @@ pub fn insert_toc_after(
     let scope = located.element;
     let paragraph = w_el(tree, scope, "p")?;
     let begin = fld_char_run(tree, paragraph, "begin", true)?;
-    let instr_run = w_el(tree, paragraph, "r")?;
-    let instr = w_el(tree, instr_run, "instrText")?;
-    tree.set_attr(instr, Some(XML_NS), "space", "preserve")?;
-    let text = tree.create_text(format!(" TOC \\o \"{low}-{high}\" \\h \\z \\u "));
-    tree.insert(instr, 0, text)?;
-    append(tree, instr_run, instr)?;
+    let instr_run = instr_text_run(
+        tree,
+        paragraph,
+        &format!(" TOC \\o \"{low}-{high}\" \\h \\z \\u "),
+    )?;
     let separate = fld_char_run(tree, paragraph, "separate", false)?;
     let placeholder = w_el(tree, paragraph, "r")?;
     add_t(
@@ -497,7 +469,7 @@ pub mod fieldcode {
         }
     }
 
-    fn tokens(instruction: &str) -> Result<Vec<FieldOperand>> {
+    pub(crate) fn tokens(instruction: &str) -> Result<Vec<FieldOperand>> {
         let chars: Vec<char> = instruction.chars().collect();
         let mut out = Vec::new();
         let mut index = 0;

@@ -19,13 +19,6 @@ const TINY_PNG: &str = "89504e470d0a1a0a0000000d49484452000000010000000108020000
 0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e44ae426082";
 const RT: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-fn hex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
-        .collect()
-}
-
 /// A package edited member by member, starting from the default template.
 struct Pkg(Vec<(String, Vec<u8>)>);
 
@@ -109,19 +102,11 @@ fn p(text: &str) -> String {
 }
 
 fn minimal() -> Document {
-    Document::open_bytes(
-        &fixture("generated/minimal-clean/minimal.docx"),
-        &Limits::default(),
-    )
-    .unwrap()
+    open_fixture("generated/minimal-clean/minimal.docx")
 }
 
 fn destination() -> Document {
     Pkg::base().body(&p("Destination anchor")).open()
-}
-
-fn bytes(doc: &Document) -> Vec<u8> {
-    doc.patch_bytes().unwrap().0
 }
 
 fn changed_parts(doc: &Document) -> (Vec<String>, Vec<String>) {
@@ -138,10 +123,6 @@ fn changed_parts(doc: &Document) -> (Vec<String>, Vec<String>) {
         out
     };
     (list("changed_parts"), list("added_parts"))
-}
-
-fn part_xml(doc: &Document, part: &str) -> String {
-    String::from_utf8(docrs::xml::serialize(doc.package().xml(part).unwrap())).unwrap()
 }
 
 fn texts(doc: &Document) -> Vec<String> {
@@ -203,7 +184,7 @@ fn blocks_source(names: &[&str]) -> Document {
 #[test]
 fn copies_a_styled_range_adopting_the_house_look() {
     let source = styles_source();
-    let source_before = bytes(&source);
+    let source_before = snapshot(&source);
     let mut doc = minimal();
     let report = insert(
         &mut doc,
@@ -247,7 +228,7 @@ fn copies_a_styled_range_adopting_the_house_look() {
         (vec!["word/document.xml".to_string()], vec![])
     );
     assert_eq!(
-        bytes(&source),
+        snapshot(&source),
         source_before,
         "the source is never modified"
     );
@@ -297,7 +278,7 @@ fn controls_endpoint_inclusion_and_ignores_count_with_an_end_anchor() {
 fn range_refusals_leave_the_destination_unchanged() {
     let source = blocks_source(&["Block A", "Block B", "Block C"]);
     let mut doc = destination();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let cases: Vec<(InsertBlocksOptions<'_>, &str, Option<RefusalKind>)> = vec![
         (
             InsertBlocksOptions {
@@ -340,7 +321,7 @@ fn range_refusals_leave_the_destination_unchanged() {
             None => assert_eq!(err.kind(), ErrorKind::InvalidArgument, "{err}"),
             Some(kind) => assert_eq!(refusal_kind(&err), Some(kind), "{err}"),
         }
-        assert_eq!(bytes(&doc), before);
+        assert_eq!(snapshot(&doc), before);
     }
 }
 
@@ -491,7 +472,7 @@ fn refuses_content_composition_cannot_carry_atomically() {
     for body in bodies {
         let source = Pkg::base().body(body).open();
         let mut doc = destination();
-        let before = bytes(&doc);
+        let before = snapshot(&doc);
         let options = InsertBlocksOptions {
             count: if body.contains("customXml") { 2 } else { 1 },
             ..InsertBlocksOptions::default()
@@ -509,7 +490,7 @@ fn refuses_content_composition_cannot_carry_atomically() {
             Some(RefusalKind::UnsupportedStructure),
             "{body}: {err}"
         );
-        assert_eq!(bytes(&doc), before, "{body}");
+        assert_eq!(snapshot(&doc), before, "{body}");
     }
 }
 
@@ -638,7 +619,7 @@ fn letterhead_refusal_after_the_body_compose_is_atomic() {
             p("Destination anchor")
         ))
         .open();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let options = AppendOptions {
         headers: HeadersFrom::Source,
         ..AppendOptions::default()
@@ -646,7 +627,7 @@ fn letterhead_refusal_after_the_body_compose_is_atomic() {
     let err = doc.append_document(&source, &options).unwrap_err();
     assert_eq!(refusal_kind(&err), Some(RefusalKind::UnsupportedStructure));
     assert_eq!(err.reason(), "even_odd_document_wide");
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
 }
 
 #[test]
@@ -684,7 +665,7 @@ fn destination_handles_stay_fresh_and_foreign_handles_refuse() {
     let source_span = source
         .find_one("Source block", &FindOptions::default())
         .unwrap();
-    let before = bytes(&doc);
+    let before = snapshot(&doc);
     let err = doc
         .insert_blocks_from(
             &source,
@@ -703,7 +684,7 @@ fn destination_handles_stay_fresh_and_foreign_handles_refuse() {
         )
         .unwrap_err();
     assert_eq!(refusal_kind(&err), Some(RefusalKind::BoundaryViolation));
-    assert_eq!(bytes(&doc), before);
+    assert_eq!(snapshot(&doc), before);
     let historical = doc
         .find_one(
             "Destination anchor",
@@ -776,7 +757,7 @@ fn a_source_without_styles_is_read_but_never_modified() {
         &Limits::default(),
     )
     .unwrap();
-    let source_before = bytes(&source);
+    let source_before = snapshot(&source);
     let mut doc = destination();
     let report = doc
         .append_document(
@@ -788,7 +769,7 @@ fn a_source_without_styles_is_read_but_never_modified() {
         )
         .unwrap();
     assert_eq!(report.inserted_blocks, 1);
-    assert_eq!(bytes(&source), source_before);
+    assert_eq!(snapshot(&source), source_before);
     assert!(source.package().part("word/styles.xml").is_none());
 }
 

@@ -22,7 +22,7 @@ pub use fonts::{Face, FontBook};
 use crate::Result;
 use crate::package::rels::rt;
 use crate::txn::Txn;
-use crate::wml::{w_attr, w_child, w_children};
+use crate::wml::{R, w_attr, w_child, w_children};
 use crate::xml::NodeId;
 
 /// The estimated layout of a document's body.
@@ -62,8 +62,7 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
         return Ok(out);
     };
     let tree = txn.tree(&table)?;
-    let rels = txn.relationships(&table)?;
-    let table_uri = format!("/{}", table.trim_start_matches('/'));
+    let rels = txn.resolved_relationships(&table)?;
     for font in w_children(tree, tree.root(), "font") {
         let Some(name) = w_attr(tree, font, "name") else {
             continue;
@@ -77,17 +76,13 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
             let Some(embed) = w_child(tree, font, local) else {
                 continue;
             };
-            let Some(id) = tree.attr(embed, Some(crate::authoring::R), "id") else {
+            let Some(id) = tree.attr(embed, Some(R), "id") else {
                 continue;
             };
-            let Some(rel) = rels.iter().find(|r| r.id == id) else {
+            let Some((_, part)) = rels.iter().find(|(rel, _)| rel.id == id) else {
                 continue;
             };
-            let target = rel.target_part_name(crate::package::rels::base_uri(&table_uri));
-            let Some(part) = txn.resolve(&target) else {
-                continue;
-            };
-            let Some(bytes) = txn.binary(&part) else {
+            let Some(bytes) = txn.binary(part) else {
                 continue;
             };
             let data = match w_attr(tree, embed, "fontKey") {

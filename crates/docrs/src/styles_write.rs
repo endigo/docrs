@@ -18,9 +18,9 @@
 
 use crate::authoring::{
     FontChange, FontValues, Handle, Host, ParagraphFormat, ParagraphFormatValues, STYLE_SEQ,
-    apply_font, apply_format, read_font, read_format, set_on_off,
+    apply_font, apply_format, read_font, read_format, remove, remove_all, set_on_off,
 };
-use crate::oxml::{get_or_add, insert_before_successors, successors};
+use crate::oxml::{append, get_or_add, insert_before_successors, set_w, successors};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::styles::{
     LatentStyle, Style, StyleType, read_styles, style_element_by_id, style_element_by_name,
@@ -28,44 +28,14 @@ use crate::styles::{
 };
 use crate::txn::Txn;
 use crate::wml::{W, w_attr, w_child, w_children};
-use crate::xml::{NodeData, NodeId, XmlTree};
+use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
-
-/// lxml `parent.remove(element)`: the element and its tail text go.
-fn remove(tree: &mut XmlTree, element: NodeId) -> Result<()> {
-    if let Some(parent) = tree.parent(element) {
-        let children = tree.children(parent).to_vec();
-        if let Some(index) = children.iter().position(|node| *node == element) {
-            for node in children[index + 1..].iter() {
-                if matches!(tree.data(*node), NodeData::Text(_)) {
-                    tree.detach(*node)?;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    tree.detach(element)
-}
-
-/// xmlchemy `_remove_<tag>`: every direct `w:local` child.
-fn remove_all(tree: &mut XmlTree, parent: NodeId, local: &str) -> Result<()> {
-    let doomed: Vec<NodeId> = w_children(tree, parent, local).collect();
-    for node in doomed {
-        remove(tree, node)?;
-    }
-    Ok(())
-}
 
 /// xmlchemy `_add_<tag>`: a new `w:local` child in `CT_Style` order.
 fn add_style_child(tree: &mut XmlTree, style: NodeId, local: &str) -> Result<NodeId> {
     let child = tree.create_element(style, W, local)?;
     insert_before_successors(tree, style, child, successors(STYLE_SEQ, local))?;
     Ok(child)
-}
-
-fn set_w(tree: &mut XmlTree, element: NodeId, local: &str, value: &str) -> Result<()> {
-    tree.set_attr(element, Some(W), local, value)
 }
 
 /// `XsdInt` validation (`ST_DecimalNumber`).
@@ -112,21 +82,7 @@ fn txn_styles_part(txn: &mut Txn<'_>) -> Result<String> {
         // A stale `Override` for the missing part (Word leaves them behind)
         // would become ambiguous next to the new one; python-docx rewrites
         // the content types from its parts and keeps exactly one.
-        let types = txn.tree_mut("[Content_Types].xml")?;
-        let root = types.root();
-        let ct_ns = crate::package::content_types::CT_NS;
-        let stale: Vec<NodeId> = types
-            .child_elements(root)
-            .filter(|node| types.is(*node, ct_ns, "Override"))
-            .filter(|node| {
-                types
-                    .attr(*node, None, "PartName")
-                    .is_some_and(|name| name.eq_ignore_ascii_case("/word/styles.xml"))
-            })
-            .collect();
-        for node in stale {
-            types.detach(node)?;
-        }
+        txn.drop_content_type_override("word/styles.xml")?;
     }
     crate::parts::ensure_styles_part(txn)
 }
@@ -212,8 +168,7 @@ impl StyleRef {
     pub fn info(&self, doc: &Document) -> Result<Style> {
         let tree = self.live(doc)?;
         let index = style_elements(tree)
-            .iter()
-            .position(|node| *node == self.h.element)
+            .position(|node| node == self.h.element)
             .ok_or_else(|| Error::internal("style_index", "live style is not a w:style child"))?;
         let styles = read_styles(tree, Some(self.h.part.clone()))?;
         styles
@@ -474,7 +429,6 @@ impl Document {
         };
         let tree = self.package().xml(&part)?;
         Ok(style_elements(tree)
-            .into_iter()
             .map(|element| StyleRef {
                 h: Handle::capture(self, &part, tree, element),
             })
@@ -500,7 +454,7 @@ impl Document {
             let tree = txn.tree(&part)?;
             // `style_name in self` (BabelFish applied again by __contains__).
             let lookup = ui_to_internal(&internal);
-            let taken = style_elements(tree).into_iter().any(|style| {
+            let taken = style_elements(tree).any(|style| {
                 w_child(tree, style, "name").and_then(|n| w_attr(tree, n, "val")) == Some(lookup)
             });
             if taken {
@@ -513,8 +467,7 @@ impl Document {
         let tree = txn.tree_mut(&part)?;
         let root = tree.root();
         let style = tree.create_element(root, W, "style")?;
-        let end = tree.children(root).len();
-        tree.insert(root, end, style)?;
+        append(tree, root, style)?;
         set_w(tree, style, "type", style_type.as_xml())?;
         if !builtin {
             set_w(tree, style, "customStyle", "1")?;
@@ -552,8 +505,7 @@ impl Document {
         let tree = txn.tree_mut(&part)?;
         let latent = get_or_add_latent(tree)?;
         let exception = tree.create_element(latent, W, "lsdException")?;
-        let end = tree.children(latent).len();
-        tree.insert(latent, end, exception)?;
+        append(tree, latent, exception)?;
         set_w(tree, exception, "name", ui_to_internal(name))?;
         let handle = Handle::capture(txn.document(), &part, txn.tree(&part)?, exception);
         commit!(self, txn)?;

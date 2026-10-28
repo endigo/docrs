@@ -6,6 +6,8 @@
 //! A modified part is always re-serialized as UTF-8 with a matching
 //! declaration.
 
+use std::borrow::Cow;
+
 use super::XmlError;
 
 /// The encoding a part was read in.
@@ -30,14 +32,19 @@ pub enum SourceEncoding {
 
 /// Decode `bytes` to a `String` according to BOM, byte pattern and declaration.
 pub fn decode(bytes: &[u8]) -> Result<(String, SourceEncoding), XmlError> {
+    decode_cow(bytes).map(|(text, encoding)| (text.into_owned(), encoding))
+}
+
+/// [`decode`] that borrows UTF-8 input instead of copying it.
+pub(crate) fn decode_cow(bytes: &[u8]) -> Result<(Cow<'_, str>, SourceEncoding), XmlError> {
     if let Some(rest) = bytes.strip_prefix(b"\xEF\xBB\xBF") {
-        return utf8(rest).map(|s| (s, SourceEncoding::Utf8 { bom: true }));
+        return utf8(rest).map(|s| (Cow::Borrowed(s), SourceEncoding::Utf8 { bom: true }));
     }
     if let Some(rest) = bytes.strip_prefix(b"\xFF\xFE") {
-        return utf16(rest, false).map(|s| (s, SourceEncoding::Utf16Le));
+        return utf16(rest, false).map(|s| (Cow::Owned(s), SourceEncoding::Utf16Le));
     }
     if let Some(rest) = bytes.strip_prefix(b"\xFE\xFF") {
-        return utf16(rest, true).map(|s| (s, SourceEncoding::Utf16Be));
+        return utf16(rest, true).map(|s| (Cow::Owned(s), SourceEncoding::Utf16Be));
     }
     if bytes.starts_with(b"\x00\x00\xFE\xFF") || bytes.starts_with(b"\xFF\xFE\x00\x00") {
         return Err(XmlError::malformed(
@@ -46,16 +53,16 @@ pub fn decode(bytes: &[u8]) -> Result<(String, SourceEncoding), XmlError> {
         ));
     }
     if bytes.starts_with(b"<\x00?\x00") {
-        return utf16(bytes, false).map(|s| (s, SourceEncoding::Utf16Le));
+        return utf16(bytes, false).map(|s| (Cow::Owned(s), SourceEncoding::Utf16Le));
     }
     if bytes.starts_with(b"\x00<\x00?") {
-        return utf16(bytes, true).map(|s| (s, SourceEncoding::Utf16Be));
+        return utf16(bytes, true).map(|s| (Cow::Owned(s), SourceEncoding::Utf16Be));
     }
 
     let label = declared_encoding(bytes).map(|label| label.to_ascii_lowercase());
     match label.as_deref() {
         None | Some("utf-8") | Some("utf8") => {
-            utf8(bytes).map(|s| (s, SourceEncoding::Utf8 { bom: false }))
+            utf8(bytes).map(|s| (Cow::Borrowed(s), SourceEncoding::Utf8 { bom: false }))
         }
         Some("us-ascii") | Some("ascii") => {
             if let Some(position) = bytes.iter().position(|b| *b > 0x7F) {
@@ -67,11 +74,11 @@ pub fn decode(bytes: &[u8]) -> Result<(String, SourceEncoding), XmlError> {
                     ),
                 ));
             }
-            utf8(bytes).map(|s| (s, SourceEncoding::Ascii))
+            utf8(bytes).map(|s| (Cow::Borrowed(s), SourceEncoding::Ascii))
         }
         Some("iso-8859-1") | Some("latin1") | Some("latin-1") | Some("iso_8859-1") | Some("l1") => {
             Ok((
-                bytes.iter().map(|b| *b as char).collect(),
+                Cow::Owned(bytes.iter().map(|b| *b as char).collect()),
                 SourceEncoding::Latin1,
             ))
         }
@@ -90,7 +97,7 @@ pub fn decode(bytes: &[u8]) -> Result<(String, SourceEncoding), XmlError> {
                     }
                 }
             }
-            Ok((out, SourceEncoding::Windows1252))
+            Ok((Cow::Owned(out), SourceEncoding::Windows1252))
         }
         Some("utf-16") | Some("utf-16le") | Some("utf-16be") => Err(XmlError::malformed(
             "invalid_encoding",
@@ -103,14 +110,11 @@ pub fn decode(bytes: &[u8]) -> Result<(String, SourceEncoding), XmlError> {
     }
 }
 
-fn utf8(bytes: &[u8]) -> Result<String, XmlError> {
-    String::from_utf8(bytes.to_vec()).map_err(|err| {
+fn utf8(bytes: &[u8]) -> Result<&str, XmlError> {
+    std::str::from_utf8(bytes).map_err(|err| {
         XmlError::malformed(
             "invalid_encoding",
-            format!(
-                "invalid UTF-8 at byte offset {}",
-                err.utf8_error().valid_up_to()
-            ),
+            format!("invalid UTF-8 at byte offset {}", err.valid_up_to()),
         )
     })
 }
