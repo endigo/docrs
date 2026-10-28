@@ -23,7 +23,7 @@ docrs ports the behaviour of the Python [paper-docx](https://github.com/paper-in
 | XML encodings | any libxml2/iconv encoding | UTF-8, UTF-16, ASCII, ISO-8859-1, windows-1252; others refused | `xml/decode.rs` tests |
 | Core property dates before year 1000 | written with `strftime("%Y")`: `0999` on macOS, `999` on Linux (then read back as `None`) | always four digits (`0999`) | ops `m7-inherited-coreprops-*` `dates-each` |
 | `add_hyperlink` with a `javascript:`/`vbscript:` address or control characters | accepted | refused (`invalid_argument`: `script_address`, `address_control_character`) | `links.rs::script_addresses_and_control_characters_are_refused` |
-| Office `[trash]` members, empty-stream directory entries | refused | refused by default; set aside with opt-in `Tolerance` (CLI: reference documents of `from-markdown`, `markdown-styles` and `markdown-inspect`; `--strict-package` to refuse) | `zip_guard.rs::word_tolerated_irregularities_open_only_on_request` |
+| Office `[trash]` members, empty-stream directory entries | refused | refused by default; set aside with opt-in `Tolerance` (CLI: reference documents of `from-markdown`, `from-html`, `from-json`, `markdown-styles` and `markdown-inspect`; `--strict-package` to refuse) | `zip_guard.rs::word_tolerated_irregularities_open_only_on_request` |
 
 ## Known limitations
 

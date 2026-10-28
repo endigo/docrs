@@ -1,7 +1,7 @@
 //! End-to-end CLI acceptance (contract checks 1, 3 and 5 through a real
 //! process).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn bin() -> Command {
@@ -577,66 +577,94 @@ fn tiptap_fixture(name: &str) -> PathBuf {
 }
 
 #[test]
-fn from_markdown_takes_tiptap_json_by_extension_or_flag() {
+fn each_source_format_has_its_command() {
     let dir = tempfile::tempdir().unwrap();
-    let out = dir.path().join("core.docx");
-    let output = bin()
-        .args(["--json", "from-markdown"])
-        .arg(tiptap_fixture("core.json"))
-        .arg("--reference")
-        .arg(examples("reference.docx"))
-        .arg("--out")
-        .arg(&out)
-        .output()
-        .unwrap();
+    let convert = |command: &str, input: &Path, out: &Path| {
+        bin()
+            .args(["--json", command])
+            .arg(input)
+            .arg("--reference")
+            .arg(examples("reference.docx"))
+            .arg("--out")
+            .arg(out)
+            .output()
+            .unwrap()
+    };
+    let outline_of = |out: &Path| {
+        let outline = bin().args(["outline"]).arg(out).output().unwrap();
+        String::from_utf8_lossy(&outline.stdout).into_owned()
+    };
+
+    let from_json = dir.path().join("json.docx");
+    let output = convert("from-json", &tiptap_fixture("core.json"), &from_json);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
     let report = json_of(&output);
+    assert_eq!(report["schema"], "docrs_from_json");
     assert_eq!(report["markdown"]["counts"]["tables"], 2);
     assert_eq!(
         report["markdown"]["warnings"][0]["code"],
         "remote_image_skipped"
     );
-    let outline = bin().args(["outline"]).arg(&out).output().unwrap();
-    let text = String::from_utf8_lossy(&outline.stdout);
+    let text = outline_of(&from_json);
     assert!(text.contains("Advice") && text.contains("After"), "{text}");
 
-    let out = dir.path().join("stdin.docx");
-    let mut child = bin()
-        .args(["from-markdown", "-", "--from", "tiptap", "--out"])
-        .arg(&out)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    use std::io::Write;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(br#"{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"From JSON"}]}]}"#)
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stdout)
+    let from_html = dir.path().join("html.docx");
+    let output = convert("from-html", &tiptap_fixture("core.html"), &from_html);
+    let report = json_of(&output);
+    assert_eq!(report["schema"], "docrs_from_html", "{report}");
+    assert_eq!(report["markdown"]["counts"]["tables"], 2);
+    assert_eq!(outline_of(&from_html), text);
+
+    // The command decides the format, not the file name.
+    let renamed = dir.path().join("page.txt");
+    std::fs::copy(tiptap_fixture("core.json"), &renamed).unwrap();
+    let output = convert("from-json", &renamed, &dir.path().join("renamed.docx"));
+    assert!(output.status.success(), "{}", json_of(&output));
+    let output = convert(
+        "from-markdown",
+        &tiptap_fixture("core.json"),
+        &dir.path().join("compat.docx"),
     );
-    let outline = bin().args(["outline"]).arg(&out).output().unwrap();
-    assert!(String::from_utf8_lossy(&outline.stdout).contains("From JSON"));
+    let report = json_of(&output);
+    assert_eq!(report["schema"], "docrs_from_markdown", "{report}");
+    assert_eq!(report["markdown"]["counts"]["tables"], 2, "{report}");
+
+    for command in [
+        &["from-tiptap", "-"][..],
+        &["from-markdown", "-", "--from", "tiptap"],
+    ] {
+        let out = dir.path().join("stdin.docx");
+        let mut child = bin()
+            .args(command)
+            .arg("--out")
+            .arg(&out)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"From JSON"}]}]}"#)
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{command:?}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(outline_of(&out).contains("From JSON"), "{command:?}");
+    }
 
     let bad = dir.path().join("bad.json");
     std::fs::write(&bad, "[1, 2]").unwrap();
-    let output = bin()
-        .args(["--json", "from-markdown"])
-        .arg(&bad)
-        .arg("--out")
-        .arg(dir.path().join("bad.docx"))
-        .output()
-        .unwrap();
+    let output = convert("from-json", &bad, &dir.path().join("bad.docx"));
     assert!(!output.status.success());
     let error = json_of(&output);
     assert_eq!(error["error"]["reason"], "tiptap_json_invalid", "{error}");

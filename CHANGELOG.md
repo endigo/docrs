@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Command line
+
+- Each source format has its own command: `from-markdown` for Markdown, `from-html` for editor HTML and `from-json` (alias `from-tiptap`) for TipTap JSON, as the Node.js package has `fromMarkdown`, `fromHtml` and `fromJson`. The command decides the format, whatever the file is called, and takes the options of `from-markdown`. Their JSON reports are `docrs_from_html` and `docrs_from_json`, shaped like `docrs_from_markdown`'s. `from-markdown` still converts an `.html`, `.htm` or `.json` file, and still takes `--from`, now left out of its help, so existing scripts keep working.
+
 ## 0.3.11 (2026-10-27)
 
 ### Library

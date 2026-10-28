@@ -51,8 +51,8 @@ docrs insert-from base.docx source.docx --start 'Clause 4' --end 'Clause 6' --an
 docrs text-diff a.docx b.docx
 docrs pending input.docx
 docrs from-markdown notes.md --reference template.docx --out notes.docx
-docrs from-markdown page.html --reference template.docx --out page.docx  # editor HTML (--from html)
-docrs from-markdown page.json --reference template.docx --out page.docx  # TipTap getJSON() (--from tiptap)
+docrs from-html page.html --reference template.docx --out page.docx      # editor HTML
+docrs from-json page.json --reference template.docx --out page.docx      # TipTap getJSON()
 docrs markdown-reference --out reference.docx   # starter template to restyle
 docrs markdown-styles template.docx             # which style each element takes
 docrs markdown-inspect template.docx            # what a conversion takes from it
@@ -69,7 +69,8 @@ unsupported structure, boundary, relationship policy, malformed package),
 4 resource limit, 5 I/O, 70 internal error (a panic included). `find` and
 `replace` (with `--all` too) exit 3 when nothing matches. `--out` may equal the input;
 outputs are written atomically. `--acknowledge-protection` (on `replace`,
-`resolve`, `compare`, `append`, `insert-from` and `from-markdown`) proceeds through
+`resolve`, `compare`, `append`, `insert-from`, `from-markdown`, `from-html` and
+`from-json`) proceeds through
 Restrict Editing without removing it. `--trusted` uses the trusted-input
 resource profile instead of the default budgets.
 
