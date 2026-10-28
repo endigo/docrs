@@ -21,11 +21,12 @@ use crate::package::ct;
 use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::story::{self, BlockKind, View, iter_block_elements, subtree_text};
+use crate::styles::py_int;
 use crate::styles::{
     default_styles_tree, internal_to_ui, style_element_by_id, style_elements, ui_to_internal,
 };
 use crate::txn::Txn;
-use crate::unicode::{is_py_space, py_strip};
+use crate::unicode::py_strip;
 use crate::wml::{
     W, first_choice_children, is_w, leading_text, node_children, w_attr, w_child, w_children,
 };
@@ -90,33 +91,6 @@ impl NumberingReport {
             "numbered_paragraphs": self.numbered_paragraphs,
         })
     }
-}
-
-/// Python `int(text)` for base-10 strings (surrounding whitespace, a sign,
-/// single underscores between digits).
-pub(crate) fn py_int(text: &str) -> Option<i64> {
-    let trimmed = text.trim_matches(is_py_space);
-    let (negative, digits) = match trimmed.as_bytes().first() {
-        Some(b'-') => (true, &trimmed[1..]),
-        Some(b'+') => (false, &trimmed[1..]),
-        _ => (false, trimmed),
-    };
-    if digits.is_empty()
-        || digits.starts_with('_')
-        || digits.ends_with('_')
-        || digits.contains("__")
-    {
-        return None;
-    }
-    let mut value: i64 = 0;
-    for c in digits.chars() {
-        if c == '_' {
-            continue;
-        }
-        let digit = c.to_digit(10)?;
-        value = value.checked_mul(10)?.checked_add(digit as i64)?;
-    }
-    Some(if negative { -value } else { value })
 }
 
 fn malformed_int(what: &str, value: Option<&str>) -> Error {
@@ -1192,22 +1166,5 @@ impl Document {
     /// See [`restart_numbering`].
     pub fn restart_numbering(&mut self, num_id: i64) -> Result<i64> {
         restart_numbering(self, num_id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn py_int_matches_python() {
-        assert_eq!(py_int("42"), Some(42));
-        assert_eq!(py_int(" -7 "), Some(-7));
-        assert_eq!(py_int("+1_000"), Some(1000));
-        assert_eq!(py_int("007"), Some(7));
-        assert_eq!(py_int("1__0"), None);
-        assert_eq!(py_int("_1"), None);
-        assert_eq!(py_int(""), None);
-        assert_eq!(py_int("1.0"), None);
     }
 }

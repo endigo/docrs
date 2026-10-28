@@ -33,8 +33,8 @@ use crate::package::ct;
 use crate::package::rels::{RELS_NS, rels_member_for, rt};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::story::{self, BlockKind, Story, View};
+use crate::styles::py_int;
 use crate::txn::Txn;
-use crate::unicode::py_strip;
 use crate::wml::{MC, R, W, first_choice_children, leading_text, node_children, w_attr};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, DocumentId, Error, RefusalKind, Result};
@@ -157,27 +157,6 @@ fn raw_index(tree: &XmlTree, parent: NodeId, k: usize) -> usize {
         }
     }
     children.len()
-}
-
-/// Python `int(str)` for decimal ids.
-pub(crate) fn py_int(value: &str) -> Option<i64> {
-    let trimmed = py_strip(value);
-    let (sign, digits) = match trimmed.strip_prefix('-') {
-        Some(rest) => (-1, rest),
-        None => (1, trimmed.strip_prefix('+').unwrap_or(trimmed)),
-    };
-    if digits.is_empty()
-        || digits.starts_with('_')
-        || digits.ends_with('_')
-        || digits.contains("__")
-    {
-        return None;
-    }
-    let cleaned: String = digits.chars().filter(|c| *c != '_').collect();
-    if !cleaned.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    cleaned.parse::<i64>().ok().map(|n| n * sign)
 }
 
 /// Python `repr` of a string (simple quoting rules).
@@ -2712,7 +2691,5 @@ mod tests {
     #[test]
     fn python_reprs() {
         assert_eq!(py_list(&["a".into(), "it's".into()]), "['a', \"it's\"]");
-        assert_eq!(py_int(" 01 "), Some(1));
-        assert_eq!(py_int("x"), None);
     }
 }

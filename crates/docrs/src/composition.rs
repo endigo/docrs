@@ -29,6 +29,7 @@ use crate::numbering::{add_next, add_previous};
 use crate::oxml::{append, set_w, w_el};
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::protection::{OperationClass, refuse_if_protected};
+use crate::revision::is_scan_tag;
 use crate::sections::{HeaderFooterRole, HeaderFooterType, add_definition, insert_settings_child};
 use crate::story;
 use crate::txn::{RelTarget, Txn};
@@ -46,38 +47,6 @@ const MAIN_STORY: &str = "word/document.xml";
 const BODY_BLOCK_TAGS: &[&str] = &["p", "tbl", "sdt"];
 const STYLE_REF_TAGS: &[&str] = &["pStyle", "rStyle", "tblStyle"];
 const STYLE_CHAIN_TAGS: &[&str] = &["basedOn", "link", "next"];
-
-/// Upstream `revision._MARKUP_SCAN_TAGS` (all `w:`).
-const MARKUP_SCAN_TAGS: &[&str] = &[
-    "ins",
-    "del",
-    "moveFrom",
-    "moveTo",
-    "rPrChange",
-    "pPrChange",
-    "tblPrChange",
-    "tblPrExChange",
-    "tblGridChange",
-    "trPrChange",
-    "tcPrChange",
-    "cellIns",
-    "cellDel",
-    "cellMerge",
-    "sectPrChange",
-    "numberingChange",
-    "customXmlInsRangeStart",
-    "customXmlDelRangeStart",
-    "customXmlMoveFromRangeStart",
-    "customXmlMoveToRangeStart",
-    "moveFromRangeStart",
-    "moveFromRangeEnd",
-    "moveToRangeStart",
-    "moveToRangeEnd",
-    "customXmlInsRangeEnd",
-    "customXmlDelRangeEnd",
-    "customXmlMoveFromRangeEnd",
-    "customXmlMoveToRangeEnd",
-];
 
 /// Python `repr()` of a string (quote choice and escapes of control
 /// characters), used in finding details that upstream formats with `!r`.
@@ -563,7 +532,7 @@ fn refuse_unsupported_content(tree: &XmlTree, elements: &[NodeId]) -> Result<()>
             return Err(refuse(&reason));
         }
         for node in iter_nodes(tree, element) {
-            if is_w_any(tree, node, MARKUP_SCAN_TAGS) {
+            if is_scan_tag(tree, node) {
                 return Err(Error::unsupported(
                     "tracked_revision_markup",
                     "the source range carries tracked-revision markup; accept or reject the source revisions \

@@ -5,7 +5,7 @@
 
 use crate::controls::refuse_control_surface;
 use crate::links::{
-    add_next, isolate_edge_runs, next_sibling, require_live_span, span_runs, validate_span_fresh,
+    isolate_edge_runs, next_sibling, require_live_span, span_runs, validate_span_fresh,
 };
 use crate::oxml::{add_t, append, w_el};
 use crate::package::ct;
@@ -13,6 +13,7 @@ use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_writable_text;
 use crate::search::Span;
+use crate::tracked::insert_after;
 use crate::txn::Txn;
 use crate::unicode::casefold;
 use crate::wml::{W, is_w, w_attr};
@@ -182,7 +183,7 @@ fn insert_note(document: &mut Document, span: &mut Span, text: &str, kind: Kind)
         while let Some(sibling) = next_sibling(tree, anchor).filter(|s| is_note_mark(tree, *s)) {
             anchor = sibling;
         }
-        add_next(tree, anchor, mark)?;
+        insert_after(tree, anchor, mark)?;
         let rpr = append_new(tree, mark, "rPr")?;
         let align = append_new(tree, rpr, "vertAlign")?;
         tree.set_attr(align, Some(W), "val", "superscript")?;

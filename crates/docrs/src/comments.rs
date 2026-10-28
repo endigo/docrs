@@ -23,8 +23,9 @@ use crate::commentops::{
 use crate::oxml::{add_t, append};
 use crate::package::{ct, rels::rt};
 use crate::protection::{OperationClass, refuse_if_protected};
-use crate::revision::{RevisionDate, py_int, w_local};
+use crate::revision::{RevisionDate, w_local};
 use crate::search::{Span, slice_chars};
+use crate::styles::py_int;
 use crate::tracked::set_preserved_text;
 use crate::txn::{RelTarget, Txn};
 use crate::wml::{W, node_children, paragraph_text, w_attr};

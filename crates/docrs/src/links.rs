@@ -12,10 +12,10 @@ use crate::package::rels::rt;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_fresh;
 use crate::search::Span;
+use crate::tracked::{insert_after, insert_before, set_preserved_text};
 use crate::txn::{RelTarget, Txn};
-use crate::unicode::is_py_space;
-use crate::wml::{R, W, is_w, node_children, run_text, set_leading_text, w_attr, w_child};
-use crate::xml::{NodeId, XML_NS, XmlTree};
+use crate::wml::{R, W, is_w, node_children, run_text, w_attr, w_child};
+use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Error, RefusalKind, Result};
 
 fn boundary(reason: &'static str, message: impl Into<String>) -> Error {
@@ -65,28 +65,6 @@ pub(crate) fn append_moving(tree: &mut XmlTree, parent: NodeId, node: NodeId) ->
     Ok(())
 }
 
-/// lxml `anchor.addprevious(node)` for a new detached `node`.
-pub(crate) fn add_previous(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "anchor has no parent"))?;
-    let index = tree
-        .index_in_parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "anchor has no index"))?;
-    tree.insert(parent, index, node)
-}
-
-/// lxml `anchor.addnext(node)` for a new detached `node`.
-pub(crate) fn add_next(tree: &mut XmlTree, anchor: NodeId, node: NodeId) -> Result<()> {
-    let parent = tree
-        .parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "anchor has no parent"))?;
-    let index = tree
-        .index_in_parent(anchor)
-        .ok_or_else(|| Error::internal("detached_anchor", "anchor has no index"))?;
-    tree.insert(parent, index + 1, node)
-}
-
 /// lxml `copy.deepcopy(element)` appended to `parent` (the tail is copied
 /// too).
 fn append_copy(tree: &mut XmlTree, parent: NodeId, element: NodeId) -> Result<()> {
@@ -105,19 +83,6 @@ fn append_copy(tree: &mut XmlTree, parent: NodeId, element: NodeId) -> Result<()
     Ok(())
 }
 
-/// Upstream `_set_preserved_text`.
-fn set_preserved_text(tree: &mut XmlTree, element: NodeId, text: &str) -> Result<()> {
-    set_leading_text(tree, element, text)?;
-    let edge_space = text.chars().next().is_some_and(is_py_space)
-        || text.chars().last().is_some_and(is_py_space);
-    if edge_space {
-        tree.set_attr(element, Some(XML_NS), "space", "preserve")?;
-    } else {
-        tree.remove_attr(element, Some(XML_NS), "space");
-    }
-    Ok(())
-}
-
 fn new_run_like(tree: &mut XmlTree, run: NodeId) -> Result<NodeId> {
     let new_run = tree.create_element(run, W, "r")?;
     Ok(new_run)
@@ -132,7 +97,7 @@ fn split_before(tree: &mut XmlTree, run: NodeId, element: NodeId, prefix: &str) 
         return Ok(());
     }
     let new_run = new_run_like(tree, run)?;
-    add_previous(tree, run, new_run)?;
+    insert_before(tree, run, new_run)?;
     if let Some(rpr) = w_child(tree, run, "rPr") {
         append_copy(tree, new_run, rpr)?;
     }
@@ -155,7 +120,7 @@ fn split_after(tree: &mut XmlTree, run: NodeId, element: NodeId, tail: &str) -> 
         return Ok(());
     }
     let new_run = new_run_like(tree, run)?;
-    add_next(tree, run, new_run)?;
+    insert_after(tree, run, new_run)?;
     if let Some(rpr) = w_child(tree, run, "rPr") {
         append_copy(tree, new_run, rpr)?;
     }
@@ -222,9 +187,11 @@ pub(crate) fn span_runs(span: &Span) -> Vec<NodeId> {
 /// Next element/comment/PI sibling (lxml `getnext`).
 pub(crate) fn next_sibling(tree: &XmlTree, node: NodeId) -> Option<NodeId> {
     let parent = tree.parent(node)?;
-    let siblings: Vec<NodeId> = node_children(tree, parent).collect();
-    let index = siblings.iter().position(|s| *s == node)?;
-    siblings.get(index + 1).copied()
+    let index = tree.index_in_parent(node)?;
+    tree.children(parent)[index + 1..]
+        .iter()
+        .copied()
+        .find(|sibling| !matches!(tree.data(*sibling), NodeData::Text(_)))
 }
 
 /// A created hyperlink: its address and visible text (what upstream's
@@ -379,7 +346,7 @@ pub fn add_hyperlink(document: &mut Document, span: &Span, address: &str) -> Res
     let r_id = txn.relate_to(&story_part, rt::HYPERLINK, RelTarget::External(address))?;
     let tree = txn.tree_mut(&span.part)?;
     let hyperlink = tree.create_element(runs[0], W, "hyperlink")?;
-    add_previous(tree, runs[0], hyperlink)?;
+    insert_before(tree, runs[0], hyperlink)?;
     for run in &runs {
         append_moving(tree, hyperlink, *run)?;
         let rpr = match w_child(tree, *run, "rPr") {

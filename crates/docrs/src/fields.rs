@@ -8,10 +8,11 @@
 
 use crate::anchor::{BlockTarget, resolve_anchor_paragraph, resolve_anchor_paragraph_for};
 use crate::blocks::{insert_after, refuse_paragraph_in_open_field};
-use crate::numbering::{py_int, set_p_style};
+use crate::numbering::set_p_style;
 use crate::oxml::{add_t, append, set_w, w_el};
 use crate::sections::insert_settings_child;
 use crate::story;
+use crate::styles::py_int;
 use crate::txn::Txn;
 use crate::wml::{W, w_attr, w_child};
 use crate::xml::{NodeId, XML_NS, XmlTree};

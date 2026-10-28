@@ -9,12 +9,11 @@
 use serde::Serialize;
 
 use crate::fields::fieldcode;
-use crate::links::{
-    add_next, add_previous, isolate_edge_runs, require_live_span, validate_span_fresh,
-};
+use crate::links::{isolate_edge_runs, require_live_span, validate_span_fresh};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::search::Span;
 use crate::story::{is_direct_run_child, project_run_child, stories};
+use crate::tracked::{insert_after, insert_before};
 use crate::txn::Txn;
 use crate::unicode::{casefold, is_py_space};
 use crate::wml::{W, W14, is_w, iter_nodes, w_attr};
@@ -366,11 +365,11 @@ pub fn create_bookmark(
         let tree = txn.tree_mut(&span.part)?;
         let offsets = isolate_edge_runs(tree, span)?;
         let start = tree.create_element(first_run, W, "bookmarkStart")?;
-        add_previous(tree, first_run, start)?;
+        insert_before(tree, first_run, start)?;
         tree.set_attr(start, Some(W), "id", &bookmark_id.to_string())?;
         tree.set_attr(start, Some(W), "name", name)?;
         let end = tree.create_element(last_run, W, "bookmarkEnd")?;
-        add_next(tree, last_run, end)?;
+        insert_after(tree, last_run, end)?;
         tree.set_attr(end, Some(W), "id", &bookmark_id.to_string())?;
         let info = BookmarkInfo {
             name: name.to_string(),

@@ -24,13 +24,14 @@ use crate::anchor::{
 use crate::clock::Timestamp;
 use crate::image::py_round;
 use crate::numbering::{
-    ListKind, StylesView, add_next, ensure_definition_in, py_int, set_p_style, validated_style_id,
+    ListKind, StylesView, add_next, ensure_definition_in, set_p_style, validated_style_id,
 };
 use crate::oxml::{self, add_t, append, get_or_add_ppr, set_w, w_el};
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::replace::validate_writable_text;
 use crate::revision::w_local;
 use crate::story::{count_fldchar_delta, iter_block_elements};
+use crate::styles::py_int;
 use crate::tracked::{named_bookmarks_in, new_revision, next_revision_id};
 use crate::txn::Txn;
 use crate::wml::{is_w, iter_nodes, leading_text, node_children, w_attr, w_child, w_children};

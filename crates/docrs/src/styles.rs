@@ -508,13 +508,14 @@ pub(crate) fn style_element_by_id(tree: &XmlTree, style_id: &str) -> Option<Node
     style_elements(tree).find(|style| w_attr(tree, *style, "styleId") == Some(style_id))
 }
 
-/// A style and the styles it is based on, nearest first; a cycle ends the
-/// walk.
+/// A style and the styles it is based on, nearest first; a cycle or the
+/// sixteenth style ends the walk.
 #[cfg(feature = "markdown")]
 pub(crate) fn based_on_chain(tree: &XmlTree, start: Option<NodeId>) -> Vec<NodeId> {
+    const MAX_DEPTH: usize = 16;
     let mut chain = Vec::new();
     let mut current = start;
-    while let Some(node) = current.filter(|node| !chain.contains(node)) {
+    while let Some(node) = current.filter(|node| chain.len() < MAX_DEPTH && !chain.contains(node)) {
         chain.push(node);
         current = w_child(tree, node, "basedOn")
             .and_then(|b| w_attr(tree, b, "val"))
@@ -569,7 +570,11 @@ mod tests {
         assert_eq!(py_int(" 42 "), Some(42));
         assert_eq!(py_int("+4_2"), Some(42));
         assert_eq!(py_int("-7"), Some(-7));
+        assert_eq!(py_int(" 007 "), Some(7));
         assert_eq!(py_int("4__2"), None);
+        assert_eq!(py_int("_1"), None);
+        assert_eq!(py_int("1.0"), None);
+        assert_eq!(py_int("\u{0665}"), None);
         assert_eq!(py_int("x"), None);
         assert_eq!(py_int(""), None);
     }

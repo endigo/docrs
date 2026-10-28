@@ -24,9 +24,9 @@ use serde::Serialize;
 
 use crate::blocks::validate_xml_characters;
 use crate::protection::{OperationClass, refuse_if_protected};
-use crate::revision::py_int;
 use crate::search::{Atom, MatchPolicy, Span, find_text, include_atom, signature, story_atoms};
 use crate::story::{self, Anchor, View};
+use crate::styles::py_int;
 use crate::tracked::{
     add_tracked_run, hollowed_bookmarks, insert_after, new_revision, next_revision_id,
     pieces_in_range, set_preserved_text,
