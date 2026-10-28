@@ -1,7 +1,7 @@
 //! WebAssembly bindings of `docrs` for Node.js: Markdown, editor HTML or
 //! TipTap JSON to DOCX with a reference document, the same conversion as
-//! the CLI's `from-markdown`, and the reference document inspection of
-//! `markdown-inspect`.
+//! the CLI's `from-markdown`, `from-html` and `from-json`, and the reference
+//! document inspection of `markdown-inspect`.
 //!
 //! The conversion itself ([`convert`]) is plain Rust and tested natively;
 //! the `#[wasm_bindgen]` functions only translate JavaScript values. Bytes

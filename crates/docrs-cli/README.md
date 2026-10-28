@@ -15,8 +15,8 @@ docrs resolve input.docx --accept --out output.docx
 docrs compare original.docx revised.docx --author Reviewer --out redline.docx
 docrs append base.docx addition.docx --out combined.docx
 docrs from-markdown notes.md --reference template.docx --toc --out notes.docx
-docrs from-markdown page.html --reference template.docx --out page.docx   # editor HTML
-docrs from-markdown page.json --reference template.docx --out page.docx   # TipTap getJSON()
+docrs from-html page.html --reference template.docx --out page.docx       # editor HTML
+docrs from-json page.json --reference template.docx --out page.docx       # TipTap getJSON()
 docrs markdown-styles template.docx
 docrs markdown-inspect template.docx          # what a conversion takes from the template
 docrs layout input.docx                       # estimated page of each paragraph
@@ -25,7 +25,7 @@ docrs roundtrip input.docx --out copy.docx    # byte-identical when unchanged
 
 `docrs --help` lists every command and `docrs <command> --help` its options.
 
-`from-markdown` reads images only from the Markdown file's directory (standard input: the current directory) or `--resource-path`; absolute, UNC and `file:` paths and paths leading out of it are refused with a warning.
+`from-markdown`, `from-html` and `from-json` read images only from the source file's directory (standard input: the current directory) or `--resource-path`; absolute, UNC and `file:` paths and paths leading out of it are refused with a warning.
 
 **Output and exit codes:**
 

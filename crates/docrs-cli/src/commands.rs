@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use docrs::markdown::{InputFormat, MarkdownOptions, Placement, StylePolicy};
 use docrs::package::diagnose::diagnose_path;
 use docrs::package::diff::diff_packages;
 use docrs::{
@@ -10,7 +11,7 @@ use docrs::{
 };
 use serde_json::{Value, json};
 
-use crate::Command;
+use crate::{Command, ConvertArgs};
 
 fn read(path: &Path) -> Result<Vec<u8>> {
     std::fs::read(path)
@@ -442,157 +443,24 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             emit_composition(json_mode, "docrs_insert_from", &report, &patch, out);
             Ok(0)
         }
-        Command::FromMarkdown {
-            input,
-            from,
-            reference,
-            out,
-            placeholder,
-            append,
-            styles,
-            strict_styles,
-            strict,
-            resource_path,
-            toc,
-            no_toc,
-            toc_depth,
-            toc_title,
-            shift_heading_level,
-            smart,
-            no_title_block,
-            no_properties,
-            no_captions,
-            converter_lists,
-            toc_page_numbers,
-            no_toc_numbers,
-            page_numbers,
-            cover_page,
-            no_cover_page,
-            acknowledge_protection,
-            strict_package,
-        } => {
-            use docrs::markdown::{InputFormat, MarkdownOptions, Placement, StylePolicy};
-            let format = match from.as_deref() {
-                Some("markdown" | "md") => InputFormat::Markdown,
-                Some("html") => InputFormat::Html,
-                Some("tiptap" | "json") => InputFormat::Tiptap,
-                Some(other) => {
-                    return Err(Error::invalid_argument(
-                        "invalid_format",
-                        format!("--from must be markdown, html or tiptap, got {other:?}"),
-                    ));
-                }
-                None => match input.extension().and_then(|e| e.to_str()) {
-                    Some(ext)
-                        if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") =>
-                    {
-                        InputFormat::Html
-                    }
-                    Some(ext) if ext.eq_ignore_ascii_case("json") => InputFormat::Tiptap,
-                    _ => InputFormat::Markdown,
-                },
-            };
-            let markdown = if input.as_os_str() == "-" {
-                let mut text = String::new();
-                std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
-                    .map_err(|err| Error::io("read_failed", "reading standard input", err))?;
-                text
-            } else {
-                String::from_utf8(read(input)?).map_err(|_| {
-                    Error::invalid_argument(
-                        "markdown_not_utf8",
-                        format!("{} is not UTF-8 text", input.display()),
-                    )
-                })?
-            };
-            // The library reads no image file without a directory; the
-            // command reads them beside the Markdown (standard input: the
-            // current directory).
-            let resource_dir = resource_path.clone().or_else(|| {
-                Some(if input.as_os_str() == "-" {
-                    std::path::PathBuf::from(".")
-                } else {
-                    input.parent().map(Path::to_path_buf).unwrap_or_default()
-                })
-            });
-            let options = MarkdownOptions {
-                placement: match (placeholder, append) {
-                    (Some(marker), _) => Placement::Placeholder(marker.clone()),
-                    (None, true) => Placement::Append,
-                    (None, false) => Placement::ReplaceBody,
-                },
-                style_policy: if *strict_styles {
-                    StylePolicy::Strict
-                } else {
-                    StylePolicy::Create
-                },
-                style_map: style_map(styles)?,
-                resource_dir,
-                smart_punctuation: *smart,
-                toc: if *toc {
-                    Some(true)
-                } else if *no_toc {
-                    Some(false)
-                } else {
-                    None
-                },
-                toc_depth: *toc_depth,
-                toc_title: toc_title.clone(),
-                heading_offset: *shift_heading_level,
-                title_block: !no_title_block,
-                set_properties: !no_properties,
-                figure_captions: !no_captions && format == InputFormat::Markdown,
-                strict: *strict,
-                template_lists: !converter_lists,
-                toc_page_numbers: *toc_page_numbers,
-                toc_numbers: !no_toc_numbers,
-                page_numbers: *page_numbers,
-                cover_page: cover_page_option(*cover_page, *no_cover_page),
-                images: Default::default(),
-                now: None,
-            };
-            let (mut document, set_aside) =
-                open_reference(reference.as_deref(), limits, *strict_package)?;
-            if *acknowledge_protection {
-                document.acknowledge_protection()?;
-            }
-            let report =
-                docrs::markdown::insert_source(&mut document, &markdown, format, &options)?;
-            let patch = document.save(out)?;
-            let value = json!({"schema": "docrs_from_markdown", "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "save": patch.to_json(), "out": out});
-            emit(json_mode, value, || {
-                let c = &report.counts;
-                let mut text = format!(
-                    "wrote {} ({} headings, {} paragraphs, {} list items, {} tables, {} images, {} footnotes, {} links)",
-                    out.display(),
-                    c.headings,
-                    c.paragraphs,
-                    c.list_items,
-                    c.tables,
-                    c.images,
-                    c.footnotes,
-                    c.links
-                );
-                for item in &set_aside {
-                    text.push_str(&format!("\n  reference package: {item}"));
-                }
-                if !report.created_styles.is_empty() {
-                    text.push_str(&format!(
-                        "\n  added styles missing from the reference: {}",
-                        report.created_styles.join(", ")
-                    ));
-                }
-                for warning in &report.warnings {
-                    match warning.line {
-                        Some(line) => text
-                            .push_str(&format!("\n  warning (line {line}): {}", warning.message)),
-                        None => text.push_str(&format!("\n  warning: {}", warning.message)),
-                    }
-                }
-                text
-            });
-            Ok(0)
+        Command::FromMarkdown { source, from } => {
+            let format = markdown_input_format(&source.input, from.as_deref())?;
+            convert(source, format, "docrs_from_markdown", limits, json_mode)
         }
+        Command::FromHtml(source) => convert(
+            source,
+            InputFormat::Html,
+            "docrs_from_html",
+            limits,
+            json_mode,
+        ),
+        Command::FromJson(source) => convert(
+            source,
+            InputFormat::Tiptap,
+            "docrs_from_json",
+            limits,
+            json_mode,
+        ),
         Command::MarkdownReference { out } => {
             let document = docrs::markdown::reference_document()?;
             let patch = document.save(out)?;
@@ -722,6 +590,168 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
 
 /// The refusal for a `replace --all` that replaced nothing: no match, or
 /// every match refused (the first refusal's kind and reason).
+/// The format `from-markdown` reads: what the hidden `--from` names, else
+/// HTML for an .html/.htm file and TipTap JSON for a .json file, as before
+/// `from-html` and `from-json` existed, else Markdown.
+fn markdown_input_format(input: &Path, from: Option<&str>) -> Result<InputFormat> {
+    let extension = input
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    match from {
+        Some("markdown" | "md") => Ok(InputFormat::Markdown),
+        Some("html") => Ok(InputFormat::Html),
+        Some("tiptap" | "json") => Ok(InputFormat::Tiptap),
+        Some(other) => Err(Error::invalid_argument(
+            "invalid_format",
+            format!("--from must be markdown, html or tiptap, got {other:?}"),
+        )),
+        None => Ok(match extension.as_deref() {
+            Some("html" | "htm") => InputFormat::Html,
+            Some("json") => InputFormat::Tiptap,
+            _ => InputFormat::Markdown,
+        }),
+    }
+}
+
+/// `from-markdown`, `from-html` and `from-json`: `source` read as `format`
+/// into the reference document, reported under `schema`.
+fn convert(
+    source: &ConvertArgs,
+    format: InputFormat,
+    schema: &str,
+    limits: &Limits,
+    json_mode: bool,
+) -> Result<u8> {
+    let ConvertArgs {
+        input,
+        reference,
+        out,
+        placeholder,
+        append,
+        styles,
+        strict_styles,
+        strict,
+        resource_path,
+        toc,
+        no_toc,
+        toc_depth,
+        toc_title,
+        shift_heading_level,
+        smart,
+        no_title_block,
+        no_properties,
+        no_captions,
+        converter_lists,
+        toc_page_numbers,
+        no_toc_numbers,
+        page_numbers,
+        cover_page,
+        no_cover_page,
+        acknowledge_protection,
+        strict_package,
+    } = source;
+    let text = if input.as_os_str() == "-" {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
+            .map_err(|err| Error::io("read_failed", "reading standard input", err))?;
+        text
+    } else {
+        String::from_utf8(read(input)?).map_err(|_| {
+            Error::invalid_argument(
+                "markdown_not_utf8",
+                format!("{} is not UTF-8 text", input.display()),
+            )
+        })?
+    };
+    // The library reads no image file without a directory; the
+    // command reads them beside the source file (standard input: the
+    // current directory).
+    let resource_dir = resource_path.clone().or_else(|| {
+        Some(if input.as_os_str() == "-" {
+            std::path::PathBuf::from(".")
+        } else {
+            input.parent().map(Path::to_path_buf).unwrap_or_default()
+        })
+    });
+    let options = MarkdownOptions {
+        placement: match (placeholder, append) {
+            (Some(marker), _) => Placement::Placeholder(marker.clone()),
+            (None, true) => Placement::Append,
+            (None, false) => Placement::ReplaceBody,
+        },
+        style_policy: if *strict_styles {
+            StylePolicy::Strict
+        } else {
+            StylePolicy::Create
+        },
+        style_map: style_map(styles)?,
+        resource_dir,
+        smart_punctuation: *smart,
+        toc: if *toc {
+            Some(true)
+        } else if *no_toc {
+            Some(false)
+        } else {
+            None
+        },
+        toc_depth: *toc_depth,
+        toc_title: toc_title.clone(),
+        heading_offset: *shift_heading_level,
+        title_block: !no_title_block,
+        set_properties: !no_properties,
+        figure_captions: !no_captions && format == InputFormat::Markdown,
+        strict: *strict,
+        template_lists: !converter_lists,
+        toc_page_numbers: *toc_page_numbers,
+        toc_numbers: !no_toc_numbers,
+        page_numbers: *page_numbers,
+        cover_page: cover_page_option(*cover_page, *no_cover_page),
+        images: Default::default(),
+        now: None,
+    };
+    let (mut document, set_aside) = open_reference(reference.as_deref(), limits, *strict_package)?;
+    if *acknowledge_protection {
+        document.acknowledge_protection()?;
+    }
+    let report = docrs::markdown::insert_source(&mut document, &text, format, &options)?;
+    let patch = document.save(out)?;
+    let value = json!({"schema": schema, "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "save": patch.to_json(), "out": out});
+    emit(json_mode, value, || {
+        let c = &report.counts;
+        let mut text = format!(
+            "wrote {} ({} headings, {} paragraphs, {} list items, {} tables, {} images, {} footnotes, {} links)",
+            out.display(),
+            c.headings,
+            c.paragraphs,
+            c.list_items,
+            c.tables,
+            c.images,
+            c.footnotes,
+            c.links
+        );
+        for item in &set_aside {
+            text.push_str(&format!("\n  reference package: {item}"));
+        }
+        if !report.created_styles.is_empty() {
+            text.push_str(&format!(
+                "\n  added styles missing from the reference: {}",
+                report.created_styles.join(", ")
+            ));
+        }
+        for warning in &report.warnings {
+            match warning.line {
+                Some(line) => {
+                    text.push_str(&format!("\n  warning (line {line}): {}", warning.message))
+                }
+                None => text.push_str(&format!("\n  warning: {}", warning.message)),
+            }
+        }
+        text
+    });
+    Ok(0)
+}
+
 fn nothing_replaced(find: &str, refused: &[docrs::replace::RefusedMatch]) -> Error {
     use docrs::RefusalKind;
     let Some(first) = refused.first() else {

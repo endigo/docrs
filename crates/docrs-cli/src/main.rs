@@ -13,7 +13,7 @@ mod commands;
 
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use docrs::{Error, ErrorKind};
 
 #[derive(Parser)]
@@ -221,99 +221,21 @@ enum Command {
         #[arg(long)]
         acknowledge_protection: bool,
     },
-    /// Convert Markdown, editor HTML or TipTap JSON into a .docx styled by a reference document.
+    /// Convert Markdown into a .docx styled by a reference document.
     FromMarkdown {
-        /// Markdown, HTML or TipTap JSON (`editor.getJSON()`) file (`-` reads
-        /// standard input).
-        input: std::path::PathBuf,
+        #[command(flatten)]
+        source: ConvertArgs,
         /// Source format: markdown, html or tiptap (default: html for
         /// .html/.htm files, tiptap for .json, else markdown).
-        #[arg(long)]
+        #[arg(long, hide = true)]
         from: Option<String>,
-        /// Reference document supplying styles, lists, page setup, headers
-        /// and footers (default: the bundled blank document).
-        #[arg(long)]
-        reference: Option<std::path::PathBuf>,
-        /// Output path.
-        #[arg(long)]
-        out: std::path::PathBuf,
-        /// Replace only the body paragraph reading exactly this text.
-        #[arg(long, conflicts_with = "append")]
-        placeholder: Option<String>,
-        /// Append after the reference document's body instead of replacing it.
-        #[arg(long)]
-        append: bool,
-        /// Map a style role to an existing style, e.g. code_block="My Code" (repeatable).
-        #[arg(long = "style", value_name = "ROLE=STYLE")]
-        styles: Vec<String>,
-        /// Refuse when the reference document lacks a style (default: add it).
-        #[arg(long)]
-        strict_styles: bool,
-        /// Refuse instead of warning when something cannot be converted faithfully.
-        #[arg(long)]
-        strict: bool,
-        /// Directory relative image paths resolve against (default: the Markdown file's).
-        #[arg(long)]
-        resource_path: Option<std::path::PathBuf>,
-        /// Add a table of contents (overrides front matter `toc`).
-        #[arg(long, conflicts_with = "no_toc")]
-        toc: bool,
-        /// Never add a table of contents from front matter.
-        #[arg(long)]
-        no_toc: bool,
-        /// Heading levels in the table of contents (1-9).
-        #[arg(long)]
-        toc_depth: Option<i64>,
-        /// Title above the table of contents (default: the title of the reference document's own contents, else Table of Contents)
-        #[arg(long)]
-        toc_title: Option<String>,
-        /// Add N to every heading level (-1 makes `##` a Heading 1).
-        #[arg(long, allow_hyphen_values = true, default_value_t = 0)]
-        shift_heading_level: i8,
-        /// Typographic quotes, dashes and ellipses.
-        #[arg(long)]
-        smart: bool,
-        /// Do not render the front-matter title block.
-        #[arg(long)]
-        no_title_block: bool,
-        /// Do not copy front matter into the document properties.
-        #[arg(long)]
-        no_properties: bool,
-        /// Do not caption stand-alone images with their alt text (HTML
-        /// input never adds captions).
-        #[arg(long)]
-        no_captions: bool,
-        /// Ignore the reference's List Bullet / List Number numbering and
-        /// use the converter's own list definitions.
-        #[arg(long)]
-        converter_lists: bool,
-        /// Ask Word to update the table of contents on open (it prompts).
-        #[arg(long)]
-        toc_page_numbers: bool,
-        /// Leave the table of contents without the page numbers this
-        /// conversion computes by estimating Word's layout.
-        #[arg(long)]
-        no_toc_numbers: bool,
-        /// Add a centred page number footer when the reference has none.
-        #[arg(long)]
-        page_numbers: bool,
-        /// Keep the reference's first page as a cover: the content starts on
-        /// page 2 (default: only when a cover is detected).
-        #[arg(long, conflicts_with = "no_cover_page")]
-        cover_page: bool,
-        /// Start the content on page 1, turning a detected cover's distinct
-        /// first page off.
-        #[arg(long)]
-        no_cover_page: bool,
-        /// Proceed despite Restrict Editing on the reference (the setting is kept).
-        #[arg(long)]
-        acknowledge_protection: bool,
-        /// Refuse a reference package with irregularities Word tolerates
-        /// (Office `[trash]` members, data in a ZIP directory entry) instead
-        /// of setting them aside.
-        #[arg(long)]
-        strict_package: bool,
     },
+    /// Convert editor HTML into a .docx styled by a reference document.
+    FromHtml(ConvertArgs),
+    /// Convert TipTap JSON (`editor.getJSON()`) into a .docx styled by a
+    /// reference document.
+    #[command(visible_alias = "from-tiptap")]
+    FromJson(ConvertArgs),
     /// Write a starter reference document showing every Markdown style.
     MarkdownReference {
         /// Output path.
@@ -371,6 +293,96 @@ enum Command {
         #[arg(long)]
         out: std::path::PathBuf,
     },
+}
+
+/// The options `from-markdown`, `from-html` and `from-json` share.
+#[derive(Args)]
+struct ConvertArgs {
+    /// Source file (`-` reads standard input).
+    input: std::path::PathBuf,
+    /// Reference document supplying styles, lists, page setup, headers
+    /// and footers (default: the bundled blank document).
+    #[arg(long)]
+    reference: Option<std::path::PathBuf>,
+    /// Output path.
+    #[arg(long)]
+    out: std::path::PathBuf,
+    /// Replace only the body paragraph reading exactly this text.
+    #[arg(long, conflicts_with = "append")]
+    placeholder: Option<String>,
+    /// Append after the reference document's body instead of replacing it.
+    #[arg(long)]
+    append: bool,
+    /// Map a style role to an existing style, e.g. code_block="My Code" (repeatable).
+    #[arg(long = "style", value_name = "ROLE=STYLE")]
+    styles: Vec<String>,
+    /// Refuse when the reference document lacks a style (default: add it).
+    #[arg(long)]
+    strict_styles: bool,
+    /// Refuse instead of warning when something cannot be converted faithfully.
+    #[arg(long)]
+    strict: bool,
+    /// Directory relative image paths resolve against (default: the source file's).
+    #[arg(long)]
+    resource_path: Option<std::path::PathBuf>,
+    /// Add a table of contents (overrides front matter `toc`).
+    #[arg(long, conflicts_with = "no_toc")]
+    toc: bool,
+    /// Never add a table of contents from front matter.
+    #[arg(long)]
+    no_toc: bool,
+    /// Heading levels in the table of contents (1-9).
+    #[arg(long)]
+    toc_depth: Option<i64>,
+    /// Title above the table of contents (default: the title of the reference document's own contents, else Table of Contents)
+    #[arg(long)]
+    toc_title: Option<String>,
+    /// Add N to every heading level (-1 makes `##` a Heading 1).
+    #[arg(long, allow_hyphen_values = true, default_value_t = 0)]
+    shift_heading_level: i8,
+    /// Typographic quotes, dashes and ellipses.
+    #[arg(long)]
+    smart: bool,
+    /// Do not render the front-matter title block.
+    #[arg(long)]
+    no_title_block: bool,
+    /// Do not copy front matter into the document properties.
+    #[arg(long)]
+    no_properties: bool,
+    /// Do not caption stand-alone images with their alt text (HTML and
+    /// JSON input never add captions).
+    #[arg(long)]
+    no_captions: bool,
+    /// Ignore the reference's List Bullet / List Number numbering and
+    /// use the converter's own list definitions.
+    #[arg(long)]
+    converter_lists: bool,
+    /// Ask Word to update the table of contents on open (it prompts).
+    #[arg(long)]
+    toc_page_numbers: bool,
+    /// Leave the table of contents without the page numbers this
+    /// conversion computes by estimating Word's layout.
+    #[arg(long)]
+    no_toc_numbers: bool,
+    /// Add a centred page number footer when the reference has none.
+    #[arg(long)]
+    page_numbers: bool,
+    /// Keep the reference's first page as a cover: the content starts on
+    /// page 2 (default: only when a cover is detected).
+    #[arg(long, conflicts_with = "no_cover_page")]
+    cover_page: bool,
+    /// Start the content on page 1, turning a detected cover's distinct
+    /// first page off.
+    #[arg(long)]
+    no_cover_page: bool,
+    /// Proceed despite Restrict Editing on the reference (the setting is kept).
+    #[arg(long)]
+    acknowledge_protection: bool,
+    /// Refuse a reference package with irregularities Word tolerates
+    /// (Office `[trash]` members, data in a ZIP directory entry) instead
+    /// of setting them aside.
+    #[arg(long)]
+    strict_package: bool,
 }
 
 fn exit_code(err: &Error) -> u8 {
