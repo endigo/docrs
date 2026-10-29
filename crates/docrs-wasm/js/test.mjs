@@ -57,6 +57,15 @@ test("options are optional and the result is deterministic for a given time", ()
   assert.ok(isZip(lib.fromMarkdown("plain", { toc: undefined, pageNumbers: null, reference: undefined }).docx));
 });
 
+test("fields fill {{Name}} merge fields", () => {
+  const { docx, report } = lib.fromHtml("<p>Dear <strong>{{Cli</strong>ent}}, {{ Ref }}{{Other}}</p>", {
+    fields: { Client: "Jo", Ref: "" },
+  });
+  assert.deepEqual(report.fields, { filled: 2, left: ["Other"], refused: [] });
+  assert.equal(lib.fromHtml("<p>x</p>").report.fields, null);
+  assert.ok(isZip(docx));
+});
+
 test("images come from memory", () => {
   const { report } = lib.fromMarkdown("![Chart](./img/chart.png)\n", {
     images: { "img/chart.png": PNG },

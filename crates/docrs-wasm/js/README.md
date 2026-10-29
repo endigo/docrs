@@ -36,6 +36,22 @@ rest share what is left), merged cells (`colspan`/`rowspan`), picture
 sizes and alignment, and page breaks. CSS it cannot map is reported
 (`html_style_dropped`).
 
+`fields` fills `{{Name}}` merge fields once converted, in the body,
+headers, footers and text boxes (Word may split a field across runs):
+
+```js
+const { docx, report } = fromHtml(editorHtml, {
+  reference: templateBytes,
+  fields: { "Client Name": "Jo Smith", "Adviser": "" }, // "" blanks one
+});
+// report.fields: { filled: 2, left: ["Other"], refused: [] }
+```
+
+`filled` counts replacements, so a field used twice counts twice. Fields
+not named are left as they are, and `{{{Name}}}` fills like `{{Name}}`. A
+value is text within one paragraph: one with a line break, tab, `{{` or
+`}}` is refused.
+
 A TipTap document converts from its JSON directly, without `getHTML()` in
 between, with the same options:
 
