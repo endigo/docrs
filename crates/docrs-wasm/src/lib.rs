@@ -1041,6 +1041,82 @@ mod tests {
         assert_eq!(plain.report["fields"], serde_json::Value::Null);
     }
 
+    fn fill_fields_in(
+        source: &str,
+        fields: &[(&str, &str)],
+        limits: Option<&str>,
+    ) -> Result<(serde_json::Value, Vec<String>), Error> {
+        let options = Options {
+            fields: fields
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect(),
+            limits: limits.map(str::to_string),
+            ..Options::default()
+        };
+        let converted = convert(
+            source,
+            InputFormat::Markdown,
+            options,
+            Timestamp::from_unix(0),
+        )?;
+        let text = docrs::story::iter_blocks(&reopen(&converted.docx), docrs::story::View::Current)
+            .unwrap()
+            .into_iter()
+            .map(|block| block.text)
+            .collect();
+        Ok((converted.report["fields"].clone(), text))
+    }
+
+    #[test]
+    fn a_field_value_with_a_line_break_is_refused_by_name() {
+        for source in ["No fields here.\n", "{{Address}}\n"] {
+            let err =
+                fill_fields_in(source, &[("Address", "1 Main St\nSpringfield")], None).unwrap_err();
+            assert!(err.message().contains("Address"), "{source:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_field_value_fills_literally_whatever_the_order() {
+        let fields = [("A", "{{B}}"), ("B", "bee")];
+        for (source, literal) in [
+            ("{{A}} and {{B}}\n", "{{B}} and bee"),
+            ("{{B}} and {{A}}\n", "bee and {{B}}"),
+        ] {
+            // Refusing such a value by name passes too.
+            match fill_fields_in(source, &fields, None) {
+                Ok((_, text)) => assert_eq!(text, [literal], "{source:?}"),
+                Err(err) => assert!(err.message().contains("\"A\""), "{err}"),
+            }
+        }
+    }
+
+    #[test]
+    fn serverless_budgets_the_text_fields_add() {
+        let value = "x".repeat(384 << 10);
+        let err = fill_fields_in(
+            "{{A}} {{A}} {{A}} {{A}}\n",
+            &[("A", &value)],
+            Some("serverless"),
+        )
+        .map(|(report, _)| report)
+        .unwrap_err();
+        assert!(err.limit_exceeded().is_some(), "{err}");
+    }
+
+    #[test]
+    fn triple_braces_fill_like_double() {
+        let (report, text) = fill_fields_in(
+            "Dear {{{Client}}}, {{{Other}}}.\n",
+            &[("Client", "Jo")],
+            None,
+        )
+        .unwrap();
+        assert_eq!(report["left"], serde_json::json!(["Other"]));
+        assert_eq!(text, ["Dear Jo, {{{Other}}}."]);
+    }
+
     #[test]
     fn options_select_placement_and_styles() {
         let starter = reference_document().unwrap();
