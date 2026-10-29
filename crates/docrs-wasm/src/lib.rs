@@ -77,9 +77,11 @@ pub struct Options {
     /// Warnings and errors carry no text taken from the input.
     pub redact: bool,
     /// `{{Name}}` merge fields to fill once converted: name → value. A
-    /// field is `{{`, the name (spaces around it allowed) and `}}`, in any
-    /// story (body, headers, footers, text boxes); fields not named here
-    /// are left as they are (give `""` to blank one).
+    /// field is `{{`, the name (spaces around it allowed) and `}}`, or the
+    /// same in triple braces, in any story (body, headers, footers, text
+    /// boxes); fields not named here are left as they are (give `""` to
+    /// blank one). A value is text within one paragraph: no line breaks,
+    /// tabs or other control characters, and no `{{` or `}}`.
     pub fields: BTreeMap<String, String>,
 }
 
@@ -89,6 +91,8 @@ struct InputLimits {
     source: u64,
     /// The reference document and all supplied images together, in bytes.
     input: u64,
+    /// Text the merge fields add, every occurrence counted, in bytes.
+    fields: u64,
 }
 
 fn limits_of(options: &Options) -> Result<(Limits, InputLimits), Error> {
@@ -102,6 +106,7 @@ fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
             InputLimits {
                 source: u64::MAX,
                 input: u64::MAX,
+                fields: u64::MAX,
             },
         )),
         Some("serverless") => Ok((
@@ -112,6 +117,7 @@ fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
             InputLimits {
                 source: 384 << 10,
                 input: 12 << 20,
+                fields: 384 << 10,
             },
         )),
         Some(other) => Err(Error::invalid_argument(
@@ -266,6 +272,7 @@ pub fn convert(
         options.reference.as_ref().map_or(0, |b| b.len() as u64),
         options.images.values().map(|b| b.len() as u64).sum(),
     )?;
+    check_fields(&options.fields)?;
     let mut markdown_options = markdown_options(&options, format, now)?;
     markdown_options.images = std::mem::take(&mut options.images)
         .into_iter()
@@ -283,7 +290,7 @@ pub fn convert(
     }
     let mut report = markdown::insert_source(&mut document, source, format, &markdown_options)?;
     drop(markdown_options);
-    let fields = fill_fields(&mut document, &options.fields)?;
+    let fields = fill_fields(&mut document, &options.fields, input.fields)?;
     if options.redact {
         report.redact();
     }
@@ -300,45 +307,105 @@ pub fn convert(
     })
 }
 
-/// The `{{Name}}` fields in the document's text: each distinct field text
-/// with its trimmed name, in document order.
-fn field_tokens(document: &Document) -> Result<Vec<(String, String)>, Error> {
-    let mut tokens: Vec<(String, String)> = Vec::new();
+/// Refuse a field value that would not fill as text within a paragraph,
+/// whether or not the document holds that field.
+fn check_fields(fields: &BTreeMap<String, String>) -> Result<(), Error> {
+    for (name, value) in fields {
+        if value
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '\u{fffe}' | '\u{ffff}'))
+        {
+            return Err(Error::invalid_argument(
+                "invalid_options",
+                format!(
+                    "fields[{name:?}] has a line break, tab or other control character: \
+                     a field fills text within one paragraph"
+                ),
+            ));
+        }
+        if value.contains("{{") || value.contains("}}") {
+            return Err(Error::invalid_argument(
+                "invalid_options",
+                format!("fields[{name:?}] has {{{{ or }}}}, which would read as part of a field"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A distinct `{{Name}}` field text in the document.
+struct FieldToken {
+    token: String,
+    name: String,
+    count: u64,
+}
+
+/// The `{{Name}}` and `{{{Name}}}` fields in the document's text, in
+/// document order.
+fn field_tokens(document: &Document) -> Result<Vec<FieldToken>, Error> {
+    let mut tokens: Vec<FieldToken> = Vec::new();
     for block in docrs::story::iter_blocks(document, docrs::story::View::Current)? {
         let mut rest = block.text.as_str();
-        while let Some(start) = rest.find("{{") {
+        while let Some(found) = rest.find("{{") {
+            let mut start = found + rest[found + 2..].bytes().take_while(|&b| b == b'{').count();
             let after = &rest[start + 2..];
             let Some(end) = after.find("}}") else { break };
             let inner = &after[..end];
             if inner.contains("{{") {
-                rest = &rest[start + 2..];
+                rest = after;
                 continue;
             }
-            let token = format!("{{{{{inner}}}}}");
-            let name = inner.trim().to_string();
-            if !name.is_empty() && !tokens.iter().any(|(t, _)| *t == token) {
-                tokens.push((token, name));
+            let mut stop = start + 2 + end + 2;
+            if start > found && rest[stop..].starts_with('}') {
+                start -= 1;
+                stop += 1;
             }
-            rest = &after[end + 2..];
+            let token = &rest[start..stop];
+            let name = inner.trim();
+            if !name.is_empty() {
+                match tokens.iter_mut().find(|known| known.token == token) {
+                    Some(known) => known.count += 1,
+                    None => tokens.push(FieldToken {
+                        token: token.to_string(),
+                        name: name.to_string(),
+                        count: 1,
+                    }),
+                }
+            }
+            rest = &rest[stop..];
         }
     }
     Ok(tokens)
 }
 
 /// Fill `fields` with the core's untracked replace-all; `None` when no
-/// fields were given. Reports how many were filled, the field names left
-/// in the document, and any a replacement refused (with the core's code).
+/// fields were given. Refuses before filling when the text added would
+/// exceed `budget`. Reports how many replacements were made, the field
+/// names left in the document, and any a replacement refused (with the
+/// core's code).
 fn fill_fields(
     document: &mut Document,
     fields: &BTreeMap<String, String>,
+    budget: u64,
 ) -> Result<Option<serde_json::Value>, Error> {
     if fields.is_empty() {
         return Ok(None);
     }
+    let tokens = field_tokens(document)?;
+    let added = tokens
+        .iter()
+        .filter_map(|field| {
+            let value = fields.get(&field.name)?;
+            Some(field.count.saturating_mul(value.len() as u64))
+        })
+        .fold(0u64, u64::saturating_add);
+    if added > budget {
+        return Err(Error::limit("max_field_bytes", budget, added));
+    }
     let mut filled = 0;
     let mut left = Vec::new();
     let mut refused = Vec::new();
-    for (token, name) in field_tokens(document)? {
+    for FieldToken { token, name, .. } in tokens {
         let Some(value) = fields.get(&name) else {
             if !left.contains(&name) {
                 left.push(name);
@@ -439,7 +506,7 @@ export interface FromMarkdownOptions {
   limits?: "default" | "serverless";
   /** Warnings and error messages carry no text taken from the input (codes, lines and budgets only). */
   redact?: boolean;
-  /** `{{Name}}` merge fields to fill once converted, by name (spaces inside the braces allowed), in the body, headers, footers and text boxes. Fields not named here are left; `""` blanks one. */
+  /** `{{Name}}` (or `{{{Name}}}`) merge fields to fill once converted, by name (spaces inside the braces allowed), in the body, headers, footers and text boxes. Fields not named here are left; `""` blanks one. A value is text within one paragraph: a line break, tab or other control character, `{{` or `}}` is refused. */
   fields?: Record<string, string>;
 }
 
@@ -549,7 +616,7 @@ export interface MarkdownReport {
     embedded_fonts: string[];
   } | null;
   warnings: MarkdownWarning[];
-  /** With `fields`: how many were filled, the names of fields left in the document, and any a replacement refused; null without. */
+  /** With `fields`: how many replacements were made (a field used twice counts twice), the names of fields left in the document (given even with `redact`), and any a replacement refused; null without. */
   fields: {
     filled: number;
     left: string[];

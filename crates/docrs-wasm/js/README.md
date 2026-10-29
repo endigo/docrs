@@ -47,7 +47,10 @@ const { docx, report } = fromHtml(editorHtml, {
 // report.fields: { filled: 2, left: ["Other"], refused: [] }
 ```
 
-Fields not named are left as they are.
+`filled` counts replacements, so a field used twice counts twice. Fields
+not named are left as they are, and `{{{Name}}}` fills like `{{Name}}`. A
+value is text within one paragraph: one with a line break, tab, `{{` or
+`}}` is refused.
 
 A TipTap document converts from its JSON directly, without `getHTML()` in
 between, with the same options:
