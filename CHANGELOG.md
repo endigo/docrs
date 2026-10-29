@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.13 (2026-10-29)
+
+### Node.js
+
+- `fromMarkdown`, `fromHtml` and `fromJson` take a `fields` option that fills `{{Name}}` merge fields once converted, in the body, headers, footers and text boxes: `fields: { "Client Name": "Jo Smith", Adviser: "" }`. A field Word has split across runs still fills, spaces inside the braces are allowed (`{{ Ref }}`), `{{{Name}}}` fills like `{{Name}}`, a field not named is left as it is, and `""` blanks one. A value is text within one paragraph: one with a line break, tab or other control character, `{{` or `}}` is refused (`invalid_options`, naming the field) whether or not the document holds the field. Under `limits: "serverless"` the text the fields add, every occurrence counted, is budgeted at 384 KiB (`max_field_bytes`). The report's new `fields` gives the replacements made, the names of fields left in the document and any replacement refused; it is null without the option. Contributed by Alex Swan (#30).
+
 ## 0.3.12 (2026-10-28)
 
 ### Command line
