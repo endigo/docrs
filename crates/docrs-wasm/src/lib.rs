@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 use docrs::clock::Timestamp;
 use docrs::markdown::{self, InputFormat, MarkdownOptions, Placement, Role, StylePolicy};
+use docrs::replace::ReplaceAllOptions;
 use docrs::{Document, Error, Limits, Tolerance};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -75,6 +76,11 @@ pub struct Options {
     pub limits: Option<String>,
     /// Warnings and errors carry no text taken from the input.
     pub redact: bool,
+    /// `{{Name}}` merge fields to fill once converted: name → value. A
+    /// field is `{{`, the name (spaces around it allowed) and `}}`, in any
+    /// story (body, headers, footers, text boxes); fields not named here
+    /// are left as they are (give `""` to blank one).
+    pub fields: BTreeMap<String, String>,
 }
 
 /// Budgets on what the caller passes in, beyond the package budgets.
@@ -277,16 +283,79 @@ pub fn convert(
     }
     let mut report = markdown::insert_source(&mut document, source, format, &markdown_options)?;
     drop(markdown_options);
+    let fields = fill_fields(&mut document, &options.fields)?;
     if options.redact {
         report.redact();
     }
     let (docx, _) = document.patch_bytes()?;
     drop(document);
+    let mut report = report.to_json();
+    if let Some(object) = report.as_object_mut() {
+        object.insert("fields".into(), fields.unwrap_or_default());
+    }
     Ok(Converted {
         docx,
-        report: report.to_json(),
+        report,
         reference_set_aside,
     })
+}
+
+/// The `{{Name}}` fields in the document's text: each distinct field text
+/// with its trimmed name, in document order.
+fn field_tokens(document: &Document) -> Result<Vec<(String, String)>, Error> {
+    let mut tokens: Vec<(String, String)> = Vec::new();
+    for block in docrs::story::iter_blocks(document, docrs::story::View::Current)? {
+        let mut rest = block.text.as_str();
+        while let Some(start) = rest.find("{{") {
+            let after = &rest[start + 2..];
+            let Some(end) = after.find("}}") else { break };
+            let inner = &after[..end];
+            if inner.contains("{{") {
+                rest = &rest[start + 2..];
+                continue;
+            }
+            let token = format!("{{{{{inner}}}}}");
+            let name = inner.trim().to_string();
+            if !name.is_empty() && !tokens.iter().any(|(t, _)| *t == token) {
+                tokens.push((token, name));
+            }
+            rest = &after[end + 2..];
+        }
+    }
+    Ok(tokens)
+}
+
+/// Fill `fields` with the core's untracked replace-all; `None` when no
+/// fields were given. Reports how many were filled, the field names left
+/// in the document, and any a replacement refused (with the core's code).
+fn fill_fields(
+    document: &mut Document,
+    fields: &BTreeMap<String, String>,
+) -> Result<Option<serde_json::Value>, Error> {
+    if fields.is_empty() {
+        return Ok(None);
+    }
+    let mut filled = 0;
+    let mut left = Vec::new();
+    let mut refused = Vec::new();
+    for (token, name) in field_tokens(document)? {
+        let Some(value) = fields.get(&name) else {
+            if !left.contains(&name) {
+                left.push(name);
+            }
+            continue;
+        };
+        let replaced = document.replace_all(&token, value, &ReplaceAllOptions::default())?;
+        filled += replaced.replaced_count;
+        refused.extend(replaced.refused.into_iter().map(|refusal| {
+            serde_json::json!({ "name": name, "code": refusal.code, "reason": refusal.reason })
+        }));
+    }
+    Ok(Some(serde_json::json!({
+        "filled": filled,
+        "left": left,
+        "refused": refused,
+    })))
 }
 
 /// What a conversion with `options` will take from `reference` (see
@@ -370,6 +439,8 @@ export interface FromMarkdownOptions {
   limits?: "default" | "serverless";
   /** Warnings and error messages carry no text taken from the input (codes, lines and budgets only). */
   redact?: boolean;
+  /** `{{Name}}` merge fields to fill once converted, by name (spaces inside the braces allowed), in the body, headers, footers and text boxes. Fields not named here are left; `""` blanks one. */
+  fields?: Record<string, string>;
 }
 
 /** What a conversion will take from a reference document (`inspectReference`). */
@@ -478,6 +549,12 @@ export interface MarkdownReport {
     embedded_fonts: string[];
   } | null;
   warnings: MarkdownWarning[];
+  /** With `fields`: how many were filled, the names of fields left in the document, and any a replacement refused; null without. */
+  fields: {
+    filled: number;
+    left: string[];
+    refused: { name: string; code: string; reason: string }[];
+  } | null;
 }
 
 export interface FromMarkdownResult {
@@ -913,6 +990,58 @@ mod tests {
     }
 
     #[test]
+    fn fills_fields_in_the_body_and_headers() {
+        let mut reference = Document::new();
+        let section = reference.sections().unwrap().remove(0);
+        let header = section.header().definition(&mut reference).unwrap();
+        header
+            .add_paragraph(&mut reference, "Prepared for {{Client}}", None)
+            .unwrap();
+        let (reference, _) = reference.patch_bytes().unwrap();
+        let options = Options {
+            reference: Some(ByteBuf::from(reference)),
+            fields: BTreeMap::from([
+                ("Client".to_string(), "Jo Smith".to_string()),
+                ("Ref".to_string(), String::new()),
+            ]),
+            ..Options::default()
+        };
+        let converted = convert(
+            "Dear **{{Cli**ent}}, re: {{ Ref }}{{Other}}.\n",
+            InputFormat::Markdown,
+            options,
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        assert_eq!(
+            converted.report["fields"],
+            serde_json::json!({ "filled": 3, "left": ["Other"], "refused": [] })
+        );
+        let document = reopen(&converted.docx);
+        let text: Vec<String> = docrs::story::iter_blocks(&document, docrs::story::View::Current)
+            .unwrap()
+            .into_iter()
+            .map(|block| block.text)
+            .collect();
+        assert!(
+            text.contains(&"Dear Jo Smith, re: {{Other}}.".to_string()),
+            "{text:?}"
+        );
+        assert!(
+            text.contains(&"Prepared for Jo Smith".to_string()),
+            "{text:?}"
+        );
+        let plain = convert(
+            "{{Client}}",
+            InputFormat::Markdown,
+            Options::default(),
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        assert_eq!(plain.report["fields"], serde_json::Value::Null);
+    }
+
+    #[test]
     fn options_select_placement_and_styles() {
         let starter = reference_document().unwrap();
         let options = Options {
@@ -966,7 +1095,7 @@ mod tests {
         for name in names {
             assert!(!name.contains('_'), "{name}");
             let value = match name.as_str() {
-                "styles" | "images" => serde_json::json!({}),
+                "styles" | "images" | "fields" => serde_json::json!({}),
                 "placeholder" | "tocTitle" => serde_json::json!("x"),
                 "limits" => serde_json::json!("serverless"),
                 "tocDepth" | "shiftHeadingLevel" | "now" => serde_json::json!(1),
