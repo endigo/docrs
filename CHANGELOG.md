@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.14 (2026-11-04)
+
+### Library
+
+- Spacing nobody set on the template's sample prose no longer overrides the body style's own. A template whose Body Text sets 3 pt before and 12 pt after, with most of its sample prose in an unstyled Normal that sets no spacing, exported Body Text at 0 pt before and after, so body text looked like Normal. Each spacing attribute (before, after, and the line with its rule) now counts only where the document defaults, the style chain or the paragraph's own formatting sets it; where nobody does, the body style's own value stands, and the template above keeps its 3 pt and 12 pt with nothing lifted. Spacing Normal or hand formatting does set is lifted as before. Word's automatic spacing (`beforeAutospacing`, `afterAutospacing`, common in styles from pasted web content) does not count as set: a body style spaced automatically over tight unstyled prose still takes the prose's 0 pt.
+
 ## 0.3.13 (2026-10-29)
 
 ### Node.js
