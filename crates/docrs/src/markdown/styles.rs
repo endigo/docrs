@@ -959,6 +959,8 @@ pub(crate) struct SetSpacing {
     after: Option<String>,
     /// The line and its rule.
     line: Option<(String, String)>,
+    before_auto: Option<bool>,
+    after_auto: Option<bool>,
 }
 
 impl SetSpacing {
@@ -977,6 +979,24 @@ impl SetSpacing {
         if let Some(line) = w_attr(tree, spacing, "line") {
             let rule = w_attr(tree, spacing, "lineRule").unwrap_or("auto");
             self.line = Some((line.to_string(), rule.to_string()));
+        }
+        if let Some(auto) = w_attr(tree, spacing, "beforeAutospacing") {
+            self.before_auto = Some(crate::styles::on_off(auto));
+        }
+        if let Some(auto) = w_attr(tree, spacing, "afterAutospacing") {
+            self.after_auto = Some(crate::styles::on_off(auto));
+        }
+    }
+
+    /// This spacing without the gaps Word spaces automatically.
+    fn without_autospacing(&self) -> SetSpacing {
+        SetSpacing {
+            before: self
+                .before
+                .clone()
+                .filter(|_| self.before_auto != Some(true)),
+            after: self.after.clone().filter(|_| self.after_auto != Some(true)),
+            ..self.clone()
         }
     }
 
@@ -1019,13 +1039,8 @@ impl Spacing {
 
 pub(super) use crate::styles::based_on_chain as style_chain;
 
-/// The spacing a paragraph style gives: the document defaults under the
+/// The spacing a paragraph style sets: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
-fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
-    set_spacing(styles, style).over(&Spacing::default())
-}
-
-/// What of [`style_spacing`] the defaults and the style chain set.
 fn set_spacing(styles: &XmlTree, style: Option<NodeId>) -> SetSpacing {
     let mut spacing = SetSpacing::default();
     spacing.apply(
@@ -1517,20 +1532,22 @@ impl Sample {
     /// paragraphs' and the style's own, when it differs from what the style
     /// gives; `body_style` `None` is the default style, or a style to be
     /// created on it. Where nobody set the prose's spacing, the style's
-    /// own stands.
+    /// own stands, unless Word spaces it automatically.
     fn body_spacing(&self, styles: &XmlTree, body_style: Option<&str>) -> Option<Spacing> {
         let node = match body_style {
             Some(id) => Some(style_by_id(styles, id)?),
             None => default_style(styles, StyleType::Paragraph),
         };
-        let own = style_spacing(styles, node);
+        let set = set_spacing(styles, node);
+        let own = set.over(&Spacing::default());
+        let unset = set.without_autospacing().over(&Spacing::default());
         let buckets = [None, body_style.map(str::to_string)];
         let prose = buckets
             .iter()
             .take(if body_style.is_some() { 2 } else { 1 })
             .filter_map(|style| self.body_spacings.get(style))
             .flatten()
-            .map(|(spacing, chars)| (spacing.over(&own), *chars));
+            .map(|(spacing, chars)| (spacing.over(&unset), *chars));
         plurality(prose).filter(|spacing| *spacing != own)
     }
 

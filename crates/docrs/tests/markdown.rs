@@ -3443,6 +3443,50 @@ fn spacing_nobody_set_leaves_the_body_styles_own() {
     );
 }
 
+#[test]
+fn autospaced_body_spacing_is_no_choice_the_prose_keeps() {
+    // Pasted web content brings a body style Word spaces automatically.
+    // The unstyled prose sets nothing and reads tight, so the body takes
+    // its 0 pt rather than the automatic gaps.
+    let paragraph = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:pPr><w:spacing w:before=\"100\" w:beforeAutospacing=\"1\" \
+        w:after=\"100\" w:afterAutospacing=\"1\"/></w:pPr></w:style>";
+    let unstyled = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
+    let long = "An unstyled paragraph of the sample, long enough to read as prose.";
+    let template = || {
+        synthetic(Synthetic {
+            styles: paragraph,
+            body: &format!(
+                "{}{}{}{}",
+                unstyled(long),
+                unstyled(long),
+                unstyled(long),
+                styled_paragraph(
+                    "BodyText",
+                    "A Body Text paragraph, long enough to count.",
+                    ""
+                )
+            ),
+            ..Synthetic::default()
+        })
+    };
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["body"]["name"], "Body Text");
+    assert_eq!(inspection["lifted"]["spacing"]["before_pt"], 0.0);
+    assert_eq!(inspection["lifted"]["spacing"]["after_pt"], 0.0);
+    let out = export_html_from(
+        "107-autospaced-body-takes-the-prose",
+        template(),
+        "<p>One paragraph.</p><p>Another.</p>",
+    );
+    let ppr = style_ppr(&out, "BodyText");
+    assert!(!ppr.contains("Autospacing"), "{ppr}");
+    assert!(
+        ppr.contains("w:before=\"0\"") && ppr.contains("w:after=\"0\""),
+        "{ppr}"
+    );
+}
+
 // ------------------------------ pictures a header or footer cannot show
 
 fn pictures_reported(doc: &Document) -> Vec<String> {
