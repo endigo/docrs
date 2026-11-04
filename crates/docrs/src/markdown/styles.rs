@@ -951,7 +951,19 @@ impl Default for Spacing {
     }
 }
 
-impl Spacing {
+/// The spacing attributes somebody set, through the defaults, a style
+/// chain or the paragraph itself; `None` where nobody did.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SetSpacing {
+    before: Option<String>,
+    after: Option<String>,
+    /// The line and its rule.
+    line: Option<(String, String)>,
+    before_auto: bool,
+    after_auto: bool,
+}
+
+impl SetSpacing {
     /// Lays one `w:spacing` element over this spacing; a `line` brings its
     /// rule along (`auto` when it names none).
     fn apply(&mut self, tree: &XmlTree, spacing: Option<NodeId>) {
@@ -959,19 +971,50 @@ impl Spacing {
             return;
         };
         if let Some(before) = w_attr(tree, spacing, "before") {
-            self.before = before.to_string();
+            self.before = Some(before.to_string());
         }
         if let Some(after) = w_attr(tree, spacing, "after") {
-            self.after = after.to_string();
+            self.after = Some(after.to_string());
         }
         if let Some(line) = w_attr(tree, spacing, "line") {
-            self.line = line.to_string();
-            self.line_rule = w_attr(tree, spacing, "lineRule")
-                .unwrap_or("auto")
-                .to_string();
+            let rule = w_attr(tree, spacing, "lineRule").unwrap_or("auto");
+            self.line = Some((line.to_string(), rule.to_string()));
+        }
+        if let Some(auto) = w_attr(tree, spacing, "beforeAutospacing") {
+            self.before_auto = crate::styles::on_off(auto);
+        }
+        if let Some(auto) = w_attr(tree, spacing, "afterAutospacing") {
+            self.after_auto = crate::styles::on_off(auto);
         }
     }
 
+    /// This spacing without the gaps Word spaces automatically.
+    fn without_autospacing(mut self) -> SetSpacing {
+        if self.before_auto {
+            self.before = None;
+        }
+        if self.after_auto {
+            self.after = None;
+        }
+        self
+    }
+
+    /// This spacing, with `base` where nobody set an attribute.
+    fn over(&self, base: &Spacing) -> Spacing {
+        let (line, line_rule) = self
+            .line
+            .clone()
+            .unwrap_or_else(|| (base.line.clone(), base.line_rule.clone()));
+        Spacing {
+            before: self.before.clone().unwrap_or_else(|| base.before.clone()),
+            after: self.after.clone().unwrap_or_else(|| base.after.clone()),
+            line,
+            line_rule,
+        }
+    }
+}
+
+impl Spacing {
     fn xml(&self) -> String {
         format!(
             "<w:spacing w:before=\"{}\" w:after=\"{}\" w:line=\"{}\" w:lineRule=\"{}\"/>",
@@ -995,10 +1038,10 @@ impl Spacing {
 
 pub(super) use crate::styles::based_on_chain as style_chain;
 
-/// The spacing a paragraph style gives: the document defaults under the
+/// The spacing a paragraph style sets: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
-fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
-    let mut spacing = Spacing::default();
+fn set_spacing(styles: &XmlTree, style: Option<NodeId>) -> SetSpacing {
+    let mut spacing = SetSpacing::default();
     spacing.apply(
         styles,
         w_child(styles, styles.root(), "docDefaults")
@@ -1249,9 +1292,10 @@ pub(crate) struct Sample {
     /// by hand and beats every other look, the style's own included;
     /// emphasis left out.
     body_looks: BTreeMap<Option<String>, String>,
-    /// The spacing each prose paragraph shows, as Word resolves it, with
-    /// the paragraph's characters, by style id (`None`: the default style).
-    body_spacings: BTreeMap<Option<String>, Vec<(Spacing, usize)>>,
+    /// The spacing each prose paragraph sets, through its style chain and
+    /// by hand, with the paragraph's characters, by style id (`None`: the
+    /// default style).
+    body_spacings: BTreeMap<Option<String>, Vec<(SetSpacing, usize)>>,
     /// Styles of the top-level paragraphs that carry text, prose or not.
     text_styles: BTreeSet<Option<String>>,
     /// The font and size, as Word resolves them, carrying the most
@@ -1486,20 +1530,24 @@ impl Sample {
     /// The spacing the body style takes from the prose, the unstyled
     /// paragraphs' and the style's own, when it differs from what the style
     /// gives; `body_style` `None` is the default style, or a style to be
-    /// created on it.
+    /// created on it. Where nobody set the prose's spacing, the style's
+    /// own stands, unless Word spaces it automatically.
     fn body_spacing(&self, styles: &XmlTree, body_style: Option<&str>) -> Option<Spacing> {
         let node = match body_style {
             Some(id) => Some(style_by_id(styles, id)?),
             None => default_style(styles, StyleType::Paragraph),
         };
-        let own = style_spacing(styles, node);
+        let set = set_spacing(styles, node);
+        let base = Spacing::default();
+        let own = set.over(&base);
+        let unset = set.without_autospacing().over(&base);
         let buckets = [None, body_style.map(str::to_string)];
         let prose = buckets
             .iter()
             .take(if body_style.is_some() { 2 } else { 1 })
             .filter_map(|style| self.body_spacings.get(style))
             .flatten()
-            .map(|(spacing, chars)| (spacing.clone(), *chars));
+            .map(|(spacing, chars)| (spacing.over(&unset), *chars));
         plurality(prose).filter(|spacing| *spacing != own)
     }
 
@@ -1732,7 +1780,7 @@ impl Sample {
                                 .as_deref()
                                 .or(default_style.as_deref())
                                 .and_then(|id| style_by_id(styles, id));
-                            style_spacing(styles, node)
+                            set_spacing(styles, node)
                         })
                         .unwrap_or_default();
                     spacing.apply(tree, ppr.and_then(|p| w_child(tree, p, "spacing")));
