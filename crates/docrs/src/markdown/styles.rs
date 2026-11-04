@@ -959,8 +959,8 @@ pub(crate) struct SetSpacing {
     after: Option<String>,
     /// The line and its rule.
     line: Option<(String, String)>,
-    before_auto: Option<bool>,
-    after_auto: Option<bool>,
+    before_auto: bool,
+    after_auto: bool,
 }
 
 impl SetSpacing {
@@ -981,23 +981,22 @@ impl SetSpacing {
             self.line = Some((line.to_string(), rule.to_string()));
         }
         if let Some(auto) = w_attr(tree, spacing, "beforeAutospacing") {
-            self.before_auto = Some(crate::styles::on_off(auto));
+            self.before_auto = crate::styles::on_off(auto);
         }
         if let Some(auto) = w_attr(tree, spacing, "afterAutospacing") {
-            self.after_auto = Some(crate::styles::on_off(auto));
+            self.after_auto = crate::styles::on_off(auto);
         }
     }
 
     /// This spacing without the gaps Word spaces automatically.
-    fn without_autospacing(&self) -> SetSpacing {
-        SetSpacing {
-            before: self
-                .before
-                .clone()
-                .filter(|_| self.before_auto != Some(true)),
-            after: self.after.clone().filter(|_| self.after_auto != Some(true)),
-            ..self.clone()
+    fn without_autospacing(mut self) -> SetSpacing {
+        if self.before_auto {
+            self.before = None;
         }
+        if self.after_auto {
+            self.after = None;
+        }
+        self
     }
 
     /// This spacing, with `base` where nobody set an attribute.
@@ -1539,8 +1538,9 @@ impl Sample {
             None => default_style(styles, StyleType::Paragraph),
         };
         let set = set_spacing(styles, node);
-        let own = set.over(&Spacing::default());
-        let unset = set.without_autospacing().over(&Spacing::default());
+        let base = Spacing::default();
+        let own = set.over(&base);
+        let unset = set.without_autospacing().over(&base);
         let buckets = [None, body_style.map(str::to_string)];
         let prose = buckets
             .iter()

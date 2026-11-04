@@ -2218,7 +2218,6 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 
 #[derive(Default)]
 struct Synthetic<'a> {
-    /// The paragraph properties of `w:pPrDefault`.
     ppr_default: &'a str,
     styles: &'a str,
     body: &'a str,
@@ -3246,6 +3245,7 @@ fn spaced_paragraph(style: Option<&str>, text: &str, spacing: &str) -> String {
     format!("<w:p><w:pPr>{style}{spacing}</w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>")
 }
 
+const PROSE: &str = "A paragraph of the sample, long enough to read as prose.";
 const TIGHT: &str = "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/>";
 const LOOSE: &str =
     "<w:spacing w:before=\"0\" w:after=\"240\" w:line=\"360\" w:lineRule=\"auto\"/>";
@@ -3383,8 +3383,6 @@ fn spacing_nobody_set_leaves_the_body_styles_own() {
     // defaults set only the line. Its 0 pt is no choice to lift.
     let body_text = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
         <w:basedOn w:val=\"Normal\"/><w:pPr><w:spacing w:before=\"60\" w:after=\"240\"/></w:pPr></w:style>";
-    let unstyled = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
-    let long = "An unstyled paragraph of the sample, long enough to read as prose.";
     let template = || {
         synthetic(Synthetic {
             ppr_default: "<w:spacing w:line=\"276\" w:lineRule=\"auto\"/>",
@@ -3394,16 +3392,9 @@ fn spacing_nobody_set_leaves_the_body_styles_own() {
                 list_style("ListNumber", "List Number", 2)
             ),
             body: &format!(
-                "{}{}{}{}{}{}{}",
-                unstyled(long),
-                unstyled(long),
-                unstyled(long),
-                unstyled(long),
-                styled_paragraph(
-                    "BodyText",
-                    "A Body Text paragraph, long enough as well.",
-                    ""
-                ),
+                "{}{}{}{}",
+                spaced_paragraph(None, PROSE, "").repeat(4),
+                spaced_paragraph(Some("BodyText"), PROSE, ""),
                 list_item("ListBullet", 1, "A bullet in the template's List Bullet."),
                 sample_table(
                     None,
@@ -3451,21 +3442,13 @@ fn autospaced_body_spacing_is_no_choice_the_prose_keeps() {
     let paragraph = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
         <w:basedOn w:val=\"Normal\"/><w:pPr><w:spacing w:before=\"100\" w:beforeAutospacing=\"1\" \
         w:after=\"100\" w:afterAutospacing=\"1\"/></w:pPr></w:style>";
-    let unstyled = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
-    let long = "An unstyled paragraph of the sample, long enough to read as prose.";
     let template = || {
         synthetic(Synthetic {
             styles: paragraph,
             body: &format!(
-                "{}{}{}{}",
-                unstyled(long),
-                unstyled(long),
-                unstyled(long),
-                styled_paragraph(
-                    "BodyText",
-                    "A Body Text paragraph, long enough to count.",
-                    ""
-                )
+                "{}{}",
+                spaced_paragraph(None, PROSE, "").repeat(3),
+                spaced_paragraph(Some("BodyText"), PROSE, "")
             ),
             ..Synthetic::default()
         })
