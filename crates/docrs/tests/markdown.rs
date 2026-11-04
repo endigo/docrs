@@ -2218,6 +2218,8 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 
 #[derive(Default)]
 struct Synthetic<'a> {
+    /// The paragraph properties of `w:pPrDefault`.
+    ppr_default: &'a str,
     styles: &'a str,
     body: &'a str,
     numbering: &'a str,
@@ -2302,11 +2304,12 @@ fn synthetic(template: Synthetic<'_>) -> Document {
     let styles = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
          <w:styles xmlns:w=\"{W_NS}\">\
+         <w:docDefaults><w:pPrDefault><w:pPr>{}</w:pPr></w:pPrDefault></w:docDefaults>\
          <w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>\
          <w:style w:type=\"table\" w:default=\"1\" w:styleId=\"TableNormal\"><w:name w:val=\"Normal Table\"/>\
          <w:tblPr><w:tblInd w:w=\"0\" w:type=\"dxa\"/><w:tblCellMar><w:left w:w=\"108\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>\
          {}</w:styles>",
-        template.styles
+        template.ppr_default, template.styles
     );
     let numbering = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:numbering xmlns:w=\"{W_NS}\">{}</w:numbering>",
@@ -3371,6 +3374,73 @@ fn body_spacing_is_added_followed_and_left_alone() {
         ),
     );
     assert_eq!(style_ppr(&out, "BodyText"), "");
+}
+
+#[test]
+fn spacing_nobody_set_leaves_the_body_styles_own() {
+    // Body Text sets 3 pt before and 12 pt after. Most prose is unstyled,
+    // and nothing above it sets before or after: Normal has no pPr and the
+    // defaults set only the line. Its 0 pt is no choice to lift.
+    let body_text = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:pPr><w:spacing w:before=\"60\" w:after=\"240\"/></w:pPr></w:style>";
+    let unstyled = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
+    let long = "An unstyled paragraph of the sample, long enough to read as prose.";
+    let template = || {
+        synthetic(Synthetic {
+            ppr_default: "<w:spacing w:line=\"276\" w:lineRule=\"auto\"/>",
+            styles: &format!(
+                "{body_text}{}{}",
+                list_style("ListBullet", "List Bullet", 1),
+                list_style("ListNumber", "List Number", 2)
+            ),
+            body: &format!(
+                "{}{}{}{}{}{}{}",
+                unstyled(long),
+                unstyled(long),
+                unstyled(long),
+                unstyled(long),
+                styled_paragraph(
+                    "BodyText",
+                    "A Body Text paragraph, long enough as well.",
+                    ""
+                ),
+                list_item("ListBullet", 1, "A bullet in the template's List Bullet."),
+                sample_table(
+                    None,
+                    &[
+                        row(&["Asset", "Balance"], "", ""),
+                        row(&["Cash", "$1"], "", "")
+                    ]
+                )
+            ),
+            numbering: BULLET_AND_DECIMAL_NUMBERING,
+            ..Synthetic::default()
+        })
+    };
+    let inspection = docrs::markdown::inspect(&template(), &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["roles"]["body"]["name"], "Body Text");
+    assert!(
+        inspection["lifted"]["spacing"].is_null(),
+        "{}",
+        inspection["lifted"]["spacing"]
+    );
+    let out = export_html_from(
+        "106-unset-spacing-leaves-body-text",
+        template(),
+        &format!("{LISTS_HTML}{TABLE_TEXT_HTML}"),
+    );
+    assert_eq!(
+        style_ppr(&out, "BodyText"),
+        "<w:pPr><w:spacing w:before=\"60\" w:after=\"240\"/></w:pPr>"
+    );
+    assert!(count(&out.body(), "<w:pStyle w:val=\"BodyText\"/>") > 0);
+    assert_eq!(count(&out.body(), "<w:pStyle w:val=\"ListBullet\"/>"), 2);
+    assert!(!style_of(&out, "ListBullet").contains("<w:spacing"));
+    let contents = style_ppr(&out, "TableContents");
+    assert!(
+        contents.contains("w:before=\"0\"") && contents.contains("w:after=\"0\""),
+        "{contents}"
+    );
 }
 
 // ------------------------------ pictures a header or footer cannot show

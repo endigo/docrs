@@ -951,7 +951,17 @@ impl Default for Spacing {
     }
 }
 
-impl Spacing {
+/// The spacing attributes somebody set, through the defaults, a style
+/// chain or the paragraph itself; `None` where nobody did.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SetSpacing {
+    before: Option<String>,
+    after: Option<String>,
+    /// The line and its rule.
+    line: Option<(String, String)>,
+}
+
+impl SetSpacing {
     /// Lays one `w:spacing` element over this spacing; a `line` brings its
     /// rule along (`auto` when it names none).
     fn apply(&mut self, tree: &XmlTree, spacing: Option<NodeId>) {
@@ -959,19 +969,33 @@ impl Spacing {
             return;
         };
         if let Some(before) = w_attr(tree, spacing, "before") {
-            self.before = before.to_string();
+            self.before = Some(before.to_string());
         }
         if let Some(after) = w_attr(tree, spacing, "after") {
-            self.after = after.to_string();
+            self.after = Some(after.to_string());
         }
         if let Some(line) = w_attr(tree, spacing, "line") {
-            self.line = line.to_string();
-            self.line_rule = w_attr(tree, spacing, "lineRule")
-                .unwrap_or("auto")
-                .to_string();
+            let rule = w_attr(tree, spacing, "lineRule").unwrap_or("auto");
+            self.line = Some((line.to_string(), rule.to_string()));
         }
     }
 
+    /// This spacing, with `base` where nobody set an attribute.
+    fn over(&self, base: &Spacing) -> Spacing {
+        let (line, line_rule) = self
+            .line
+            .clone()
+            .unwrap_or_else(|| (base.line.clone(), base.line_rule.clone()));
+        Spacing {
+            before: self.before.clone().unwrap_or_else(|| base.before.clone()),
+            after: self.after.clone().unwrap_or_else(|| base.after.clone()),
+            line,
+            line_rule,
+        }
+    }
+}
+
+impl Spacing {
     fn xml(&self) -> String {
         format!(
             "<w:spacing w:before=\"{}\" w:after=\"{}\" w:line=\"{}\" w:lineRule=\"{}\"/>",
@@ -998,7 +1022,12 @@ pub(super) use crate::styles::based_on_chain as style_chain;
 /// The spacing a paragraph style gives: the document defaults under the
 /// style's ancestors, the style itself last (`None`: the defaults alone).
 fn style_spacing(styles: &XmlTree, style: Option<NodeId>) -> Spacing {
-    let mut spacing = Spacing::default();
+    set_spacing(styles, style).over(&Spacing::default())
+}
+
+/// What of [`style_spacing`] the defaults and the style chain set.
+fn set_spacing(styles: &XmlTree, style: Option<NodeId>) -> SetSpacing {
+    let mut spacing = SetSpacing::default();
     spacing.apply(
         styles,
         w_child(styles, styles.root(), "docDefaults")
@@ -1249,9 +1278,10 @@ pub(crate) struct Sample {
     /// by hand and beats every other look, the style's own included;
     /// emphasis left out.
     body_looks: BTreeMap<Option<String>, String>,
-    /// The spacing each prose paragraph shows, as Word resolves it, with
-    /// the paragraph's characters, by style id (`None`: the default style).
-    body_spacings: BTreeMap<Option<String>, Vec<(Spacing, usize)>>,
+    /// The spacing each prose paragraph sets, through its style chain and
+    /// by hand, with the paragraph's characters, by style id (`None`: the
+    /// default style).
+    body_spacings: BTreeMap<Option<String>, Vec<(SetSpacing, usize)>>,
     /// Styles of the top-level paragraphs that carry text, prose or not.
     text_styles: BTreeSet<Option<String>>,
     /// The font and size, as Word resolves them, carrying the most
@@ -1486,7 +1516,8 @@ impl Sample {
     /// The spacing the body style takes from the prose, the unstyled
     /// paragraphs' and the style's own, when it differs from what the style
     /// gives; `body_style` `None` is the default style, or a style to be
-    /// created on it.
+    /// created on it. Where nobody set the prose's spacing, the style's
+    /// own stands.
     fn body_spacing(&self, styles: &XmlTree, body_style: Option<&str>) -> Option<Spacing> {
         let node = match body_style {
             Some(id) => Some(style_by_id(styles, id)?),
@@ -1499,7 +1530,7 @@ impl Sample {
             .take(if body_style.is_some() { 2 } else { 1 })
             .filter_map(|style| self.body_spacings.get(style))
             .flatten()
-            .map(|(spacing, chars)| (spacing.clone(), *chars));
+            .map(|(spacing, chars)| (spacing.over(&own), *chars));
         plurality(prose).filter(|spacing| *spacing != own)
     }
 
@@ -1732,7 +1763,7 @@ impl Sample {
                                 .as_deref()
                                 .or(default_style.as_deref())
                                 .and_then(|id| style_by_id(styles, id));
-                            style_spacing(styles, node)
+                            set_spacing(styles, node)
                         })
                         .unwrap_or_default();
                     spacing.apply(tree, ppr.and_then(|p| w_child(tree, p, "spacing")));
