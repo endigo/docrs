@@ -4407,9 +4407,6 @@ fn table_cells_take_the_templates_own_table_text_styles() {
 
 #[test]
 fn a_table_heading_no_sample_header_is_in_is_passed_over() {
-    // The template keeps a centred Table Heading, but its sample tables'
-    // header cells are left-aligned Compact, white bold on navy. The header
-    // took the unused style's centring.
     let styles = "<w:style w:type=\"paragraph\" w:styleId=\"Compact\"><w:name w:val=\"Compact\"/><w:basedOn w:val=\"Normal\"/>\
         <w:pPr><w:spacing w:before=\"36\" w:after=\"36\"/></w:pPr></w:style>\
         <w:style w:type=\"paragraph\" w:styleId=\"TableContents\"><w:name w:val=\"Table Contents\"/><w:basedOn w:val=\"Normal\"/></w:style>\
@@ -4477,9 +4474,6 @@ fn a_table_heading_no_sample_header_is_in_is_passed_over() {
 
 #[test]
 fn header_cells_look_is_read_one_property_at_a_time() {
-    // Bold white at 9 pt, plain, and bold white at the body size: the
-    // commonest whole look is 9 pt, but most of the text is bold and white
-    // at the body size.
     let cell = |text: &str, r_pr: &str| {
         format!(
             "<w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/></w:tcPr><w:p><w:r><w:rPr>{r_pr}</w:rPr><w:t>{text}</w:t></w:r></w:p></w:tc>"

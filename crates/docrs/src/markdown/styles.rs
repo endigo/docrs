@@ -544,8 +544,7 @@ impl Resolver {
                         // A body-text style the template writes no text in
                         // is not the template's body: a converter's spacer
                         // Body Text while the default style carries the
-                        // prose, or a First Paragraph the prose never uses;
-                        // a Table Heading no sample header cell is in.
+                        // prose, or a First Paragraph the prose never uses.
                         let unused = !prefer_own
                             && Some(style) != default
                             && w_attr(tree, style, "styleId").is_some_and(|id| {
@@ -712,7 +711,6 @@ impl Resolver {
                                 .cell_style(role)
                                 .filter(|id| style_by_id(tree, id).is_some())
                                 .map(str::to_string);
-                            // Named apart from one the template keeps unused.
                             let candidate = &role.candidates()[0];
                             let name = find_style(tree, candidate, StyleType::Paragraph)
                                 .is_some()
@@ -1321,7 +1319,6 @@ pub(crate) struct Sample {
     /// What the sample tables' header (`Role::TableHeader`) and body
     /// (`Role::TableContents`) cells share, for the cells holding text.
     cells: BTreeMap<Role, CellSample>,
-    /// Every paragraph style those cells write in.
     cell_styles: BTreeMap<Role, BTreeSet<String>>,
     /// Paragraph styles the template's headers and footers write in.
     story_styles: BTreeSet<String>,
@@ -1435,8 +1432,6 @@ const LOOK_RPR: &[&str] = &[
     "u",
 ];
 
-/// The run look carrying the most characters, one property at a time, so
-/// text bold and white at two sizes is bold and white.
 fn look_by_property<'a>(looks: impl Iterator<Item = (&'a str, usize)>) -> String {
     let looks: Vec<(&str, usize)> = looks.collect();
     LOOK_RPR
@@ -1452,7 +1447,6 @@ fn look_by_property<'a>(looks: impl Iterator<Item = (&'a str, usize)>) -> String
         .collect()
 }
 
-/// The `w:{local}` element of a look written by [`look_rpr`].
 fn rpr_element<'a>(look: &'a str, local: &str) -> Option<&'a str> {
     let open = format!("<w:{local}");
     let mut from = 0;
@@ -1553,7 +1547,6 @@ impl Sample {
         !self.text_styles.contains(&Some(id.to_string())) && !self.story_styles.contains(id)
     }
 
-    /// Whether the sample tables' header cells hold text, none of it in `id`.
     fn unused_header_style(&self, id: &str) -> bool {
         self.cell_styles
             .get(&Role::TableHeader)
