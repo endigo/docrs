@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.15 (2026-11-05)
+
+### Library
+
+- Table cells keep the vertical alignment the template's sample cells set. A template whose header cells were vertically centred lost it, so when one header label wrapped, the others sat at the top of the row. The header cells' `w:vAlign` now goes into the lifted table style's header row with the fill and borders, and one the body cells share into the whole table.
+- A Table Heading (or Table Header) that none of the template's sample header cells use is passed over, as an unused Body Text or First Paragraph already is. A template that kept a centred Table Heading while its tables' left-aligned header cells wrote in Compact exported centred headers. The header now gets a style created on the style its cells use, with their shared hand look, named "Template Table Heading" when the template already has a "Table Heading".
+- Table cell text looks are read one property at a time. Header text bold and white at two sizes, with some plain, had no look: no single whole look carried the most characters. Bold and white are now lifted, and the size, which no value carries the most text in, is left as it is.
+
 ## 0.3.14 (2026-11-04)
 
 ### Library

@@ -2417,6 +2417,64 @@ const GREY_BODY_TEXT: &str = "<w:style w:type=\"paragraph\" w:styleId=\"BodyText
 
 const TABLE_MARKDOWN: &str = "| Client | Age |\n|---|---|\n| Jane | 57 |\n| John | 60 |\n";
 
+const CENTRED: &str = "<w:vAlign w:val=\"center\"/>";
+
+fn lifted_table(name: &str, rows: &[String]) -> String {
+    let template = synthetic(Synthetic {
+        body: &sample_table(None, rows),
+        ..Synthetic::default()
+    });
+    let out = export_with(
+        name,
+        TABLE_MARKDOWN,
+        Some(template),
+        &MarkdownOptions::default(),
+    );
+    let table = &out.report.styles["table"];
+    assert!(table.created, "{}", table.name);
+    style_xml(
+        &out.part("word/styles.xml"),
+        table.style_id.as_deref().unwrap(),
+    )
+    .to_string()
+}
+
+#[test]
+fn header_cells_keep_their_vertical_centring() {
+    let navy = "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"000080\"/>";
+    let lifted = lifted_table(
+        "108-header-cells-centred",
+        &[
+            row(&["Head", "Head"], &format!("{navy}{CENTRED}"), "<w:b/>"),
+            row(&["Cell", "Cell"], "", ""),
+            row(&["Cell", "Cell"], "", ""),
+        ],
+    );
+    let (whole, first_row) = lifted.split_at(lifted.find("<w:tblStylePr").unwrap());
+    assert!(!whole.contains("vAlign"), "{lifted}");
+    assert!(
+        first_row.contains(&format!("{navy}{CENTRED}</w:tcPr>")),
+        "{lifted}"
+    );
+}
+
+#[test]
+fn body_cells_centred_throughout_centre_the_table() {
+    let lifted = lifted_table(
+        "109-body-cells-centred",
+        &[
+            row(&["Head", "Head"], CENTRED, ""),
+            row(&["Cell", "Cell"], CENTRED, ""),
+            row(&["Cell", "Cell"], CENTRED, ""),
+        ],
+    );
+    assert!(
+        lifted.contains(&format!("<w:tcPr>{CENTRED}</w:tcPr>")),
+        "{lifted}"
+    );
+    assert!(!lifted.contains("<w:tblStylePr"), "{lifted}");
+}
+
 #[test]
 fn a_hand_formatted_sample_table_beats_an_empty_table_style() {
     let rows = [
@@ -4345,6 +4403,100 @@ fn table_cells_take_the_templates_own_table_text_styles() {
         inspection["lifted"]["table"]["cell_styles"]["body"],
         "TableNormalBody"
     );
+}
+
+#[test]
+fn a_table_heading_no_sample_header_is_in_is_passed_over() {
+    let styles = "<w:style w:type=\"paragraph\" w:styleId=\"Compact\"><w:name w:val=\"Compact\"/><w:basedOn w:val=\"Normal\"/>\
+        <w:pPr><w:spacing w:before=\"36\" w:after=\"36\"/></w:pPr></w:style>\
+        <w:style w:type=\"paragraph\" w:styleId=\"TableContents\"><w:name w:val=\"Table Contents\"/><w:basedOn w:val=\"Normal\"/></w:style>\
+        <w:style w:type=\"paragraph\" w:styleId=\"TableHeading\"><w:name w:val=\"Table Heading\"/><w:basedOn w:val=\"TableContents\"/>\
+        <w:pPr><w:jc w:val=\"center\"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>";
+    let cell = |text: &str, tc_pr: &str, r_pr: &str| {
+        format!(
+            "<w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/>{tc_pr}</w:tcPr><w:p><w:pPr><w:pStyle w:val=\"Compact\"/></w:pPr>\
+             <w:r><w:rPr>{r_pr}</w:rPr><w:t>{text}</w:t></w:r></w:p></w:tc>"
+        )
+    };
+    let navy = format!("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"000080\"/>{CENTRED}");
+    let white = "<w:b/><w:color w:val=\"FFFFFF\"/>";
+    let rows = [
+        format!(
+            "<w:tr>{}{}</w:tr>",
+            cell("Head", &navy, white),
+            cell("Head", &navy, white)
+        ),
+        format!(
+            "<w:tr>{}{}</w:tr>",
+            cell("Cell", "", ""),
+            cell("Cell", "", "")
+        ),
+        format!(
+            "<w:tr>{}{}</w:tr>",
+            cell("Cell", "", ""),
+            cell("Cell", "", "")
+        ),
+    ];
+    let out = export_html_from(
+        "110-unused-table-heading",
+        synthetic(Synthetic {
+            styles,
+            body: &sample_table(None, &rows),
+            ..Synthetic::default()
+        }),
+        TABLE_TEXT_HTML,
+    );
+    assert_eq!(out.report.styles["table_contents"].name, "Compact");
+    let header = &out.report.styles["table_header"];
+    assert_eq!(header.name, "Template Table Heading");
+    assert!(header.created);
+    let id = header.style_id.as_deref().unwrap();
+    let created = style_of(&out, id);
+    assert!(
+        created.contains("<w:basedOn w:val=\"Compact\"/>"),
+        "{created}"
+    );
+    assert!(
+        created.contains(white) && !created.contains("<w:jc"),
+        "{created}"
+    );
+    assert_eq!(
+        count(&header_row(&out).0, &format!("<w:pStyle w:val=\"{id}\"/>")),
+        2
+    );
+    assert!(!out.body().contains("<w:jc"));
+    let table = style_of(
+        &out,
+        out.report.styles["table"].style_id.as_deref().unwrap(),
+    );
+    assert!(table.contains(&format!("{navy}</w:tcPr>")), "{table}");
+}
+
+#[test]
+fn header_cells_look_is_read_one_property_at_a_time() {
+    let cell = |text: &str, r_pr: &str| {
+        format!(
+            "<w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/></w:tcPr><w:p><w:r><w:rPr>{r_pr}</w:rPr><w:t>{text}</w:t></w:r></w:p></w:tc>"
+        )
+    };
+    let white = "<w:b/><w:color w:val=\"FFFFFF\"/>";
+    let rows = [
+        format!(
+            "<w:tr>{}{}{}</w:tr>",
+            cell("Heading ten", &format!("{white}<w:sz w:val=\"18\"/>")),
+            cell("Heading 10", ""),
+            cell("Head", white)
+        ),
+        row(&["Cell", "Cell", "Cell"], "", ""),
+    ];
+    let template = synthetic(Synthetic {
+        body: &sample_table(None, &rows),
+        ..Synthetic::default()
+    });
+    let header = &inspect_default(&template)["lifted"]["table"]["cell_text"]["header"];
+    assert_eq!(header["bold"], true, "{header}");
+    assert_eq!(header["color"], "FFFFFF", "{header}");
+    assert!(header["size_pt"].is_null(), "{header}");
 }
 
 #[test]
