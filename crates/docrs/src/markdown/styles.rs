@@ -544,12 +544,17 @@ impl Resolver {
                         // A body-text style the template writes no text in
                         // is not the template's body: a converter's spacer
                         // Body Text while the default style carries the
-                        // prose, or a First Paragraph the prose never uses.
-                        let unused = role.falls_back_to_default()
-                            && !prefer_own
+                        // prose, or a First Paragraph the prose never uses;
+                        // a Table Heading no sample header cell is in.
+                        let unused = !prefer_own
                             && Some(style) != default
                             && w_attr(tree, style, "styleId").is_some_and(|id| {
-                                sample.unused(name, id)
+                                let unused = match role {
+                                    Role::TableHeader => sample.unused_header_style(id),
+                                    role if role.falls_back_to_default() => sample.unused(name, id),
+                                    _ => false,
+                                };
+                                unused
                                     && !resolved
                                         .values()
                                         .any(|r| r.created && r.style_id.as_deref() == Some(id))
@@ -707,10 +712,16 @@ impl Resolver {
                                 .cell_style(role)
                                 .filter(|id| style_by_id(tree, id).is_some())
                                 .map(str::to_string);
+                            // Named apart from one the template keeps unused.
+                            let candidate = &role.candidates()[0];
+                            let name = find_style(tree, candidate, StyleType::Paragraph)
+                                .is_some()
+                                .then(|| format!("Template {candidate}"));
                             match own {
                                 Some(own) => Some(Lifted {
                                     rpr,
                                     based_on: Some(own),
+                                    name,
                                     ..Lifted::default()
                                 }),
                                 None => {
@@ -724,6 +735,7 @@ impl Resolver {
                                             self.resolved_id(Role::Table),
                                         ),
                                         rpr,
+                                        name,
                                         ..Lifted::default()
                                     })
                                 }
@@ -1309,6 +1321,8 @@ pub(crate) struct Sample {
     /// What the sample tables' header (`Role::TableHeader`) and body
     /// (`Role::TableContents`) cells share, for the cells holding text.
     cells: BTreeMap<Role, CellSample>,
+    /// Every paragraph style those cells write in.
+    cell_styles: BTreeMap<Role, BTreeSet<String>>,
     /// Paragraph styles the template's headers and footers write in.
     story_styles: BTreeSet<String>,
 }
@@ -1421,6 +1435,37 @@ const LOOK_RPR: &[&str] = &[
     "u",
 ];
 
+/// The run look carrying the most characters, one property at a time, so
+/// text bold and white at two sizes is bold and white.
+fn look_by_property<'a>(looks: impl Iterator<Item = (&'a str, usize)>) -> String {
+    let looks: Vec<(&str, usize)> = looks.collect();
+    LOOK_RPR
+        .iter()
+        .filter_map(|local| {
+            plurality(
+                looks
+                    .iter()
+                    .map(|(look, chars)| (rpr_element(look, local), *chars)),
+            )
+            .flatten()
+        })
+        .collect()
+}
+
+/// The `w:{local}` element of a look written by [`look_rpr`].
+fn rpr_element<'a>(look: &'a str, local: &str) -> Option<&'a str> {
+    let open = format!("<w:{local}");
+    let mut from = 0;
+    while let Some(at) = look[from..].find(&open).map(|at| from + at) {
+        let rest = &look[at + open.len()..];
+        if rest.starts_with([' ', '/']) {
+            return Some(&look[at..at + open.len() + rest.find("/>")? + 2]);
+        }
+        from = at + open.len();
+    }
+    None
+}
+
 /// Emphasis a sample sentence may carry that is not the body look.
 const EMPHASIS_RPR: &[&str] = &["b", "bCs", "i", "iCs", "u"];
 
@@ -1506,6 +1551,13 @@ impl Sample {
     /// or its headers and footers also use is left as it is.
     fn dedicated_to_cells(&self, id: &str) -> bool {
         !self.text_styles.contains(&Some(id.to_string())) && !self.story_styles.contains(id)
+    }
+
+    /// Whether the sample tables' header cells hold text, none of it in `id`.
+    fn unused_header_style(&self, id: &str) -> bool {
+        self.cell_styles
+            .get(&Role::TableHeader)
+            .is_some_and(|styles| !styles.contains(id))
     }
 
     fn cell_style(&self, role: Role) -> Option<&str> {
@@ -1830,13 +1882,16 @@ impl Sample {
                     if cells.is_empty() {
                         continue;
                     }
+                    sample
+                        .cell_styles
+                        .insert(role, cells.iter().filter_map(|c| c.style.clone()).collect());
                     let style = plurality(cells.iter().map(|c| (c.style.as_deref(), c.chars)));
-                    let look = plurality(cells.iter().map(|c| (c.look.as_str(), c.chars)));
+                    let look = look_by_property(cells.iter().map(|c| (c.look.as_str(), c.chars)));
                     sample.cells.insert(
                         role,
                         CellSample {
                             style: style.flatten().map(str::to_string),
-                            look: look.filter(|look| !look.is_empty()).map(str::to_string),
+                            look: (!look.is_empty()).then_some(look),
                         },
                     );
                 }
@@ -1934,7 +1989,7 @@ fn table_look(tree: &XmlTree, tbl: NodeId) -> Vec<(String, bool)> {
         .collect()
 }
 
-const LOOK_TCPR: &[&str] = &["tcBorders", "shd", "tcMar"];
+const LOOK_TCPR: &[&str] = &["tcBorders", "shd", "tcMar", "vAlign"];
 const LOOK_TBLPR: &[&str] = &["tblBorders", "shd", "tblCellMar"];
 
 fn row_look(tree: &XmlTree, tr: NodeId) -> String {
@@ -1943,7 +1998,7 @@ fn row_look(tree: &XmlTree, tr: NodeId) -> String {
         .unwrap_or_default()
 }
 
-/// Borders, shading and margins of a cell.
+/// Borders, shading, margins and vertical alignment of a cell.
 fn cell_look(tree: &XmlTree, tc: NodeId) -> String {
     w_child(tree, tc, "tcPr")
         .map(|tc_pr| w_xml(tree, tc_pr, |local| LOOK_TCPR.contains(&local)))
@@ -2012,6 +2067,7 @@ fn carries_look(xml: &str) -> bool {
                 !matches!(fill.to_ascii_uppercase().as_str(), "AUTO" | "FFFFFF")
             }),
             "color" => value(element, "val").is_some_and(|val| !val.eq_ignore_ascii_case("auto")),
+            "vAlign" => value(element, "val").is_some_and(|val| val != "top"),
             "b" => value(element, "val").is_none_or(|val| !matches!(val.as_str(), "0" | "false")),
             "top" | "left" | "bottom" | "right" | "start" | "end" | "insideH" | "insideV" => {
                 let val = value(element, "val").unwrap_or_default();
@@ -2140,8 +2196,8 @@ fn cell_borders_as_table_borders(cell: &str, table: &str) -> String {
 }
 
 /// The table style a group of alike sample tables adds by hand: borders,
-/// shading and margins; `None` when nothing visible is added. The cells'
-/// text look goes to the cell paragraph styles instead
+/// shading, margins and vertical alignment; `None` when nothing visible is
+/// added. The cells' text look goes to the cell paragraph styles instead
 /// (`Sample::cell_look`), where every reader applies it and a header size
 /// is not overridden by the body's.
 fn lift_table(group: &[&SampleTable]) -> Option<Lifted> {
