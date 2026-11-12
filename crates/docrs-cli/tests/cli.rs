@@ -685,3 +685,24 @@ fn each_source_format_has_its_command() {
         "{error}"
     );
 }
+
+#[test]
+fn replace_refuses_nth_with_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.docx");
+    std::fs::copy(fixture(FRAGMENTED), &input).unwrap();
+    let before = std::fs::read(&input).unwrap();
+    let out = bin()
+        .args(["--json", "replace"])
+        .arg(&input)
+        .args([
+            "--find", "payment", "--with", "x", "--all", "--nth", "2", "--out",
+        ])
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["error"]["reason"], "argument_conflict");
+    assert_eq!(std::fs::read(&input).unwrap(), before);
+}
