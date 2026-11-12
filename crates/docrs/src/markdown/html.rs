@@ -205,35 +205,21 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
                 attrs,
                 self_closing,
             } => {
-                // HTML's implied end tags: a new <p>, <li>, <tr>, <td> or <th>
-                // closes an open sibling.
-                let closes: &[&str] = match name.as_str() {
-                    "p" => &["p"],
-                    "li" => &["li", "p"],
-                    "tr" => &["tr", "td", "th", "p"],
-                    "td" | "th" => &["td", "th", "p"],
-                    _ => &[],
-                };
-                if let Some(position) = stack
-                    .iter()
-                    .rposition(|(n, _, _)| closes.contains(&n.as_str()))
-                {
-                    let barrier = stack.iter().rposition(|(n, _, _)| {
-                        matches!(n.as_str(), "table" | "ul" | "ol" | "tbody" | "thead")
-                    });
-                    if barrier.is_none_or(|b| b < position) {
-                        while stack.len() > position {
-                            close_top(&mut stack);
-                        }
-                        // `<p><li>`: the item closes a paragraph that never
-                        // had content; browsers draw nothing for it.
-                        let parent = &mut stack.last_mut().expect("root").2;
-                        if name == "li"
-                            && matches!(parent.last(), Some(Node::Element { name, children, .. })
-                                if name == "p" && children.is_empty())
-                        {
-                            parent.pop();
-                        }
+                for rule in implied_ends(&name) {
+                    let Some(position) = open_target(&stack, rule) else {
+                        continue;
+                    };
+                    while stack.len() > position {
+                        close_top(&mut stack);
+                    }
+                    // `<p><li>`, `<p><div>`: a block closes a paragraph that
+                    // never had content; browsers draw nothing for it.
+                    let parent = &mut stack.last_mut().expect("root").2;
+                    if name != "p"
+                        && matches!(parent.last(), Some(Node::Element { name, children, .. })
+                            if name == "p" && children.is_empty())
+                    {
+                        parent.pop();
                     }
                 }
                 if self_closing || VOID.contains(&name.as_str()) {
@@ -265,6 +251,90 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
         close_top(&mut stack);
     }
     Ok(stack.pop().expect("root").2)
+}
+
+/// An end tag a start tag implies: for the innermost open element named in
+/// `targets`, unless an element named in `scope` is open inside it. Both are
+/// space-separated tag names.
+struct Implied {
+    targets: &'static str,
+    scope: &'static str,
+}
+
+fn names(list: &str, name: &str) -> bool {
+    list.split_whitespace().any(|listed| listed == name)
+}
+
+const TABLE_SCOPE: &str = "table template html";
+
+/// The standard's "special" elements a list item does not close past.
+const LIST_ITEM_SCOPE: &str = "ul ol dl li dd dt table td th caption blockquote pre section \
+     article aside nav header footer main figure figcaption details summary h1 h2 h3 h4 h5 h6 \
+     template html";
+
+/// Start tags that close an open `<p>`, as the HTML standard lists them.
+const CLOSES_P: &str = "address article aside blockquote center details dialog dir div dl \
+     fieldset figcaption figure footer header hgroup main menu nav ol p search section summary \
+     ul h1 h2 h3 h4 h5 h6 pre listing form table hr xmp plaintext";
+
+const CLOSE_P: Implied = Implied {
+    targets: "p",
+    scope: "table td th caption button template object marquee applet html",
+};
+
+const CLOSE_CELL: Implied = Implied {
+    targets: "td th",
+    scope: TABLE_SCOPE,
+};
+
+const CLOSE_ROW: Implied = Implied {
+    targets: "tr",
+    scope: TABLE_SCOPE,
+};
+
+/// The end tags start tag `name` implies, closed in this order.
+fn implied_ends(name: &str) -> &'static [Implied] {
+    match name {
+        "li" => &[
+            Implied {
+                targets: "li",
+                scope: LIST_ITEM_SCOPE,
+            },
+            CLOSE_P,
+        ],
+        "dd" | "dt" => &[
+            Implied {
+                targets: "dd dt",
+                scope: LIST_ITEM_SCOPE,
+            },
+            CLOSE_P,
+        ],
+        "thead" | "tbody" | "tfoot" => &[
+            Implied {
+                targets: "thead tbody tfoot",
+                scope: TABLE_SCOPE,
+            },
+            CLOSE_ROW,
+            CLOSE_CELL,
+        ],
+        "tr" => &[CLOSE_ROW, CLOSE_CELL, CLOSE_P],
+        "td" | "th" => &[CLOSE_CELL, CLOSE_P],
+        name if names(CLOSES_P, name) => &[CLOSE_P],
+        _ => &[],
+    }
+}
+
+/// Where on `stack` the element `rule` closes is open.
+fn open_target(stack: &[OpenElement], rule: &Implied) -> Option<usize> {
+    for (index, (name, _, _)) in stack.iter().enumerate().rev() {
+        if names(rule.targets, name) {
+            return Some(index);
+        }
+        if names(rule.scope, name) {
+            return None;
+        }
+    }
+    None
 }
 
 fn close_top(stack: &mut Vec<OpenElement>) {
@@ -1514,6 +1584,61 @@ mod tests {
             ])
         );
         assert!(matches!(&blocks[1], Block::Paragraph(i) if i.len() == 2));
+    }
+
+    #[test]
+    fn implied_end_tags_close_the_element_they_imply() {
+        for (implied, written) in [
+            (
+                "<table><tr><td>a<tr><td>b<tr><td>c</table>",
+                "<table><tr><td>a</td></tr><tr><td>b</td></tr><tr><td>c</td></tr></table>",
+            ),
+            (
+                "<table><tr><td><p>a<td><p>b</table>",
+                "<table><tr><td><p>a</p></td><td><p>b</p></td></tr></table>",
+            ),
+            (
+                "<table><thead><tr><th>h<tbody><tr><td>x</table>",
+                "<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>x</td></tr></tbody></table>",
+            ),
+            (
+                "<ul><li><p>one<li><p>two</ul>",
+                "<ul><li><p>one</p></li><li><p>two</p></li></ul>",
+            ),
+            (
+                "<ul><li>a<ul><li>b</ul><li>c</ul>",
+                "<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>",
+            ),
+            (
+                "<dl><dt>t<dd>d<dt>u<dd>e</dl>",
+                "<dl><dt>t</dt><dd>d</dd><dt>u</dt><dd>e</dd></dl>",
+            ),
+            (
+                "<p>intro<blockquote><p>quoted</p></blockquote>",
+                "<p>intro</p><blockquote><p>quoted</p></blockquote>",
+            ),
+            ("<p><div>x</div></p>", "<div>x</div>"),
+            ("<p><li>x</li></p>", "<li>x</li>"),
+            (
+                "<table><tr><td><table><tr><td>in</table>out<td>next</table>",
+                "<table><tr><td><table><tr><td>in</td></tr></table>out</td><td>next</td></tr></table>",
+            ),
+        ] {
+            let (blocks, unmapped) = read(implied);
+            assert!(unmapped.tags.is_empty(), "{implied}: {unmapped:?}");
+            assert_eq!(blocks, read(written).0, "{implied}");
+        }
+        let (blocks, _) = read("<table><tr><td>a<tr><td>b<tr><td>c</table>");
+        assert!(
+            matches!(&blocks[..], [Block::Table { rows, .. }] if rows.len() == 3),
+            "{blocks:?}"
+        );
+        let (blocks, _) = read("<p>intro<blockquote><p>quoted</p></blockquote>");
+        assert!(
+            matches!(&blocks[..], [Block::Paragraph(_), Block::Quote { blocks, .. }]
+                if matches!(&blocks[..], [Block::Paragraph(_)])),
+            "{blocks:?}"
+        );
     }
 
     #[test]
