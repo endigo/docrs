@@ -1003,6 +1003,62 @@ fn toc_entries_show_computed_page_numbers() {
     assert!(plain.report.toc.is_none());
 }
 
+fn page_ref_numbers(body: &str, bookmark: &str) -> Vec<String> {
+    let field = format!(" PAGEREF {bookmark} \\h </w:instrText>");
+    body.match_indices(&field)
+        .map(|(at, _)| {
+            let result = &body[at..];
+            let number = &result[result.find("<w:t>").unwrap() + 5..];
+            number[..number.find('<').unwrap()].to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn every_contents_gets_page_numbers() {
+    let out = export(
+        "17k-toc-twice",
+        "---\ntoc: true\n---\n\n[TOC]\n\n# A\n\n\\newpage\n\n# B\n",
+    );
+    let body = out.body();
+    assert_eq!(count(&body, "<w:sdt>"), 2, "{body}");
+    assert_eq!(page_ref_numbers(&body, "a"), ["2", "2"], "{body}");
+    assert_eq!(page_ref_numbers(&body, "b"), ["3", "3"], "{body}");
+    assert_eq!(out.report.toc.as_ref().map(|t| t.entries), Some(4));
+}
+
+#[test]
+fn a_contents_marker_keeps_the_update_request() {
+    let options = MarkdownOptions {
+        toc_page_numbers: true,
+        ..MarkdownOptions::default()
+    };
+    let out = export_with(
+        "17l-toc-marker-update",
+        "[TOC]\n\n# A\n",
+        Some(reference()),
+        &options,
+    );
+    assert!(
+        out.part("word/settings.xml")
+            .contains("<w:updateFields w:val=\"true\"/>")
+    );
+}
+
+#[test]
+fn a_contents_marker_follows_the_front_matter_depth() {
+    let out = export(
+        "17m-toc-marker-depth",
+        "---\ntoc-depth: 1\n---\n\n[TOC]\n\n# A\n\n## A.1\n",
+    );
+    let body = out.body();
+    assert!(
+        body.contains(" TOC \\o \"1-1\" \\h \\z \\u </w:instrText>"),
+        "{body}"
+    );
+    assert_eq!(count(&body, " PAGEREF "), 1, "{body}");
+}
+
 #[test]
 fn headings_without_text_get_no_contents_entry() {
     // The editor allows empty headings; Word's update leaves them out.

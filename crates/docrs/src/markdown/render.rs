@@ -345,14 +345,21 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     line_breaks: bool,
     /// The text width (EMU).
     block_width: i64,
-    /// Each contents entry's page number text (`w:t`) and the bookmark of
-    /// its heading.
-    toc_numbers: Vec<(NodeId, String)>,
+    toc: TocState,
     /// The title above the contents, and where it came from (the report's code).
     toc_title: String,
     toc_title_source: &'static str,
     /// The styles part, once ensured.
     styles_part: Option<String>,
+}
+
+struct TocState {
+    /// Heading levels listed, from the options, then the front matter.
+    depth: i64,
+    rendered: usize,
+    /// Each contents entry's page number text (`w:t`) and the bookmark of
+    /// its heading, over every contents rendered.
+    numbers: Vec<(NodeId, String)>,
 }
 
 /// Render `parsed` into the transaction's main document.
@@ -409,7 +416,15 @@ pub(crate) fn render(
         pictures: Vec::new(),
         line_breaks: false,
         block_width: width,
-        toc_numbers: Vec::new(),
+        toc: TocState {
+            depth: options
+                .toc_depth
+                .or(metadata.toc_depth)
+                .unwrap_or(3)
+                .clamp(1, 9),
+            rendered: 0,
+            numbers: Vec::new(),
+        },
         toc_title,
         toc_title_source,
         styles_part: None,
@@ -438,18 +453,13 @@ pub(crate) fn render(
     if options.title_block {
         nodes.extend(renderer.title_block(body_node, metadata)?);
     }
-    let toc = options.toc.or(metadata.toc).unwrap_or(false);
-    if toc {
-        let depth = options
-            .toc_depth
-            .or(metadata.toc_depth)
-            .unwrap_or(3)
-            .clamp(1, 9);
-        nodes.extend(renderer.toc(body_node, depth)?);
+    let toc_option = options.toc.or(metadata.toc).unwrap_or(false);
+    if toc_option {
+        nodes.extend(renderer.toc(body_node)?);
     }
     let body_start = nodes.len();
     nodes.extend(renderer.blocks(&main, body_node, &parsed.blocks, ctx)?);
-    if toc && nodes.len() > body_start {
+    if toc_option && nodes.len() > body_start {
         renderer.break_after_toc(&main, body_node, &mut nodes, body_start)?;
     }
     if nodes.is_empty() && matches!(options.placement, Placement::ReplaceBody) {
@@ -481,7 +491,7 @@ pub(crate) fn render(
         }
     }
     if matches!(options.placement, Placement::ReplaceBody) {
-        let keep_update = toc && options.toc_page_numbers;
+        let keep_update = renderer.toc.rendered > 0 && options.toc_page_numbers;
         let line_breaks = renderer.line_breaks;
         tidy_settings(renderer.txn, keep_update, line_breaks)?;
     }
@@ -497,7 +507,7 @@ pub(crate) fn render(
         renderer.clear_template_properties(&main, &set)?;
         drop_unreferenced_parts(renderer.txn, &main)?;
     }
-    if !renderer.toc_numbers.is_empty() {
+    if !renderer.toc.numbers.is_empty() {
         renderer.toc_page_numbers(&main)?;
     }
     for (line, html) in &parsed.unknown_html {
@@ -1503,8 +1513,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                             None,
                         );
                     } else {
-                        let depth = self.options.toc_depth.unwrap_or(3).clamp(1, 9);
-                        out.extend(self.toc(scope, depth)?);
+                        out.extend(self.toc(scope)?);
                     }
                 }
                 Block::Aligned(..) => {}
@@ -3006,8 +3015,10 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(out)
     }
 
-    fn toc(&mut self, scope: NodeId, depth: i64) -> Result<Vec<NodeId>> {
+    fn toc(&mut self, scope: NodeId) -> Result<Vec<NodeId>> {
         let main = self.main.clone();
+        let depth = self.toc.depth;
+        self.toc.rendered += 1;
         self.report.toc_title_source = Some(self.toc_title_source.to_string());
         // Word's table-of-contents block: heading and entries in one content
         // control, so Word offers Update Table and replaces them together.
@@ -3054,7 +3065,6 @@ impl<'p> Renderer<'_, '_, 'p> {
             .collect();
         let count = entries.len().max(1);
         let width_twips = self.block_width / EMU_PER_TWIP;
-        let mut numbers_out = Vec::new();
         for index in 0..count {
             let entry = entries.get(index);
             let role = Role::toc(entry.map_or(1, |(level, _, _)| *level));
@@ -3111,7 +3121,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                         for piece in [begin, instr_run, separate, number_run, end] {
                             append(tree, link, piece)?;
                         }
-                        numbers_out.push((number, bookmark.clone()));
+                        self.toc.numbers.push((number, bookmark.clone()));
                     }
                 }
                 None => {
@@ -3128,7 +3138,6 @@ impl<'p> Renderer<'_, '_, 'p> {
         if numbers {
             set_update_fields_on_open(self.txn)?;
         }
-        self.toc_numbers = numbers_out;
         Ok(vec![sdt])
     }
 
@@ -3142,7 +3151,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             let estimate = crate::layout::layout(self.txn, main, Vec::new())?;
             let mut changed = false;
             let tree = self.txn.tree_mut(main)?;
-            for (number, bookmark) in &self.toc_numbers {
+            for (number, bookmark) in &self.toc.numbers {
                 let shown = estimate
                     .bookmark_page(bookmark)
                     .map_or_else(String::new, |page| estimate.page_number(page).to_string());
@@ -3168,7 +3177,7 @@ impl<'p> Renderer<'_, '_, 'p> {
                 );
             }
             self.report.toc = Some(super::TocReport {
-                entries: self.toc_numbers.len(),
+                entries: self.toc.numbers.len(),
                 pages: layout.pages,
                 missing_fonts: layout.missing_fonts.clone(),
                 embedded_fonts: layout.embedded_fonts.clone(),
