@@ -24,6 +24,14 @@ const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
 const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const VML: &str = "urn:schemas-microsoft-com:vml";
 
+/// Where an open complex field is: Word shows nothing of a field, result
+/// included, while any enclosing field is still in its code.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FieldPart {
+    Code,
+    Result,
+}
+
 /// Page geometry in points.
 #[derive(Debug, Clone, Copy)]
 pub struct Page {
@@ -1364,7 +1372,7 @@ impl Builder<'_> {
                 });
             }
         }
-        let mut fields: Vec<bool> = Vec::new();
+        let mut fields: Vec<FieldPart> = Vec::new();
         self.inline(tree, p, &para_rpr, &mut para, &mut fields);
         if table.is_none()
             && ppr_node
@@ -1383,7 +1391,7 @@ impl Builder<'_> {
         parent: NodeId,
         para_rpr: &RPr,
         para: &mut Para,
-        fields: &mut Vec<bool>,
+        fields: &mut Vec<FieldPart>,
     ) {
         for child in tree.child_elements(parent) {
             if tree.ns_uri(child) != Some(W) {
@@ -1430,7 +1438,7 @@ impl Builder<'_> {
         r: NodeId,
         para_rpr: &RPr,
         para: &mut Para,
-        fields: &mut Vec<bool>,
+        fields: &mut Vec<FieldPart>,
     ) {
         let rpr_node = w_child(tree, r, "rPr");
         let direct = read_rpr(tree, rpr_node);
@@ -1457,16 +1465,16 @@ impl Builder<'_> {
                 }
                 continue;
             }
-            let in_instruction = fields.last() == Some(&true);
+            let in_instruction = fields.contains(&FieldPart::Code);
             if tree.local_name(child) != Some("t") {
                 previous = None;
             }
             match tree.local_name(child).unwrap_or("") {
                 "fldChar" => match w_attr(tree, child, "fldCharType") {
-                    Some("begin") => fields.push(true),
+                    Some("begin") => fields.push(FieldPart::Code),
                     Some("separate") => {
                         if let Some(last) = fields.last_mut() {
-                            *last = false;
+                            *last = FieldPart::Result;
                         }
                     }
                     Some("end") => {
