@@ -75,7 +75,7 @@ fn tokenize(html: &str) -> Vec<Token> {
             continue;
         }
         if rest.starts_with('<')
-            && let Some(end) = rest.find('>')
+            && let Some(end) = tag_end(rest).or_else(|| rest.find('>'))
         {
             let inner = rest[1..end].trim();
             rest = &rest[end + 1..];
@@ -110,6 +110,28 @@ fn tokenize(html: &str) -> Vec<Token> {
         rest = &rest[end..];
     }
     tokens
+}
+
+/// The index of the `>` that ends the tag `tag` starts with, past any `>`
+/// inside a quoted attribute value; none when a quote is never closed.
+fn tag_end(tag: &str) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut value_next = false;
+    for (index, c) in tag.char_indices() {
+        match quote {
+            Some(open) => {
+                if c == open {
+                    quote = None;
+                }
+                continue;
+            }
+            None if c == '>' => return Some(index),
+            None if value_next && (c == '"' || c == '\'') => quote = Some(c),
+            None => {}
+        }
+        value_next = c == '=' || (value_next && c.is_whitespace());
+    }
+    None
 }
 
 /// Elements whose content is text up to their end tag.
@@ -1637,6 +1659,30 @@ mod tests {
         assert!(
             matches!(&blocks[..], [Block::Paragraph(_), Block::Quote { blocks, .. }]
                 if matches!(&blocks[..], [Block::Paragraph(_)])),
+            "{blocks:?}"
+        );
+    }
+
+    #[test]
+    fn a_quoted_greater_than_stays_in_its_attribute() {
+        let (blocks, _) = read("<p><a href=\"https://e.com\" title=\"x > y\">go</a></p>");
+        assert_eq!(
+            blocks,
+            vec![Block::Paragraph(vec![Inline::Link {
+                url: "https://e.com".into(),
+                title: "x > y".into(),
+                content: vec![Inline::Text("go".into())],
+            }])]
+        );
+        let (blocks, _) = read("<p title='a>b' class=c\"d>e</p>");
+        assert_eq!(
+            blocks,
+            vec![Block::Paragraph(vec![Inline::Text("e".into())])]
+        );
+        let (blocks, _) = read("<p><a title=\"open>go</a></p>");
+        assert!(
+            matches!(&blocks[..], [Block::Paragraph(i)]
+                if matches!(&i[..], [Inline::Link { content, .. }] if content == &[Inline::Text("go".into())])),
             "{blocks:?}"
         );
     }
