@@ -533,6 +533,30 @@ impl Package {
         Ok(())
     }
 
+    /// Re-walk the relationship graph after a commit added, removed or
+    /// re-related parts. Open validated the graph; a target that is now
+    /// missing just ends its branch.
+    pub(crate) fn refresh_reachability(&mut self) {
+        let mut reached: HashSet<usize> = HashSet::new();
+        let mut stack = vec!["/".to_string()];
+        while let Some(source) = stack.pop() {
+            for rel in self.relationships_at(&source).unwrap_or_default() {
+                if rel.external {
+                    continue;
+                }
+                let part_name = rel.target_part_name(rels::base_uri(&source));
+                if let Some(member) = self.live_member_by_fold(&part_name)
+                    && reached.insert(member)
+                {
+                    stack.push(part_name);
+                }
+            }
+        }
+        for (position, part) in self.parts.iter_mut().enumerate() {
+            part.reachable = reached.contains(&position);
+        }
+    }
+
     /// Relationships whose source is `part_name` (`/` for the package),
     /// parsed from the current bytes of the relationships part.
     pub fn relationships_at(&self, part_name: &str) -> Result<Vec<Relationship>> {

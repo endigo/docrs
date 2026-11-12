@@ -465,6 +465,9 @@ impl Document {
             mut binaries,
             removed,
         } = staged;
+        let regraph = !removed.is_empty()
+            || !new_parts.is_empty()
+            || trees.keys().any(|name| name.ends_with(".rels"));
         // Every fallible check runs before the first mutation, so a failure
         // leaves the package exactly as it was.
         if let Some((name, _)) = new_parts
@@ -506,6 +509,9 @@ impl Document {
         }
         if let Some(content_types) = content_types {
             self.package_mut().set_content_types(content_types);
+        }
+        if regraph {
+            self.package_mut().refresh_reachability();
         }
         Ok(())
     }

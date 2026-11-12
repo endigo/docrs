@@ -280,3 +280,26 @@ fn even_and_odd_setting() {
         ]
     );
 }
+
+#[test]
+fn a_relinked_header_leaves_the_stories_before_saving() {
+    let mut doc = Document::new();
+    let section = doc.sections().unwrap().remove(0);
+    let header = section.header();
+    header.set_linked_to_previous(&mut doc, false).unwrap();
+    let container = header.definition(&mut doc).unwrap();
+    container.paragraphs(&doc).unwrap()[0]
+        .set_text(&mut doc, Some("Header text"))
+        .unwrap();
+    let options = docrs::FindOptions::default();
+    assert_eq!(doc.find_text("Header text", &options).unwrap().len(), 1);
+    header.set_linked_to_previous(&mut doc, true).unwrap();
+    let parts = |doc: &Document| -> Vec<String> {
+        doc.stories().into_iter().map(|story| story.part).collect()
+    };
+    assert_eq!(parts(&doc), vec!["word/document.xml".to_string()]);
+    assert!(doc.find_text("Header text", &options).unwrap().is_empty());
+    let (bytes, _) = doc.patch_bytes().unwrap();
+    let reopened = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    assert_eq!(parts(&reopened), parts(&doc));
+}
