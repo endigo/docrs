@@ -520,7 +520,7 @@ pub(crate) fn render(
             "reference_style_missing",
             format!(
                 "the reference document lacks styles for: {}. Add them to the reference document, map the roles to existing styles, or let the converter create them; nothing was changed",
-                renderer.styles.missing.join("; ")
+                renderer.styles.missing_report()
             ),
         ));
     }

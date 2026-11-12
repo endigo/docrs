@@ -2621,6 +2621,24 @@ fn alternating_row_fills_become_banding() {
 }
 
 #[test]
+fn a_missing_longer_role_does_not_hide_its_prefix() {
+    let definition = "<w:style w:type=\"paragraph\" w:styleId=\"Definition\"><w:name w:val=\"Definition\"/></w:style>";
+    let template = synthetic(Synthetic {
+        styles: &format!("{TABLE_GRID}{definition}"),
+        ..Synthetic::default()
+    });
+    let roles: BTreeMap<Role, Option<String>> = role_styles(&template, &Default::default())
+        .unwrap()
+        .into_iter()
+        .map(|(role, style)| (role, style.map(|s| s.name)))
+        .collect();
+    assert_eq!(roles[&Role::TableCaption], None);
+    assert_eq!(roles[&Role::Table].as_deref(), Some("Table Grid"));
+    assert_eq!(roles[&Role::DefinitionTerm], None);
+    assert_eq!(roles[&Role::Definition].as_deref(), Some("Definition"));
+}
+
+#[test]
 fn custom_bullet_styles_bound_to_numbering_are_the_lists() {
     let level = |ilvl: u8, format: &str, text: &str, left: u32| {
         format!(
