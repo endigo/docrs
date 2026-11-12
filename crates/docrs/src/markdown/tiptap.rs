@@ -592,7 +592,7 @@ impl Converter {
                     });
                 }
                 "highlight" => match mark.text_attr("color") {
-                    None => format.default_highlight = true,
+                    None => format.default_highlight(),
                     Some(color) => {
                         if !format.highlight(color) {
                             self.drop_attr("color", "highlight");
@@ -625,9 +625,6 @@ impl Converter {
                 }
                 other => self.note_mark(other),
             }
-        }
-        if format.highlight_given() {
-            format.default_highlight = false;
         }
         let content = vec![if code {
             Inline::Code(text.to_string())
@@ -830,6 +827,36 @@ mod tests {
                 .message
                 .contains("lineHeight on textStyle")
         );
+    }
+
+    #[test]
+    fn highlight_precedence_ignores_mark_order() {
+        let background = r##"{"type":"textStyle","attrs":{"backgroundColor":"#00ff00"}}"##;
+        for (highlight, expected) in [
+            (
+                r##"{"type":"highlight","attrs":{"color":"#fef08a"}}"##,
+                "FEF08A",
+            ),
+            (r##"{"type":"highlight","attrs":{"color":null}}"##, "00FF00"),
+        ] {
+            for marks in [
+                format!("{highlight},{background}"),
+                format!("{background},{highlight}"),
+            ] {
+                let parsed = parse(&format!(
+                    r#"{{"type":"doc","content":[{{"type":"paragraph","content":[{{"type":"text","text":"x","marks":[{marks}]}}]}}]}}"#
+                ))
+                .unwrap();
+                assert!(
+                    matches!(parsed.blocks.as_slice(), [Block::Paragraph(i)]
+                        if matches!(i.as_slice(), [Inline::Styled(style, inner)]
+                            if style.highlight.as_deref() == Some(expected)
+                                && matches!(inner.as_slice(), [Inline::Text(_)]))),
+                    "{marks}: {:?}",
+                    parsed.blocks
+                );
+            }
+        }
     }
 
     #[test]

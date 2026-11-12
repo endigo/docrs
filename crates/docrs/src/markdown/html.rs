@@ -659,8 +659,7 @@ pub(crate) fn aligned(align: Option<Align>, blocks: Vec<Block>) -> Vec<Block> {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SpanFormat {
     pub style: RunStyle,
-    /// `<mark>` with no colour of its own: Word's yellow highlight.
-    pub default_highlight: bool,
+    highlight: Highlight,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -669,8 +668,30 @@ pub(crate) struct SpanFormat {
     pub subscript: bool,
     /// `property on <tag>` for each declaration that was ignored.
     pub dropped: Vec<String>,
-    /// A highlight colour was given; a background does not replace it.
-    highlight_given: bool,
+}
+
+/// Where a span's highlight comes from, in rising precedence.
+#[derive(Debug, Clone, Default)]
+enum Highlight {
+    #[default]
+    Unset,
+    /// `<mark>` or Tiptap's `highlight` with no colour: Word's yellow.
+    Default,
+    /// `background(-color)`; `None` when transparent.
+    Background(Option<String>),
+    /// `<mark data-color>` or Tiptap's `highlight` colour.
+    Given(Option<String>),
+}
+
+impl Highlight {
+    fn precedence(&self) -> u8 {
+        match self {
+            Highlight::Unset => 0,
+            Highlight::Default => 1,
+            Highlight::Background(_) => 2,
+            Highlight::Given(_) => 3,
+        }
+    }
 }
 
 /// A font size in CSS pixels as Word's half-points.
@@ -728,7 +749,9 @@ pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
             _ => drop(&mut format, &property),
         }
     }
-    format.default_highlight = tag == "mark" && !format.highlight_given;
+    if tag == "mark" {
+        format.default_highlight();
+    }
     format
 }
 
@@ -737,18 +760,21 @@ impl SpanFormat {
     /// `highlight` mark), over any background. False when `value` is not a
     /// colour, for the caller to report.
     pub(crate) fn highlight(&mut self, value: &str) -> bool {
-        match css_color(value) {
-            Some(color) => {
-                self.style.highlight = color;
-                self.highlight_given = true;
-                true
-            }
-            None => false,
-        }
+        css_color(value)
+            .map(|color| self.set_highlight(Highlight::Given(color)))
+            .is_some()
     }
 
-    pub(crate) fn highlight_given(&self) -> bool {
-        self.highlight_given
+    /// Word's yellow highlight, unless a colour or background is given.
+    pub(crate) fn default_highlight(&mut self) {
+        self.set_highlight(Highlight::Default);
+    }
+
+    /// Of equal precedence the last wins, as the last CSS declaration does.
+    fn set_highlight(&mut self, highlight: Highlight) {
+        if highlight.precedence() >= self.highlight.precedence() {
+            self.highlight = highlight;
+        }
     }
 
     /// Apply a `color`, `background(-color)`, `font-family` or `font-size`
@@ -764,16 +790,9 @@ impl SpanFormat {
                 Some(None) => true,
                 None => false,
             },
-            "background-color" | "background" => match css_color(value) {
-                Some(color) => {
-                    if !self.highlight_given {
-                        self.style.highlight = color;
-                    }
-                    self.highlight_given = true;
-                    true
-                }
-                None => false,
-            },
+            "background-color" | "background" => css_color(value)
+                .map(|color| self.set_highlight(Highlight::Background(color)))
+                .is_some(),
             "font-family" => {
                 self.style.font = first_family(value).or(self.style.font.take());
                 true
@@ -790,10 +809,12 @@ impl SpanFormat {
     }
 
     /// `content` with this formatting applied.
-    pub(crate) fn wrap(self, content: Vec<Inline>) -> Vec<Inline> {
+    pub(crate) fn wrap(mut self, content: Vec<Inline>) -> Vec<Inline> {
         let mut content = content;
-        if self.default_highlight {
-            content = vec![Inline::Highlight(content)];
+        match self.highlight {
+            Highlight::Unset => {}
+            Highlight::Default => content = vec![Inline::Highlight(content)],
+            Highlight::Background(color) | Highlight::Given(color) => self.style.highlight = color,
         }
         if self.style != RunStyle::default() {
             content = vec![Inline::Styled(self.style, content)];
@@ -1685,6 +1706,44 @@ mod tests {
                 if matches!(&i[..], [Inline::Link { content, .. }] if content == &[Inline::Text("go".into())])),
             "{blocks:?}"
         );
+    }
+
+    #[test]
+    fn the_last_background_wins() {
+        let highlight = |html: &str| {
+            let (blocks, _) = read(&format!("<p>{html}</p>"));
+            match &blocks[..] {
+                [Block::Paragraph(inlines)] => match &inlines[..] {
+                    [Inline::Styled(style, _)] => style.highlight.clone(),
+                    [Inline::Highlight(_)] => Some("mark".into()),
+                    [Inline::Text(_)] => None,
+                    other => panic!("{other:?}"),
+                },
+                other => panic!("{other:?}"),
+            }
+        };
+        for (html, expected) in [
+            (
+                "<span style=\"background-color: yellow; background-color: #00ff00\">x</span>",
+                Some("00FF00"),
+            ),
+            (
+                "<span style=\"background: red; background-color: #00ff00\">x</span>",
+                Some("00FF00"),
+            ),
+            (
+                "<mark data-color=\"#fef08a\" style=\"background-color: #00ff00\">x</mark>",
+                Some("FEF08A"),
+            ),
+            (
+                "<mark style=\"background-color: #00ff00\">x</mark>",
+                Some("00FF00"),
+            ),
+            ("<mark style=\"background: transparent\">x</mark>", None),
+            ("<mark data-color=\"var(--x)\">x</mark>", Some("mark")),
+        ] {
+            assert_eq!(highlight(html).as_deref(), expected, "{html}");
+        }
     }
 
     #[test]
