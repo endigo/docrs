@@ -254,25 +254,66 @@ fn fold(lines: &[&str]) -> String {
     out
 }
 
-/// Top-level `key = value` pairs of TOML front matter.
+/// Top-level `key = value` pairs of TOML front matter: those before the
+/// first `[table]` or `[[array]]` header.
 pub(crate) fn parse_toml(text: &str) -> BTreeMap<String, Value> {
     let mut fields = BTreeMap::new();
-    for line in text.lines() {
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
+        if line.starts_with('[') {
+            break;
+        }
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
         let key = key.trim().trim_matches('"').to_string();
-        let value = match inline_list(value) {
+        let mut value = value.trim().to_string();
+        if value.starts_with('[') {
+            while bracket_depth(&value) > 0
+                && let Some(next) = lines.next()
+            {
+                value.push(' ');
+                value.push_str(next.trim());
+            }
+        } else if let Some(delimiter) = ["\"\"\"", "'''"].into_iter().find(|d| value.starts_with(d))
+        {
+            let mut body = value[3..].to_string();
+            while !body.contains(delimiter) {
+                let Some(next) = lines.next() else { break };
+                body.push('\n');
+                body.push_str(next);
+            }
+            let end = body.find(delimiter).unwrap_or(body.len());
+            fields.insert(key, Value::Scalar(body[..end].trim().to_string()));
+            continue;
+        }
+        let value = match inline_list(&value) {
             Some(items) => Value::List(items),
-            None => Value::Scalar(unquote(value)),
+            None => Value::Scalar(unquote(&value)),
         };
         fields.insert(key, value);
     }
     fields
+}
+
+/// Unclosed `[` outside quoted strings.
+fn bracket_depth(text: &str) -> i32 {
+    let mut depth = 0;
+    let mut quote: Option<char> = None;
+    for c in text.chars() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), _) if c == q => quote = None,
+            (None, '[') => depth += 1,
+            (None, ']') => depth -= 1,
+            _ => {}
+        }
+    }
+    depth
 }
 
 #[cfg(test)]
@@ -306,6 +347,36 @@ mod tests {
         assert_eq!(meta.title.as_deref(), Some("T"));
         assert_eq!(meta.authors, vec!["A", "B"]);
         assert_eq!(meta.toc, Some(false));
+    }
+
+    #[test]
+    fn toml_keys_after_a_table_header_are_not_top_level() {
+        let meta = metadata(
+            MetadataKind::Toml,
+            "title = \"Real\"\n[params]\ntitle = \"Card\"\n",
+        );
+        assert_eq!(meta.title.as_deref(), Some("Real"));
+        let meta = metadata(
+            MetadataKind::Toml,
+            "title = \"Real\"\n[[authors]]\ntitle = \"Card\"\nsubtitle = \"S\"\n",
+        );
+        assert_eq!(meta.title.as_deref(), Some("Real"));
+        assert_eq!(meta.subtitle, None);
+        let meta = metadata(
+            MetadataKind::Toml,
+            "keywords = [\n  [\"a\", \"b\"],\n  \"c\",\n]\ntitle = \"After\"\n",
+        );
+        assert_eq!(meta.title.as_deref(), Some("After"));
+        let meta = metadata(
+            MetadataKind::Toml,
+            "author = [\n  \"A\",\n  \"B\",\n]\nabstract = \"\"\"\nOne\n[not a table]\nkey = 1\n\"\"\"\ntitle = \"T\"\n",
+        );
+        assert_eq!(meta.authors, vec!["A", "B"]);
+        assert_eq!(
+            meta.abstract_.as_deref(),
+            Some("One\n[not a table]\nkey = 1")
+        );
+        assert_eq!(meta.title.as_deref(), Some("T"));
     }
 
     #[test]
