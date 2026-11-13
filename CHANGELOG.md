@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0 (2026-11-13)
+
+The first stable release. The library, the command line and the Node.js package follow semantic versioning from here on. Nothing is removed: `fromTiptap` and `from-markdown --from` still work.
+
+### Library
+
+- A header or footer left behind by `set_linked_to_previous(true)` is no longer searched or edited. `find_text` and `replace_all` went on finding text in it until the document was saved and reopened. Which parts the document reaches is now worked out again whenever an edit adds or removes a part or changes a relationship.
+- Page estimates no longer count a nested field's result as visible text while the field around it is still in its code. `{ IF { MERGEFIELD … } … }` measured the inner result, which moved the page numbers a table of contents estimates.
+- A role that fails no longer hides another role whose name starts the same way. A failed `table_caption` made `markdown-styles` report `table` missing with Table Grid present, and a failed `definition_term` did the same to `definition`.
+- Every table of contents in one document gets page numbers and the front matter's `toc-depth`. With front-matter `toc` and a `[TOC]` both present, the first contents kept "1" for every page, and the `[TOC]` one ignored `toc-depth` and did not ask Word to update fields.
+- TOML front matter reads top-level keys only up to the first table header, so a `title` under `[params]` no longer replaces the document's title. A multi-line array or `"""` string is read whole, so a `[` inside one does not start a table. Arrays skip comments and escaped quotes, and multi-line basic strings decode their escapes.
+- HTML elements whose end tag is left out close the way the HTML standard says, each tag closing only up to the scope it belongs to. Before, `<tr><td>a<tr><td>b` lost a row, a second `<td>` nested inside the first, `<li><p>one<li>` made a sub-item, and `<p>x<blockquote>…` left the quote empty. Well-formed HTML converts as before.
+- A `>` inside a quoted HTML attribute value, as in `title="x > y"`, no longer ends the tag.
+- When a span sets `background-color` more than once, the last value is its highlight, as CSS has it. Before, the first one won. TipTap output is unchanged.
+- The refusal to edit a protected document says how to acknowledge the protection: `--acknowledge-protection` on the command line, `Document::acknowledge_protection` in the library.
+
+### Command line
+
+- `replace --nth N --all` is refused with `argument_conflict` (exit 2) and leaves the file untouched, as `--placeholder` with `--append` already is. Before, `--nth` was ignored and every match was replaced.
+
 ## 0.3.15 (2026-11-05)
 
 ### Library
