@@ -237,3 +237,29 @@ fn a_table_style_based_on_a_later_style_takes_no_cell_margins_from_it() {
         );
     }
 }
+
+#[test]
+fn a_field_nested_in_field_code_measures_nothing_of_its_result() {
+    let fld = |kind: &str| format!("<w:r><w:fldChar w:fldCharType=\"{kind}\"/></w:r>");
+    let instr =
+        |code: &str| format!("<w:r><w:instrText xml:space=\"preserve\">{code}</w:instrText></w:r>");
+    let text = |t: &str| format!("<w:r><w:t xml:space=\"preserve\">{t}</w:t></w:r>");
+    let nested = format!(
+        "<w:p>{}{}{}{}{}{}{}{}{}{}{}</w:p>",
+        fld("begin"),
+        instr("IF "),
+        fld("begin"),
+        instr(" MERGEFIELD Name "),
+        fld("separate"),
+        text(&"word ".repeat(40)),
+        fld("end"),
+        instr(" = \"\" \"a\" \"b\" "),
+        fld("separate"),
+        text("a"),
+        fld("end"),
+    );
+    let plain = para("a", "");
+    let after = para("after", "");
+    let y = |first: &str| estimate(&format!("{first}{after}"), "").placed[1].y;
+    assert!((y(&nested) - y(&plain)).abs() < 0.01);
+}

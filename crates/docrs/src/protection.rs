@@ -143,8 +143,9 @@ pub fn refuse_if_protected(
             "cannot {operation}: this document is under Restrict Editing ({restriction} protection, \
              w:documentProtection), and Word's own UI would not permit this edit either. The document \
              itself is fine — this is a policy restriction, not a defect in the file. Protection is \
-             advisory, not security: if the edit is intended, acknowledge protection first; this \
-             library never removes the protection setting itself"
+             advisory, not security: if the edit is intended, acknowledge protection first \
+             (`--acknowledge-protection`, or `Document::acknowledge_protection`); this library \
+             never removes the protection setting itself"
         ),
     ))
 }

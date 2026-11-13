@@ -91,7 +91,7 @@ enum Command {
         #[arg(long)]
         normalized: bool,
         /// Select the nth match (1-based) instead of requiring uniqueness.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "all")]
         nth: Option<usize>,
         /// Restrict to one story.
         #[arg(long)]

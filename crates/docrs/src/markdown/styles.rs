@@ -415,7 +415,7 @@ pub(crate) struct Resolver {
     /// The spacing lifted onto the body style, for the variants that follow it.
     body_spacing: Option<Spacing>,
     pub(crate) resolved: BTreeMap<Role, RoleStyle>,
-    pub(crate) missing: Vec<String>,
+    pub(crate) missing: Vec<Role>,
 }
 
 impl Resolver {
@@ -426,6 +426,14 @@ impl Resolver {
             .as_ref()
             .map(|sample| sample.table_look.as_slice())
             .unwrap_or(&[])
+    }
+
+    pub(crate) fn missing_report(&self) -> String {
+        self.missing
+            .iter()
+            .map(|role| format!("{} (tried {})", role.key(), role.candidates().join(", ")))
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     pub(crate) fn new(overrides: BTreeMap<Role, String>, policy: StylePolicy) -> Resolver {
@@ -497,7 +505,7 @@ impl Resolver {
         if let Some(style) = self.resolved.get(&role) {
             return Ok(style.style_id.clone());
         }
-        if self.missing.iter().any(|m| m.starts_with(role.key())) {
+        if self.missing.contains(&role) {
             return Ok(None);
         }
         // Body-text variants follow the body role (which may be lifted
@@ -648,11 +656,7 @@ impl Resolver {
             Some(style) => style,
             None => match self.policy {
                 StylePolicy::Strict => {
-                    self.missing.push(format!(
-                        "{} (tried {})",
-                        role.key(),
-                        role.candidates().join(", ")
-                    ));
+                    self.missing.push(role);
                     return Ok(None);
                 }
                 StylePolicy::Create => {

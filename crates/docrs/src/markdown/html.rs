@@ -75,7 +75,7 @@ fn tokenize(html: &str) -> Vec<Token> {
             continue;
         }
         if rest.starts_with('<')
-            && let Some(end) = rest.find('>')
+            && let Some(end) = tag_end(rest).or_else(|| rest.find('>'))
         {
             let inner = rest[1..end].trim();
             rest = &rest[end + 1..];
@@ -110,6 +110,27 @@ fn tokenize(html: &str) -> Vec<Token> {
         rest = &rest[end..];
     }
     tokens
+}
+
+/// A quote opens an attribute value only right after `=`.
+fn tag_end(tag: &str) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut value_next = false;
+    for (index, c) in tag.char_indices() {
+        match quote {
+            Some(open) => {
+                if c == open {
+                    quote = None;
+                }
+                continue;
+            }
+            None if c == '>' => return Some(index),
+            None if value_next && (c == '"' || c == '\'') => quote = Some(c),
+            None => {}
+        }
+        value_next = c == '=' || (value_next && c.is_whitespace());
+    }
+    None
 }
 
 /// Elements whose content is text up to their end tag.
@@ -205,35 +226,22 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
                 attrs,
                 self_closing,
             } => {
-                // HTML's implied end tags: a new <p>, <li>, <tr>, <td> or <th>
-                // closes an open sibling.
-                let closes: &[&str] = match name.as_str() {
-                    "p" => &["p"],
-                    "li" => &["li", "p"],
-                    "tr" => &["tr", "td", "th", "p"],
-                    "td" | "th" => &["td", "th", "p"],
-                    _ => &[],
-                };
-                if let Some(position) = stack
-                    .iter()
-                    .rposition(|(n, _, _)| closes.contains(&n.as_str()))
-                {
-                    let barrier = stack.iter().rposition(|(n, _, _)| {
-                        matches!(n.as_str(), "table" | "ul" | "ol" | "tbody" | "thead")
-                    });
-                    if barrier.is_none_or(|b| b < position) {
-                        while stack.len() > position {
-                            close_top(&mut stack);
-                        }
-                        // `<p><li>`: the item closes a paragraph that never
-                        // had content; browsers draw nothing for it.
-                        let parent = &mut stack.last_mut().expect("root").2;
-                        if name == "li"
-                            && matches!(parent.last(), Some(Node::Element { name, children, .. })
-                                if name == "p" && children.is_empty())
-                        {
-                            parent.pop();
-                        }
+                for rule in implied_ends(&name) {
+                    let Some(position) = open_target(&stack, rule) else {
+                        continue;
+                    };
+                    while stack.len() > position {
+                        close_top(&mut stack);
+                    }
+                    // `<p><li>`, `<p><div>`: a block closes a paragraph that
+                    // never had content; browsers draw nothing for it.
+                    let parent = &mut stack.last_mut().expect("root").2;
+                    if name != "p"
+                        && matches!(parent.last(), Some(Node::Element { name, attrs, children })
+                            if name == "p" && children.is_empty()
+                                && page_break_sides(attrs) == (false, false))
+                    {
+                        parent.pop();
                     }
                 }
                 if self_closing || VOID.contains(&name.as_str()) {
@@ -265,6 +273,85 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
         close_top(&mut stack);
     }
     Ok(stack.pop().expect("root").2)
+}
+
+struct Implied {
+    targets: &'static str,
+    scope: &'static str,
+}
+
+fn names(list: &str, name: &str) -> bool {
+    list.split_whitespace().any(|listed| listed == name)
+}
+
+const TABLE_SCOPE: &str = "table template html";
+
+/// The HTML standard's "special" elements a list item does not close past.
+const LIST_ITEM_SCOPE: &str = "ul ol dl li dd dt table td th caption blockquote pre section \
+     article aside nav header footer main figure figcaption details summary h1 h2 h3 h4 h5 h6 \
+     template html";
+
+/// Start tags that close an open `<p>`, as the HTML standard lists them.
+const CLOSES_P: &str = "address article aside blockquote center details dialog dir div dl \
+     fieldset figcaption figure footer header hgroup main menu nav ol p search section summary \
+     ul h1 h2 h3 h4 h5 h6 pre listing form table hr xmp plaintext";
+
+const CLOSE_P: Implied = Implied {
+    targets: "p",
+    scope: "table td th caption button template object marquee applet html",
+};
+
+const CLOSE_CELL: Implied = Implied {
+    targets: "td th",
+    scope: TABLE_SCOPE,
+};
+
+const CLOSE_ROW: Implied = Implied {
+    targets: "tr",
+    scope: TABLE_SCOPE,
+};
+
+fn implied_ends(name: &str) -> &'static [Implied] {
+    match name {
+        "li" => &[
+            Implied {
+                targets: "li",
+                scope: LIST_ITEM_SCOPE,
+            },
+            CLOSE_P,
+        ],
+        "dd" | "dt" => &[
+            Implied {
+                targets: "dd dt",
+                scope: LIST_ITEM_SCOPE,
+            },
+            CLOSE_P,
+        ],
+        "thead" | "tbody" | "tfoot" => &[
+            Implied {
+                targets: "thead tbody tfoot",
+                scope: TABLE_SCOPE,
+            },
+            CLOSE_ROW,
+            CLOSE_CELL,
+        ],
+        "tr" => &[CLOSE_ROW, CLOSE_CELL, CLOSE_P],
+        "td" | "th" => &[CLOSE_CELL, CLOSE_P],
+        name if names(CLOSES_P, name) => &[CLOSE_P],
+        _ => &[],
+    }
+}
+
+fn open_target(stack: &[OpenElement], rule: &Implied) -> Option<usize> {
+    for (index, (name, _, _)) in stack.iter().enumerate().rev() {
+        if names(rule.targets, name) {
+            return Some(index);
+        }
+        if names(rule.scope, name) {
+            return None;
+        }
+    }
+    None
 }
 
 fn close_top(stack: &mut Vec<OpenElement>) {
@@ -567,8 +654,7 @@ pub(crate) fn aligned(align: Option<Align>, blocks: Vec<Block>) -> Vec<Block> {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SpanFormat {
     pub style: RunStyle,
-    /// `<mark>` with no colour of its own: Word's yellow highlight.
-    pub default_highlight: bool,
+    highlight: Highlight,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -577,8 +663,27 @@ pub(crate) struct SpanFormat {
     pub subscript: bool,
     /// `property on <tag>` for each declaration that was ignored.
     pub dropped: Vec<String>,
-    /// A highlight colour was given; a background does not replace it.
-    highlight_given: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+enum Highlight {
+    #[default]
+    Unset,
+    /// Word's yellow.
+    Default,
+    Background(Option<String>),
+    Color(Option<String>),
+}
+
+impl Highlight {
+    fn precedence(&self) -> u8 {
+        match self {
+            Highlight::Unset => 0,
+            Highlight::Default => 1,
+            Highlight::Background(_) => 2,
+            Highlight::Color(_) => 3,
+        }
+    }
 }
 
 /// A font size in CSS pixels as Word's half-points.
@@ -636,7 +741,9 @@ pub(crate) fn span_format(tag: &str, attrs: &[(String, String)]) -> SpanFormat {
             _ => drop(&mut format, &property),
         }
     }
-    format.default_highlight = tag == "mark" && !format.highlight_given;
+    if tag == "mark" {
+        format.default_highlight();
+    }
     format
 }
 
@@ -645,18 +752,20 @@ impl SpanFormat {
     /// `highlight` mark), over any background. False when `value` is not a
     /// colour, for the caller to report.
     pub(crate) fn highlight(&mut self, value: &str) -> bool {
-        match css_color(value) {
-            Some(color) => {
-                self.style.highlight = color;
-                self.highlight_given = true;
-                true
-            }
-            None => false,
-        }
+        css_color(value)
+            .map(|color| self.set_highlight(Highlight::Color(color)))
+            .is_some()
     }
 
-    pub(crate) fn highlight_given(&self) -> bool {
-        self.highlight_given
+    pub(crate) fn default_highlight(&mut self) {
+        self.set_highlight(Highlight::Default);
+    }
+
+    /// The last of equal precedence wins, as the last CSS declaration does.
+    fn set_highlight(&mut self, highlight: Highlight) {
+        if highlight.precedence() >= self.highlight.precedence() {
+            self.highlight = highlight;
+        }
     }
 
     /// Apply a `color`, `background(-color)`, `font-family` or `font-size`
@@ -672,16 +781,9 @@ impl SpanFormat {
                 Some(None) => true,
                 None => false,
             },
-            "background-color" | "background" => match css_color(value) {
-                Some(color) => {
-                    if !self.highlight_given {
-                        self.style.highlight = color;
-                    }
-                    self.highlight_given = true;
-                    true
-                }
-                None => false,
-            },
+            "background-color" | "background" => css_color(value)
+                .map(|color| self.set_highlight(Highlight::Background(color)))
+                .is_some(),
             "font-family" => {
                 self.style.font = first_family(value).or(self.style.font.take());
                 true
@@ -698,10 +800,12 @@ impl SpanFormat {
     }
 
     /// `content` with this formatting applied.
-    pub(crate) fn wrap(self, content: Vec<Inline>) -> Vec<Inline> {
+    pub(crate) fn wrap(mut self, content: Vec<Inline>) -> Vec<Inline> {
         let mut content = content;
-        if self.default_highlight {
-            content = vec![Inline::Highlight(content)];
+        match self.highlight {
+            Highlight::Unset => {}
+            Highlight::Default => content = vec![Inline::Highlight(content)],
+            Highlight::Background(color) | Highlight::Color(color) => self.style.highlight = color,
         }
         if self.style != RunStyle::default() {
             content = vec![Inline::Styled(self.style, content)];
@@ -1514,6 +1618,134 @@ mod tests {
             ])
         );
         assert!(matches!(&blocks[1], Block::Paragraph(i) if i.len() == 2));
+    }
+
+    #[test]
+    fn a_closed_empty_paragraph_keeps_its_page_break() {
+        for style in ["page-break-before: always", "break-after: page"] {
+            assert_eq!(
+                read(&format!("<p style=\"{style}\"><div>x</div>")).0,
+                read(&format!("<p style=\"{style}\"></p><div>x</div>")).0,
+                "{style}"
+            );
+        }
+    }
+
+    #[test]
+    fn implied_end_tags_close_the_element_they_imply() {
+        for (implied, written) in [
+            (
+                "<table><tr><td>a<tr><td>b<tr><td>c</table>",
+                "<table><tr><td>a</td></tr><tr><td>b</td></tr><tr><td>c</td></tr></table>",
+            ),
+            (
+                "<table><tr><td><p>a<td><p>b</table>",
+                "<table><tr><td><p>a</p></td><td><p>b</p></td></tr></table>",
+            ),
+            (
+                "<table><thead><tr><th>h<tbody><tr><td>x</table>",
+                "<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>x</td></tr></tbody></table>",
+            ),
+            (
+                "<ul><li><p>one<li><p>two</ul>",
+                "<ul><li><p>one</p></li><li><p>two</p></li></ul>",
+            ),
+            (
+                "<ul><li>a<ul><li>b</ul><li>c</ul>",
+                "<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>",
+            ),
+            (
+                "<dl><dt>t<dd>d<dt>u<dd>e</dl>",
+                "<dl><dt>t</dt><dd>d</dd><dt>u</dt><dd>e</dd></dl>",
+            ),
+            (
+                "<p>intro<blockquote><p>quoted</p></blockquote>",
+                "<p>intro</p><blockquote><p>quoted</p></blockquote>",
+            ),
+            ("<p><div>x</div></p>", "<div>x</div>"),
+            ("<p><li>x</li></p>", "<li>x</li>"),
+            (
+                "<table><tr><td><table><tr><td>in</table>out<td>next</table>",
+                "<table><tr><td><table><tr><td>in</td></tr></table>out</td><td>next</td></tr></table>",
+            ),
+        ] {
+            let (blocks, unmapped) = read(implied);
+            assert!(unmapped.tags.is_empty(), "{implied}: {unmapped:?}");
+            assert_eq!(blocks, read(written).0, "{implied}");
+        }
+        let (blocks, _) = read("<table><tr><td>a<tr><td>b<tr><td>c</table>");
+        assert!(
+            matches!(&blocks[..], [Block::Table { rows, .. }] if rows.len() == 3),
+            "{blocks:?}"
+        );
+        let (blocks, _) = read("<p>intro<blockquote><p>quoted</p></blockquote>");
+        assert!(
+            matches!(&blocks[..], [Block::Paragraph(_), Block::Quote { blocks, .. }]
+                if matches!(&blocks[..], [Block::Paragraph(_)])),
+            "{blocks:?}"
+        );
+    }
+
+    #[test]
+    fn a_quoted_greater_than_stays_in_its_attribute() {
+        let (blocks, _) = read("<p><a href=\"https://e.com\" title=\"x > y\">go</a></p>");
+        assert_eq!(
+            blocks,
+            vec![Block::Paragraph(vec![Inline::Link {
+                url: "https://e.com".into(),
+                title: "x > y".into(),
+                content: vec![Inline::Text("go".into())],
+            }])]
+        );
+        let (blocks, _) = read("<p title='a>b' class=c\"d>e</p>");
+        assert_eq!(
+            blocks,
+            vec![Block::Paragraph(vec![Inline::Text("e".into())])]
+        );
+        let (blocks, _) = read("<p><a title=\"open>go</a></p>");
+        assert!(
+            matches!(&blocks[..], [Block::Paragraph(i)]
+                if matches!(&i[..], [Inline::Link { content, .. }] if content == &[Inline::Text("go".into())])),
+            "{blocks:?}"
+        );
+    }
+
+    #[test]
+    fn the_last_background_wins() {
+        let highlight = |html: &str| {
+            let (blocks, _) = read(&format!("<p>{html}</p>"));
+            match &blocks[..] {
+                [Block::Paragraph(inlines)] => match &inlines[..] {
+                    [Inline::Styled(style, _)] => style.highlight.clone(),
+                    [Inline::Highlight(_)] => Some("mark".into()),
+                    [Inline::Text(_)] => None,
+                    other => panic!("{other:?}"),
+                },
+                other => panic!("{other:?}"),
+            }
+        };
+        for (html, expected) in [
+            (
+                "<span style=\"background-color: yellow; background-color: #00ff00\">x</span>",
+                Some("00FF00"),
+            ),
+            (
+                "<span style=\"background: red; background-color: #00ff00\">x</span>",
+                Some("00FF00"),
+            ),
+            (
+                "<mark data-color=\"#fef08a\" style=\"background-color: #00ff00\">x</mark>",
+                Some("FEF08A"),
+            ),
+            (
+                "<mark style=\"background-color: #00ff00\">x</mark>",
+                Some("00FF00"),
+            ),
+            ("<mark style=\"background: transparent\">x</mark>", None),
+            ("<mark data-color=\"var(--x)\">x</mark>", Some("mark")),
+        ] {
+            assert_eq!(highlight(html).as_deref(), expected, "{html}");
+        }
     }
 
     #[test]
