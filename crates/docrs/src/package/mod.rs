@@ -533,11 +533,9 @@ impl Package {
         Ok(())
     }
 
-    /// Re-walk the relationship graph after a commit added, removed or
-    /// re-related parts. Open validated the graph; a target that is now
-    /// missing just ends its branch.
+    /// Open validated the graph, so a target missing now just ends its branch.
     pub(crate) fn refresh_reachability(&mut self) {
-        let mut reached: HashSet<usize> = HashSet::new();
+        let mut reached = HashSet::new();
         let mut stack = vec!["/".to_string()];
         while let Some(source) = stack.pop() {
             for rel in self.relationships_at(&source).unwrap_or_default() {

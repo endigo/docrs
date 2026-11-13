@@ -112,8 +112,7 @@ fn tokenize(html: &str) -> Vec<Token> {
     tokens
 }
 
-/// The index of the `>` that ends the tag `tag` starts with, past any `>`
-/// inside a quoted attribute value; none when a quote is never closed.
+/// A quote opens an attribute value only right after `=`.
 fn tag_end(tag: &str) -> Option<usize> {
     let mut quote: Option<char> = None;
     let mut value_next = false;
@@ -275,9 +274,6 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
     Ok(stack.pop().expect("root").2)
 }
 
-/// An end tag a start tag implies: for the innermost open element named in
-/// `targets`, unless an element named in `scope` is open inside it. Both are
-/// space-separated tag names.
 struct Implied {
     targets: &'static str,
     scope: &'static str,
@@ -289,7 +285,7 @@ fn names(list: &str, name: &str) -> bool {
 
 const TABLE_SCOPE: &str = "table template html";
 
-/// The standard's "special" elements a list item does not close past.
+/// The HTML standard's "special" elements a list item does not close past.
 const LIST_ITEM_SCOPE: &str = "ul ol dl li dd dt table td th caption blockquote pre section \
      article aside nav header footer main figure figcaption details summary h1 h2 h3 h4 h5 h6 \
      template html";
@@ -314,7 +310,6 @@ const CLOSE_ROW: Implied = Implied {
     scope: TABLE_SCOPE,
 };
 
-/// The end tags start tag `name` implies, closed in this order.
 fn implied_ends(name: &str) -> &'static [Implied] {
     match name {
         "li" => &[
@@ -346,7 +341,6 @@ fn implied_ends(name: &str) -> &'static [Implied] {
     }
 }
 
-/// Where on `stack` the element `rule` closes is open.
 fn open_target(stack: &[OpenElement], rule: &Implied) -> Option<usize> {
     for (index, (name, _, _)) in stack.iter().enumerate().rev() {
         if names(rule.targets, name) {
@@ -670,17 +664,14 @@ pub(crate) struct SpanFormat {
     pub dropped: Vec<String>,
 }
 
-/// Where a span's highlight comes from, in rising precedence.
 #[derive(Debug, Clone, Default)]
 enum Highlight {
     #[default]
     Unset,
-    /// `<mark>` or Tiptap's `highlight` with no colour: Word's yellow.
+    /// Word's yellow.
     Default,
-    /// `background(-color)`; `None` when transparent.
     Background(Option<String>),
-    /// `<mark data-color>` or Tiptap's `highlight` colour.
-    Given(Option<String>),
+    Color(Option<String>),
 }
 
 impl Highlight {
@@ -689,7 +680,7 @@ impl Highlight {
             Highlight::Unset => 0,
             Highlight::Default => 1,
             Highlight::Background(_) => 2,
-            Highlight::Given(_) => 3,
+            Highlight::Color(_) => 3,
         }
     }
 }
@@ -761,16 +752,15 @@ impl SpanFormat {
     /// colour, for the caller to report.
     pub(crate) fn highlight(&mut self, value: &str) -> bool {
         css_color(value)
-            .map(|color| self.set_highlight(Highlight::Given(color)))
+            .map(|color| self.set_highlight(Highlight::Color(color)))
             .is_some()
     }
 
-    /// Word's yellow highlight, unless a colour or background is given.
     pub(crate) fn default_highlight(&mut self) {
         self.set_highlight(Highlight::Default);
     }
 
-    /// Of equal precedence the last wins, as the last CSS declaration does.
+    /// The last of equal precedence wins, as the last CSS declaration does.
     fn set_highlight(&mut self, highlight: Highlight) {
         if highlight.precedence() >= self.highlight.precedence() {
             self.highlight = highlight;
@@ -814,7 +804,7 @@ impl SpanFormat {
         match self.highlight {
             Highlight::Unset => {}
             Highlight::Default => content = vec![Inline::Highlight(content)],
-            Highlight::Background(color) | Highlight::Given(color) => self.style.highlight = color,
+            Highlight::Background(color) | Highlight::Color(color) => self.style.highlight = color,
         }
         if self.style != RunStyle::default() {
             content = vec![Inline::Styled(self.style, content)];

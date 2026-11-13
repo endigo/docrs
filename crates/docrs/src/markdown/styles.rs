@@ -415,7 +415,6 @@ pub(crate) struct Resolver {
     /// The spacing lifted onto the body style, for the variants that follow it.
     body_spacing: Option<Spacing>,
     pub(crate) resolved: BTreeMap<Role, RoleStyle>,
-    /// Roles left unresolved under the strict policy, in failure order.
     pub(crate) missing: Vec<Role>,
 }
 
@@ -429,7 +428,6 @@ impl Resolver {
             .unwrap_or(&[])
     }
 
-    /// The refusal's list of missing styles.
     pub(crate) fn missing_report(&self) -> String {
         self.missing
             .iter()

@@ -354,11 +354,9 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
 }
 
 struct TocState {
-    /// Heading levels listed, from the options, then the front matter.
     depth: i64,
     rendered: usize,
-    /// Each contents entry's page number text (`w:t`) and the bookmark of
-    /// its heading, over every contents rendered.
+    /// Each entry's page number `w:t` and its heading's bookmark.
     numbers: Vec<(NodeId, String)>,
 }
 

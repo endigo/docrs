@@ -24,8 +24,8 @@ const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
 const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const VML: &str = "urn:schemas-microsoft-com:vml";
 
-/// Where an open complex field is: Word shows nothing of a field, result
-/// included, while any enclosing field is still in its code.
+/// Word shows nothing of a field, result included, while any enclosing
+/// field is still in its code.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FieldPart {
     Code,

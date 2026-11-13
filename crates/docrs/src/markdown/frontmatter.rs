@@ -254,8 +254,7 @@ fn fold(lines: &[&str]) -> String {
     out
 }
 
-/// Top-level `key = value` pairs of TOML front matter: those before the
-/// first `[table]` or `[[array]]` header.
+/// Top-level `key = value` pairs of TOML front matter.
 pub(crate) fn parse_toml(text: &str) -> BTreeMap<String, Value> {
     let mut fields = BTreeMap::new();
     let mut lines = text.lines();
@@ -300,7 +299,6 @@ pub(crate) fn parse_toml(text: &str) -> BTreeMap<String, Value> {
     fields
 }
 
-/// Unclosed `[` outside quoted strings.
 fn bracket_depth(text: &str) -> i32 {
     let mut depth = 0;
     let mut quote: Option<char> = None;
