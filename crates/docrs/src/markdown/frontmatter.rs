@@ -96,27 +96,62 @@ pub(crate) fn metadata(kind: MetadataKind, text: &str) -> Metadata {
 fn unquote(raw: &str) -> String {
     let raw = raw.trim();
     if raw.len() >= 2 && raw.starts_with('"') && raw.ends_with('"') {
-        let inner = &raw[1..raw.len() - 1];
-        let mut out = String::new();
-        let mut chars = inner.chars();
-        while let Some(c) = chars.next() {
-            if c == '\\' {
-                match chars.next() {
-                    Some('n') => out.push('\n'),
-                    Some('t') => out.push('\t'),
-                    Some(other) => out.push(other),
-                    None => {}
-                }
-            } else {
-                out.push(c);
-            }
-        }
-        return out;
+        return unescape(&raw[1..raw.len() - 1]);
     }
     if raw.len() >= 2 && raw.starts_with('\'') && raw.ends_with('\'') {
         return raw[1..raw.len() - 1].replace("''", "'");
     }
     strip_comment(raw).to_string()
+}
+
+fn unescape(inner: &str) -> String {
+    let mut out = String::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(other) => out.push(other),
+                None => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The characters of `text` outside quoted strings; `\"` does not close a
+/// double-quoted one.
+fn unquoted(text: &str) -> impl Iterator<Item = (usize, char)> + '_ {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    text.char_indices().filter(move |&(_, c)| match quote {
+        Some(open) => {
+            if escaped {
+                escaped = false;
+            } else if open == '"' && c == '\\' {
+                escaped = true;
+            } else if c == open {
+                quote = None;
+            }
+            false
+        }
+        None if c == '"' || c == '\'' => {
+            quote = Some(c);
+            false
+        }
+        None => true,
+    })
+}
+
+/// `line` up to its comment.
+fn code(line: &str) -> &str {
+    match unquoted(line).find(|&(_, c)| c == '#') {
+        Some((index, _)) => line[..index].trim_end(),
+        None => line,
+    }
 }
 
 /// A plain (unquoted) scalar ends at ` #`.
@@ -130,27 +165,13 @@ fn strip_comment(raw: &str) -> &str {
 fn inline_list(raw: &str) -> Option<Vec<String>> {
     let inner = raw.trim().strip_prefix('[')?.strip_suffix(']')?;
     let mut items = Vec::new();
-    let mut current = String::new();
-    let mut quote: Option<char> = None;
-    for c in inner.chars() {
-        match (quote, c) {
-            (None, '"' | '\'') => {
-                quote = Some(c);
-                current.push(c);
-            }
-            (Some(q), _) if c == q => {
-                quote = None;
-                current.push(c);
-            }
-            (None, ',') => {
-                items.push(unquote(&current));
-                current.clear();
-            }
-            _ => current.push(c),
-        }
+    let mut start = 0;
+    for (comma, _) in unquoted(inner).filter(|&(_, c)| c == ',') {
+        items.push(unquote(&inner[start..comma]));
+        start = comma + 1;
     }
-    if !current.trim().is_empty() {
-        items.push(unquote(&current));
+    if !inner[start..].trim().is_empty() {
+        items.push(unquote(&inner[start..]));
     }
     Some(items.into_iter().filter(|i| !i.is_empty()).collect())
 }
@@ -272,22 +293,34 @@ pub(crate) fn parse_toml(text: &str) -> BTreeMap<String, Value> {
         let key = key.trim().trim_matches('"').to_string();
         let mut value = value.trim().to_string();
         if value.starts_with('[') {
+            value = code(&value).to_string();
             while bracket_depth(&value) > 0
                 && let Some(next) = lines.next()
             {
                 value.push(' ');
-                value.push_str(next.trim());
+                value.push_str(code(next.trim()));
             }
         } else if let Some(delimiter) = ["\"\"\"", "'''"].into_iter().find(|d| value.starts_with(d))
         {
+            let basic = delimiter == "\"\"\"";
             let mut body = value[3..].to_string();
-            while !body.contains(delimiter) {
-                let Some(next) = lines.next() else { break };
+            let end = loop {
+                if let Some(end) = string_end(&body, delimiter, basic) {
+                    break end;
+                }
+                let Some(next) = lines.next() else {
+                    break body.len();
+                };
                 body.push('\n');
                 body.push_str(next);
-            }
-            let end = body.find(delimiter).unwrap_or(body.len());
-            fields.insert(key, Value::Scalar(body[..end].trim().to_string()));
+            };
+            let text = body[..end].trim();
+            let text = if basic {
+                unescape(text)
+            } else {
+                text.to_string()
+            };
+            fields.insert(key, Value::Scalar(text));
             continue;
         }
         let value = match inline_list(&value) {
@@ -300,18 +333,27 @@ pub(crate) fn parse_toml(text: &str) -> BTreeMap<String, Value> {
 }
 
 fn bracket_depth(text: &str) -> i32 {
-    let mut depth = 0;
-    let mut quote: Option<char> = None;
-    for c in text.chars() {
-        match (quote, c) {
-            (None, '"' | '\'') => quote = Some(c),
-            (Some(q), _) if c == q => quote = None,
-            (None, '[') => depth += 1,
-            (None, ']') => depth -= 1,
-            _ => {}
+    unquoted(text)
+        .map(|(_, c)| match c {
+            '[' => 1,
+            ']' => -1,
+            _ => 0,
+        })
+        .sum()
+}
+
+fn string_end(body: &str, delimiter: &str, basic: bool) -> Option<usize> {
+    let mut escaped = false;
+    for (index, c) in body.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if basic && c == '\\' {
+            escaped = true;
+        } else if body[index..].starts_with(delimiter) {
+            return Some(index);
         }
     }
-    depth
+    None
 }
 
 #[cfg(test)]
@@ -375,6 +417,33 @@ mod tests {
             Some("One\n[not a table]\nkey = 1")
         );
         assert_eq!(meta.title.as_deref(), Some("T"));
+    }
+
+    #[test]
+    fn toml_comments_and_escapes_keep_their_strings() {
+        let meta = metadata(
+            MetadataKind::Toml,
+            "author = [\n  \"Ann\", # author's name\n  \"Bo\",\n]\ntitle = \"Report\"\ntoc = true\n",
+        );
+        assert_eq!(meta.authors, vec!["Ann", "Bo"]);
+        assert_eq!(meta.title.as_deref(), Some("Report"));
+        assert_eq!(meta.toc, Some(true));
+        let meta = metadata(
+            MetadataKind::Toml,
+            r#"author = ["A\"B", "C"]
+title = "Report"
+"#,
+        );
+        assert_eq!(meta.authors, vec!["A\"B", "C"]);
+        assert_eq!(meta.title.as_deref(), Some("Report"));
+        let meta = metadata(
+            MetadataKind::Toml,
+            r#"abstract = """First\nSecond \""" end"""
+subtitle = '''a\nb'''
+"#,
+        );
+        assert_eq!(meta.abstract_.as_deref(), Some("First\nSecond \"\"\" end"));
+        assert_eq!(meta.subtitle.as_deref(), Some(r"a\nb"));
     }
 
     #[test]
