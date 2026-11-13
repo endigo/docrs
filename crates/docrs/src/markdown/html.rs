@@ -237,8 +237,9 @@ fn tree(tokens: Vec<Token>, depth: usize) -> Result<Vec<Node>> {
                     // never had content; browsers draw nothing for it.
                     let parent = &mut stack.last_mut().expect("root").2;
                     if name != "p"
-                        && matches!(parent.last(), Some(Node::Element { name, children, .. })
-                            if name == "p" && children.is_empty())
+                        && matches!(parent.last(), Some(Node::Element { name, attrs, children })
+                            if name == "p" && children.is_empty()
+                                && page_break_sides(attrs) == (false, false))
                     {
                         parent.pop();
                     }
@@ -1617,6 +1618,17 @@ mod tests {
             ])
         );
         assert!(matches!(&blocks[1], Block::Paragraph(i) if i.len() == 2));
+    }
+
+    #[test]
+    fn a_closed_empty_paragraph_keeps_its_page_break() {
+        for style in ["page-break-before: always", "break-after: page"] {
+            assert_eq!(
+                read(&format!("<p style=\"{style}\"><div>x</div>")).0,
+                read(&format!("<p style=\"{style}\"></p><div>x</div>")).0,
+                "{style}"
+            );
+        }
     }
 
     #[test]
