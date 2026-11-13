@@ -467,7 +467,7 @@ impl Document {
         } = staged;
         let regraph = !removed.is_empty()
             || !new_parts.is_empty()
-            || trees.keys().any(|name| name.ends_with(".rels"));
+            || trees.keys().any(|name| casefold(name).ends_with(".rels"));
         // Every fallible check runs before the first mutation, so a failure
         // leaves the package exactly as it was.
         if let Some((name, _)) = new_parts

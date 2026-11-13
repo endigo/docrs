@@ -303,3 +303,33 @@ fn a_relinked_header_leaves_the_stories_before_saving() {
     let reopened = Document::open_bytes(&bytes, &Limits::default()).unwrap();
     assert_eq!(parts(&reopened), parts(&doc));
 }
+
+#[test]
+fn a_relinked_header_leaves_the_stories_whatever_the_rels_member_case() {
+    let ct = CT_XML.replace(
+        "</Types>",
+        "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/></Types>",
+    );
+    let document = format!(
+        "<w:document {W_DECL}><w:body><w:p/><w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId1\"/></w:sectPr></w:body></w:document>"
+    );
+    let rels = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{HEADER_RT}\" Target=\"header1.xml\"/></Relationships>"
+    );
+    let header = format!("<w:hdr {W_DECL}><w:p><w:r><w:t>Header text</w:t></w:r></w:p></w:hdr>");
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", ct.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.RELS", rels.as_bytes()),
+        RawMember::new("word/header1.xml", header.as_bytes()),
+    ]);
+    let mut doc = open_bytes(&bytes);
+    assert_eq!(doc.stories().len(), 2);
+    let section = doc.sections().unwrap().remove(0);
+    section
+        .header()
+        .set_linked_to_previous(&mut doc, true)
+        .unwrap();
+    assert_eq!(doc.stories().len(), 1);
+}
