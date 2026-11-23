@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 (2026-11-23)
+
+### Library
+
+- Ballot boxes (☐ U+2610, ☑ U+2611, ☒ U+2612) in converted text, task list boxes included, are set in MS Gothic, the font Word gives its own checkbox content controls. Each run of boxes is a run of its own with the surrounding text's bold, colour, size and other properties, and `<w:rFonts w:ascii="MS Gothic" w:eastAsia="MS Gothic" w:hAnsi="MS Gothic" w:cs="MS Gothic" w:hint="eastAsia"/>` in place of any font the editor set; the text around the boxes, the space after one included, keeps its own runs. A template whose theme fonts were Arial with no East Asian or complex script font and whose complex script language was Arabic left Word to find a box Arial lacks: Word for Windows drew some of them as an Arabic glyph and a wide gap, varying between lines with identical XML. Contents page estimates measure the boxes in MS Gothic instead of substituting Calibri and warning `font_metrics_missing`, and a template that names MS Gothic for its text is measured rather than substituted.
+
 ## 1.0.0 (2026-11-13)
 
 The first stable release. The library, the command line and the Node.js package follow semantic versioning from here on. Nothing is removed: `fromTiptap` and `from-markdown --from` still work.
