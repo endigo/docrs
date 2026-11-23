@@ -84,6 +84,10 @@ SYMBOL_CODEPOINTS = list(range(0xF020, 0xF100))
 KERN_CODEPOINTS = list(range(0x20, 0x7F)) + [0xA0, 0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2026]
 SYMBOL_FAMILIES = ("Symbol", "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings")
 
+# Converted ballot boxes are set in it, so it is kept despite SKIP_FAMILIES.
+BALLOT_BOX_FAMILIES = ("MS Gothic",)
+BALLOT_BOX_CODEPOINTS = sorted(set(CODEPOINTS) | {0x2610, 0x2611, 0x2612})
+
 # System fonts that are user-interface, emoji or non-Latin script fonts;
 # their Latin glyphs are not what a document using them is about.
 SKIP_PREFIXES = (".", "Apple Color Emoji", "LastResort", "Noto Sans", "Noto Serif", "STIX", "Zapf Dingbats", "Bodoni Ornaments", "Segoe UI Emoji", "Marlett", "MT Extra", "Bookshelf Symbol", "MS Reference Specialty", "Monotype Sorts")
@@ -133,7 +137,8 @@ def faces():
                 except Exception:  # noqa: BLE001 - unreadable faces are skipped
                     continue
                 family, subfamily = face.name(1), face.name(2)
-                if not family or not subfamily or family.startswith(SKIP_PREFIXES) or SKIP_FAMILIES.search(family):
+                skipped = family.startswith(SKIP_PREFIXES) or SKIP_FAMILIES.search(family)
+                if not family or not subfamily or (skipped and family not in BALLOT_BOX_FAMILIES):
                     continue
                 symbol = family in SYMBOL_FAMILIES
                 if not symbol and not all(face.advance(c) for c in range(0x41, 0x5B)):
@@ -216,7 +221,7 @@ def main():
     # Extra directories (e.g. Liberation, a common LibreOffice leftover)
     # are searched after Word's own.
     DIRECTORIES.extend(sys.argv[1:])
-    sets = [CODEPOINTS, SYMBOL_CODEPOINTS]
+    sets = [CODEPOINTS, SYMBOL_CODEPOINTS, BALLOT_BOX_CODEPOINTS]
     out = bytearray(b"DCFM")
     out += struct.pack("<HH", 3, len(sets))
     for codepoints in sets:
@@ -240,7 +245,8 @@ def main():
     for name, bold, italic, face, symbol in entries:
         encoded = name.encode("utf-8")[:255]
         out += struct.pack("<B", len(encoded)) + encoded
-        out += struct.pack("<BB", (1 if bold else 0) | (2 if italic else 0) | (4 if symbol else 0), 1 if symbol else 0)
+        codepoint_set = 1 if symbol else 2 if name in BALLOT_BOX_FAMILIES else 0
+        out += struct.pack("<BB", (1 if bold else 0) | (2 if italic else 0) | (4 if symbol else 0), codepoint_set)
         line_gap = face.hhea_line_gap
         target = measured.get(name.lower())
         base = regular.get(name.lower(), face)
@@ -256,7 +262,7 @@ def main():
             max(min(line_gap, 32767), -32768),
             max(face.x_avg_char_width, 0),
         )
-        for c in sets[1 if symbol else 0]:
+        for c in sets[codepoint_set]:
             advance = face.advance(c)
             out += struct.pack("<H", 0xFFFF if advance is None else min(advance, 0xFFFE))
         pairs = [] if symbol else kerning_pairs(face, KERN_CODEPOINTS)

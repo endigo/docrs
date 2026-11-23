@@ -237,6 +237,7 @@ struct RunProps {
     /// highlighter lacks.
     shading: Option<String>,
     vert_align: Option<&'static str>,
+    ballot_box: bool,
 }
 
 /// Where paragraphs of a block sequence go and how they look.
@@ -2201,6 +2202,7 @@ impl<'p> Renderer<'_, '_, 'p> {
             } else {
                 None
             },
+            ballot_box: false,
         })
     }
 
@@ -2209,10 +2211,13 @@ impl<'p> Renderer<'_, '_, 'p> {
             match piece {
                 Piece::Math(source) => self.math(part, parent, source, false)?,
                 Piece::Text(fmt, text) => {
-                    let props = self.run_props(fmt)?;
+                    let mut props = self.run_props(fmt)?;
                     let tree = self.txn.tree_mut(part)?;
-                    let r = new_run(tree, parent, &props)?;
-                    append_run_content(tree, r, text)?;
+                    for (ballot_box, text) in ballot_box_split(text) {
+                        props.ballot_box = ballot_box;
+                        let r = new_run(tree, parent, &props)?;
+                        append_run_content(tree, r, text)?;
+                    }
                 }
                 Piece::Break(fmt) => {
                     self.line_breaks = true;
@@ -3974,7 +3979,8 @@ fn write_rpr(tree: &mut XmlTree, r: NodeId, props: &RunProps) -> Result<()> {
         || props.highlight.is_some()
         || props.underline
         || props.shading.is_some()
-        || props.vert_align.is_some();
+        || props.vert_align.is_some()
+        || props.ballot_box;
     if !has_any {
         return Ok(());
     }
@@ -3983,7 +3989,20 @@ fn write_rpr(tree: &mut XmlTree, r: NodeId, props: &RunProps) -> Result<()> {
     if let Some(style) = &props.style {
         add_w_child(tree, rpr, "rStyle", &[("val", style)])?;
     }
-    if let Some(font) = &props.font {
+    if props.ballot_box {
+        add_w_child(
+            tree,
+            rpr,
+            "rFonts",
+            &[
+                ("ascii", BALLOT_BOX_FONT),
+                ("eastAsia", BALLOT_BOX_FONT),
+                ("hAnsi", BALLOT_BOX_FONT),
+                ("cs", BALLOT_BOX_FONT),
+                ("hint", "eastAsia"),
+            ],
+        )?;
+    } else if let Some(font) = &props.font {
         add_w_child(
             tree,
             rpr,
@@ -4028,6 +4047,25 @@ fn write_rpr(tree: &mut XmlTree, r: NodeId, props: &RunProps) -> Result<()> {
         add_w_child(tree, rpr, "vertAlign", &[("val", vert)])?;
     }
     Ok(())
+}
+
+const BALLOT_BOX_FONT: &str = "MS Gothic";
+
+fn is_ballot_box(ch: char) -> bool {
+    matches!(ch, '\u{2610}' | '\u{2611}' | '\u{2612}')
+}
+
+fn ballot_box_split(text: &str) -> impl Iterator<Item = (bool, &str)> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        let boxes = is_ballot_box(rest.chars().next()?);
+        let end = rest
+            .find(|ch| is_ballot_box(ch) != boxes)
+            .unwrap_or(rest.len());
+        let (piece, tail) = rest.split_at(end);
+        rest = tail;
+        Some((boxes, piece))
+    })
 }
 
 fn new_run(tree: &mut XmlTree, parent: NodeId, props: &RunProps) -> Result<NodeId> {
