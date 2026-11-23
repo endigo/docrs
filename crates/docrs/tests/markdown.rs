@@ -2275,6 +2275,9 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 #[derive(Default)]
 struct Synthetic<'a> {
     ppr_default: &'a str,
+    rpr_default: &'a str,
+    /// A `word/theme/theme1.xml` holding this `a:fontScheme`.
+    font_scheme: Option<&'a str>,
     styles: &'a str,
     body: &'a str,
     numbering: &'a str,
@@ -2296,6 +2299,7 @@ fn synthetic(template: Synthetic<'_>) -> Document {
         <Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>\
         <Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>\
         <Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>\
+        <Override PartName=\"/word/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>\
         </Types>";
     let root_rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
         <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
@@ -2343,6 +2347,23 @@ fn synthetic(template: Synthetic<'_>) -> Document {
     if template.cover_height.is_some() || template.footer.is_some() {
         members.push(("word/media/cover.png".into(), png_150dpi()));
     }
+    if let Some(fonts) = template.font_scheme {
+        doc_rels += &rel("rId6", "theme", "theme/theme1.xml");
+        let theme = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Office Theme\">\
+             <a:themeElements>{fonts}</a:themeElements></a:theme>"
+        );
+        members.push(("word/theme/theme1.xml".into(), theme.into_bytes()));
+    }
+    let rpr_default = if template.rpr_default.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault>",
+            template.rpr_default
+        )
+    };
     let title_pg = if template.cover_height.is_some() {
         "<w:titlePg/>"
     } else {
@@ -2359,7 +2380,7 @@ fn synthetic(template: Synthetic<'_>) -> Document {
     let styles = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
          <w:styles xmlns:w=\"{W_NS}\">\
-         <w:docDefaults><w:pPrDefault><w:pPr>{}</w:pPr></w:pPrDefault></w:docDefaults>\
+         <w:docDefaults>{rpr_default}<w:pPrDefault><w:pPr>{}</w:pPr></w:pPrDefault></w:docDefaults>\
          <w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>\
          <w:style w:type=\"table\" w:default=\"1\" w:styleId=\"TableNormal\"><w:name w:val=\"Normal Table\"/>\
          <w:tblPr><w:tblInd w:w=\"0\" w:type=\"dxa\"/><w:tblCellMar><w:left w:w=\"108\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>\
@@ -4638,4 +4659,134 @@ fn hand_formatted_table_text_goes_to_the_cell_styles() {
         ("Table Contents", false)
     );
     assert_eq!(count(&out.body(), "<w:pStyle w:val=\"TableContents\"/>"), 6);
+}
+
+// ------------------------------ ballot boxes
+
+/// The runs of `xml` in order: each one's `rPr` (empty when it has none)
+/// and its `w:t` text.
+fn runs(xml: &str) -> Vec<(String, String)> {
+    xml.split("<w:r>")
+        .skip(1)
+        .map(|run| {
+            let run = &run[..run.find("</w:r>").unwrap()];
+            let rpr = run
+                .find("<w:rPr>")
+                .map(|start| run[start..run.find("</w:rPr>").unwrap() + 8].to_string())
+                .unwrap_or_default();
+            let mut text = String::new();
+            for piece in run.split("<w:t").skip(1) {
+                let open = piece.find('>').unwrap() + 1;
+                text.push_str(&piece[open..piece.find("</w:t>").unwrap()]);
+            }
+            (rpr, text)
+        })
+        .collect()
+}
+
+#[test]
+fn ballot_boxes_carry_their_own_font() {
+    // Arial theme fonts with no East Asian or complex script font, and
+    // Arabic as the complex script language: Arial has no box to fall back on.
+    let template = || {
+        synthetic(Synthetic {
+            font_scheme: Some(
+                "<a:fontScheme name=\"Export\">\
+                 <a:majorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/>\
+                 <a:font script=\"Arab\" typeface=\"Arial\"/></a:majorFont>\
+                 <a:minorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/>\
+                 <a:font script=\"Arab\" typeface=\"Arial\"/></a:minorFont></a:fontScheme>",
+            ),
+            rpr_default: "<w:rFonts w:asciiTheme=\"minorHAnsi\" w:eastAsiaTheme=\"minorEastAsia\" \
+                 w:hAnsiTheme=\"minorHAnsi\" w:cstheme=\"minorBidi\"/>\
+                 <w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/>\
+                 <w:lang w:val=\"en-AU\" w:eastAsia=\"en-AU\" w:bidi=\"ar-SA\"/>",
+            styles: "<w:style w:type=\"paragraph\" w:styleId=\"BodyText\"><w:name w:val=\"Body Text\"/>\
+                 <w:basedOn w:val=\"Normal\"/><w:pPr><w:spacing w:after=\"120\"/></w:pPr></w:style>",
+            body: "<w:p><w:pPr><w:pStyle w:val=\"BodyText\"/></w:pPr><w:r><w:t>Sample body text \
+                 long enough to read as the template's prose.</w:t></w:r></w:p>",
+            ..Synthetic::default()
+        })
+    };
+    let html = "<p>Please tick the option you choose.</p>\
+        <p>\u{2610} <strong>Proceed in Full.</strong> Go ahead with every recommendation.</p>\
+        <p>\u{2610} <strong>Proceed in Part.</strong> Go ahead with the ones I have marked.</p>\
+        <p>\u{2610} <strong>Do Not Proceed.</strong> Take no action for now.</p>\
+        <p><span style=\"color: #1F4E79; font-size: 14pt; font-family: Georgia\">\
+        <strong>Done \u{2611}\u{2612} here</strong></span></p>";
+    let json = serde_json::json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Please tick the option you choose."}]},
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "\u{2610} "},
+                {"type": "text", "text": "Proceed in Full.", "marks": [{"type": "bold"}]},
+                {"type": "text", "text": " Go ahead with every recommendation."}]},
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "\u{2610} "},
+                {"type": "text", "text": "Proceed in Part.", "marks": [{"type": "bold"}]},
+                {"type": "text", "text": " Go ahead with the ones I have marked."}]},
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "\u{2610} "},
+                {"type": "text", "text": "Do Not Proceed.", "marks": [{"type": "bold"}]},
+                {"type": "text", "text": " Take no action for now."}]},
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "Done \u{2611}\u{2612} here", "marks": [
+                    {"type": "bold"},
+                    {"type": "textStyle", "attrs": {"color": "#1F4E79", "fontSize": "14pt", "fontFamily": "Georgia"}}]}]}
+        ]
+    })
+    .to_string();
+    let from_html = export_html_from("106-ballot-boxes-html", template(), html);
+    let mut doc = template();
+    docrs::markdown::insert_tiptap(&mut doc, &json, &MarkdownOptions::default()).unwrap();
+    let (bytes, _) = doc.patch_bytes().unwrap();
+    let from_json = part_xml(
+        &Document::open_bytes(&bytes, &Limits::default()).unwrap(),
+        "word/document.xml",
+    );
+    assert_eq!(from_json, from_html.body(), "the two sources render alike");
+
+    let fonts = "<w:rFonts w:ascii=\"MS Gothic\" w:eastAsia=\"MS Gothic\" w:hAnsi=\"MS Gothic\" \
+        w:cs=\"MS Gothic\" w:hint=\"eastAsia\"/>";
+    let runs = runs(&from_html.body());
+    let boxes: Vec<&(String, String)> = runs
+        .iter()
+        .filter(|(_, text)| text.contains(['\u{2610}', '\u{2611}', '\u{2612}']))
+        .collect();
+    assert_eq!(boxes.len(), 4, "{runs:?}");
+    for (rpr, text) in &boxes[..3] {
+        assert_eq!(text, "\u{2610}");
+        assert_eq!(rpr, &format!("<w:rPr>{fonts}</w:rPr>"));
+    }
+    // Next to a box, the space before the label stays in the body font.
+    assert!(runs.contains(&(String::new(), " ".to_string())), "{runs:?}");
+    // A box keeps the bold, colour and size around it and takes the box
+    // font in place of the editor's.
+    let (rpr, text) = boxes[3];
+    assert_eq!(text, "\u{2611}\u{2612}");
+    assert_eq!(
+        rpr,
+        &format!(
+            "<w:rPr>{fonts}<w:b/><w:bCs/><w:color w:val=\"1F4E79\"/><w:sz w:val=\"28\"/><w:szCs w:val=\"28\"/></w:rPr>"
+        )
+    );
+    let georgia = "<w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\" w:cs=\"Georgia\"/>";
+    assert_eq!(
+        runs.iter()
+            .filter(|(_, text)| text == "Done " || text == " here")
+            .filter(|(rpr, _)| rpr.contains(georgia))
+            .count(),
+        2,
+        "{runs:?}"
+    );
+    // No other run names a font.
+    assert_eq!(
+        runs.iter()
+            .filter(|(rpr, _)| rpr.contains("rFonts"))
+            .count(),
+        6,
+        "{runs:?}"
+    );
+    assert!(!from_html.part("word/styles.xml").contains("MS Gothic"));
 }

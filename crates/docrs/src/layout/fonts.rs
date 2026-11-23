@@ -691,9 +691,17 @@ mod coverage {
             "Courier New",
             "Webdings",
             "Wingdings",
+            "MS Gothic",
         ] {
             assert!(book.knows(family), "{family}");
         }
+        // Ballot boxes are full width in the font they are converted into.
+        let gothic = book.face("MS Gothic", false, false, FontKind::Sans);
+        for ch in ['\u{2610}', '\u{2611}', '\u{2612}'] {
+            assert!((gothic.advance(ch) - 1.0).abs() < 1e-9, "{ch}");
+        }
+        assert!((gothic.advance('A') - 0.5).abs() < 1e-9);
+        assert!((gothic.line_height() - 1.0).abs() < 1e-9);
         // Symbol's bullet (U+F0B7, written as U+00B7 too) has a width.
         let symbol = book.face("Symbol", false, false, FontKind::Serif);
         assert!(symbol.advance('\u{F0B7}') > 0.2);

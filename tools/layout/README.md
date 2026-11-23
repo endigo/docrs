@@ -9,10 +9,10 @@
 - **units per em** for each face;
 - **hhea ascender, descender and line gap**;
 - **average character width**;
-- **advance widths** for 367 code points: Basic Latin, Latin-1, Latin Extended-A, general punctuation and a few symbols. Symbol fonts (Symbol, Wingdings 1–3, Webdings) get U+F020–F0FF instead, where bullet characters land;
+- **advance widths** for 367 code points: Basic Latin, Latin-1, Latin Extended-A, general punctuation and a few symbols. Symbol fonts (Symbol, Wingdings 1–3, Webdings) get U+F020–F0FF instead, where bullet characters land. MS Gothic, the font converted ballot boxes are set in, gets the 367 and U+2611 (it is otherwise skipped with the other East Asian fonts);
 - **kerning pairs** from the font's `kern` table, between printable ASCII, the no-break space, the typographic quotes and dashes, and the ellipsis (text faces only).
 
-It contains numbers only. No font file, outline or glyph data is shipped. This follows the maintainer's decision of 2026-10-20: tables measured from the fonts references actually name, Microsoft fonts included, may be shipped; the fonts themselves may not. The table holds 410 faces of 205 families: 350 KB compressed, 235 KB of it kerning.
+It contains numbers only. No font file, outline or glyph data is shipped. This follows the maintainer's decision of 2026-10-20: tables measured from the fonts references actually name, Microsoft fonts included, may be shipped; the fonts themselves may not. The table holds 411 faces of 206 families: 350 KB compressed, 235 KB of it kerning.
 
 Faces are read in Word for Mac's order of precedence:
 
