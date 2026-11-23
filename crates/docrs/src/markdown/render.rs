@@ -237,7 +237,6 @@ struct RunProps {
     /// highlighter lacks.
     shading: Option<String>,
     vert_align: Option<&'static str>,
-    /// Ballot box text, in the font Word writes for its checkboxes.
     ballot_box: bool,
 }
 
@@ -4056,8 +4055,6 @@ fn is_ballot_box(ch: char) -> bool {
     matches!(ch, '\u{2610}' | '\u{2611}' | '\u{2612}')
 }
 
-/// `text` cut where it enters or leaves a run of ballot boxes, each piece
-/// marked with whether it is boxes.
 fn ballot_box_split(text: &str) -> impl Iterator<Item = (bool, &str)> {
     let mut rest = text;
     std::iter::from_fn(move || {

@@ -695,7 +695,6 @@ mod coverage {
         ] {
             assert!(book.knows(family), "{family}");
         }
-        // Ballot boxes are full width in the font they are converted into.
         let gothic = book.face("MS Gothic", false, false, FontKind::Sans);
         for ch in ['\u{2610}', '\u{2611}', '\u{2612}'] {
             assert!((gothic.advance(ch) - 1.0).abs() < 1e-9, "{ch}");

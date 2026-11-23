@@ -2276,7 +2276,6 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 struct Synthetic<'a> {
     ppr_default: &'a str,
     rpr_default: &'a str,
-    /// A `word/theme/theme1.xml` holding this `a:fontScheme`.
     font_scheme: Option<&'a str>,
     styles: &'a str,
     body: &'a str,
@@ -4663,9 +4662,7 @@ fn hand_formatted_table_text_goes_to_the_cell_styles() {
 
 // ------------------------------ ballot boxes
 
-/// The runs of `xml` in order: each one's `rPr` (empty when it has none)
-/// and its `w:t` text.
-fn runs(xml: &str) -> Vec<(String, String)> {
+fn run_props_and_text(xml: &str) -> Vec<(String, String)> {
     xml.split("<w:r>")
         .skip(1)
         .map(|run| {
@@ -4747,46 +4744,42 @@ fn ballot_boxes_carry_their_own_font() {
     );
     assert_eq!(from_json, from_html.body(), "the two sources render alike");
 
-    let fonts = "<w:rFonts w:ascii=\"MS Gothic\" w:eastAsia=\"MS Gothic\" w:hAnsi=\"MS Gothic\" \
+    let box_fonts = "<w:rFonts w:ascii=\"MS Gothic\" w:eastAsia=\"MS Gothic\" w:hAnsi=\"MS Gothic\" \
         w:cs=\"MS Gothic\" w:hint=\"eastAsia\"/>";
-    let runs = runs(&from_html.body());
-    let boxes: Vec<&(String, String)> = runs
-        .iter()
-        .filter(|(_, text)| text.contains(['\u{2610}', '\u{2611}', '\u{2612}']))
-        .collect();
-    assert_eq!(boxes.len(), 4, "{runs:?}");
-    for (rpr, text) in &boxes[..3] {
-        assert_eq!(text, "\u{2610}");
-        assert_eq!(rpr, &format!("<w:rPr>{fonts}</w:rPr>"));
-    }
-    // Next to a box, the space before the label stays in the body font.
-    assert!(runs.contains(&(String::new(), " ".to_string())), "{runs:?}");
-    // A box keeps the bold, colour and size around it and takes the box
-    // font in place of the editor's.
-    let (rpr, text) = boxes[3];
-    assert_eq!(text, "\u{2611}\u{2612}");
-    assert_eq!(
-        rpr,
-        &format!(
-            "<w:rPr>{fonts}<w:b/><w:bCs/><w:color w:val=\"1F4E79\"/><w:sz w:val=\"28\"/><w:szCs w:val=\"28\"/></w:rPr>"
-        )
-    );
+    let look =
+        "<w:b/><w:bCs/><w:color w:val=\"1F4E79\"/><w:sz w:val=\"28\"/><w:szCs w:val=\"28\"/>";
     let georgia = "<w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\" w:cs=\"Georgia\"/>";
+    let runs = run_props_and_text(&from_html.body());
+    let is_box = |text: &str| {
+        !text.is_empty()
+            && text
+                .chars()
+                .all(|ch| ('\u{2610}'..='\u{2612}').contains(&ch))
+    };
+    for (rpr, text) in &runs {
+        assert_eq!(rpr.contains(box_fonts), is_box(text), "{text:?} {rpr}");
+    }
+    let run = |rpr: String, text: &str| (rpr, text.to_string());
+    let plain_box = run(format!("<w:rPr>{box_fonts}</w:rPr>"), "\u{2610}");
     assert_eq!(
-        runs.iter()
-            .filter(|(_, text)| text == "Done " || text == " here")
-            .filter(|(rpr, _)| rpr.contains(georgia))
-            .count(),
-        2,
+        runs.iter().filter(|r| **r == plain_box).count(),
+        3,
         "{runs:?}"
     );
-    // No other run names a font.
-    assert_eq!(
-        runs.iter()
-            .filter(|(rpr, _)| rpr.contains("rFonts"))
-            .count(),
-        6,
-        "{runs:?}"
+    let space_after_box = run(String::new(), " ");
+    let styled_boxes = run(
+        format!("<w:rPr>{box_fonts}{look}</w:rPr>"),
+        "\u{2611}\u{2612}",
     );
+    let styled_text = [
+        run(format!("<w:rPr>{georgia}{look}</w:rPr>"), "Done "),
+        run(format!("<w:rPr>{georgia}{look}</w:rPr>"), " here"),
+    ];
+    for expected in [&space_after_box, &styled_boxes]
+        .into_iter()
+        .chain(&styled_text)
+    {
+        assert!(runs.contains(expected), "{expected:?} in {runs:?}");
+    }
     assert!(!from_html.part("word/styles.xml").contains("MS Gothic"));
 }

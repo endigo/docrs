@@ -84,8 +84,7 @@ SYMBOL_CODEPOINTS = list(range(0xF020, 0xF100))
 KERN_CODEPOINTS = list(range(0x20, 0x7F)) + [0xA0, 0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2026]
 SYMBOL_FAMILIES = ("Symbol", "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings")
 
-# Converted ballot boxes are set in Word's checkbox font; it is measured
-# over the text code points and every ballot box, despite SKIP_FAMILIES.
+# Converted ballot boxes are set in it, so it is kept despite SKIP_FAMILIES.
 BALLOT_BOX_FAMILIES = ("MS Gothic",)
 BALLOT_BOX_CODEPOINTS = sorted(set(CODEPOINTS) | {0x2610, 0x2611, 0x2612})
 
