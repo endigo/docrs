@@ -655,3 +655,79 @@ fn a_conversion_refreshes_its_own_contents_only() {
     assert_eq!(refresh(&mut doc), 1);
     assert_eq!(entry_numbers(&doc), ["2", "2"]);
 }
+
+#[test]
+fn placed_paragraphs_are_the_body_s_only() {
+    // Node ids are per part: header paragraphs must not show.
+    let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let header = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:hdr xmlns:w=\"{W}\"><w:p><w:bookmarkStart w:id=\"1\" w:name=\"inHeader\"/><w:r><w:t>Header</w:t></w:r></w:p><w:p/><w:p/></w:hdr>"
+    );
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\" xmlns:r=\"{r}\"><w:body><w:p><w:r><w:t>One</w:t></w:r></w:p><w:p><w:bookmarkStart w:id=\"2\" w:name=\"inBody\"/><w:r><w:t>Two</w:t></w:r></w:p><w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId1\"/></w:sectPr></w:body></w:document>"
+    );
+    let ct = CT_XML.replace(
+        "</Types>",
+        "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/></Types>",
+    );
+    let rels = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{r}/header\" Target=\"header1.xml\"/></Relationships>"
+    );
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", ct.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/header1.xml", header.as_bytes()),
+    ]);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let estimate = layout(&txn, &main, Vec::new()).unwrap();
+    let tree = txn.tree(&main).unwrap();
+    let texts: Vec<String> = estimate
+        .placed
+        .iter()
+        .map(|p| tree.text_content(p.node.unwrap()))
+        .collect();
+    assert_eq!(texts, ["One", "Two"]);
+    assert_eq!(estimate.bookmark_page("inBody"), Some(1));
+    assert_eq!(estimate.bookmark_page("inHeader"), None);
+}
+
+#[test]
+fn tables_nested_past_32_levels_are_measured_as_empty() {
+    // Sixty tables, each in the one cell of the one before; each cell's
+    // paragraph is bookmarked with its table's level.
+    let mut body = String::new();
+    for level in (1..=60).rev() {
+        body = format!(
+            "<w:tbl><w:tr><w:tc><w:p><w:bookmarkStart w:id=\"{level}\" w:name=\"level{level}\"/><w:r><w:t>{level}</w:t></w:r></w:p>{body}<w:p/></w:tc></w:tr></w:tbl>"
+        );
+    }
+    let estimate = estimate(&format!("{body}{}", para("after", "")), "");
+    assert_eq!(estimate.bookmark_page("level32"), Some(1));
+    assert_eq!(estimate.bookmark_page("level33"), None);
+    assert_eq!(estimate.bookmark_page("level60"), None);
+}
+
+#[test]
+fn absurd_numbers_count_as_absent() {
+    let long = "word ".repeat(40);
+    let plain = estimate(&format!("{}{}", para(&long, ""), para("after", "")), "");
+    for (ppr, rpr) in [
+        ("<w:ind w:left=\"1e300\" w:right=\"NaN\"/>", ""),
+        ("<w:spacing w:after=\"inf\" w:line=\"1e12\"/>", ""),
+        ("<w:ind w:firstLine=\"-40000\"/>", ""),
+        ("", "<w:sz w:val=\"NaN\"/>"),
+        ("", "<w:sz w:val=\"1e400\"/>"),
+        ("", "<w:sz w:val=\"4000\"/><w:spacing w:val=\"inf\"/>"),
+        ("", "<w:sz w:val=\"0\"/><w:w w:val=\"1e9\"/>"),
+    ] {
+        let first = format!(
+            "<w:p><w:pPr>{ppr}</w:pPr><w:r><w:rPr>{rpr}</w:rPr><w:t xml:space=\"preserve\">{long}</w:t></w:r></w:p>"
+        );
+        let odd = estimate(&format!("{first}{}", para("after", "")), "");
+        assert_eq!(odd.placed[1].y, plain.placed[1].y, "{ppr}{rpr}");
+    }
+}

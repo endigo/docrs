@@ -1,4 +1,4 @@
-use super::props::{FontRef, PPr, RPr, read_ppr, read_rpr};
+use super::props::{FontRef, PPr, RPr, length, number, read_ppr, read_rpr};
 use super::table::TableCtx;
 use super::{Block, Builder, Label, LineRule, LineSpacing, Metric, Para, Piece};
 use crate::layout::fonts::FontKind;
@@ -8,6 +8,9 @@ use crate::xml::{NodeData, NodeId, XmlTree};
 
 const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const VML: &str = "urn:schemas-microsoft-com:vml";
+
+/// Tables nested deeper are measured as empty.
+const MAX_TABLE_DEPTH: usize = 32;
 
 /// Word shows nothing of a field, result included, while any enclosing
 /// field is still in its code.
@@ -42,7 +45,12 @@ impl Builder<'_> {
             }
             match tree.local_name(child).unwrap_or("") {
                 "p" => out.push(Block::Para(self.paragraph(tree, child, table))),
-                "tbl" => out.push(Block::Table(self.table(tree, child))),
+                "tbl" if self.depth < MAX_TABLE_DEPTH => {
+                    self.depth += 1;
+                    let table = self.table(tree, child);
+                    self.depth -= 1;
+                    out.push(Block::Table(table));
+                }
                 "sdt" => {
                     if let Some(content) = w_child(tree, child, "sdtContent") {
                         self.blocks(tree, content, table, out);
@@ -160,6 +168,7 @@ impl Builder<'_> {
         ));
         let mark = self.measurer(&mark_rpr).metric;
         let mut para = Para {
+            story: self.story,
             node: Some(p),
             before: ppr.before.unwrap_or(0.0),
             after: ppr.after.unwrap_or(0.0),
@@ -386,9 +395,9 @@ impl Builder<'_> {
                             {
                                 let emu = |name: &str| {
                                     tree.attr(extent, None, name)
-                                        .and_then(|v| v.parse::<f64>().ok())
+                                        .and_then(number)
+                                        .and_then(|emu| length(emu / EMU_PER_PT as f64))
                                         .unwrap_or(0.0)
-                                        / EMU_PER_PT as f64
                                 };
                                 para.pieces.push(Piece::Object {
                                     width: emu("cx"),
@@ -436,10 +445,8 @@ fn vml_size(style: &str) -> (f64, f64) {
             continue;
         };
         let value = value.trim();
-        let number: f64 = value
-            .trim_end_matches(|c: char| c.is_ascii_alphabetic())
-            .parse()
-            .unwrap_or(0.0);
+        let number =
+            number(value.trim_end_matches(|c: char| c.is_ascii_alphabetic())).unwrap_or(0.0);
         let points = if value.ends_with("in") {
             number * PT_PER_INCH as f64
         } else if value.ends_with("px") {
@@ -451,6 +458,7 @@ fn vml_size(style: &str) -> (f64, f64) {
         } else {
             number
         };
+        let points = length(points).unwrap_or(0.0);
         match key.trim() {
             "width" => width = points,
             "height" => height = points,
