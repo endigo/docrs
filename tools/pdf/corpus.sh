@@ -9,17 +9,19 @@ cargo build -q --release --manifest-path "$root/Cargo.toml" -p docrs-cli
 docrs=$root/target/release/docrs
 tab=$(printf '\t')
 
+check_hash() {
+    now=$(shasum -a 256 "$root/$2" | cut -d' ' -f1)
+    if [ "$now" != "$3" ]; then
+        echo "$1: $2 hashes $now, tools/pdf/corpus.tsv says $3" >&2
+        exit 1
+    fi
+}
+
 baseline=$out/baseline.tsv
 printf 'case\titem\tpage\ttext\n' > "$baseline"
 tail -n +2 "$root/tools/pdf/corpus.tsv" | while IFS=$tab read -r case template template_sha input input_sha; do
-    for pair in "$template $template_sha" "$input $input_sha"; do
-        set -- $pair
-        now=$(shasum -a 256 "$root/$1" | cut -d' ' -f1)
-        if [ "$now" != "$2" ]; then
-            echo "$case: $1 hashes $now, tools/pdf/corpus.tsv says $2" >&2
-            exit 1
-        fi
-    done
+    check_hash "$case" "$template" "$template_sha"
+    check_hash "$case" "$input" "$input_sha"
     "$docrs" --json from-markdown "$root/$input" --reference "$root/$template" \
         --out "$out/$case.docx" --toc > /dev/null
     "$docrs" --json layout "$out/$case.docx" > "$out/$case.layout.json"

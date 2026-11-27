@@ -4,7 +4,7 @@ Small English documents for the PDF engine. `cases.tsv` gives each case's source
 
 | Source | What it exercises |
 | -- | -- |
-| `sources/memo.md` | a prose memo over two pages, with headings and bold |
+| `sources/memo.md` | a prose memo over two pages, with headings, bold and hard line breaks |
 | `sources/lists.md` | nested numbered and bullet lists; two separate ordered lists, the second restarting at 1 |
 | `sources/table.md` | a table with a header row and right-aligned numbers |
 | `sources/cover.md` | the `v2/cover-page-sections.docx` cover page (`--cover-page`) with a title block |
@@ -13,6 +13,6 @@ Small English documents for the PDF engine. `cases.tsv` gives each case's source
 The references set one family for headings and body:
 
 - `references/arial.docx`, `times-new-roman.docx`, `aptos.docx` and `inter.docx` are written by `tools/pdf/make_references.py` from `docrs markdown-reference`. They set the theme's major and minor Latin fonts.
-- Inter is in `../fonts/inter` (see `../fonts/PROVENANCE.md`).
+- Inter is in `../fonts/inter` (see `../fonts/PROVENANCE.md`). It is a variable font, as Google Fonts ships it. Until layout instances variable fonts, it measures the default (Regular) instance for every weight, so the Inter snapshots will move when instancing lands.
 
-`<case>/word.lines.json` is Word's line geometry for the case (`tools/pdf/check.sh OUT_DIR --word --update-fixtures`). Word's PDFs themselves are not committed.
+`<case>/word.lines.json` is Word's line geometry for the case, and `environment.json` the Word, macOS and font files it was made with (`tools/pdf/check.sh OUT_DIR --fixtures-only --word --update-fixtures`). Word's PDFs themselves are not committed.
