@@ -9,7 +9,7 @@ use crate::wml::w_attr;
 use crate::xml::{NodeId, XmlTree};
 
 /// A run's appearance, shared by index (`look` on pieces). Experimental.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct Appearance {
     pub metric: u32,
@@ -61,15 +61,18 @@ impl Hash for Appearance {
     }
 }
 
+/// Experimental.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Underline {
     pub style: UnderlineStyle,
     /// `Auto`: the text's colour.
     pub colour: Colour,
 }
 
-/// `w:u` values other than `none`.
+/// `w:u` values other than `none`. Experimental.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum UnderlineStyle {
     Single,
     /// Under words only, not the spaces between them.
@@ -121,7 +124,9 @@ impl UnderlineStyle {
     }
 }
 
+/// Experimental.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Strike {
     #[default]
     None,
@@ -139,7 +144,9 @@ impl Strike {
     }
 }
 
+/// Experimental.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Caps {
     #[default]
     None,
@@ -166,8 +173,9 @@ pub enum VertAlign {
     Subscript,
 }
 
-/// A hyperlink's target.
+/// A hyperlink's target. Experimental.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Link {
     Uri(String),
     /// A bookmark in this document.

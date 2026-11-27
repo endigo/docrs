@@ -335,7 +335,7 @@ fn runs(bytes: &[u8]) -> Vec<(String, Appearance, Option<Link>)> {
     let (looks, links) = table;
     out.into_iter()
         .map(|(text, look)| {
-            let look = looks[look as usize].clone();
+            let look = looks[look as usize];
             let link = look.link.map(|l| links[l as usize].clone());
             (text.trim_end().to_string(), look, link)
         })

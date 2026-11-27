@@ -8,7 +8,9 @@ pub struct Rgb {
     pub b: u8,
 }
 
+/// A text, underline or border colour. Experimental.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Colour {
     /// Black or white, whichever reads on the fill behind it.
     #[default]

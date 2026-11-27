@@ -949,5 +949,6 @@ fn link_json(link: &docrs::layout::Link) -> serde_json::Value {
     match link {
         docrs::layout::Link::Uri(uri) => json!({"uri": uri}),
         docrs::layout::Link::Anchor(anchor) => json!({"anchor": anchor}),
+        _ => serde_json::Value::Null,
     }
 }

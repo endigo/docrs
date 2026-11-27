@@ -88,13 +88,8 @@ impl Builder<'_> {
             scale: measurer.scale,
             link,
         };
-        if let Some(index) = self.look_index.get(&look) {
-            return *index;
-        }
-        let index = self.looks.len() as u32;
-        self.looks.push(look.clone());
-        self.look_index.insert(look, index);
-        index
+        let next = self.looks.len() as u32;
+        *self.looks.entry(look).or_insert(next)
     }
 
     fn link(&mut self, link: Link) -> u32 {

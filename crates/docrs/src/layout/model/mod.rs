@@ -304,8 +304,8 @@ pub(super) struct Builder<'a> {
     pub fonts: &'a mut FontBook,
     pub metrics: Vec<Metric>,
     metric_index: HashMap<(u64, u64), u32>,
-    looks: Vec<Appearance>,
-    look_index: HashMap<Appearance, u32>,
+    /// Each look and its index.
+    looks: HashMap<Appearance, u32>,
     links: Vec<Link>,
     link_index: HashMap<Link, u32>,
     /// The story part's hyperlink relationships: id to target.
@@ -333,8 +333,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         fonts,
         metrics: Vec::new(),
         metric_index: HashMap::new(),
-        looks: Vec::new(),
-        look_index: HashMap::new(),
+        looks: HashMap::new(),
         links: Vec::new(),
         link_index: HashMap::new(),
         hyperlinks: HashMap::new(),
@@ -452,11 +451,17 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         sections,
         blocks,
         metrics: builder.metrics,
-        looks: builder.looks,
+        looks: in_order(builder.looks),
         links: builder.links,
         default_tab,
         work,
     })
+}
+
+fn in_order<T>(indexed: HashMap<T, u32>) -> Vec<T> {
+    let mut items: Vec<(T, u32)> = indexed.into_iter().collect();
+    items.sort_by_key(|(_, index)| *index);
+    items.into_iter().map(|(item, _)| item).collect()
 }
 
 fn hyperlinks(txn: &Txn<'_>, part: &str) -> HashMap<String, String> {
