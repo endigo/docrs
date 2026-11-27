@@ -1,4 +1,8 @@
-//! A deterministic PDF 1.7 object serializer with a classic xref table.
+//! A PDF 1.7 object serializer with a classic xref table, deterministic for a
+//! given build.
+//!
+//! Each object is appended whole or not at all: after an error (a budget
+//! exceeded, a bad value) the writer is unchanged and can go on.
 
 use std::io::Write;
 
@@ -8,15 +12,18 @@ use flate2::write::ZlibEncoder;
 use crate::{Error, Result};
 
 const HEADER: &[u8] = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
-const MAX_XREF_OFFSET: usize = 9_999_999_999;
+const MAX_XREF_OFFSET: u64 = 9_999_999_999;
+const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
-/// An indirect object number allocated by [`Writer::alloc`].
+/// An indirect object number from [`Writer::alloc`]. There is one writer per
+/// export, so a `Ref` is only ever used with the writer that made it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Ref(u32);
 
 /// A direct PDF object.
 #[derive(Debug, Clone)]
 pub(crate) enum Object {
+    Bool(bool),
     Int(i64),
     Real(f64),
     Name(String),
@@ -37,14 +44,59 @@ impl Dict {
     }
 
     pub(crate) fn with(mut self, key: &str, value: impl Into<Object>) -> Self {
-        self.0.push((key.to_string(), value.into()));
+        self.set(key, value);
         self
+    }
+
+    /// Sets `key`, replacing an earlier value in place.
+    pub(crate) fn set(&mut self, key: &str, value: impl Into<Object>) {
+        let value = value.into();
+        match self.0.iter_mut().find(|(existing, _)| existing == key) {
+            Some((_, slot)) => *slot = value,
+            None => self.0.push((key.to_string(), value)),
+        }
+    }
+
+    /// Adds a key the writer owns, refusing one the caller already set.
+    fn reserve(mut self, key: &str, value: impl Into<Object>) -> Result<Self> {
+        if self.0.iter().any(|(existing, _)| existing == key) {
+            return Err(Error::internal(
+                "pdf_reserved_key",
+                format!("/{key} is written by the PDF writer"),
+            ));
+        }
+        self.0.push((key.to_string(), value.into()));
+        Ok(self)
+    }
+}
+
+impl From<bool> for Object {
+    fn from(value: bool) -> Self {
+        Object::Bool(value)
     }
 }
 
 impl From<i64> for Object {
     fn from(value: i64) -> Self {
         Object::Int(value)
+    }
+}
+
+impl From<i32> for Object {
+    fn from(value: i32) -> Self {
+        Object::Int(value.into())
+    }
+}
+
+impl From<u32> for Object {
+    fn from(value: u32) -> Self {
+        Object::Int(value.into())
+    }
+}
+
+impl From<usize> for Object {
+    fn from(value: usize) -> Self {
+        Object::Int(i64::try_from(value).expect("a count fits in i64"))
     }
 }
 
@@ -83,7 +135,7 @@ pub(crate) fn text(value: &str) -> Object {
 /// Writes objects in any order, then the xref table and trailer.
 pub(crate) struct Writer {
     out: Vec<u8>,
-    offsets: Vec<Option<usize>>,
+    offsets: Vec<Option<u64>>,
     max_bytes: u64,
 }
 
@@ -94,35 +146,66 @@ impl Writer {
             offsets: Vec::new(),
             max_bytes,
         };
-        writer.put(HEADER)?;
+        writer.put(&[HEADER])?;
         Ok(writer)
     }
 
-    pub(crate) fn alloc(&mut self) -> Ref {
+    pub(crate) fn alloc(&mut self) -> Result<Ref> {
+        let number = u32::try_from(self.offsets.len() + 1)
+            .map_err(|_| Error::internal("pdf_too_many_objects", "object numbers exhausted"))?;
         self.offsets.push(None);
-        Ref(self.offsets.len() as u32)
+        Ok(Ref(number))
     }
 
     pub(crate) fn dict(&mut self, at: Ref, dict: Dict) -> Result<()> {
         self.object(at, &Object::Dict(dict))
     }
 
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn array(&mut self, at: Ref, items: Vec<Object>) -> Result<()> {
         self.object(at, &Object::Array(items))
     }
 
     /// Writes `data` Flate-compressed, adding `/Filter` and `/Length`.
     pub(crate) fn stream(&mut self, at: Ref, dict: Dict, data: &[u8]) -> Result<()> {
-        let compressed = self.compress(data)?;
-        let dict = dict
-            .with("Filter", name("FlateDecode"))
-            .with("Length", compressed.len() as i64);
-        let mut buf = self.begin(at)?;
-        write_object(&mut buf, &Object::Dict(dict))?;
-        buf.extend_from_slice(b"\nstream\n");
-        self.put(&buf)?;
-        self.put(&compressed)?;
-        self.put(b"\nendstream\nendobj\n")
+        let mut stream = self.begin_stream(at, dict)?;
+        stream.write(data)?;
+        stream.finish()
+    }
+
+    /// A Flate stream written in pieces, compressed as they come within the
+    /// output budget.
+    pub(crate) fn begin_stream(&mut self, at: Ref, dict: Dict) -> Result<StreamWriter<'_>> {
+        self.slot(at)?;
+        let encoder = ZlibEncoder::new(
+            Bounded {
+                out: Vec::new(),
+                budget: self.remaining(),
+            },
+            Compression::new(6),
+        );
+        Ok(StreamWriter {
+            writer: self,
+            at,
+            dict,
+            encoder,
+        })
+    }
+
+    /// Writes `data` as it is, with `filter` naming its encoding if it has one.
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) fn stream_raw(
+        &mut self,
+        at: Ref,
+        dict: Dict,
+        filter: Option<&str>,
+        data: &[u8],
+    ) -> Result<()> {
+        let dict = match filter {
+            Some(filter) => dict.reserve("Filter", name(filter))?,
+            None => dict,
+        };
+        self.stream_object(at, dict, data)
     }
 
     /// Everything written so far: the header and the objects.
@@ -132,8 +215,15 @@ impl Writer {
 
     /// Writes the xref table and `trailer` (which gets `/Size`), then returns the file.
     pub(crate) fn finish(mut self, trailer: Dict) -> Result<Vec<u8>> {
+        let trailer = trailer.reserve("Size", self.offsets.len() + 1)?;
         let xref_at = self.out.len();
-        let mut table = format!("xref\n0 {}\n0000000000 65535 f \n", self.offsets.len() + 1);
+        let mut buf = Vec::new();
+        write!(
+            buf,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            self.offsets.len() + 1
+        )
+        .expect("writing to a Vec");
         for (index, offset) in self.offsets.iter().enumerate() {
             let offset = offset.ok_or_else(|| {
                 Error::internal(
@@ -141,67 +231,68 @@ impl Writer {
                     format!("object {} never written", index + 1),
                 )
             })?;
-            table.push_str(&format!("{offset:010} 00000 n \n"));
+            writeln!(buf, "{offset:010} 00000 n ").expect("writing to a Vec");
         }
-        let mut buf = table.into_bytes();
         buf.extend_from_slice(b"trailer\n");
-        let trailer = trailer.with("Size", self.offsets.len() as i64 + 1);
         write_object(&mut buf, &Object::Dict(trailer))?;
-        buf.extend_from_slice(format!("\nstartxref\n{xref_at}\n%%EOF\n").as_bytes());
-        self.put(&buf)?;
+        write!(buf, "\nstartxref\n{xref_at}\n%%EOF\n").expect("writing to a Vec");
+        self.put(&[&buf])?;
         Ok(self.out)
     }
 
     fn object(&mut self, at: Ref, object: &Object) -> Result<()> {
-        let mut buf = self.begin(at)?;
+        let mut buf = Vec::new();
+        writeln!(buf, "{} 0 obj", at.0).expect("writing to a Vec");
         write_object(&mut buf, object)?;
         buf.extend_from_slice(b"\nendobj\n");
-        self.put(&buf)
+        self.put_object(at, &[&buf])
     }
 
-    /// Records the object's offset and returns its `N 0 obj` line.
-    fn begin(&mut self, at: Ref) -> Result<Vec<u8>> {
-        let offset = self.out.len();
+    fn stream_object(&mut self, at: Ref, dict: Dict, data: &[u8]) -> Result<()> {
+        let dict = dict.reserve("Length", data.len())?;
+        let mut head = Vec::new();
+        writeln!(head, "{} 0 obj", at.0).expect("writing to a Vec");
+        write_object(&mut head, &Object::Dict(dict))?;
+        head.extend_from_slice(b"\nstream\n");
+        self.put_object(at, &[&head, data, b"\nendstream\nendobj\n"])
+    }
+
+    fn put_object(&mut self, at: Ref, parts: &[&[u8]]) -> Result<()> {
+        let offset = self.out.len() as u64;
         if offset > MAX_XREF_OFFSET {
             return Err(Error::internal(
                 "pdf_offset_overflow",
                 "object offset does not fit the xref table",
             ));
         }
-        let slot = self.offsets.get_mut(at.0 as usize - 1).ok_or_else(|| {
-            Error::internal("pdf_ref_unknown", format!("object {} not allocated", at.0))
-        })?;
-        if slot.is_some() {
-            return Err(Error::internal(
+        self.slot(at)?;
+        self.put(parts)?;
+        self.offsets[at.0 as usize - 1] = Some(offset);
+        Ok(())
+    }
+
+    fn slot(&self, at: Ref) -> Result<()> {
+        match self.offsets.get(at.0 as usize - 1) {
+            None => Err(Error::internal(
+                "pdf_ref_unknown",
+                format!("object {} not allocated", at.0),
+            )),
+            Some(Some(_)) => Err(Error::internal(
                 "pdf_object_twice",
                 format!("object {} written twice", at.0),
-            ));
-        }
-        *slot = Some(offset);
-        Ok(format!("{} 0 obj\n", at.0).into_bytes())
-    }
-
-    fn compress(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let budget = self.remaining();
-        let mut encoder = ZlibEncoder::new(
-            Bounded {
-                out: Vec::new(),
-                budget,
-            },
-            Compression::new(6),
-        );
-        let flushed = encoder.write_all(data).and_then(|()| encoder.finish());
-        match flushed {
-            Ok(bounded) => Ok(bounded.out),
-            Err(_) => Err(self.over_limit(budget.saturating_add(1))),
+            )),
+            Some(None) => Ok(()),
         }
     }
 
-    fn put(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.len() as u64 > self.remaining() {
-            return Err(self.over_limit(bytes.len() as u64));
+    fn put(&mut self, parts: &[&[u8]]) -> Result<()> {
+        let adding: u64 = parts.iter().map(|part| part.len() as u64).sum();
+        if adding > self.remaining() {
+            return Err(self.over_limit(adding));
         }
-        self.out.extend_from_slice(bytes);
+        for part in parts {
+            self.out.extend_from_slice(part);
+        }
         Ok(())
     }
 
@@ -215,6 +306,37 @@ impl Writer {
             self.max_bytes,
             self.out.len() as u64 + adding,
         )
+    }
+}
+
+/// An open Flate stream from [`Writer::begin_stream`].
+pub(crate) struct StreamWriter<'a> {
+    writer: &'a mut Writer,
+    at: Ref,
+    dict: Dict,
+    encoder: ZlibEncoder<Bounded>,
+}
+
+impl StreamWriter<'_> {
+    pub(crate) fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        self.encoder
+            .write_all(bytes)
+            .map_err(|_| self.writer.over_limit(self.writer.remaining() + 1))
+    }
+
+    pub(crate) fn finish(self) -> Result<()> {
+        let StreamWriter {
+            writer,
+            at,
+            dict,
+            encoder,
+        } = self;
+        let data = encoder
+            .finish()
+            .map_err(|_| writer.over_limit(writer.remaining() + 1))?
+            .out;
+        let dict = dict.reserve("Filter", name("FlateDecode"))?;
+        writer.stream_object(at, dict, &data)
     }
 }
 
@@ -240,9 +362,10 @@ impl Write for Bounded {
 
 fn write_object(out: &mut Vec<u8>, object: &Object) -> Result<()> {
     match object {
-        Object::Int(value) => out.extend_from_slice(value.to_string().as_bytes()),
-        Object::Real(value) => out.extend_from_slice(number(*value)?.as_bytes()),
-        Object::Name(value) => write_name(out, value),
+        Object::Bool(value) => write!(out, "{value}").expect("writing to a Vec"),
+        Object::Int(value) => write!(out, "{value}").expect("writing to a Vec"),
+        Object::Real(value) => write_number(out, *value)?,
+        Object::Name(value) => write_name(out, value)?,
         Object::Text(value) => write_text(out, value),
         Object::Bytes(value) => write_hex(out, value),
         Object::Array(items) => {
@@ -259,54 +382,83 @@ fn write_object(out: &mut Vec<u8>, object: &Object) -> Result<()> {
             out.extend_from_slice(b"<<");
             for (key, value) in entries {
                 out.push(b' ');
-                write_name(out, key);
+                write_name(out, key)?;
                 out.push(b' ');
                 write_object(out, value)?;
             }
             out.extend_from_slice(b" >>");
         }
-        Object::Ref(at) => out.extend_from_slice(format!("{} 0 R", at.0).as_bytes()),
+        Object::Ref(at) => write!(out, "{} 0 R", at.0).expect("writing to a Vec"),
     }
     Ok(())
 }
 
 /// Fixed notation with at most three decimals; never `-0` or an exponent.
-fn number(value: f64) -> Result<String> {
+pub(crate) fn write_number(out: &mut Vec<u8>, value: f64) -> Result<()> {
     if !value.is_finite() {
         return Err(Error::internal(
             "pdf_number_not_finite",
             format!("cannot write {value} as a PDF number"),
         ));
     }
-    let fixed = format!("{value:.3}");
-    let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
-    Ok(match trimmed {
-        "-0" => "0".to_string(),
-        other => other.to_string(),
-    })
+    // Readers hold reals as 32-bit floats (ISO 32000-1 Annex C).
+    if value.abs() > f64::from(f32::MAX) {
+        return Err(Error::internal(
+            "pdf_number_out_of_range",
+            format!("{value} is beyond a PDF real"),
+        ));
+    }
+    let start = out.len();
+    write!(out, "{value:.3}").expect("writing to a Vec");
+    while out.last() == Some(&b'0') {
+        out.pop();
+    }
+    if out.last() == Some(&b'.') {
+        out.pop();
+    }
+    if &out[start..] == b"-0" {
+        out.truncate(start);
+        out.push(b'0');
+    }
+    Ok(())
 }
 
-/// ISO 32000-1 7.3.5: bytes outside `!`..`~`, delimiters and `#` as `#xx`.
-fn write_name(out: &mut Vec<u8>, value: &str) {
+/// ISO 32000-1 7.3.5: bytes outside `!`..`~`, delimiters and `#` as `#xx`;
+/// NUL is not allowed at all.
+fn write_name(out: &mut Vec<u8>, value: &str) -> Result<()> {
+    if value.as_bytes().contains(&0) {
+        return Err(Error::internal(
+            "pdf_name_nul",
+            "a PDF name cannot hold NUL",
+        ));
+    }
     out.push(b'/');
     for &byte in value.as_bytes() {
-        let regular = (b'!'..=b'~').contains(&byte) && !b"()<>[]{}/%#".contains(&byte);
-        if regular {
+        if (b'!'..=b'~').contains(&byte) && !b"()<>[]{}/%#".contains(&byte) {
             out.push(byte);
         } else {
-            out.extend_from_slice(format!("#{byte:02X}").as_bytes());
+            out.extend_from_slice(&[
+                b'#',
+                HEX[usize::from(byte >> 4)],
+                HEX[usize::from(byte & 15)],
+            ]);
         }
     }
+    Ok(())
 }
 
+/// Literal only where PDFDocEncoding and ASCII agree; UTF-16BE otherwise.
 fn write_text(out: &mut Vec<u8>, value: &str) {
-    if !value.is_ascii() {
+    let literal = value
+        .bytes()
+        .all(|byte| matches!(byte, b' '..=b'~' | b'\t' | b'\n' | b'\r'));
+    if !literal {
         let mut utf16 = vec![0xFE, 0xFF];
         utf16.extend(value.encode_utf16().flat_map(u16::to_be_bytes));
         return write_hex(out, &utf16);
     }
     out.push(b'(');
-    for &byte in value.as_bytes() {
+    for byte in value.bytes() {
         match byte {
             b'(' | b')' | b'\\' => out.extend_from_slice(&[b'\\', byte]),
             // A raw CR in a literal string is read back as LF (7.3.4.2).
@@ -319,8 +471,8 @@ fn write_text(out: &mut Vec<u8>, value: &str) {
 
 fn write_hex(out: &mut Vec<u8>, bytes: &[u8]) {
     out.push(b'<');
-    for byte in bytes {
-        out.extend_from_slice(format!("{byte:02X}").as_bytes());
+    for &byte in bytes {
+        out.extend_from_slice(&[HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 15)]]);
     }
     out.push(b'>');
 }
@@ -331,10 +483,51 @@ mod tests {
 
     use super::*;
 
-    fn serialized(object: Object) -> String {
+    fn serialized(object: Object) -> Result<String> {
         let mut out = Vec::new();
-        write_object(&mut out, &object).unwrap();
-        String::from_utf8(out).unwrap()
+        write_object(&mut out, &object)?;
+        Ok(String::from_utf8(out).unwrap())
+    }
+
+    fn number(value: f64) -> Result<String> {
+        serialized(Object::Real(value))
+    }
+
+    fn stream_bytes(file: &[u8]) -> (usize, &[u8]) {
+        let text = String::from_utf8_lossy(file);
+        let length = text
+            .split("/Length ")
+            .nth(1)
+            .unwrap()
+            .split(' ')
+            .next()
+            .unwrap();
+        let start = file.windows(8).position(|w| w == b"\nstream\n").unwrap() + 8;
+        let end = file
+            .windows(11)
+            .position(|w| w == b"\nendstream\n")
+            .unwrap();
+        (length.parse().unwrap(), &file[start..end])
+    }
+
+    fn noise(len: usize) -> Vec<u8> {
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state.to_le_bytes()[0]
+            })
+            .collect()
+    }
+
+    fn inflate(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        flate2::read::ZlibDecoder::new(data)
+            .read_to_end(&mut out)
+            .unwrap();
+        out
     }
 
     #[test]
@@ -357,54 +550,127 @@ mod tests {
             assert_eq!(number(value).unwrap(), expected, "{value}");
         }
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert_eq!(number(value).unwrap_err().code(), "internal");
+            assert_eq!(number(value).unwrap_err().reason(), "pdf_number_not_finite");
+        }
+        assert!(number(f64::from(f32::MAX)).is_ok());
+        for value in [1e39, -1e300] {
+            assert_eq!(
+                number(value).unwrap_err().reason(),
+                "pdf_number_out_of_range"
+            );
         }
     }
 
     #[test]
-    fn names_escape_delimiters_space_and_hash() {
-        assert_eq!(serialized(name("A b#(c)/d")), "/A#20b#23#28c#29#2Fd");
-        assert_eq!(serialized(name("é")), "/#C3#A9");
+    fn scalars_and_conversions() {
+        let array = Object::from(vec![
+            true.into(),
+            false.into(),
+            (-3_i32).into(),
+            u32::MAX.into(),
+            7_usize.into(),
+        ]);
+        assert_eq!(serialized(array).unwrap(), "[true false -3 4294967295 7]");
     }
 
     #[test]
-    fn strings_are_literal_ascii_or_utf16_hex() {
-        assert_eq!(serialized(text(r"a(b)\c")), r"(a\(b\)\\c)");
-        assert_eq!(serialized(text("é")), "<FEFF00E9>");
+    fn names_escape_delimiters_space_and_hash() {
+        assert_eq!(
+            serialized(name("A b#(c)/d")).unwrap(),
+            "/A#20b#23#28c#29#2Fd"
+        );
+        assert_eq!(serialized(name("é\u{7f}")).unwrap(), "/#C3#A9#7F");
+        assert_eq!(
+            serialized(name("a\0b")).unwrap_err().reason(),
+            "pdf_name_nul"
+        );
+    }
+
+    #[test]
+    fn strings_are_literal_only_where_pdfdoc_is_ascii() {
+        assert_eq!(
+            serialized(text("a(b)\\c\t\n\r")).unwrap(),
+            "(a\\(b\\)\\\\c\t\n\\r)"
+        );
+        assert_eq!(serialized(text("é")).unwrap(), "<FEFF00E9>");
+        assert_eq!(serialized(text("a\u{18}b")).unwrap(), "<FEFF006100180062>");
+        assert_eq!(serialized(text("\u{7f}")).unwrap(), "<FEFF007F>");
+    }
+
+    #[test]
+    fn dict_keys_are_unique() {
+        let dict = Dict::new()
+            .with("A", 1_i64)
+            .with("B", 2_i64)
+            .with("A", 3_i64);
+        assert_eq!(serialized(dict.into()).unwrap(), "<< /A 3 /B 2 >>");
+        let mut writer = Writer::new(u64::MAX).unwrap();
+        let at = writer.alloc().unwrap();
+        let filtered = Dict::new().with("Filter", name("DCTDecode"));
+        let err = writer.stream(at, filtered.clone(), b"").unwrap_err();
+        assert_eq!(err.reason(), "pdf_reserved_key");
+        let err = writer
+            .stream_raw(at, filtered, Some("DCTDecode"), b"")
+            .unwrap_err();
+        assert_eq!(err.reason(), "pdf_reserved_key");
+        let err = writer
+            .stream_raw(at, Dict::new().with("Length", 0_i64), None, b"")
+            .unwrap_err();
+        assert_eq!(err.reason(), "pdf_reserved_key");
+        writer.dict(at, Dict::new()).unwrap();
+        let err = writer.finish(Dict::new().with("Size", 1_i64)).unwrap_err();
+        assert_eq!(err.reason(), "pdf_reserved_key");
     }
 
     #[test]
     fn streams_record_the_compressed_length() {
         let data = b"0 0 m 100 100 l S\n".repeat(500);
         let mut writer = Writer::new(u64::MAX).unwrap();
-        let at = writer.alloc();
+        let at = writer.alloc().unwrap();
         writer.stream(at, Dict::new(), &data).unwrap();
-        let out = writer.finish(Dict::new()).unwrap();
-        let text = String::from_utf8_lossy(&out);
-        let length: usize = text
-            .split("/Length ")
-            .nth(1)
-            .unwrap()
-            .split(' ')
-            .next()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let start = out.windows(8).position(|w| w == b"\nstream\n").unwrap() + 8;
-        let end = out.windows(11).position(|w| w == b"\nendstream\n").unwrap();
-        assert_eq!(end - start, length);
-        let mut inflated = Vec::new();
-        flate2::read::ZlibDecoder::new(&out[start..end])
-            .read_to_end(&mut inflated)
-            .unwrap();
-        assert_eq!(inflated, data);
+        let file = writer.finish(Dict::new()).unwrap();
+        let (length, compressed) = stream_bytes(&file);
+        assert_eq!(compressed.len(), length);
+        assert_eq!(inflate(compressed), data);
         assert!(length < data.len() / 10);
+    }
+
+    #[test]
+    fn a_stream_written_in_pieces_equals_one_written_whole() {
+        let data = b"BT /F1 12 Tf (Hello) Tj ET\n".repeat(300);
+        let mut whole = Writer::new(u64::MAX).unwrap();
+        let at = whole.alloc().unwrap();
+        whole.stream(at, Dict::new(), &data).unwrap();
+        let mut pieces = Writer::new(u64::MAX).unwrap();
+        let at = pieces.alloc().unwrap();
+        let mut stream = pieces.begin_stream(at, Dict::new()).unwrap();
+        for chunk in data.chunks(7) {
+            stream.write(chunk).unwrap();
+        }
+        stream.finish().unwrap();
+        assert_eq!(whole.body(), pieces.body());
+    }
+
+    #[test]
+    fn raw_streams_keep_their_bytes() {
+        let mut writer = Writer::new(u64::MAX).unwrap();
+        let jpeg = writer.alloc().unwrap();
+        let xml = writer.alloc().unwrap();
+        writer
+            .stream_raw(jpeg, Dict::new(), Some("DCTDecode"), b"\xFF\xD8jpeg")
+            .unwrap();
+        writer.stream_raw(xml, Dict::new(), None, b"<x/>").unwrap();
+        let body = writer.body();
+        let text = String::from_utf8_lossy(body);
+        assert!(text.contains("1 0 obj\n<< /Filter /DCTDecode /Length 6 >>\nstream\n"));
+        assert!(body.windows(6).any(|w| w == b"\xFF\xD8jpeg"));
+        assert!(text.contains("2 0 obj\n<< /Length 4 >>\nstream\n<x/>\nendstream\nendobj\n"));
     }
 
     #[test]
     fn arrays_are_written_as_objects() {
         let mut writer = Writer::new(u64::MAX).unwrap();
-        let at = writer.alloc();
+        let at = writer.alloc().unwrap();
         writer
             .array(at, vec![Object::Int(1), name("A"), at.into()])
             .unwrap();
@@ -414,16 +680,41 @@ mod tests {
     #[test]
     fn unwritten_and_twice_written_objects_are_internal_errors() {
         let mut writer = Writer::new(u64::MAX).unwrap();
-        let first = writer.alloc();
+        let first = writer.alloc().unwrap();
         writer.dict(first, Dict::new()).unwrap();
+        let twice = writer.dict(first, Dict::new()).unwrap_err();
+        assert_eq!(twice.reason(), "pdf_object_twice");
+        let reopened = writer.begin_stream(first, Dict::new()).err().unwrap();
+        assert_eq!(reopened.reason(), "pdf_object_twice");
+        writer.alloc().unwrap();
+        let unwritten = writer.finish(Dict::new()).unwrap_err();
+        assert_eq!(unwritten.reason(), "pdf_object_unwritten");
+    }
+
+    #[test]
+    fn a_failed_write_leaves_the_writer_usable() {
+        let mut writer = Writer::new(400).unwrap();
+        let at = writer.alloc().unwrap();
+        let small = noise(4000);
+        let before = writer.body().to_vec();
+        let whole = writer.stream(at, Dict::new(), &small).unwrap_err();
+        assert_eq!(whole.reason(), "max_output_bytes");
+        let mut stream = writer.begin_stream(at, Dict::new()).unwrap();
+        stream.write(&small).unwrap();
+        assert_eq!(stream.finish().unwrap_err().reason(), "max_output_bytes");
+        let mut stream = writer.begin_stream(at, Dict::new()).unwrap();
+        let failed = (0..100).find_map(|_| stream.write(&noise(100_000)).err());
+        assert_eq!(failed.unwrap().reason(), "max_output_bytes");
+        drop(stream);
+        let long = text(&"x".repeat(500));
         assert_eq!(
-            writer.dict(first, Dict::new()).unwrap_err().reason(),
-            "pdf_object_twice"
+            writer.array(at, vec![long]).unwrap_err().reason(),
+            "max_output_bytes"
         );
-        writer.alloc();
-        assert_eq!(
-            writer.finish(Dict::new()).unwrap_err().reason(),
-            "pdf_object_unwritten"
-        );
+        let nul = Dict::new().with("a\0", 1_i64);
+        assert_eq!(writer.dict(at, nul).unwrap_err().reason(), "pdf_name_nul");
+        assert_eq!(writer.body(), before);
+        writer.dict(at, Dict::new()).unwrap();
+        writer.finish(Dict::new()).unwrap();
     }
 }

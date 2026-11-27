@@ -18,7 +18,7 @@ pub struct Info {
 }
 
 impl Info {
-    pub(crate) fn dict(&self) -> Result<Dict> {
+    pub(crate) fn dict(&self, producer: &str) -> Result<Dict> {
         let mut dict = Dict::new();
         let texts = [
             ("Title", &self.title),
@@ -28,18 +28,16 @@ impl Info {
         ];
         for (key, value) in texts {
             if let Some(value) = value {
-                dict = dict.with(key, text(value));
+                dict.set(key, text(value));
             }
         }
         for (key, value) in [("CreationDate", self.created), ("ModDate", self.modified)] {
             if let Some(at) = value {
-                dict = dict.with(key, text(&pdf_date(at)?));
+                dict.set(key, text(&pdf_date(at)?));
             }
         }
-        Ok(dict.with(
-            "Producer",
-            text(concat!("docrs ", env!("CARGO_PKG_VERSION"))),
-        ))
+        dict.set("Producer", text(producer));
+        Ok(dict)
     }
 }
 
@@ -50,15 +48,16 @@ pub(crate) fn file_id(body: &[u8]) -> Object {
 }
 
 fn pdf_date(at: Timestamp) -> Result<String> {
-    let iso = at.to_xml();
-    let digits: String = iso.chars().filter(char::is_ascii_digit).collect();
-    if iso.starts_with('-') || digits.len() != 14 {
+    let [year, month, day, hour, minute, second] = at.utc_fields();
+    if !(0..=9999).contains(&year) {
         return Err(Error::invalid_argument(
             "pdf_date_out_of_range",
-            format!("{iso} has no four-digit year"),
+            format!("year {year} is outside 0000-9999"),
         ));
     }
-    Ok(format!("D:{digits}Z"))
+    Ok(format!(
+        "D:{year:04}{month:02}{day:02}{hour:02}{minute:02}{second:02}Z"
+    ))
 }
 
 #[cfg(test)]
@@ -69,7 +68,11 @@ mod tests {
     fn dates_are_utc_pdf_dates() {
         let at = Timestamp::parse("2026-11-27T08:09:10+08:00").unwrap();
         assert_eq!(pdf_date(at).unwrap(), "D:20261127000910Z");
-        let far = Timestamp::from_utc(10_000, 1, 1, 0, 0, 0).unwrap();
-        assert_eq!(pdf_date(far).unwrap_err().reason(), "pdf_date_out_of_range");
+        let first = Timestamp::from_utc(0, 1, 1, 0, 0, 0).unwrap();
+        assert_eq!(pdf_date(first).unwrap(), "D:00000101000000Z");
+        for year in [-1, 10_000] {
+            let far = Timestamp::from_utc(year, 1, 1, 0, 0, 0).unwrap();
+            assert_eq!(pdf_date(far).unwrap_err().reason(), "pdf_date_out_of_range");
+        }
     }
 }

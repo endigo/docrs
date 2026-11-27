@@ -14,7 +14,7 @@ readme = "README.md"
 exclude = ["tests/"]
 
 [package.metadata.docs.rs]
-features = ["markdown", "pdf"]
+features = ["markdown"]
 
 [features]
 # Enables deterministic failure-injection points used by the test suite.
