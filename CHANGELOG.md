@@ -29,6 +29,7 @@
 
 ### Node package
 
+- Release builds use fat LTO and one codegen unit, and `docrs-wasm` is built as a `cdylib` only so LTO applies. The wasm is 3,179,627 bytes instead of 3,360,100, and `fromHtml` on 110 KB of editor HTML takes 63.2 ms instead of 66.7 (median; `tools/pdf/DEPENDENCIES.md`).
 - Contents page numbers are worked out again after `fields` are filled. A long value could push a heading onto the next page after its number was written, so the contents showed the page before. `report.toc` pages and fonts describe the filled document. Only the contents the conversion wrote is refreshed: a reference document's own contents, kept by `append` or a placeholder, is left as it is. Entries whose pages use Roman or other non-decimal numbers, or come after a numbering restart, also keep their numbers.
 
 ### Command line
