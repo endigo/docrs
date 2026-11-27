@@ -1,22 +1,21 @@
 //! Effective paragraph, run and table formatting, resolved once for layout
 //! and the PDF preflight alike.
 
-use super::colour::Palette;
 #[cfg(feature = "pdf")]
 use super::marks::TableMarks;
 use super::numbering::Numbering;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
 use super::styles::Styles;
 use super::table::TableCtx;
-use super::theme::read_theme;
+use super::theme::{Theme, read_theme};
 use crate::wml::{w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
 
 pub(crate) struct Formatting {
     pub(super) styles: Styles,
     pub(super) numbering: Numbering,
-    /// The theme's colours, for the properties read on the way.
-    pub(super) palette: Palette,
+    /// Its fonts for layout, its colours for the properties read on the way.
+    pub(super) theme: Theme,
 }
 
 /// A paragraph's style, its direct properties, and its effective paragraph
@@ -34,11 +33,11 @@ impl Formatting {
         numbering: Option<&XmlTree>,
         theme: Option<&XmlTree>,
     ) -> Formatting {
-        let palette = read_theme(theme).palette;
+        let theme = read_theme(theme);
         Formatting {
-            styles: Styles::read(styles, &palette),
-            numbering: Numbering::read(numbering, &palette),
-            palette,
+            styles: Styles::read(styles, &theme.palette),
+            numbering: Numbering::read(numbering, &theme.palette),
+            theme,
         }
     }
 
@@ -49,7 +48,7 @@ impl Formatting {
         table: Option<&TableCtx>,
     ) -> ParaFormat {
         let ppr_node = w_child(tree, p, "pPr");
-        let direct = read_ppr(tree, ppr_node, &self.palette);
+        let direct = read_ppr(tree, ppr_node, &self.theme.palette);
         let style = ppr_node
             .and_then(|pp| w_child(tree, pp, "pStyle"))
             .and_then(|s| w_attr(tree, s, "val"))
@@ -107,7 +106,7 @@ impl Formatting {
             let chain = self.styles.chain(char_style);
             rpr.layer(&chain.1);
         }
-        rpr.merge(&read_rpr(tree, rpr_node, &self.palette));
+        rpr.merge(&read_rpr(tree, rpr_node, &self.theme.palette));
         rpr
     }
 

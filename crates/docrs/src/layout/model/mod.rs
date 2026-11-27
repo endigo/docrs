@@ -45,7 +45,7 @@ use props::twips;
 pub(crate) use props::{Frame, RPr, horizontal, shaded};
 #[cfg(feature = "pdf")]
 pub(crate) use table::TableCtx;
-use theme::{Theme, read_font_kinds, read_theme};
+use theme::read_font_kinds;
 
 /// Page geometry in points.
 #[derive(Debug, Clone, Copy)]
@@ -311,7 +311,6 @@ pub struct Model {
 
 pub(super) struct Builder<'a> {
     fmt: Formatting,
-    theme: Theme,
     kinds: HashMap<String, FontKind>,
     pub fonts: &'a mut FontBook,
     pub metrics: Vec<Metric>,
@@ -336,14 +335,12 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
 
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
-    let theme = read_theme(part(txn, main, rt::THEME));
     let mut builder = Builder {
         fmt: Formatting::read(
             part(txn, main, rt::STYLES),
             part(txn, main, rt::NUMBERING),
             part(txn, main, rt::THEME),
         ),
-        theme,
         kinds: read_font_kinds(part(txn, main, rt::FONT_TABLE)),
         fonts,
         metrics: Vec::new(),

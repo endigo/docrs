@@ -590,7 +590,11 @@ impl<'s, 'd> Scan<'s, 'd> {
     /// A VML shape. Its text box or picture counts first, so a rule that
     /// holds either is not mistaken for a plain rule.
     fn vml(&mut self, tree: &XmlTree, node: NodeId) {
-        if let Some(href) = tree.attr(node, None, "href") {
+        for href in tree
+            .descendants(node)
+            .filter(|&n| tree.ns_uri(n) == Some(VML))
+            .filter_map(|n| tree.attr(n, None, "href"))
+        {
             self.link(href);
         }
         let find = |name: &str| tree.descendants(node).find(|&n| tree.is(n, VML, name));

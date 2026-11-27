@@ -153,7 +153,7 @@ impl Builder<'_> {
                     Some(_) => 2,
                 };
                 let (fill, valign, cell_borders) =
-                    read_cell_props(tree, tc_pr, &self.fmt.palette).over(&style_cell);
+                    read_cell_props(tree, tc_pr, &self.fmt.theme.palette).over(&style_cell);
                 let mut blocks = Vec::new();
                 self.blocks(tree, tc, Some(&ctx), &mut blocks);
                 cells.push(Cell {

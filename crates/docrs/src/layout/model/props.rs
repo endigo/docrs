@@ -44,6 +44,9 @@ pub(crate) struct PPr {
     pub(super) shd: Option<Option<Rgb>>,
     /// `ParaBorders::SIDES`; `Some(None)`: `none` or `nil`.
     pub(super) borders: [Option<Option<Border>>; 5],
+    /// The bar beside facing pages (`w:bar`), read for the PDF preflight
+    /// only.
+    pub(super) bar: Option<Option<Border>>,
     /// `w:shd` draws a fill or a pattern, automatic colours included.
     pub(crate) shaded: Option<bool>,
     pub(crate) frame: Option<Frame>,
@@ -75,6 +78,7 @@ impl PPr {
             num,
             ilvl,
             shd,
+            bar,
             shaded,
             frame,
             bidi,
@@ -190,6 +194,7 @@ impl PPr {
     pub(crate) fn bordered(&self) -> bool {
         self.borders
             .iter()
+            .chain([&self.bar])
             .any(|side| matches!(side, Some(Some(_))))
     }
 }
@@ -331,6 +336,7 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -
                 for (slot, names) in out.borders.iter_mut().zip(ParaBorders::SIDES) {
                     *slot = side(tree, child, names).map(|s| read_border(tree, s, palette));
                 }
+                out.bar = w_child(tree, child, "bar").map(|s| read_border(tree, s, palette));
             }
             _ => {}
         }

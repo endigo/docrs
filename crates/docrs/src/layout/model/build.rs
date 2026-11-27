@@ -196,9 +196,9 @@ impl Builder<'_> {
             Some(FontRef::Name(name)) => name.clone(),
             Some(FontRef::Theme(major)) => {
                 let theme = if *major {
-                    &self.theme.major
+                    &self.fmt.theme.major
                 } else {
-                    &self.theme.minor
+                    &self.fmt.theme.minor
                 };
                 theme.clone().unwrap_or_else(|| "Calibri".to_string())
             }
@@ -263,7 +263,7 @@ impl Builder<'_> {
         mark_rpr.merge(&read_rpr(
             tree,
             ppr_node.and_then(|pp| w_child(tree, pp, "rPr")),
-            &self.fmt.palette,
+            &self.fmt.theme.palette,
         ));
         let mark = self.measurer(&mark_rpr).metric;
         let mut para = Para {

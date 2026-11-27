@@ -953,3 +953,31 @@ fn row_shading_vml_links_and_computed_hyperlinks_are_checked() {
         "{message}"
     );
 }
+
+#[test]
+fn between_and_bar_borders_are_reported() {
+    let bordered = |edge: &str| {
+        para(&format!(
+            r#"<w:pPr><w:pBdr><w:{edge} w:val="single" w:sz="4"/></w:pBdr></w:pPr>{}"#,
+            run("<w:t>x</w:t>")
+        ))
+    };
+    let found = report(&docx(&(bordered("between") + &bordered("bar")), &[], &[]));
+    assert!(
+        subjects(&found, NOT_YET_DRAWN).contains(&("border", 2)),
+        "{:?}",
+        subjects(&found, NOT_YET_DRAWN)
+    );
+}
+
+#[test]
+fn a_link_on_a_shape_in_a_vml_group_is_checked() {
+    let body = para(&run(concat!(
+        r#"<w:pict><v:group style="width:20pt;height:20pt">"#,
+        r#"<v:rect href="javascript:alert(1)" style="width:5pt;height:5pt"/>"#,
+        r#"</v:group></w:pict>"#
+    )));
+    let found = report(&docx(&body, &[], &[]));
+    assert_eq!(subjects(&found, "pdf_link_scheme_skipped"), [("link", 1)]);
+    assert_eq!(subjects(&found, "pdf_shape_skipped"), [("shape", 1)]);
+}
