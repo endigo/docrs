@@ -886,3 +886,24 @@ fn a_supplied_font_measures_the_contents_numbers() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn pdf_preflight_prints_the_report_and_is_hidden() {
+    let output = bin()
+        .args(["--json", "pdf", "--preflight"])
+        .arg(fixture("generated/feature-isolated/textbox.docx"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["schema_version"], 1);
+    let codes: Vec<&str> = report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert!(codes.contains(&"pdf_text_box_skipped"), "{codes:?}");
+    let help = bin().arg("--help").output().unwrap();
+    assert!(!String::from_utf8(help.stdout).unwrap().contains("pdf"));
+}
