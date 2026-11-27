@@ -19,6 +19,10 @@ averages between 6 and 17.
   today. `opt-level = "s"` is rejected: it saves another 625 KB but makes
   `fromHtml` 16% slower here, 15% in one review's run and 32% (median) in
   the other's.
+- **Headroom:** about 100 KB is thin for the PDF writer, painter and PNG
+  decoder still to come. Each of those PRs should measure its own size; if
+  they do not fit, the choice is between raising the budget, stripping the
+  wasm `name` section, or deferring variable fonts.
 - **This change is not made here.** The release profile and the crate type
   change in the PR that adds `subsetter`, so they are measured together with
   the code that needs them.
