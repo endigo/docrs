@@ -61,6 +61,11 @@ def face_names(data):
     return faces
 
 
+def home_relative(path):
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path == home or path.startswith(home + os.sep) else path
+
+
 def fonts(wanted):
     wanted = {name.lower() for name in wanted}
     out = []
@@ -79,7 +84,7 @@ def fonts(wanted):
                 matched = [f"{family} {style}" for family, style in faces if family and family.lower() in wanted]
                 if matched:
                     out.append({
-                        "path": path,
+                        "path": home_relative(path),
                         "faces": matched,
                         "bytes": len(data),
                         "sha256": hashlib.sha256(data).hexdigest(),

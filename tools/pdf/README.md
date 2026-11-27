@@ -52,7 +52,7 @@ OUT_DIR must be new or empty. With `--word`, Word must have no document open: th
 2. With `--word`:
    - exports each DOCX to PDF through Word, one at a time (`tools/markdown/word2pdf.applescript`, staged in Word's sandbox container);
    - dumps Word's lines with `pdflines.swift` (`OUT_DIR/<case>.word.lines.json`);
-   - records the docrs commit (and whether the tree was dirty), the Word version and build, the macOS version and build, and each installed font file (path, faces, size, SHA-256) whose family the documents name, in `OUT_DIR/environment.json` (`environment.py`);
+   - records the docrs commit (and whether the tree was dirty), the Word version and build, the macOS version and build, and each installed font file (path, faces, size, SHA-256) whose family the documents name, in `OUT_DIR/environment.json` (`environment.py`). Paths under the home directory are written `~/…`, and no user or host name is recorded;
    - compares paragraph start pages (`compare.py`) and writes `OUT_DIR/summary.tsv` and `summary.md`.
 3. `--png` renders Word's pages (`tools/markdown/pdfpages.swift`).
 4. `--update-fixtures` copies the PDF fixtures' Word lines to `tests/fixtures/pdf/<case>/word.lines.json`, and `environment.json` to `tests/fixtures/pdf/environment.json`.
