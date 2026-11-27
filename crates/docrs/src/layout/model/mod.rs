@@ -9,6 +9,8 @@
 //! every style and the document defaults; direct formatting is absolute.
 
 mod build;
+mod colour;
+mod look;
 mod numbering;
 mod props;
 mod styles;
@@ -23,6 +25,9 @@ use crate::package::rels::rt;
 use crate::txn::Txn;
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
+pub use colour::{Colour, Rgb};
+pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
+use look::{CellBorders, ParaBorders, VAlign};
 use numbering::Numbering;
 use props::{on_off, twips};
 use styles::Styles;
@@ -148,19 +153,37 @@ pub struct Metric {
     pub ascent: f64,
 }
 
+/// `metric` indexes `Model.metrics`, `look` `Model.looks`.
 #[derive(Debug, Clone)]
 pub enum Piece {
-    Char { ch: char, width: f64, metric: u32 },
-    Tab { metric: u32 },
-    LineBreak { metric: u32 },
+    Char {
+        ch: char,
+        width: f64,
+        metric: u32,
+        look: u32,
+    },
+    Tab {
+        metric: u32,
+        look: u32,
+    },
+    LineBreak {
+        metric: u32,
+        #[allow(dead_code, reason = "the PDF painter reads it")]
+        look: u32,
+    },
     PageBreak,
-    Object { width: f64, height: f64 },
+    Object {
+        width: f64,
+        height: f64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct Label {
     pub width: f64,
     pub metric: u32,
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub look: u32,
     /// What follows the label: a tab (true) or a space/nothing.
     pub tab: bool,
     pub space: f64,
@@ -195,6 +218,11 @@ pub struct Para {
     /// Ends a section (`w:sectPr` in its properties): the next section's
     /// index.
     pub section_break: Option<usize>,
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub shade: Option<Rgb>,
+    /// Read only: layout gives them no height yet. `None` when it has none.
+    #[allow(dead_code, reason = "the PDF painter reads them")]
+    pub borders: Option<Box<ParaBorders>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -204,6 +232,12 @@ pub struct Cell {
     pub blocks: Vec<Block>,
     /// 0: none, 1: restart, 2: continue.
     pub vmerge: u8,
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub fill: Option<Rgb>,
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub valign: VAlign,
+    #[allow(dead_code, reason = "the PDF painter reads them")]
+    pub borders: CellBorders,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -226,6 +260,10 @@ pub struct Table {
 }
 
 #[derive(Debug, Clone)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "most blocks are paragraphs: boxing them only adds an allocation each"
+)]
 pub enum Block {
     Para(Para),
     Table(Table),
@@ -250,6 +288,8 @@ pub struct Model {
     pub sections: Vec<Section>,
     pub blocks: Vec<Block>,
     pub metrics: Vec<Metric>,
+    pub looks: Vec<Appearance>,
+    pub links: Vec<Link>,
     pub default_tab: f64,
     /// Layout work already done measuring headers and footers.
     pub work: u64,
@@ -263,6 +303,14 @@ pub(super) struct Builder<'a> {
     pub fonts: &'a mut FontBook,
     pub metrics: Vec<Metric>,
     metric_index: HashMap<(u64, u64), u32>,
+    looks: Vec<Appearance>,
+    look_index: HashMap<Appearance, u32>,
+    links: Vec<Link>,
+    link_index: HashMap<Link, u32>,
+    /// The story part's hyperlink relationships: id to target.
+    hyperlinks: HashMap<String, String>,
+    /// The link of the `w:hyperlink` or `w:fldSimple` being read.
+    link: Option<u32>,
     sections_seen: usize,
     story: StoryId,
     depth: usize,
@@ -275,14 +323,21 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
 
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
+    let theme = read_theme(part(txn, main, rt::THEME));
     let mut builder = Builder {
-        styles: Styles::read(part(txn, main, rt::STYLES)),
-        numbering: Numbering::read(part(txn, main, rt::NUMBERING)),
-        theme: read_theme(part(txn, main, rt::THEME)),
+        styles: Styles::read(part(txn, main, rt::STYLES), &theme.palette),
+        numbering: Numbering::read(part(txn, main, rt::NUMBERING), &theme.palette),
+        theme,
         kinds: read_font_kinds(part(txn, main, rt::FONT_TABLE)),
         fonts,
         metrics: Vec::new(),
         metric_index: HashMap::new(),
+        looks: Vec::new(),
+        look_index: HashMap::new(),
+        links: Vec::new(),
+        link_index: HashMap::new(),
+        hyperlinks: HashMap::new(),
+        link: None,
         sections_seen: 0,
         story: StoryId::Body,
         depth: 0,
@@ -333,6 +388,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 continue;
             };
             let blocks = stories.entry(name.to_string()).or_insert_with(|| {
+                builder.hyperlinks = hyperlinks(txn, name);
                 builder.story = if kind == "header" {
                     headers += 1;
                     StoryId::Header(headers)
@@ -386,6 +442,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         });
     }
     builder.story = StoryId::Body;
+    builder.hyperlinks = hyperlinks(txn, main);
     let mut blocks = Vec::new();
     if let Some(body) = body {
         builder.blocks(tree, body, None, &mut blocks);
@@ -394,9 +451,20 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         sections,
         blocks,
         metrics: builder.metrics,
+        looks: builder.looks,
+        links: builder.links,
         default_tab,
         work,
     })
+}
+
+fn hyperlinks(txn: &Txn<'_>, part: &str) -> HashMap<String, String> {
+    txn.relationships(part)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|rel| rel.rel_type == rt::HYPERLINK)
+        .map(|rel| (rel.id, rel.target))
+        .collect()
 }
 
 fn page_of(tree: &XmlTree, sect: Option<NodeId>) -> Page {
@@ -423,3 +491,6 @@ fn page_of(tree: &XmlTree, sect: Option<NodeId>) -> Page {
         text_width: (width - left - right - gutter).max(36.0),
     }
 }
+
+#[cfg(test)]
+mod tests;

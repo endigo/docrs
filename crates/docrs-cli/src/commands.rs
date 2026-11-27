@@ -489,31 +489,37 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                 }
                 let mut out = std::io::stdout().lock();
                 let mut closed = false;
-                let result = docrs::layout::line_records_with(&txn, &main, &fonts.set, |line| {
-                    let written = writeln!(
-                        out,
-                        "{}",
-                        json!({
-                            "page": line.page,
-                            "story": line.story,
-                            "x": round(line.x),
-                            "y": round(line.y),
-                            "width": round(line.width),
-                            "height": round(line.height),
-                            "baseline": round(line.baseline),
-                            "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
-                            "slack": round(line.slack),
-                            "gaps": line.gaps,
-                            "last": line.last,
-                            "align": line.align,
-                            "text": line.text,
+                let result = docrs::layout::line_records_with(
+                    &txn,
+                    &main,
+                    &fonts.set,
+                    |_, _| Ok(()),
+                    |line| {
+                        let written = writeln!(
+                            out,
+                            "{}",
+                            json!({
+                                "page": line.page,
+                                "story": line.story,
+                                "x": round(line.x),
+                                "y": round(line.y),
+                                "width": round(line.width),
+                                "height": round(line.height),
+                                "baseline": round(line.baseline),
+                                "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                                "slack": round(line.slack),
+                                "gaps": line.gaps,
+                                "last": line.last,
+                                "align": line.align,
+                                "text": line.text,
+                            })
+                        );
+                        written.map_err(|err| {
+                            closed = err.kind() == std::io::ErrorKind::BrokenPipe;
+                            Error::io("write_failed", format!("writing a line: {err}"), err)
                         })
-                    );
-                    written.map_err(|err| {
-                        closed = err.kind() == std::io::ErrorKind::BrokenPipe;
-                        Error::io("write_failed", format!("writing a line: {err}"), err)
-                    })
-                });
+                    },
+                );
                 return match result {
                     Err(_) if closed => Ok(0),
                     result => result.map(|()| 0),

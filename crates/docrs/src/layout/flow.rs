@@ -460,16 +460,18 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
     let mut index = 0;
     while index < pieces.len() {
         index = match pieces[index] {
-            Piece::Char { ch, width, metric } => b.char(index, ch, width, metric),
+            Piece::Char {
+                ch, width, metric, ..
+            } => b.char(index, ch, width, metric),
             Piece::Object { width, height } => {
                 b.object(index, width, height);
                 index + 1
             }
-            Piece::Tab { metric } => {
+            Piece::Tab { metric, .. } => {
                 b.tab(index, metric);
                 index + 1
             }
-            Piece::LineBreak { metric } => {
+            Piece::LineBreak { metric, .. } => {
                 b.line.text.add(metrics, metric, extra);
                 b.manual_break(index, Ending::LineBreak);
                 index + 1
@@ -1436,6 +1438,7 @@ mod tests {
                     ch: ' ',
                     width: 2.0,
                     metric: 0,
+                    look: 0,
                 });
             }
             for _ in 0..4 {
@@ -1443,6 +1446,7 @@ mod tests {
                     ch: 'x',
                     width: width / 4.0,
                     metric: 0,
+                    look: 0,
                 });
             }
         }
@@ -1477,6 +1481,8 @@ mod tests {
             }],
             blocks,
             metrics: METRICS.to_vec(),
+            looks: Vec::new(),
+            links: Vec::new(),
             default_tab: 36.0,
             work: 0,
         }
@@ -1491,11 +1497,12 @@ mod tests {
     fn text(text: &str, width: f64) -> Vec<Piece> {
         text.chars()
             .map(|ch| match ch {
-                '\t' => Piece::Tab { metric: 0 },
+                '\t' => Piece::Tab { metric: 0, look: 0 },
                 _ => Piece::Char {
                     ch,
                     width,
                     metric: 0,
+                    look: 0,
                 },
             })
             .collect()
@@ -1522,6 +1529,7 @@ mod tests {
             ch: 'x',
             width: 1.0,
             metric,
+            look: 0,
         };
         let mut p = Para {
             pieces: vec![char(0), char(1)],
@@ -1538,6 +1546,7 @@ mod tests {
         p.line = LineSpacing::Multiple(1.0);
         p.label = Some(crate::layout::model::Label {
             width: 5.0,
+            look: 0,
             space: 0.0,
             tab: false,
             metric: 1,
@@ -1719,6 +1728,7 @@ mod tests {
             first: -18.0,
             label: Some(Label {
                 width: 10.0,
+                look: 0,
                 space: 0.0,
                 tab: true,
                 metric: 0,
@@ -1739,7 +1749,7 @@ mod tests {
     #[test]
     fn a_line_break_ends_a_line_as_the_paragraph_end_does() {
         let mut p = para(2, 10.0);
-        p.pieces.insert(4, Piece::LineBreak { metric: 0 });
+        p.pieces.insert(4, Piece::LineBreak { metric: 0, look: 0 });
         let lines = lines(&p, &METRICS, 100.0, 36.0);
         let ends: Vec<_> = lines.iter().map(|l| (l.pieces.clone(), l.last)).collect();
         assert_eq!(ends, [(0..5, true), (5..10, true)]);
@@ -1906,6 +1916,7 @@ mod tests {
         let p = Para {
             label: Some(Label {
                 width: 5.0,
+                look: 0,
                 space: 0.0,
                 tab: false,
                 metric: 0,
@@ -1977,7 +1988,7 @@ mod tests {
             width: 50.0,
             margins: [1.0, 1.0, 5.0, 5.0],
             blocks: vec![Block::Para(para(words, 10.0))],
-            vmerge: 0,
+            ..Default::default()
         };
         // A one-line cell beside a 12-line one, on a 100-point body after
         // 9 lines: the row splits after one line of the long cell.

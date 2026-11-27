@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use super::colour::Palette;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
-use super::table::{borders, margins};
+use super::table::{CellProps, borders, margins, read_cell_props};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::XmlTree;
 
@@ -14,6 +15,8 @@ pub(super) struct StyleDef {
     cell_margins: [Option<f64>; 4],
     borders: [Option<f64>; 3],
     pub(super) first_row: Option<(PPr, RPr)>,
+    /// Table styles: whole-table cell properties (`w:tcPr`).
+    cell: CellProps,
     /// Position in the styles part.
     order: usize,
     /// A table style with table properties of its own (`w:tblPr` content
@@ -31,7 +34,7 @@ pub(super) struct Styles {
 }
 
 impl Styles {
-    pub(super) fn read(tree: Option<&XmlTree>) -> Styles {
+    pub(super) fn read(tree: Option<&XmlTree>, palette: &Palette) -> Styles {
         let mut styles = Styles {
             defs: HashMap::new(),
             default_para: None,
@@ -47,8 +50,8 @@ impl Styles {
         if let Some(defaults) = w_child(tree, root, "docDefaults") {
             let rpr = w_child(tree, defaults, "rPrDefault").and_then(|d| w_child(tree, d, "rPr"));
             let ppr = w_child(tree, defaults, "pPrDefault").and_then(|d| w_child(tree, d, "pPr"));
-            styles.default_rpr = read_rpr(tree, rpr);
-            styles.default_ppr = read_ppr(tree, ppr);
+            styles.default_rpr = read_rpr(tree, rpr, palette);
+            styles.default_ppr = read_ppr(tree, ppr, palette);
         }
         for (order, style) in w_children(tree, root, "style").enumerate() {
             let Some(id) = w_attr(tree, style, "styleId") else {
@@ -67,8 +70,8 @@ impl Styles {
                 .find(|s| w_attr(tree, *s, "type") == Some("firstRow"))
                 .map(|s| {
                     (
-                        read_ppr(tree, w_child(tree, s, "pPr")),
-                        read_rpr(tree, w_child(tree, s, "rPr")),
+                        read_ppr(tree, w_child(tree, s, "pPr"), palette),
+                        read_rpr(tree, w_child(tree, s, "rPr"), palette),
                     )
                 });
             styles.defs.insert(
@@ -77,14 +80,15 @@ impl Styles {
                     based_on: w_child(tree, style, "basedOn")
                         .and_then(|b| w_attr(tree, b, "val"))
                         .map(str::to_string),
-                    ppr: read_ppr(tree, w_child(tree, style, "pPr")),
-                    rpr: read_rpr(tree, w_child(tree, style, "rPr")),
+                    ppr: read_ppr(tree, w_child(tree, style, "pPr"), palette),
+                    rpr: read_rpr(tree, w_child(tree, style, "rPr"), palette),
                     cell_margins: margins(
                         tree,
                         tbl_ppr.and_then(|t| w_child(tree, t, "tblCellMar")),
                     ),
                     borders: borders(tree, tbl_ppr.and_then(|t| w_child(tree, t, "tblBorders"))),
                     first_row,
+                    cell: read_cell_props(tree, w_child(tree, style, "tcPr"), palette),
                     order,
                     table_props: tbl_ppr.is_some_and(|t| tree.child_elements(t).next().is_some())
                         || w_child(tree, style, "tblStylePr").is_some(),
@@ -100,26 +104,41 @@ impl Styles {
         if let Some(found) = self.chains.get(id) {
             return found.clone();
         }
-        let mut ids = Vec::new();
-        let mut current = Some(id.to_string());
-        while let Some(cur) = current {
-            if ids.contains(&cur) || ids.len() > 32 {
-                break;
-            }
-            current = self.defs.get(&cur).and_then(|d| d.based_on.clone());
-            ids.push(cur);
-        }
         let mut ppr = PPr::default();
         let mut rpr = RPr::default();
-        for cur in ids.iter().rev() {
-            if let Some(def) = self.defs.get(cur) {
-                ppr.merge(&def.ppr);
-                rpr.layer(&def.rpr);
-            }
+        for def in self.lineage(id).into_iter().rev() {
+            ppr.merge(&def.ppr);
+            rpr.layer(&def.rpr);
         }
         let out = Rc::new((ppr, rpr));
         self.chains.insert(id.to_string(), out.clone());
         out
+    }
+
+    /// A table style's cell properties with its `basedOn` chain.
+    pub(super) fn cell_props(&self, id: Option<&str>) -> CellProps {
+        let mut out = CellProps::default();
+        let Some(id) = id else {
+            return out;
+        };
+        for def in self.lineage(id).into_iter().rev() {
+            out.merge(&def.cell);
+        }
+        out
+    }
+
+    /// The style and its bases, nearest first.
+    fn lineage(&self, id: &str) -> Vec<&StyleDef> {
+        let mut ids: Vec<&str> = Vec::new();
+        let mut current = Some(id);
+        while let Some(cur) = current {
+            if ids.contains(&cur) || ids.len() > 32 {
+                break;
+            }
+            ids.push(cur);
+            current = self.defs.get(cur).and_then(|d| d.based_on.as_deref());
+        }
+        ids.iter().filter_map(|id| self.defs.get(*id)).collect()
     }
 
     /// A table style's cell margins and borders with its `basedOn` chain.

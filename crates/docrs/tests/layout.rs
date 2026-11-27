@@ -854,10 +854,16 @@ fn header_table_lines(header: usize, rows: usize) -> (u32, Vec<docrs::layout::Li
     let main = doc.package().main_part_name().to_string();
     let pages = layout(&txn, &main, Vec::new()).unwrap().pages;
     let mut lines = Vec::new();
-    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
-        lines.push(line);
-        Ok(())
-    })
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            lines.push(line);
+            Ok(())
+        },
+    )
     .unwrap();
     (pages, lines)
 }
@@ -903,10 +909,16 @@ fn a_body_row_taller_than_the_page_keeps_all_its_lines() {
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
     let mut drawn = 0;
-    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
-        drawn += usize::from(line.text.starts_with("Line"));
-        Ok(())
-    })
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            drawn += usize::from(line.text.starts_with("Line"));
+            Ok(())
+        },
+    )
     .unwrap();
     assert_eq!(drawn, 150);
 }
@@ -995,10 +1007,16 @@ fn line_widths(body: &str, styles: &str) -> Vec<f64> {
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
     let mut widths = Vec::new();
-    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
-        widths.push(line.width);
-        Ok(())
-    })
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            widths.push(line.width);
+            Ok(())
+        },
+    )
     .unwrap();
     widths
 }
