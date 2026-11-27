@@ -1,0 +1,33 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Statement of Advice","y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Prepared for Alex and Sam Example","y":107.9},
+    {"heading":false,"page":1,"row_end":false,"text":"1. Executive summary","y":143.27},
+    {"heading":false,"page":1,"row_end":false,"text":"This sample text shows the body style. T","y":169.13},
+    {"heading":false,"page":1,"row_end":false,"text":"Your goals","y":205.94},
+    {"heading":false,"page":1,"row_end":false,"text":"Retire at 63 with an income of $80,000 a","y":226.08},
+    {"heading":false,"page":1,"row_end":false,"text":"Cash flow","y":248.49},
+    {"heading":false,"page":1,"row_end":false,"text":"Product","y":265.76},
+    {"heading":false,"page":1,"row_end":false,"text":"Current","y":265.76},
+    {"heading":false,"page":1,"row_end":false,"text":"Recommended","y":265.76},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":265.76},
+    {"heading":false,"page":1,"row_end":false,"text":"Superannuation","y":286.17},
+    {"heading":false,"page":1,"row_end":false,"text":"$412,000","y":286.17},
+    {"heading":false,"page":1,"row_end":false,"text":"$412,000","y":286.17},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":286.17},
+    {"heading":false,"page":1,"row_end":false,"text":"Account-based pension","y":306.58},
+    {"heading":false,"page":1,"row_end":false,"text":"Nil","y":306.58},
+    {"heading":false,"page":1,"row_end":false,"text":"$250,000","y":306.58},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":306.58},
+    {"heading":false,"page":1,"row_end":false,"text":"Cash buffer","y":326.98},
+    {"heading":false,"page":1,"row_end":false,"text":"$18,000","y":326.98},
+    {"heading":false,"page":1,"row_end":false,"text":"$60,000","y":326.98},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":326.98},
+    {"heading":false,"page":1,"row_end":false,"text":"","y":347.39}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

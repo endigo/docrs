@@ -1,0 +1,12 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Your situation","y":88.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Body copy in this firm’s template uses a","y":111.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Headings use a custom Section Heading st","y":151.05}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

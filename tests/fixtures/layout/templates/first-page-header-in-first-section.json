@@ -1,0 +1,15 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Sample cover letter","y":96.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to re","y":115.65},
+    {"heading":false,"page":1,"row_end":false,"text":"","y":115.65},
+    {"heading":false,"page":2,"row_end":false,"text":"Sample heading","y":96.0},
+    {"heading":false,"page":2,"row_end":false,"text":"Sample body paragraph, long enough to re","y":115.65},
+    {"heading":false,"page":2,"row_end":false,"text":"Sample body paragraph, long enough to re","y":155.31}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

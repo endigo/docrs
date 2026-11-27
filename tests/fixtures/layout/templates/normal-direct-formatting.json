@@ -1,0 +1,25 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":89.93},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":107.85},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":125.78},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":143.71},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":161.64},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":179.56},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":197.49},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":215.42},
+    {"heading":false,"page":1,"row_end":false,"text":"Level 1, 1 Sample Street, Sampletown","y":233.35},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","y":251.27},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph formatted by hand,","y":279.13},
+    {"heading":false,"page":1,"row_end":false,"text":"A sub-heading formatted by hand","y":311.95},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph formatted by hand,","y":334.84},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","y":367.66},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph formatted by hand,","y":393.03}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

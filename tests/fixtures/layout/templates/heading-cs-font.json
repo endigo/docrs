@@ -1,0 +1,13 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","y":84.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph.","y":112.34},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","y":133.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Another sample body paragraph.","y":156.86}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}
