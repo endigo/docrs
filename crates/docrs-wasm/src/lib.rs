@@ -296,13 +296,10 @@ pub fn convert(
         .and_then(|fields| fields["filled"].as_u64())
         .unwrap_or(0);
     if let (true, Some(toc)) = (filled > 0, report.toc.as_mut()) {
-        let refreshed = docrs::layout::refresh_page_numbers_with_layout(&mut document)?;
-        if let Some(layout) = refreshed.layout {
-            toc.entries = refreshed.entries;
-            toc.pages = layout.pages;
-            toc.missing_fonts = layout.missing_fonts;
-            toc.embedded_fonts = layout.embedded_fonts;
-        }
+        let layout = docrs::layout::refresh_toc_page_numbers(&mut document, true)?.layout;
+        toc.pages = layout.pages;
+        toc.missing_fonts = layout.missing_fonts;
+        toc.embedded_fonts = layout.embedded_fonts;
     }
     if options.redact {
         report.redact();

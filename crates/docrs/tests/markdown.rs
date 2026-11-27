@@ -4785,46 +4785,42 @@ fn ballot_boxes_carry_their_own_font() {
 }
 
 /// A contents, a merge field at the top and heading "Late" at the foot of
-/// page 3: the long value filled in pushes it to page 4.
-fn filled_after_conversion() -> (Document, Document) {
+/// page 3, which a long value pushes to page 4.
+fn converted_with_a_field() -> Document {
     let filler = "Filler text that takes a full line of the page body here.\n\n".repeat(58);
     let source = format!("# Intro\n\nDear {{{{Client}}}},\n\n{filler}# Late\n\nEnd.\n");
     let options = MarkdownOptions {
         toc: Some(true),
         ..MarkdownOptions::default()
     };
-    let (converted, _) = convert(&source, Some(reference()), &options).unwrap();
-    let mut filled = support::reopen(&converted);
-    let value = "Jo Smith of a long merge value ".repeat(12);
-    filled
-        .replace_all("{{Client}}", &value, &Default::default())
-        .unwrap();
-    (converted, filled)
+    convert(&source, Some(reference()), &options).unwrap().0
+}
+
+fn refresh(doc: &mut Document) -> usize {
+    docrs::layout::refresh_toc_page_numbers(doc, true)
+        .unwrap()
+        .changed
 }
 
 #[test]
 fn contents_page_numbers_follow_text_filled_in_after_conversion() {
-    let (converted, mut filled) = filled_after_conversion();
+    let mut doc = converted_with_a_field();
     let body = |doc: &Document| part_xml(doc, "word/document.xml");
-    assert_eq!(page_ref_numbers(&body(&converted), "late"), ["3"]);
-    assert_eq!(page_ref_numbers(&body(&filled), "late"), ["3"]);
-    assert_eq!(docrs::layout::refresh_page_numbers(&mut filled).unwrap(), 1);
-    assert_eq!(page_ref_numbers(&body(&filled), "late"), ["4"]);
-    assert_eq!(page_ref_numbers(&body(&filled), "intro"), ["2"]);
-    assert_eq!(docrs::layout::refresh_page_numbers(&mut filled).unwrap(), 0);
+    let value = "Jo Smith of a long merge value ".repeat(12);
+    doc.replace_all("{{Client}}", &value, &Default::default())
+        .unwrap();
+    assert_eq!(page_ref_numbers(&body(&doc), "late"), ["3"]);
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(page_ref_numbers(&body(&doc), "late"), ["4"]);
+    assert_eq!(page_ref_numbers(&body(&doc), "intro"), ["2"]);
+    assert_eq!(refresh(&mut doc), 0);
 }
 
 #[test]
 fn refreshing_right_page_numbers_leaves_the_package_as_it_was() {
-    let (mut converted, _) = filled_after_conversion();
-    let (before, _) = converted.patch_bytes().unwrap();
-    assert_eq!(
-        docrs::layout::refresh_page_numbers(&mut converted).unwrap(),
-        0
-    );
-    let (after, _) = converted.patch_bytes().unwrap();
-    assert!(
-        before == after,
-        "a refresh with nothing to change rewrote the package"
-    );
+    let mut doc = converted_with_a_field();
+    let (before, _) = doc.patch_bytes().unwrap();
+    assert_eq!(refresh(&mut doc), 0);
+    let (after, _) = doc.patch_bytes().unwrap();
+    assert!(before == after);
 }

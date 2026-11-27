@@ -170,14 +170,11 @@ fn missing_fonts(substituted: &[String], unread: Vec<String>) -> Vec<String> {
     out
 }
 
-/// Layout passes [`write_page_numbers`] makes at most: a number written
-/// can change the contents' own length and so the pages after it.
+/// A number written can change the contents' length and so later pages.
 const PAGE_NUMBER_PASSES: usize = 3;
 
-/// Write each `(w:t, bookmark)` page number from a fresh layout of `main`,
-/// re-laying out until the numbers are stable. A bookmark the layout does
-/// not place gets an empty number when `blank_unplaced`, else keeps its
-/// own. Returns how many numbers differ from before, and the last layout.
+/// Returns how many numbers changed and the last layout. With
+/// `blank_unplaced`, a bookmark the layout does not place gets no number.
 pub(crate) fn write_page_numbers(
     txn: &mut Txn<'_>,
     main: &str,
@@ -225,116 +222,184 @@ pub(crate) fn write_page_numbers(
     Ok((changed, estimate))
 }
 
-/// Rewrite the page numbers every table of contents in the main body shows
-/// (the cached results of the PAGEREF fields inside a TOC field) from a
-/// fresh layout, as the Markdown converter computes them. For a document
-/// edited after conversion, such as merge fields filled with longer text.
-/// Returns how many numbers changed; with none, the document is untouched.
-///
-/// A PAGEREF is rewritten when its result is a single `w:t` and its only
-/// switches are `\h` and `\* MERGEFORMAT`; one whose bookmark the layout
-/// does not place keeps its number.
-pub fn refresh_page_numbers(document: &mut Document) -> Result<usize> {
-    refresh_page_numbers_with_layout(document).map(|refreshed| refreshed.changed)
-}
-
-/// What [`refresh_page_numbers_with_layout`] did.
+/// Internal to docrs-wasm.
+#[doc(hidden)]
+#[non_exhaustive]
 #[derive(Debug, Clone)]
-pub struct PageNumberRefresh {
-    /// Page numbers that changed.
+pub struct TocRefresh {
     pub changed: usize,
-    /// Contents entries found and numbered.
-    pub entries: usize,
-    /// The layout the numbers were taken from; `None` without entries.
-    pub layout: Option<Layout>,
+    pub layout: Layout,
 }
 
-/// [`refresh_page_numbers`], also handing back the entries found and the
-/// layout of the refreshed document (its page count and fonts).
-pub fn refresh_page_numbers_with_layout(document: &mut Document) -> Result<PageNumberRefresh> {
-    let main = document.package().main_part_name().to_string();
-    let numbers = toc_page_refs(document.package().xml(&main)?);
-    let mut refreshed = PageNumberRefresh {
-        changed: 0,
-        entries: numbers.len(),
-        layout: None,
-    };
-    if numbers.is_empty() {
-        return Ok(refreshed);
-    }
-    let mut txn = Txn::new(document);
-    let (changed, layout) = write_page_numbers(&mut txn, &main, &numbers, false)?;
-    refreshed.layout = Some(layout);
-    if changed == 0 {
-        return Ok(refreshed);
-    }
-    let staged = txn.finish()?;
+/// Internal to docrs-wasm, not covered by semver. With `converted_only`,
+/// only the contents the last Markdown conversion of this document wrote.
+/// Entries in a section numbered other than in decimal or after a restart
+/// keep their numbers.
+#[doc(hidden)]
+pub fn refresh_toc_page_numbers(
+    document: &mut Document,
+    converted_only: bool,
+) -> Result<TocRefresh> {
     refuse_if_protected(
         document,
         "refresh contents page numbers",
         OperationClass::BodyContent,
     )?;
-    document.commit(staged)?;
-    refreshed.changed = changed;
-    Ok(refreshed)
+    let main = document.package().main_part_name().to_string();
+    let numbers = {
+        let tree = document.package().xml(&main)?;
+        let decimal = decimal_bookmarks(tree);
+        let converted = document.converted_toc();
+        toc_page_refs(tree)
+            .into_iter()
+            .filter(|(t, bookmark)| {
+                decimal.contains(bookmark) && (!converted_only || converted.contains(t))
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut txn = Txn::new(document);
+    let (changed, layout) = write_page_numbers(&mut txn, &main, &numbers, false)?;
+    if changed > 0 {
+        let staged = txn.finish()?;
+        document.commit(staged)?;
+    }
+    Ok(TocRefresh { changed, layout })
+}
+
+/// Bookmarks in decimal sections with no restart after the first section.
+fn decimal_bookmarks(tree: &XmlTree) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let Some(body) = w_child(tree, tree.root(), "body") else {
+        return out;
+    };
+    let mut section = Vec::new();
+    let mut restarted = false;
+    let mut first = true;
+    let mut close = |sect_pr: Option<NodeId>, section: &mut Vec<String>| {
+        let numbering = sect_pr.and_then(|s| w_child(tree, s, "pgNumType"));
+        restarted |= !first && numbering.is_some_and(|n| w_attr(tree, n, "start").is_some());
+        first = false;
+        let decimal = numbering.is_none_or(|n| {
+            w_attr(tree, n, "fmt").is_none_or(|fmt| fmt == "decimal")
+                && w_attr(tree, n, "chapStyle").is_none()
+        });
+        if decimal && !restarted {
+            out.extend(section.drain(..));
+        }
+        section.clear();
+    };
+    for child in tree.child_elements(body) {
+        if tree.is(child, W, "sectPr") {
+            close(Some(child), &mut section);
+            continue;
+        }
+        section.extend(
+            tree.descendants(child)
+                .filter(|n| tree.is(*n, W, "bookmarkStart"))
+                .filter_map(|n| w_attr(tree, n, "name").map(str::to_string)),
+        );
+        let sect_pr = w_child(tree, child, "pPr").and_then(|ppr| w_child(tree, ppr, "sectPr"));
+        if tree.is(child, W, "p") && sect_pr.is_some() {
+            close(sect_pr, &mut section);
+        }
+    }
+    if !section.is_empty() {
+        close(None, &mut section);
+    }
+    out
 }
 
 struct OpenField {
     instruction: String,
     in_code: bool,
+    deleted: bool,
+    paragraph: Option<NodeId>,
     texts: Vec<NodeId>,
 }
 
-/// `(w:t, bookmark)` of every PAGEREF field nested in a TOC field's result,
-/// in document order.
+#[derive(Clone, Copy)]
+struct At {
+    deleted: bool,
+    paragraph: Option<NodeId>,
+}
+
+impl OpenField {
+    fn new(instruction: String, in_code: bool, at: At) -> Self {
+        OpenField {
+            instruction,
+            in_code,
+            deleted: at.deleted,
+            paragraph: at.paragraph,
+            texts: Vec::new(),
+        }
+    }
+}
+
+/// `(w:t, bookmark)` of every PAGEREF field nested in a TOC field's result.
 fn toc_page_refs(tree: &XmlTree) -> Vec<(NodeId, String)> {
     let mut open = Vec::new();
     let mut out = Vec::new();
-    walk_fields(tree, tree.root(), &mut open, &mut out);
+    let at = At {
+        deleted: false,
+        paragraph: None,
+    };
+    walk_fields(tree, tree.root(), at, &mut open, &mut out);
     out
 }
 
 fn walk_fields(
     tree: &XmlTree,
     node: NodeId,
+    at: At,
     open: &mut Vec<OpenField>,
     out: &mut Vec<(NodeId, String)>,
 ) {
+    let deleted = at.deleted;
     for child in tree.child_elements(node) {
         if tree.ns_uri(child) != Some(W) {
-            walk_fields(tree, child, open, out);
+            walk_fields(tree, child, at, open, out);
             continue;
         }
         match tree.local_name(child).unwrap_or("") {
-            "del" | "moveFrom" => {}
+            "del" | "moveFrom" => {
+                let at = At {
+                    deleted: true,
+                    ..at
+                };
+                walk_fields(tree, child, at, open, out);
+            }
+            "p" => {
+                let at = At {
+                    paragraph: Some(child),
+                    ..at
+                };
+                walk_fields(tree, child, at, open, out);
+            }
+            "fldSimple" => {
+                let instruction = w_attr(tree, child, "instr").unwrap_or("").to_string();
+                open.push(OpenField::new(instruction, false, at));
+                walk_fields(tree, child, at, open, out);
+                close_field(tree, open, at, out);
+            }
             "fldChar" => match w_attr(tree, child, "fldCharType") {
-                Some("begin") => open.push(OpenField {
-                    instruction: String::new(),
-                    in_code: true,
-                    texts: Vec::new(),
-                }),
+                Some("begin") => open.push(OpenField::new(String::new(), true, at)),
                 Some("separate") => {
                     if let Some(field) = open.last_mut() {
                         field.in_code = false;
+                        field.deleted |= deleted;
                     }
                 }
                 Some("end") => {
-                    let Some(field) = open.pop() else { continue };
-                    let in_toc = open
-                        .iter()
-                        .any(|outer| !outer.in_code && is_command(&outer.instruction, "TOC"));
-                    if let (true, [t], Some(bookmark)) = (
-                        in_toc,
-                        field.texts.as_slice(),
-                        page_ref_bookmark(&field.instruction),
-                    ) {
-                        out.push((*t, bookmark));
+                    if let Some(field) = open.last_mut() {
+                        field.deleted |= deleted;
                     }
+                    close_field(tree, open, at, out);
                 }
                 _ => {}
             },
-            "instrText" => {
+            "instrText" | "delInstrText" => {
                 if let Some(field) = open.last_mut().filter(|f| f.in_code) {
+                    field.deleted |= deleted;
                     field.instruction.push_str(&tree.text_content(child));
                 }
             }
@@ -343,8 +408,27 @@ fn walk_fields(
                     field.texts.push(child);
                 }
             }
-            _ => walk_fields(tree, child, open, out),
+            _ => walk_fields(tree, child, at, open, out),
         }
+    }
+}
+
+/// A PAGEREF in a contents begins and ends in one paragraph; one that does
+/// not is a field left open, closed by the end of an outer field.
+fn close_field(tree: &XmlTree, open: &mut Vec<OpenField>, at: At, out: &mut Vec<(NodeId, String)>) {
+    let Some(field) = open.pop() else { return };
+    let in_toc = open
+        .iter()
+        .any(|outer| !outer.in_code && !outer.deleted && is_command(&outer.instruction, "TOC"));
+    if let (true, false, true, [t], Some(bookmark)) = (
+        in_toc,
+        field.deleted,
+        field.paragraph == at.paragraph,
+        field.texts.as_slice(),
+        page_ref_bookmark(&field.instruction),
+    ) && tree.text_content(*t).chars().all(|c| c.is_ascii_digit())
+    {
+        out.push((*t, bookmark));
     }
 }
 

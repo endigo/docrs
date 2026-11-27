@@ -370,7 +370,7 @@ pub(crate) fn render(
     prefer_own_styles: bool,
     report: &mut MarkdownReport,
     styles: &mut Resolver,
-) -> Result<()> {
+) -> Result<Vec<NodeId>> {
     let main = txn.document().package().main_part_name().to_string();
     let (toc_title, toc_title_source) = if let Some(title) = &options.toc_title {
         (title.clone(), "option")
@@ -540,7 +540,7 @@ pub(crate) fn render(
         }
         renderer.report.styles.insert(role.key().to_string(), style);
     }
-    Ok(())
+    Ok(renderer.toc.numbers.iter().map(|(t, _)| *t).collect())
 }
 
 /// Relationship types (last path segment) whose targets only body content

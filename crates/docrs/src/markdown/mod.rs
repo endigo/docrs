@@ -494,11 +494,11 @@ fn insert_with(
         .unwrap_or_default();
     let mut report = MarkdownReport::default();
     report.warnings.extend(parsed.warnings.iter().cloned());
-    let staged = {
+    let (staged, toc_numbers) = {
         let doc: &Document = document;
         let mut txn = Txn::new(doc);
         let mut resolver = styles::Resolver::new(options.style_map.clone(), options.style_policy);
-        render::render(
+        let toc_numbers = render::render(
             &mut txn,
             &parsed,
             &metadata,
@@ -525,7 +525,7 @@ fn insert_with(
                 ),
             ));
         }
-        txn.finish()?
+        (txn.finish()?, toc_numbers)
     };
     report.changed_parts = staged
         .touched_parts()
@@ -538,6 +538,7 @@ fn insert_with(
         .map(str::to_string)
         .collect();
     document.commit(staged)?;
+    document.set_converted_toc(toc_numbers);
     Ok(report)
 }
 
