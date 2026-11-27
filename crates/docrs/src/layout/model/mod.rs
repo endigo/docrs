@@ -1,0 +1,329 @@
+//! The document as layout sees it: paragraphs with resolved formatting and
+//! measured text, tables with their grids, and the page geometry.
+//!
+//! Formatting is resolved as Word does: document defaults, then the table
+//! style (in tables), the paragraph style chain, the numbering level's
+//! paragraph properties and direct formatting; run properties likewise
+//! through the character style. Within one style chain the nearest value
+//! wins; the toggle properties (bold, italic, caps) XOR across the table,
+//! paragraph and character styles, and direct formatting is absolute.
+
+mod build;
+mod numbering;
+mod props;
+mod styles;
+mod table;
+mod theme;
+
+use std::collections::HashMap;
+
+use super::fonts::{FontBook, FontKind};
+use crate::Result;
+use crate::package::rels::rt;
+use crate::txn::Txn;
+use crate::wml::{R, W, w_attr, w_child};
+use crate::xml::{NodeId, XmlTree};
+use numbering::Numbering;
+use props::{on_off, twips};
+use styles::Styles;
+use theme::{Theme, read_font_kinds, read_theme};
+
+/// Page geometry in points.
+#[derive(Debug, Clone, Copy)]
+pub struct Page {
+    pub height: f64,
+    pub top: f64,
+    pub bottom: f64,
+    pub header: f64,
+    pub footer: f64,
+    /// Text width between the margins.
+    pub text_width: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum LineRule {
+    /// `line` is 240ths of the single line height.
+    #[default]
+    Auto,
+    /// Exactly `line` twips.
+    Exact,
+    /// At least `line` twips.
+    AtLeast,
+}
+
+/// A paragraph's line spacing, resolved to points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineSpacing {
+    /// A multiple of the single line height.
+    Multiple(f64),
+    Exact(f64),
+    AtLeast(f64),
+}
+
+impl Default for LineSpacing {
+    fn default() -> Self {
+        LineSpacing::Multiple(1.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TabKind {
+    Left,
+    Right,
+    Center,
+    Decimal,
+    Clear,
+}
+
+/// Font metrics of a text piece, shared by index.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Metric {
+    /// Single line height in points.
+    pub height: f64,
+    /// Ascent plus line gap in points.
+    pub ascent: f64,
+}
+
+#[derive(Debug, Clone)]
+pub enum Piece {
+    Char { ch: char, width: f64, metric: u32 },
+    Tab { metric: u32 },
+    LineBreak { metric: u32 },
+    PageBreak,
+    Object { width: f64, height: f64 },
+}
+
+#[derive(Debug, Clone)]
+pub struct Label {
+    pub width: f64,
+    pub metric: u32,
+    /// What follows the label: a tab (true) or a space/nothing.
+    pub tab: bool,
+    pub space: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Para {
+    pub node: Option<NodeId>,
+    pub pieces: Vec<Piece>,
+    pub before: f64,
+    pub after: f64,
+    pub before_auto: bool,
+    pub after_auto: bool,
+    pub line: LineSpacing,
+    pub left: f64,
+    pub right: f64,
+    /// First-line indent (negative: hanging).
+    pub first: f64,
+    pub keep_next: bool,
+    pub keep_lines: bool,
+    pub page_break_before: bool,
+    pub widow_control: bool,
+    pub contextual: bool,
+    /// Justified: Word lets the spaces of a line shrink to fit it.
+    pub justified: bool,
+    pub style: String,
+    pub tabs: Vec<(f64, TabKind)>,
+    pub label: Option<Label>,
+    /// The paragraph mark's metric (empty paragraphs, the last line).
+    pub mark: u32,
+    pub bookmarks: Vec<String>,
+    /// Ends a section (`w:sectPr` in its properties): the next section's
+    /// index.
+    pub section_break: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Cell {
+    pub width: f64,
+    pub margins: [f64; 4],
+    pub blocks: Vec<Block>,
+    /// 0: none, 1: restart, 2: continue.
+    pub vmerge: u8,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Row {
+    pub cells: Vec<Cell>,
+    pub height: Option<(f64, bool)>,
+    /// Width of the border above the row (the table's top border, else
+    /// the inside one), and below it for the last row: Word adds both to
+    /// the row's height.
+    pub border_top: f64,
+    pub border_bottom: f64,
+    pub cant_split: bool,
+    pub header: bool,
+    pub node: Option<NodeId>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Table {
+    pub rows: Vec<Row>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Block {
+    Para(Para),
+    Table(Table),
+}
+
+#[derive(Debug, Clone)]
+pub struct Section {
+    pub page: Page,
+    /// Default header and footer content heights.
+    pub header_height: f64,
+    pub footer_height: f64,
+    /// First-page ones, when the section has a distinct first page.
+    pub first_header_height: Option<f64>,
+    pub first_footer_height: Option<f64>,
+    /// `w:pgNumType w:start`.
+    pub page_start: Option<i64>,
+    /// Starts on the same page (`continuous`).
+    pub continuous: bool,
+}
+
+pub struct Model {
+    pub sections: Vec<Section>,
+    pub blocks: Vec<Block>,
+    pub metrics: Vec<Metric>,
+    pub default_tab: f64,
+}
+
+pub(super) struct Builder<'a> {
+    styles: Styles,
+    numbering: Numbering,
+    theme: Theme,
+    kinds: HashMap<String, FontKind>,
+    pub fonts: &'a mut FontBook,
+    pub metrics: Vec<Metric>,
+    metric_index: HashMap<(u64, u64), u32>,
+    sections_seen: usize,
+}
+
+fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
+    let name = txn.part_related_by(main, rel).ok().flatten()?;
+    txn.tree(&name).ok()
+}
+
+pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
+    let tree = txn.tree(main)?;
+    let mut builder = Builder {
+        styles: Styles::read(part(txn, main, rt::STYLES)),
+        numbering: Numbering::read(part(txn, main, rt::NUMBERING)),
+        theme: read_theme(part(txn, main, rt::THEME)),
+        kinds: read_font_kinds(part(txn, main, rt::FONT_TABLE)),
+        fonts,
+        metrics: Vec::new(),
+        metric_index: HashMap::new(),
+        sections_seen: 0,
+    };
+    let default_tab = part(txn, main, rt::SETTINGS)
+        .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))
+        .unwrap_or(36.0);
+    let body = w_child(tree, tree.root(), "body");
+    // Section properties in body order: those ending a section inside a
+    // paragraph, then the body's own (the last section).
+    let mut sects: Vec<NodeId> = Vec::new();
+    if let Some(body) = body {
+        for node in tree.descendants(body) {
+            if tree.is(node, W, "sectPr") {
+                let in_ppr = tree.parent(node).is_some_and(|p| tree.is(p, W, "pPr"));
+                let in_body = tree.parent(node) == Some(body);
+                if in_ppr || in_body {
+                    sects.push(node);
+                }
+            }
+        }
+    }
+    let mut sections = Vec::new();
+    let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
+    let rels = txn.resolved_relationships(main)?;
+    for sect in &sects {
+        let page = page_of(tree, Some(*sect));
+        for reference in tree.child_elements(*sect) {
+            let kind = match tree.local_name(reference) {
+                Some("headerReference") => "header",
+                Some("footerReference") => "footer",
+                _ => continue,
+            };
+            let which = w_attr(tree, reference, "type")
+                .unwrap_or("default")
+                .to_string();
+            let Some(id) = tree.attr(reference, Some(R), "id") else {
+                continue;
+            };
+            let Some((_, name)) = rels.iter().find(|(rel, _)| rel.id == id) else {
+                continue;
+            };
+            let Ok(story) = txn.tree(name) else {
+                continue;
+            };
+            let mut story_blocks = Vec::new();
+            builder.blocks(story, story.root(), None, &mut story_blocks);
+            let height = super::flow::stack_height(
+                &story_blocks,
+                &builder.metrics,
+                page.text_width,
+                default_tab,
+            );
+            inherited.insert((kind, which), height);
+        }
+        let get =
+            |kind: &'static str, which: &str| inherited.get(&(kind, which.to_string())).copied();
+        let first_page = w_child(tree, *sect, "titlePg").is_some_and(|t| on_off(tree, t));
+        sections.push(Section {
+            page,
+            header_height: get("header", "default").unwrap_or(0.0),
+            footer_height: get("footer", "default").unwrap_or(0.0),
+            first_header_height: first_page.then(|| get("header", "first").unwrap_or(0.0)),
+            first_footer_height: first_page.then(|| get("footer", "first").unwrap_or(0.0)),
+            page_start: w_child(tree, *sect, "pgNumType")
+                .and_then(|n| w_attr(tree, n, "start"))
+                .and_then(|v| v.parse().ok()),
+            continuous: w_child(tree, *sect, "type").and_then(|t| w_attr(tree, t, "val"))
+                == Some("continuous"),
+        });
+    }
+    if sections.is_empty() {
+        sections.push(Section {
+            page: page_of(tree, None),
+            header_height: 0.0,
+            footer_height: 0.0,
+            first_header_height: None,
+            first_footer_height: None,
+            page_start: None,
+            continuous: false,
+        });
+    }
+    let mut blocks = Vec::new();
+    if let Some(body) = body {
+        builder.blocks(tree, body, None, &mut blocks);
+    }
+    Ok(Model {
+        sections,
+        blocks,
+        metrics: builder.metrics,
+        default_tab,
+    })
+}
+
+fn page_of(tree: &XmlTree, sect: Option<NodeId>) -> Page {
+    let size = sect.and_then(|s| w_child(tree, s, "pgSz"));
+    let mar = sect.and_then(|s| w_child(tree, s, "pgMar"));
+    let get = |node: Option<NodeId>, name: &str, default: f64| {
+        node.and_then(|n| twips(tree, n, name)).unwrap_or(default)
+    };
+    let width = get(size, "w", 612.0);
+    let height = get(size, "h", 792.0);
+    let left = get(mar, "left", 72.0);
+    let right = get(mar, "right", 72.0);
+    let gutter = get(mar, "gutter", 0.0);
+    Page {
+        height,
+        top: get(mar, "top", 72.0),
+        bottom: get(mar, "bottom", 72.0),
+        header: get(mar, "header", 36.0),
+        footer: get(mar, "footer", 36.0),
+        text_width: (width - left - right - gutter).max(36.0),
+    }
+}
