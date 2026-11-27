@@ -265,7 +265,7 @@ enum Command {
         fonts: Vec<std::path::PathBuf>,
         /// Print every line instead, one JSON object a line: page, story,
         /// x, y, width, height, baseline, tabs (points from the page's top-left
-        /// corner) and text. Experimental.
+        /// corner), slack, gaps, last, align and text. Experimental.
         #[arg(long)]
         lines: bool,
     },

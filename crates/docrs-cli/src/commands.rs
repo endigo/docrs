@@ -505,6 +505,10 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                             "height": round(line.height),
                             "baseline": round(line.baseline),
                             "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                            "slack": round(line.slack),
+                            "gaps": line.gaps,
+                            "last": line.last,
+                            "align": line.align,
                             "text": line.text,
                         })
                     );
