@@ -149,15 +149,15 @@ impl Timestamp {
 
     /// `ST_DateTime` serialization: `YYYY-MM-DDTHH:MM:SSZ` (UTC).
     pub fn to_xml(self) -> String {
-        let days = self.secs.div_euclid(86_400);
+        let [year, month, day, hour, minute, second] = self.utc_fields();
+        format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+    }
+
+    /// Year, month, day, hour, minute and second in UTC.
+    pub(crate) fn utc_fields(self) -> [i64; 6] {
         let rem = self.secs.rem_euclid(86_400);
-        let (year, month, day) = civil_from_days(days);
-        format!(
-            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-            rem / 3600,
-            (rem % 3600) / 60,
-            rem % 60
-        )
+        let (year, month, day) = civil_from_days(self.secs.div_euclid(86_400));
+        [year, month, day, rem / 3600, (rem % 3600) / 60, rem % 60]
     }
 }
 
