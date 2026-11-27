@@ -5,6 +5,7 @@ root=$(cd "$(dirname "$0")/../../.." && pwd)
 work=$root/target/pdf-oracle/checks
 mkdir -p "$work"
 python3 -I "$root/tools/pdf/checks/test_compare.py"
+python3 -I "$root/tools/pdf/checks/test_environment.py"
 
 swiftc -O "$root/tools/pdf/pdflines.swift" -o "$work/pdflines"
 swiftc -O "$root/tools/pdf/checks/tight.swift" -o "$work/tight"
