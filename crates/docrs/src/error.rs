@@ -103,12 +103,34 @@ pub struct LimitExceeded {
     pub observed: u64,
 }
 
+/// Structured detail of an error, for callers that act on what caused it.
+/// Holds codes and counts only, nothing from the input.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct ErrorDetails {
+    /// The warnings behind the error, one entry per code.
+    pub warnings: Vec<WarningCount>,
+}
+
+/// How often a warning code occurred.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct WarningCount {
+    /// Stable warning code.
+    pub code: &'static str,
+    /// Occurrences.
+    pub count: usize,
+    /// The code's fixed description.
+    pub description: &'static str,
+}
+
 /// The single error type of this crate.
 pub struct Error {
     kind: ErrorKind,
     reason: &'static str,
     message: String,
     limit: Option<LimitExceeded>,
+    details: Option<Box<ErrorDetails>>,
     source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
 }
 
@@ -120,6 +142,7 @@ impl Error {
             reason,
             message: message.into(),
             limit: None,
+            details: None,
             source: None,
         }
     }
@@ -146,6 +169,7 @@ impl Error {
             reason,
             message: message.into(),
             limit: None,
+            details: None,
             source: None,
         }
     }
@@ -165,6 +189,7 @@ impl Error {
                 allowed,
                 observed,
             }),
+            details: None,
             source: None,
         }
     }
@@ -183,6 +208,7 @@ impl Error {
                 allowed,
                 observed,
             }),
+            details: None,
             source: None,
         }
     }
@@ -194,6 +220,7 @@ impl Error {
             reason,
             message: message.into(),
             limit: None,
+            details: None,
             source: Some(Box::new(source)),
         }
     }
@@ -205,6 +232,7 @@ impl Error {
             reason,
             message: message.into(),
             limit: None,
+            details: None,
             source: None,
         }
     }
@@ -249,16 +277,35 @@ impl Error {
     }
 
     /// A message with nothing taken from the input (no text, names, paths
-    /// or values): the codes, and a budget's numbers. For logs that must not
-    /// hold client data.
+    /// or values): the codes, a budget's numbers and the details' fixed
+    /// descriptions. For logs that must not hold client data.
     pub fn redacted_message(&self) -> String {
-        match &self.limit {
+        let mut message = match &self.limit {
             Some(limit) => format!(
                 "resource budget {} exceeded: allowed {}, observed at least {}",
                 limit.limit, limit.allowed, limit.observed
             ),
             None => format!("{} ({})", self.code(), self.reason),
+        };
+        for warning in self.details.iter().flat_map(|d| &d.warnings) {
+            message.push_str(&format!(
+                "; {} \u{d7}{}: {}",
+                warning.code, warning.count, warning.description
+            ));
         }
+        message
+    }
+
+    /// Attach structured details.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn with_details(mut self, details: ErrorDetails) -> Self {
+        self.details = Some(Box::new(details));
+        self
+    }
+
+    /// Structured details, when the error carries them.
+    pub fn details(&self) -> Option<&ErrorDetails> {
+        self.details.as_deref()
     }
 
     /// Budget details for [`ErrorKind::ResourceLimit`].
@@ -272,9 +319,10 @@ impl Error {
         self
     }
 
-    /// JSON diagnostic (`schema_version: 1`).
+    /// JSON diagnostic (`schema_version: 1`); `error.details` only when the
+    /// error carries details.
     pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut json = serde_json::json!({
             "schema_version": 1,
             "error": {
                 "code": self.code(),
@@ -283,7 +331,11 @@ impl Error {
                 "refusal": self.is_refusal(),
                 "limit": self.limit,
             }
-        })
+        });
+        if let Some(details) = &self.details {
+            json["error"]["details"] = serde_json::json!(details);
+        }
+        json
     }
 }
 

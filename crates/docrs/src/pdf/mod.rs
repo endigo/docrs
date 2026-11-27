@@ -1,19 +1,218 @@
 //! PDF export. **Experimental**: exempt from semantic versioning until the
-//! release that completes it. There is no public API yet. Output is
-//! deterministic for a given build.
+//! release that completes it. Output is deterministic for a given build.
+//!
+//! [`preflight`] reports what a document holds that a PDF would not show
+//! faithfully. While the engine is incomplete, every construct it does not
+//! draw yet is a `pdf_not_yet_drawn` warning, and [`PdfReport::check`]
+//! refuses it, so a PDF is never silently incomplete.
 
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
 
 mod meta;
+mod preflight;
 mod writer;
+
+pub use preflight::preflight;
 
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use meta::Info;
 
+use serde::Serialize;
 use writer::{Dict, Object, Writer, count, name};
 
-use crate::{Error, Limits, Result};
+use crate::{Error, ErrorDetails, Limits, Result, WarningCount};
+
+/// The code of a construct the engine does not draw yet.
+pub const NOT_YET_DRAWN: &str = "pdf_not_yet_drawn";
+
+/// Every warning code, with a fixed description that quotes nothing from
+/// the input ([`PdfReport::redact`]).
+pub const WARNING_CODES: &[(&str, &str)] = &[
+    (
+        NOT_YET_DRAWN,
+        "the PDF engine does not draw this yet; a PDF would leave it out",
+    ),
+    ("pdf_chart_skipped", "a chart is left out of the PDF"),
+    (
+        "pdf_smartart_skipped",
+        "a SmartArt graphic is left out of the PDF",
+    ),
+    (
+        "pdf_object_skipped",
+        "an embedded (OLE) object is left out of the PDF",
+    ),
+    ("pdf_shape_skipped", "a drawn shape is left out of the PDF"),
+    (
+        "pdf_text_box_skipped",
+        "a text box is left out of the PDF with the text inside it",
+    ),
+    (
+        "pdf_watermark_skipped",
+        "a watermark is left out of the PDF",
+    ),
+    (
+        "pdf_columns_ignored",
+        "a section with several columns is laid out in one column",
+    ),
+    (
+        "pdf_wrap_ignored",
+        "text does not wrap around a floating object",
+    ),
+    (
+        "pdf_equation_linearized",
+        "an equation is drawn as a line of text",
+    ),
+    (
+        "pdf_image_unsupported",
+        "a TIFF, EMF or WMF image is left out of the PDF",
+    ),
+    (
+        "pdf_text_unsupported",
+        "text outside the Latin script (right-to-left, complex scripts, CJK, combining marks) may be drawn wrongly",
+    ),
+    (
+        "pdf_layout_feature_ignored",
+        "a layout feature (page borders, line numbers, frames, drop caps, floating tables, rotated cell text, vertical page alignment, automatic hyphenation) is ignored",
+    ),
+    (
+        "pdf_revisions_flattened",
+        "tracked changes and comments are not shown: the PDF shows the text as if every change were accepted",
+    ),
+    (
+        "pdf_field_cached",
+        "a date or time field shows the value saved in the document, not the current one",
+    ),
+    (
+        "pdf_link_scheme_skipped",
+        "a link uses a scheme other than http, https, mailto, tel or a bookmark; its text is kept without the link",
+    ),
+];
+
+/// The fixed description of `code`.
+fn description(code: &str) -> &'static str {
+    WARNING_CODES
+        .iter()
+        .find(|(known, _)| *known == code)
+        .map_or(
+            "the PDF would not show something faithfully",
+            |(_, text)| text,
+        )
+}
+
+/// Where a construct is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct PdfLocation {
+    /// The part holding it (`word/document.xml`, `word/header1.xml`, …).
+    pub story: String,
+    /// The story's paragraph it is in or after, from 1 (0: before the
+    /// first; document-wide settings have no location).
+    pub ordinal: usize,
+    /// The page, once the document is laid out.
+    pub page: Option<u32>,
+}
+
+/// One kind of construct a PDF would not show faithfully.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct PdfWarning {
+    /// Stable code ([`WARNING_CODES`]).
+    pub code: &'static str,
+    /// What it is about, from a fixed vocabulary (`table`, `CJK text`,
+    /// `page borders`, …); one warning per code and subject.
+    pub subject: &'static str,
+    /// What happened; may quote the input (text box text, link schemes).
+    pub message: String,
+    /// The first locations, at most [`MAX_LOCATIONS`].
+    pub locations: Vec<PdfLocation>,
+    /// Occurrences.
+    pub count: usize,
+}
+
+/// Locations kept per warning.
+pub const MAX_LOCATIONS: usize = 10;
+
+/// What a PDF of the document would leave out or change.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct PdfReport {
+    /// In order of first occurrence.
+    pub warnings: Vec<PdfWarning>,
+}
+
+impl PdfReport {
+    /// Replace every message with its code's fixed description, so the
+    /// report holds nothing from the input.
+    pub fn redact(&mut self) {
+        for warning in &mut self.warnings {
+            warning.message = description(warning.code).to_string();
+        }
+    }
+
+    /// JSON form (`schema_version: 1`).
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        if let Some(object) = value.as_object_mut() {
+            object.insert("schema_version".into(), 1.into());
+        }
+        value
+    }
+
+    /// Refuse a construct not drawn yet (`pdf_not_yet_drawn`) always, and
+    /// with `strict` any warning (`pdf_not_faithful`). The refusal's
+    /// details count each code.
+    pub fn check(&self, strict: bool) -> Result<()> {
+        let missing: Vec<&str> = self
+            .warnings
+            .iter()
+            .filter(|w| w.code == NOT_YET_DRAWN)
+            .map(|w| w.subject)
+            .collect();
+        let error = if !missing.is_empty() {
+            Error::unsupported(
+                NOT_YET_DRAWN,
+                format!("the PDF engine does not draw {} yet", missing.join(", ")),
+            )
+        } else if strict && !self.warnings.is_empty() {
+            Error::unsupported(
+                "pdf_not_faithful",
+                format!(
+                    "the PDF would not show the document faithfully: {}",
+                    self.codes().join(", ")
+                ),
+            )
+        } else {
+            return Ok(());
+        };
+        Err(error.with_details(self.details()))
+    }
+
+    fn codes(&self) -> Vec<&'static str> {
+        let mut codes: Vec<&str> = self.warnings.iter().map(|w| w.code).collect();
+        codes.sort_unstable();
+        codes.dedup();
+        codes
+    }
+
+    fn details(&self) -> ErrorDetails {
+        let warnings = self
+            .codes()
+            .into_iter()
+            .map(|code| WarningCount {
+                code,
+                count: self
+                    .warnings
+                    .iter()
+                    .filter(|w| w.code == code)
+                    .map(|w| w.count)
+                    .sum(),
+                description: description(code),
+            })
+            .collect();
+        ErrorDetails { warnings }
+    }
+}
 
 /// Page side limits in points (ISO 32000-1 Annex C).
 const MIN_PAGE_SIDE: f64 = 3.0;

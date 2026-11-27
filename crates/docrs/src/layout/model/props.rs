@@ -162,7 +162,7 @@ pub(super) fn side(tree: &XmlTree, borders: NodeId, [name, logical]: [&str; 2]) 
     w_child(tree, borders, name).or_else(|| w_child(tree, borders, logical))
 }
 
-pub(super) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
+pub(crate) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
     !matches!(
         w_attr(tree, node, "val"),
         Some("0" | "false" | "off" | "none")
