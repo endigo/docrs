@@ -29,9 +29,9 @@ pub struct Face {
     line_gap: f64,
     average_width: f64,
     codepoints: Arc<[u32]>,
-    widths: Vec<u16>,
+    widths: Arc<[u16]>,
     /// Pair kerning between `KERN_CODEPOINTS`, in font units, sorted.
-    kerning: Vec<((u32, u32), i16)>,
+    kerning: Arc<[KernPair]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,8 +78,9 @@ type KernPair = ((u32, u32), i16);
 /// At most one mapping per Unicode code point.
 const MAX_MAPPINGS: usize = 0x11_0000;
 
-/// Cmap entries and kern records one file may examine, across its faces.
-const FILE_BUDGET: usize = 4 * MAX_MAPPINGS;
+/// Cmap entries and kern records one font file, or one document's embedded
+/// fonts, may examine.
+pub(crate) const FILE_BUDGET: usize = 4 * MAX_MAPPINGS;
 
 /// Code points kerning is kept between (printable ASCII and the
 /// typographic quotes and dashes; as `tools/layout/make_font_metrics.py`).
@@ -154,6 +155,26 @@ impl Face {
             .map_err(FontError::into_error)
     }
 
+    pub(crate) fn parse_within(
+        data: &[u8],
+        family: &str,
+        bold: bool,
+        italic: bool,
+        budget: &mut usize,
+    ) -> Option<Face> {
+        let ttf = Ttf::new(data).ok()?;
+        Face::from_ttf(&ttf, family, bold, italic, budget).ok()
+    }
+
+    pub(crate) fn restyled(&self, family: &str, bold: bool, italic: bool) -> Face {
+        Face {
+            family: family.to_string(),
+            bold,
+            italic,
+            ..self.clone()
+        }
+    }
+
     fn from_ttf(
         ttf: &Ttf<'_>,
         family: &str,
@@ -202,7 +223,7 @@ impl Face {
             None => Vec::new(),
         };
         let codepoints: Arc<[u32]> = mapping.iter().map(|(c, _)| *c).collect();
-        let widths: Vec<u16> = mapping.iter().map(|(_, glyph)| advance(*glyph)).collect();
+        let widths: Arc<[u16]> = mapping.iter().map(|(_, glyph)| advance(*glyph)).collect();
         let symbol = mapping_is_symbol;
         Ok(Face {
             family: family.to_string(),
@@ -216,7 +237,7 @@ impl Face {
             average_width,
             codepoints,
             widths,
-            kerning,
+            kerning: kerning.into(),
         })
     }
 }
@@ -515,7 +536,7 @@ fn cmap(table: &[u8], glyphs: u32, budget: &mut usize) -> Parsed<Vec<(u32, u16)>
             if start > end {
                 return Err(FontError::CmapReversedRange);
             }
-            if previous_end.is_some_and(|p| start <= p) {
+            if previous_end.is_some_and(|p| end < p) {
                 return Err(FontError::CmapUnsorted);
             }
             previous_end = Some(end);
@@ -541,17 +562,20 @@ fn cmap(table: &[u8], glyphs: u32, budget: &mut usize) -> Parsed<Vec<(u32, u16)>
             }
         }
     } else {
-        let groups = field32(offset + 12)? as usize;
-        let last = groups
-            .checked_mul(12)
-            .and_then(|n| n.checked_add(offset + 16))
+        let length = field32(offset + 4)? as usize;
+        let sub = offset
+            .checked_add(length)
+            .and_then(|end| table.get(offset..end))
             .ok_or(malformed)?;
-        if last > table.len() {
+        let field32 = |at| be32(sub, at).ok_or(malformed);
+        let groups = field32(12)? as usize;
+        let needed = groups.checked_mul(12).and_then(|n| n.checked_add(16));
+        if needed.is_none_or(|n| n > length) {
             return Err(malformed);
         }
         let mut previous_end: Option<u32> = None;
         for g in 0..groups {
-            let at = offset + 16 + 12 * g;
+            let at = 16 + 12 * g;
             let start = field32(at)?;
             let end = field32(at + 4)?;
             let glyph = field32(at + 8)?;
@@ -659,8 +683,8 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             line_gap,
             average_width,
             codepoints,
-            widths,
-            kerning,
+            widths: widths.into(),
+            kerning: kerning.into(),
         }));
     }
     Some(out)
@@ -965,7 +989,8 @@ mod hostile {
 
     fn format12(groups: impl ExactSizeIterator<Item = (u32, u32, u32)>) -> Vec<u8> {
         let mut out = be(&[0, 1, 3, 10, 0, 12, 12, 0]);
-        out.extend([0; 8]);
+        out.extend((16 + 12 * groups.len() as u32).to_be_bytes());
+        out.extend([0; 4]);
         out.extend((groups.len() as u32).to_be_bytes());
         for (start, end, glyph) in groups {
             out.extend(start.to_be_bytes());
@@ -1019,7 +1044,8 @@ mod hostile {
     }
 
     fn refusal(font: &[u8]) -> Option<FontError> {
-        read(font, &mut FILE_BUDGET.clone()).err()
+        let mut budget = FILE_BUDGET;
+        read(font, &mut budget).err()
     }
 
     fn ab_cmap() -> Vec<u8> {
@@ -1105,7 +1131,7 @@ mod hostile {
         let mut segments = vec![(0, 0xFFFE, 0); 7999];
         segments.push((0xFFFF, 0xFFFF, 1));
         let font = face_tables(0xFFFF, format4(&segments), None);
-        assert_eq!(quickly(|| refusal(&font)), Some(FontError::CmapUnsorted));
+        assert_eq!(quickly(|| refusal(&font)), Some(FontError::TooLarge));
         assert!(quickly(|| Face::parse_file(&font)).is_empty());
         let too_long = face_tables(0xFFFF, format4(&vec![(0, 0xFFFE, 0); 0x7FFF]), None);
         assert_eq!(
@@ -1138,9 +1164,10 @@ mod hostile {
     #[test]
     fn a_format_4_glyph_index_must_stay_in_its_subtable() {
         let segments = [(0x41, 0x42, 0, 4), (0xFFFF, 0xFFFF, 1, 0)];
+        let mut budget = FILE_BUDGET;
         let face = read(
             &face_tables(3, format4_with(&segments, &[1, 2]), None),
-            &mut FILE_BUDGET.clone(),
+            &mut budget,
         )
         .unwrap();
         assert!((face.advance('B') - 0.7).abs() < 1e-9);
@@ -1165,13 +1192,39 @@ mod hostile {
             Some(FontError::CmapReversedRange)
         );
         assert_eq!(
-            parse(&[(0x41, 0x42, to_a), (0x42, 0x42, to_a)]),
+            parse(&[(0x41, 0x42, to_a), (0x40, 0x41, to_a)]),
             Some(FontError::CmapUnsorted)
         );
         assert_eq!(
             parse(&[(0x41, 0x43, to_a)]),
             Some(FontError::CmapOutOfRange)
         );
+    }
+
+    #[test]
+    fn format_4_segments_may_share_one_code_point() {
+        let to_a = 1u16.wrapping_sub(0x41);
+        let segments = [
+            (0x41, 0x42, to_a),
+            (0x42, 0x42, 1u16.wrapping_sub(0x42)),
+            (0xFFFF, 0xFFFF, 1),
+        ];
+        let mut budget = FILE_BUDGET;
+        let face = read(&face_tables(3, format4(&segments), None), &mut budget).unwrap();
+        assert!((face.advance('A') - 0.6).abs() < 1e-9);
+        assert!((face.advance('B') - 0.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_format_12_subtable_must_be_whole() {
+        let patched = |length: u32| {
+            let mut cmap = format12([(0x41, 0x42, 1)].into_iter());
+            cmap[16..20].copy_from_slice(&length.to_be_bytes());
+            refusal(&face_tables(3, cmap, None))
+        };
+        assert_eq!(patched(28), None);
+        assert_eq!(patched(27), Some(FontError::Malformed("cmap")));
+        assert_eq!(patched(32), Some(FontError::Malformed("cmap")));
     }
 
     #[test]
@@ -1201,11 +1254,7 @@ mod hostile {
         let ttc = collection(&[face_tables(0xFFFF, full_unicode_cmap(), None)], 64);
         let faces = quickly(|| Face::parse_file(&ttc));
         assert_eq!(faces.len(), FILE_BUDGET / MAX_MAPPINGS);
-        assert!(
-            faces
-                .iter()
-                .all(|face| face.widths.capacity() == MAX_MAPPINGS)
-        );
+        assert!(faces.iter().all(|face| face.widths.len() == MAX_MAPPINGS));
     }
 
     #[test]
@@ -1233,7 +1282,8 @@ mod hostile {
             kern.extend(be(&[0xFFFF, 6, 1]));
         }
         let font = face_tables(3, ab_cmap(), Some(kern));
-        let face = quickly(|| read(&font, &mut FILE_BUDGET.clone())).unwrap();
+        let mut budget = FILE_BUDGET;
+        let face = quickly(|| read(&font, &mut budget)).unwrap();
         assert_eq!(face.kern('A', 'B'), 0.0);
     }
 

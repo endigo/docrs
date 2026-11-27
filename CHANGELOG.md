@@ -5,7 +5,7 @@
 ### Library
 
 - Experimental `pdf` feature (no public API yet).
-- A hostile font file, passed with `--font` or embedded in a document, no longer exhausts memory or time. A face whose cmap ranges are unsorted, overlapping or out of range, whose format 4 subtable overruns its declared length or lacks the final 0xFFFF segment, or whose `hmtx` is missing or short, is refused: `Face::try_parse` returns `invalid_argument` with reason `font_cmap_invalid`, `font_malformed` or `font_too_large`, and a collection skips the face. The cmap entries and kern records read across one file share a budget of 4 × 1,114,112 that is charged before allocating.
+- A hostile font file, passed with `--font` or embedded in a document, no longer exhausts memory or time. A face is refused when its cmap ranges are out of order or out of range, its cmap subtable overruns its declared length (or, in format 4, lacks the final 0xFFFF segment), or its `hmtx` is missing or short. A collection skips that face, and the new `Face::try_parse` returns `invalid_argument` with reason `font_cmap_invalid`, `font_malformed` or `font_too_large`. The cmap entries and kern records read across one font file, or across one document's embedded fonts, share a budget of 4 × 1,114,112 that is charged before allocating. A font part embedded many times is read once.
 
 ## 1.0.1 (2026-11-23)
 

@@ -55,7 +55,7 @@ impl Layout {
 }
 
 /// Embedded fonts of the document (`w:embedRegular` and friends in the
-/// font table), deobfuscated and measured.
+/// font table), deobfuscated and measured within one budget.
 fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
     let mut out = Vec::new();
     let Some(table) = txn.part_related_by(main, rt::FONT_TABLE)? else {
@@ -63,6 +63,8 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
     };
     let tree = txn.tree(&table)?;
     let rels = txn.resolved_relationships(&table)?;
+    let mut budget = fonts::FILE_BUDGET;
+    let mut parsed: HashMap<(&str, Option<&str>), Option<Face>> = HashMap::new();
     for font in w_children(tree, tree.root(), "font") {
         let Some(name) = w_attr(tree, font, "name") else {
             continue;
@@ -82,18 +84,17 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
             let Some((_, part)) = rels.iter().find(|(rel, _)| rel.id == id) else {
                 continue;
             };
-            let Some(bytes) = txn.binary(part) else {
-                continue;
-            };
-            let data = match w_attr(tree, embed, "fontKey") {
-                Some(key) => match fonts::deobfuscate(&bytes, key) {
-                    Some(data) => data,
-                    None => continue,
-                },
-                None => bytes.to_vec(),
-            };
-            if let Some(face) = Face::parse(&data, name, bold, italic) {
-                out.push(face);
+            let key = w_attr(tree, embed, "fontKey");
+            let face = parsed.entry((part.as_str(), key)).or_insert_with(|| {
+                let bytes = txn.binary(part)?;
+                let data = match key {
+                    Some(key) => fonts::deobfuscate(&bytes, key)?,
+                    None => bytes.to_vec(),
+                };
+                Face::parse_within(&data, name, bold, italic, &mut budget)
+            });
+            if let Some(face) = face {
+                out.push(face.restyled(name, bold, italic));
             }
         }
     }
