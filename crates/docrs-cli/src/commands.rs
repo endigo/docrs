@@ -493,7 +493,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let main = document.package().main_part_name().to_string();
             if *lines {
                 let round = |v: f64| (v * 100.0).round() / 100.0;
-                for line in docrs::layout::line_records(&txn, &main, faces)? {
+                docrs::layout::line_records(&txn, &main, faces, |line| {
                     println!(
                         "{}",
                         json!({
@@ -512,7 +512,8 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                             "text": line.text,
                         })
                     );
-                }
+                    Ok(())
+                })?;
                 return Ok(0);
             }
             let layout = docrs::layout::layout(&txn, &main, faces)?;
