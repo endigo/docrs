@@ -288,6 +288,10 @@ fn body() -> String {
                     "<w:hyperlink w:anchor=\"target\">{}</w:hyperlink>",
                     run(&link, "anchor ")
                 ),
+                format!(
+                    "<w:hyperlink r:id=\"rId3\" w:anchor=\"top\">{}</w:hyperlink>",
+                    run(&link, "uri-anchor ")
+                ),
                 field(&format!(" HYPERLINK \"{URI}\" \\l \"part\" "), "field-uri "),
                 field(" HYPERLINK \\l \"target\" ", "field-anchor "),
                 format!(
@@ -469,6 +473,7 @@ fn hyperlinks_and_hyperlink_fields_name_their_targets() {
     let uri = |u: &str| Some(Link::Uri(u.to_string()));
     assert_eq!(link("uri"), uri(URI));
     assert_eq!(link("anchor"), Some(Link::Anchor("target".to_string())));
+    assert_eq!(link("uri-anchor"), uri(&format!("{URI}#top")));
     assert_eq!(link("field-uri"), uri(&format!("{URI}#part")));
     assert_eq!(
         link("field-anchor"),

@@ -107,14 +107,17 @@ impl Builder<'_> {
         index
     }
 
-    /// `w:hyperlink`'s target: its relationship's, else its bookmark.
+    /// `w:hyperlink`'s target: its relationship's, with its bookmark as the
+    /// fragment, else the bookmark.
     fn hyperlink_target(&self, tree: &XmlTree, hyperlink: NodeId) -> Option<Link> {
         let uri = tree
             .attr(hyperlink, Some(R), "id")
             .and_then(|id| self.hyperlinks.get(id));
-        match uri {
-            Some(uri) => Some(Link::Uri(uri.clone())),
-            None => w_attr(tree, hyperlink, "anchor").map(|a| Link::Anchor(a.to_string())),
+        let anchor = w_attr(tree, hyperlink, "anchor");
+        match (uri, anchor) {
+            (Some(uri), Some(anchor)) => Some(Link::Uri(format!("{uri}#{anchor}"))),
+            (Some(uri), None) => Some(Link::Uri(uri.clone())),
+            (None, anchor) => anchor.map(|a| Link::Anchor(a.to_string())),
         }
     }
 

@@ -127,7 +127,10 @@ fn cells_keep_their_fill_alignment_and_borders_with_where_they_came_from() {
     let single = border(BorderStyle::Single, 0.5, 0.0, Colour::Auto);
     assert_eq!(style_only.fill, Some(rgb("DDDDDD")));
     assert_eq!(style_only.valign, VAlign::Bottom);
-    assert_eq!(style_only.borders.top, Some((single, BorderSource::Style)));
+    assert_eq!(
+        style_only.borders.top,
+        Some((Some(single), BorderSource::Style))
+    );
     assert_eq!(style_only.borders.right, None);
 
     assert_eq!(
@@ -136,17 +139,26 @@ fn cells_keep_their_fill_alignment_and_borders_with_where_they_came_from() {
         "a solid pattern is its colour"
     );
     assert_eq!(own.valign, VAlign::Center);
-    assert_eq!(own.borders.top, None, "nil overrides the style");
-    assert_eq!(own.borders.left, Some((single, BorderSource::Style)));
+    assert_eq!(
+        own.borders.top,
+        Some((None, BorderSource::Direct)),
+        "nil clears the style's side, and is not unset"
+    );
+    assert_eq!(own.borders.left, Some((Some(single), BorderSource::Style)));
     assert_eq!(
         own.borders.right,
         Some((
-            border(BorderStyle::Dashed, 1.5, 0.0, Colour::Rgb(rgb("00FF00"))),
+            Some(border(
+                BorderStyle::Dashed,
+                1.5,
+                0.0,
+                Colour::Rgb(rgb("00FF00"))
+            )),
             BorderSource::Direct
         ))
     );
     assert_eq!(
-        own.borders.inside_h.map(|(b, s)| (b.width, s)),
-        Some((0.25, BorderSource::Direct))
+        own.borders.inside_h.map(|(b, s)| (b.map(|b| b.width), s)),
+        Some((Some(0.25), BorderSource::Direct))
     );
 }

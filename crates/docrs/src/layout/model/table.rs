@@ -26,8 +26,8 @@ impl CellProps {
     /// The cell's own properties over its table style's.
     fn over(&self, style: &CellProps) -> (Option<Rgb>, VAlign, CellBorders) {
         let sourced = |direct: Option<Option<Border>>, style: Option<Option<Border>>| match direct {
-            Some(own) => own.map(|b| (b, BorderSource::Direct)),
-            None => style.flatten().map(|b| (b, BorderSource::Style)),
+            Some(own) => Some((own, BorderSource::Direct)),
+            None => style.map(|b| (b, BorderSource::Style)),
         };
         let sides = std::array::from_fn(|i| sourced(self.borders[i], style.borders[i]));
         (

@@ -292,16 +292,20 @@ pub enum BorderSource {
     Style,
 }
 
+/// A cell border side as read: `None` is `nil` or `none`, which clears the
+/// side, unlike a side nobody set.
+pub type CellBorder = (Option<Border>, BorderSource);
+
 /// Cell borders (`w:tcBorders`) as read, before table and adjacent-cell
-/// borders are weighed against them.
+/// borders are weighed against them. `None` sides are not set.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct CellBorders {
-    pub top: Option<(Border, BorderSource)>,
-    pub left: Option<(Border, BorderSource)>,
-    pub bottom: Option<(Border, BorderSource)>,
-    pub right: Option<(Border, BorderSource)>,
-    pub inside_h: Option<(Border, BorderSource)>,
-    pub inside_v: Option<(Border, BorderSource)>,
+    pub top: Option<CellBorder>,
+    pub left: Option<CellBorder>,
+    pub bottom: Option<CellBorder>,
+    pub right: Option<CellBorder>,
+    pub inside_h: Option<CellBorder>,
+    pub inside_v: Option<CellBorder>,
 }
 
 impl CellBorders {
@@ -315,7 +319,7 @@ impl CellBorders {
     ];
 
     pub(super) fn from_sides(
-        [top, left, bottom, right, inside_h, inside_v]: [Option<(Border, BorderSource)>; 6],
+        [top, left, bottom, right, inside_h, inside_v]: [Option<CellBorder>; 6],
     ) -> Self {
         CellBorders {
             top,
