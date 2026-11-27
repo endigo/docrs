@@ -476,7 +476,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             );
             Ok(0)
         }
-        Command::Layout { file, fonts } => {
+        Command::Layout { file, fonts, lines } => {
             let (document, _) = open_reference(Some(file), limits, false)?;
             let mut faces = Vec::new();
             for path in fonts {
@@ -491,6 +491,26 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             }
             let txn = docrs::txn::Txn::new(&document);
             let main = document.package().main_part_name().to_string();
+            if *lines {
+                let round = |v: f64| (v * 100.0).round() / 100.0;
+                for line in docrs::layout::line_records(&txn, &main, faces)? {
+                    println!(
+                        "{}",
+                        json!({
+                            "page": line.page,
+                            "story": line.story,
+                            "x": round(line.x),
+                            "y": round(line.y),
+                            "width": round(line.width),
+                            "height": round(line.height),
+                            "baseline": round(line.baseline),
+                            "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                            "text": line.text,
+                        })
+                    );
+                }
+                return Ok(0);
+            }
             let layout = docrs::layout::layout(&txn, &main, faces)?;
             let tree = txn.tree(&main)?;
             let value = json!({
