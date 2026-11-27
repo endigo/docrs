@@ -735,3 +735,32 @@ fn layout_lines_prints_one_json_object_a_line() {
             .any(|l| !l["text"].as_str().unwrap().is_empty())
     );
 }
+
+#[test]
+fn layout_lines_ends_quietly_when_its_reader_stops() {
+    use std::io::{BufRead, BufReader};
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("long.md");
+    let docx = dir.path().join("long.docx");
+    std::fs::write(&source, "A line of text.\n\n".repeat(3000)).unwrap();
+    let status = bin()
+        .arg("from-markdown")
+        .arg(&source)
+        .arg("--out")
+        .arg(&docx)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let mut child = bin()
+        .args(["layout", "--lines"])
+        .arg(&docx)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut first = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut first)
+        .unwrap();
+    assert!(first.starts_with('{'), "{first}");
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+}
