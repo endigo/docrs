@@ -37,18 +37,12 @@ pub struct Face {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FontError {
-    /// Not a TrueType/OpenType face, or the named table is missing or cut
-    /// short.
+    /// The named table is missing or cut short.
     Malformed(&'static str),
-    /// cmap ranges out of order or overlapping.
     CmapUnsorted,
-    /// A cmap range that ends before it starts.
     CmapReversedRange,
-    /// A cmap range past the last code point or the face's last glyph.
     CmapOutOfRange,
-    /// More mappings than Unicode has code points.
     TooManyMappings,
-    /// The mappings could not be allocated.
     OutOfMemory,
 }
 
@@ -72,7 +66,6 @@ impl std::error::Error for FontError {}
 /// At most one mapping per Unicode code point.
 const MAX_MAPPINGS: usize = 0x11_0000;
 
-/// Mappings across every face of one file.
 const MAX_FILE_MAPPINGS: usize = 4 * MAX_MAPPINGS;
 
 /// Code points kerning is kept between (printable ASCII and the
@@ -442,8 +435,7 @@ impl<'a> Ttf<'a> {
     }
 }
 
-/// The Unicode cmap (format 4 or 12): `(code point, glyph)`, glyphs below
-/// `glyphs`, at most `budget` of them.
+/// The Unicode cmap (format 4 or 12): `(code point, glyph)`.
 fn cmap(table: &[u8], glyphs: u32, budget: usize) -> Result<Vec<(u32, u16)>, FontError> {
     let malformed = FontError::Malformed("cmap");
     let field16 = |at| be16(table, at).ok_or(malformed);
@@ -926,17 +918,17 @@ mod hostile {
         out
     }
 
+    fn ab_cmap() -> Vec<u8> {
+        format4(&[(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)])
+    }
+
     fn valid() -> Vec<u8> {
         let kern = {
             let mut kern = be(&[0, 1, 0, 6 + 8 + 6, 1, 1, 0, 0, 0]);
             kern.extend(be(&[1, 2, (-50i16) as u16]));
             kern
         };
-        face_tables(
-            3,
-            format4(&[(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)]),
-            Some(kern),
-        )
+        face_tables(3, ab_cmap(), Some(kern))
     }
 
     fn quickly<T>(run: impl FnOnce() -> T) -> T {
@@ -1058,11 +1050,7 @@ mod hostile {
         for _ in 0..0xFFFF {
             kern.extend(be(&[0xFFFF, 6, 1]));
         }
-        let font = face_tables(
-            3,
-            format4(&[(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)]),
-            Some(kern),
-        );
+        let font = face_tables(3, ab_cmap(), Some(kern));
         let face = quickly(|| Face::try_parse(&font, "Test", false, false)).unwrap();
         assert_eq!(face.kern('A', 'B'), 0.0);
     }
