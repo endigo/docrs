@@ -75,7 +75,7 @@ impl Rgb {
     }
 
     pub(super) fn hex(value: &str) -> Option<Rgb> {
-        (value.len() == 6)
+        (value.len() == 6 && value.bytes().all(|b| b.is_ascii_hexdigit()))
             .then(|| u32::from_str_radix(value, 16).ok())
             .flatten()
             .map(Rgb::packed)
@@ -94,17 +94,16 @@ impl Rgb {
 
     /// ECMA-376 §17.3.2.6: in HSL, a tint moves luminance toward white
     /// (`L·t + 1 − t`), a shade toward black (`L·s`), `t` and `s` in 0–1.
+    /// Given both, Word applies the tint only (MS-OI29500 §2.1.72).
     fn tinted(self, tint: Option<f64>, shade: Option<f64>) -> Rgb {
         if tint.is_none() && shade.is_none() {
             return self;
         }
-        let (h, s, mut l) = self.hsl();
-        if let Some(tint) = tint {
-            l = l * tint + 1.0 - tint;
-        }
-        if let Some(shade) = shade {
-            l *= shade;
-        }
+        let (h, s, l) = self.hsl();
+        let l = match (tint, shade) {
+            (Some(tint), _) => l * tint + 1.0 - tint,
+            (None, shade) => l * shade.unwrap_or(1.0),
+        };
         Rgb::from_hsl(h, s, l.clamp(0.0, 1.0))
     }
 
@@ -140,7 +139,8 @@ impl Rgb {
             _ => (c, 0.0, x),
         };
         let m = l - c / 2.0;
-        // Word truncates: Accent 1 (4472C4) lighter 40 % is 8EAADB, not 8FAADC.
+        // Truncating is within one unit of Word's cached values (rounding is
+        // further off): 43 of 70 in the fixtures match, the rest are one off.
         let byte = |v: f64| ((v + m) * 255.0 + 1e-6).floor().clamp(0.0, 255.0) as u8;
         Rgb {
             r: byte(r),
@@ -205,8 +205,8 @@ impl Palette {
             Some("solid") => 1.0,
             Some(pct) => pct
                 .strip_prefix("pct")
-                .and_then(|n| n.parse::<f64>().ok())
-                .map_or(0.0, |n| (n / 100.0).clamp(0.0, 1.0)),
+                .and_then(|n| n.parse::<u8>().ok())
+                .map_or(0.0, |n| (percent(n) / 100.0).clamp(0.0, 1.0)),
         };
         let solid = |c: Option<Colour>| match c {
             Some(Colour::Rgb(rgb)) => Some(rgb),
@@ -219,6 +219,14 @@ impl Palette {
         // An automatic pattern colour is black.
         let ink = pattern.unwrap_or(Rgb::packed(0));
         Some(ink.over(fill.unwrap_or(Rgb::WHITE), density))
+    }
+}
+
+/// `pct12`, `pct37`, `pct62` and `pct87` are 12.5, 37.5, 62.5 and 87.5 %.
+fn percent(n: u8) -> f64 {
+    match n {
+        12 | 37 | 62 | 87 => f64::from(n) + 0.5,
+        _ => f64::from(n),
     }
 }
 
@@ -248,6 +256,55 @@ mod tests {
         ] {
             assert_eq!(blue.tinted(tint, shade), Rgb::hex(want).unwrap(), "{want}");
         }
+    }
+
+    #[test]
+    fn other_theme_variants_are_within_one_unit_of_word() {
+        let byte = |b: u8| Some(f64::from(b) / 255.0);
+        // Values Word cached in the fixtures (Office 2007 theme); MS-OI29500
+        // §2.1.72 gives C0504D shade BF as 943634.
+        for (base, tint, shade, word) in [
+            ("4F81BD", None, byte(0xBF), "365F91"),
+            ("C0504D", None, byte(0xBF), "943634"),
+            ("F79646", byte(0x3F), None, "FDE4D0"),
+        ] {
+            let ours = Rgb::hex(base).unwrap().tinted(tint, shade);
+            let word = Rgb::hex(word).unwrap();
+            let off =
+                [(ours.r, word.r), (ours.g, word.g), (ours.b, word.b)].map(|(a, b)| a.abs_diff(b));
+            assert!(off.iter().all(|d| *d <= 1), "{base}: {ours} against {word}");
+        }
+    }
+
+    #[test]
+    fn given_tint_and_shade_word_applies_the_tint() {
+        let blue = Rgb::hex("4472C4").unwrap();
+        let byte = |b: u8| Some(f64::from(b) / 255.0);
+        assert_eq!(
+            blue.tinted(byte(0x99), byte(0xBF)),
+            blue.tinted(byte(0x99), None)
+        );
+    }
+
+    #[test]
+    fn a_hex_colour_is_six_hex_digits() {
+        assert_eq!(Rgb::hex("+12345"), None);
+        assert_eq!(Rgb::hex("12345G"), None);
+        assert_eq!(
+            Rgb::hex("00ff7F"),
+            Some(Rgb {
+                r: 0,
+                g: 255,
+                b: 127
+            })
+        );
+    }
+
+    #[test]
+    fn the_eighth_patterns_are_half_a_percent_more() {
+        assert_eq!(percent(12), 12.5);
+        assert_eq!(percent(87), 87.5);
+        assert_eq!(percent(50), 50.0);
     }
 
     #[test]
