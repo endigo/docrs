@@ -1,0 +1,22 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 595.2, "height": 841.92, "lines": [
+    ]},
+    {"page": 2, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 2, "text": "Statement of Advice", "x": 457.28, "top": 35.42, "width": 65.98, "height": 9.67, "baseline": 42.96},
+      {"page": 2, "text": "Annual review", "x": 72, "top": 72.04, "width": 150.95, "height": 31.65, "baseline": 96.72},
+      {"page": 2, "text": "Prepared for the board", "x": 72, "top": 109.87, "width": 146.79, "height": 17, "baseline": 123.12},
+      {"page": 2, "text": "Operations", "x": 272.78, "top": 136.13, "width": 49.76, "height": 13.48, "baseline": 146.64},
+      {"page": 2, "text": "November 2026", "x": 261.65, "top": 156.77, "width": 72.04, "height": 13.48, "baseline": 167.28},
+      {"page": 2, "text": "Summary", "x": 72, "top": 189.17, "width": 63.38, "height": 19.63, "baseline": 204.48},
+      {"page": 2, "text": "This year the company grew its customer base by a fifth and opened two new offices. Costs rose", "x": 72, "top": 216.29, "width": 429.53, "height": 13.48, "baseline": 226.8},
+      {"page": 2, "text": "more slowly than revenue, and the operating margin improved for the third year running.", "x": 72, "top": 230.69, "width": 400.31, "height": 13.48, "baseline": 241.2},
+      {"page": 2, "text": "Outlook", "x": 72, "top": 263.33, "width": 53.81, "height": 19.63, "baseline": 278.64},
+      {"page": 2, "text": "Next year we expect slower growth as the new offices settle in. The main risks are hiring and the", "x": 72, "top": 290.45, "width": 430.64, "height": 13.48, "baseline": 300.96},
+      {"page": 2, "text": "exchange rate, both covered in the appendix to the full report.", "x": 72, "top": 304.85, "width": 279.64, "height": 13.48, "baseline": 315.36},
+      {"page": 2, "text": "2", "x": 295.62, "top": 796.7, "width": 4.02, "height": 9.67, "baseline": 804.24}
+    ]}
+  ]
+}

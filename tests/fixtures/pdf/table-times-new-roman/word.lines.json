@@ -1,0 +1,23 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 612, "height": 792, "lines": [
+      {"page": 1, "text": "Quarterly results", "x": 90, "top": 96.56, "width": 103.01, "height": 15.41, "baseline": 108.96},
+      {"page": 1, "text": "The table below gives revenue and headcount for each region over the last four quarters. Figures", "x": 90, "top": 114.96, "width": 424.84, "height": 12.22, "baseline": 124.8},
+      {"page": 1, "text": "are in thousands of dollars.", "x": 90, "top": 129.6, "width": 118.89, "height": 12.22, "baseline": 139.44},
+      {"page": 1, "text": "Region", "x": 90, "top": 150.96, "width": 33.03, "height": 12.22, "baseline": 160.8},
+      {"page": 1, "text": "Q1 Q2 Q3 Q4 Headcount", "x": 231.29, "top": 150.96, "width": 279.87, "height": 12.22, "baseline": 160.8},
+      {"page": 1, "text": "North America 1,200 1,420 1,515 1,610 48", "x": 90, "top": 164.64, "width": 421.18, "height": 12.22, "baseline": 174.48},
+      {"page": 1, "text": "South America 310 335 352 360 12", "x": 90, "top": 177.84, "width": 421.18, "height": 12.22, "baseline": 187.68},
+      {"page": 1, "text": "Europe 980 1,010 1,045 1,120 37", "x": 90, "top": 191.04, "width": 421.18, "height": 12.22, "baseline": 200.88},
+      {"page": 1, "text": "Middle East 145 160 171 188 6", "x": 90, "top": 204, "width": 421.18, "height": 12.22, "baseline": 213.84},
+      {"page": 1, "text": "Africa 88 94 102 117 5", "x": 90, "top": 217.2, "width": 421.18, "height": 12.22, "baseline": 227.04},
+      {"page": 1, "text": "Asia 760 812 870 905 29", "x": 90, "top": 230.4, "width": 421.18, "height": 12.22, "baseline": 240.24},
+      {"page": 1, "text": "Oceania 220 231 240 252 9", "x": 90, "top": 243.6, "width": 421.18, "height": 12.22, "baseline": 253.44},
+      {"page": 1, "text": "Total 3,703 4,062 4,295 4,552 146", "x": 90, "top": 256.8, "width": 421.18, "height": 12.22, "baseline": 266.64},
+      {"page": 1, "text": "Growth was strongest in North America and Asia. Europe recovered in the second half after a", "x": 90, "top": 276.48, "width": 412.58, "height": 12.22, "baseline": 286.32},
+      {"page": 1, "text": "slow start, and the smaller regions grew steadily from a low base.", "x": 90, "top": 290.88, "width": 287.92, "height": 12.22, "baseline": 300.72}
+    ]}
+  ]
+}
