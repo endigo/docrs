@@ -9,17 +9,43 @@
 //! widow/orphan control; table rows are as tall as their tallest cell and
 //! split across pages between lines.
 
-use super::model::{Block, LineSpacing, Metric, Model, Para, Piece, TabKind, Table};
-use crate::xml::NodeId;
+use std::ops::Range;
 
-/// One laid-out line: its height and whether a page break follows it.
-#[derive(Debug, Clone, Copy)]
+use super::model::{Block, LineSpacing, Metric, Model, Page, Para, Piece, Row, TabKind, Table};
+use crate::xml::NodeId;
+use crate::{Error, Result};
+
+/// A tab on a line: its piece, and the x it moves from and to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct TabPlace {
+    pub piece: u32,
+    pub from: f64,
+    pub to: f64,
+}
+
+/// One laid-out line. x values are points from the column's left edge.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Line {
     pub height: f64,
     /// The height that must fit above the bottom margin: Word lets the
     /// extra height of multiple line spacing overflow it.
     pub fit: f64,
     pub page_break: bool,
+    /// Into the paragraph's pieces, trailing spaces and breaks included.
+    pub pieces: Range<u32>,
+    /// From the line top.
+    pub baseline: f64,
+    pub start: f64,
+    /// From `start` to the end of the last piece that is not a space.
+    pub width: f64,
+    /// The width available less `start + width`; negative when a
+    /// justified line fits only by shrinking its spaces.
+    pub slack: f64,
+    /// Spaces between words after the last tab.
+    pub gaps: u32,
+    pub tabs: Vec<TabPlace>,
+    /// Ends the paragraph, or in a line or page break.
+    pub last: bool,
 }
 
 const EPSILON: f64 = 0.01;
@@ -32,8 +58,11 @@ fn breaks_after(ch: char) -> bool {
     matches!(ch, '-' | '\u{2010}' | '\u{2013}' | '\u{2014}' | '\u{00AD}')
 }
 
-fn single(metrics: &[Metric], metric: u32) -> f64 {
-    metrics.get(metric as usize).map_or(12.0, |m| m.height)
+fn metric(metrics: &[Metric], metric: u32) -> Metric {
+    metrics.get(metric as usize).copied().unwrap_or(Metric {
+        height: 12.0,
+        ascent: 9.6,
+    })
 }
 
 /// The text extent of a line. Word for Mac stacks the largest ascent on
@@ -123,6 +152,14 @@ fn segment_width(pieces: &[Piece], start: usize) -> f64 {
     width
 }
 
+/// A line's end if it broke here.
+#[derive(Clone, Copy)]
+struct End {
+    content: f64,
+    gaps: u32,
+    tabs: usize,
+}
+
 /// The lines of a paragraph so far and the one being filled.
 struct Breaker<'a> {
     para: &'a Para,
@@ -131,6 +168,8 @@ struct Breaker<'a> {
     /// The paragraph mark's single line height, and with the extra.
     mark_single: f64,
     mark: f64,
+    mark_below: f64,
+    right_limit: f64,
     out: Vec<Line>,
     x: f64,
     text: Extent,
@@ -139,26 +178,73 @@ struct Breaker<'a> {
     object: f64,
     has_content: bool,
     /// Last break opportunity on this line (piece index to restart from).
-    last_break: Option<usize>,
+    last_break: Option<(usize, End)>,
     line_start: usize,
     first_line: bool,
+    start: f64,
+    content: f64,
+    gaps: u32,
+    /// Spaces after the last word, gaps once another word follows.
+    pending: u32,
+    words: bool,
+    tabs: Vec<TabPlace>,
 }
 
 impl Breaker<'_> {
-    /// Close the line (`page_break` after it) and open the next one at
-    /// piece `restart`.
-    fn break_line(&mut self, page_break: bool, restart: usize) {
-        let height = self.text.height(self.mark_single, self.extra);
-        let (text, single) = if height > 0.0 {
-            (height, self.text.single_height())
-        } else {
-            (self.mark, self.mark_single)
-        };
+    fn end(&self) -> End {
+        End {
+            content: self.content,
+            gaps: self.gaps,
+            tabs: self.tabs.len(),
+        }
+    }
+
+    fn word(&mut self, x: f64) {
+        self.content = x;
+        if self.words {
+            self.gaps += self.pending;
+        }
+        self.pending = 0;
+        self.words = true;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn close(
+        &mut self,
+        text: f64,
+        single: f64,
+        below: f64,
+        page_break: bool,
+        end_piece: usize,
+        end: End,
+        last: bool,
+    ) {
+        let height = line_height(self.para, text, self.object);
+        let mut tabs = std::mem::take(&mut self.tabs);
+        tabs.truncate(end.tabs);
         self.out.push(Line {
-            height: line_height(self.para, text, self.object),
+            height,
             fit: line_height(self.para, single, self.object),
             page_break,
+            pieces: self.line_start as u32..end_piece as u32,
+            baseline: height - below,
+            start: self.start,
+            width: end.content - self.start,
+            slack: self.right_limit - end.content,
+            gaps: end.gaps,
+            tabs,
+            last,
         });
+    }
+
+    fn break_line(&mut self, page_break: bool, restart: usize, end: End, last: bool) {
+        let height = self.text.height(self.mark_single, self.extra);
+        let (text, single, below) = if height > 0.0 {
+            (height, self.text.single_height(), self.text.below)
+        } else {
+            (self.mark, self.mark_single, self.mark_below)
+        };
+        self.close(text, single, below, page_break, restart, end, last);
         self.first_line = false;
         self.x = self.para.left;
         self.text = Extent::default();
@@ -167,6 +253,11 @@ impl Breaker<'_> {
         self.has_content = false;
         self.last_break = None;
         self.line_start = restart;
+        self.start = self.x;
+        self.content = self.x;
+        self.gaps = 0;
+        self.pending = 0;
+        self.words = false;
     }
 }
 
@@ -176,14 +267,18 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
         LineSpacing::Multiple(multiple) => multiple - 1.0,
         _ => 0.0,
     };
-    let mark_single = single(metrics, para.mark);
+    let mark_metric = metric(metrics, para.mark);
+    let mark_single = mark_metric.height;
+    let x = para.left + para.first;
     let mut b = Breaker {
         para,
         extra,
         mark_single,
         mark: mark_single * (1.0 + extra),
+        mark_below: mark_metric.height - mark_metric.ascent,
+        right_limit: width - para.right,
         out: Vec::new(),
-        x: para.left + para.first,
+        x,
         text: Extent::default(),
         spaces: 0.0,
         object: 0.0,
@@ -191,9 +286,15 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
         last_break: None,
         line_start: 0,
         first_line: true,
+        start: x,
+        content: x,
+        gaps: 0,
+        pending: 0,
+        words: false,
+        tabs: Vec::new(),
     };
     let pieces = &para.pieces;
-    let right_limit = width - para.right;
+    let right_limit = b.right_limit;
     if let Some(label) = &para.label {
         b.text.add_label(metrics, label.metric);
         b.x += label.width + label.space;
@@ -201,6 +302,8 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
             b.x = tab_stop(para, b.x, true, default_tab).0;
         }
         b.has_content = true;
+        b.start = b.x;
+        b.content = b.x;
     }
     let mut index = 0;
     while index < pieces.len() {
@@ -217,12 +320,18 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
                     0.0
                 };
                 if !is_space && b.x + w > right_limit + EPSILON + shrink && b.has_content {
-                    let restart = match b.last_break {
-                        Some(at) if at > b.line_start => at,
-                        _ if index > b.line_start => index,
-                        _ => index + 1,
+                    let (restart, end) = match b.last_break {
+                        Some((at, end)) if at > b.line_start => (at, end),
+                        _ if index > b.line_start => (index, b.end()),
+                        _ => (
+                            index + 1,
+                            End {
+                                content: b.x + w,
+                                ..b.end()
+                            },
+                        ),
                     };
-                    b.break_line(false, restart);
+                    b.break_line(false, restart, end, false);
                     index = restart;
                     continue;
                 }
@@ -232,22 +341,27 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
                     if b.has_content {
                         b.spaces += w;
                     }
-                    b.last_break = Some(index + 1);
+                    if b.words {
+                        b.pending += 1;
+                    }
+                    b.last_break = Some((index + 1, b.end()));
                 } else {
                     b.has_content = true;
+                    b.word(b.x);
                     if breaks_after(*ch) {
-                        b.last_break = Some(index + 1);
+                        b.last_break = Some((index + 1, b.end()));
                     }
                 }
             }
             Piece::Object { width: w, height } => {
                 if b.x + w > right_limit + EPSILON && b.has_content {
-                    b.break_line(false, index);
+                    b.break_line(false, index, b.end(), false);
                 }
                 b.x += w;
                 b.object = b.object.max(*height);
                 b.has_content = true;
-                b.last_break = Some(index + 1);
+                b.word(b.x);
+                b.last_break = Some((index + 1, b.end()));
             }
             Piece::Tab { metric } => {
                 let (stop, kind) = tab_stop(para, b.x, b.first_line, default_tab);
@@ -259,19 +373,28 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
                 };
                 b.text.add(metrics, *metric, extra);
                 if target > right_limit + EPSILON && b.has_content && kind == TabKind::Left {
-                    b.break_line(false, index + 1);
+                    b.break_line(false, index + 1, b.end(), false);
                 } else {
+                    b.tabs.push(TabPlace {
+                        piece: index as u32,
+                        from: b.x,
+                        to: target,
+                    });
                     b.x = target;
                     b.spaces = 0.0;
                     b.has_content = true;
-                    b.last_break = Some(index + 1);
+                    b.content = target;
+                    b.gaps = 0;
+                    b.pending = 0;
+                    b.words = false;
+                    b.last_break = Some((index + 1, b.end()));
                 }
             }
             Piece::LineBreak { metric } => {
                 b.text.add(metrics, *metric, extra);
-                b.break_line(false, index + 1);
+                b.break_line(false, index + 1, b.end(), true);
             }
-            Piece::PageBreak => b.break_line(true, index + 1),
+            Piece::PageBreak => b.break_line(true, index + 1, b.end(), true),
         }
         index += 1;
     }
@@ -279,16 +402,17 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
     // with a page break (the mark then stays beside the break).
     if b.has_content || !matches!(pieces.last(), Some(Piece::PageBreak)) {
         let height = b.text.height(mark_single, extra);
-        let (text, single) = if b.has_content && height > 0.0 {
-            (height, b.text.single_height())
+        let (text, single, below) = if b.has_content && height > 0.0 {
+            (height, b.text.single_height(), b.text.below)
         } else {
-            (height.max(b.mark), b.text.single_height().max(mark_single))
+            (
+                height.max(b.mark),
+                b.text.single_height().max(mark_single),
+                b.text.below.max(b.mark_below),
+            )
         };
-        b.out.push(Line {
-            height: line_height(para, text, b.object),
-            fit: line_height(para, single, b.object),
-            page_break: false,
-        });
+        let end = b.end();
+        b.close(text, single, below, false, pieces.len(), end, true);
     }
     b.out
 }
@@ -364,26 +488,44 @@ impl ParaOffset {
     }
 }
 
-struct CellLayout {
+/// What a cell draws: a paragraph's line or a nested table's row.
+enum Item<'m> {
+    Line(&'m Para, Line),
+    Row(&'m Table, usize, f64),
+}
+
+/// An item, its top from the top of the content holding it and its x from
+/// the content's left edge.
+struct Drawn<'m> {
+    offset: f64,
+    x: f64,
+    item: Item<'m>,
+}
+
+struct CellLayout<'m> {
     lines: Vec<CellLine>,
     /// Paragraphs (and nested row ends) with their offsets.
     paras: Vec<ParaOffset>,
+    drawn: Vec<Drawn<'m>>,
     content: f64,
+    work: u64,
 }
 
 /// Lay out blocks as one column (a cell when `cell`: automatic spacing at
 /// its top and bottom is dropped).
-fn cell_layout(
-    blocks: &[Block],
+fn cell_layout<'m>(
+    blocks: &'m [Block],
     metrics: &[Metric],
     width: f64,
     default_tab: f64,
     cell: bool,
-) -> CellLayout {
+) -> CellLayout<'m> {
     let mut out = CellLayout {
         lines: Vec::new(),
         paras: Vec::new(),
+        drawn: Vec::new(),
         content: 0.0,
+        work: 0,
     };
     let mut y = 0.0;
     let mut previous: Option<&Para> = None;
@@ -403,15 +545,22 @@ fn cell_layout(
                 });
                 let para_lines = lines(para, metrics, width, default_tab);
                 let count = para_lines.len();
+                out.work += (para.pieces.len() + count) as u64;
                 for (index, line) in para_lines.into_iter().enumerate() {
+                    let height = line.height;
                     out.lines.push(CellLine {
                         offset: y,
-                        height: line.height,
+                        height,
                         index,
                         count,
                         widow_control: para.widow_control,
                     });
-                    y += line.height;
+                    out.drawn.push(Drawn {
+                        offset: y,
+                        x: 0.0,
+                        item: Item::Line(para, line),
+                    });
+                    y += height;
                 }
                 previous = Some(para);
             }
@@ -419,8 +568,9 @@ fn cell_layout(
                 if let Some(previous) = previous {
                     y += previous.after_spacing();
                 }
-                for row in &table.rows {
+                for (row_index, row) in table.rows.iter().enumerate() {
                     let layout = row_layout(row, metrics, default_tab);
+                    out.work += layout.work;
                     out.paras
                         .extend(layout.paras.iter().map(|para| para.shifted(y)));
                     out.paras.push(ParaOffset {
@@ -435,6 +585,19 @@ fn cell_layout(
                         count: 1,
                         widow_control: false,
                     });
+                    out.drawn.push(Drawn {
+                        offset: y,
+                        x: 0.0,
+                        item: Item::Row(table, row_index, layout.height),
+                    });
+                    for part in layout.cells {
+                        out.drawn
+                            .extend(part.layout.drawn.into_iter().map(|drawn| Drawn {
+                                offset: drawn.offset + part.top + y,
+                                x: drawn.x + part.x,
+                                item: drawn.item,
+                            }));
+                    }
                     y += layout.height;
                 }
                 previous = None;
@@ -453,18 +616,28 @@ fn cell_layout(
     out
 }
 
-/// A row's height, its cells' layouts and their paragraphs' offsets from
-/// the row top.
-struct RowLayout {
-    height: f64,
-    paras: Vec<ParaOffset>,
-    cells: Vec<(CellLayout, f64)>,
+/// A cell's layout and its content's offset from the row's top-left.
+struct CellPart<'m> {
+    layout: CellLayout<'m>,
+    top: f64,
+    x: f64,
 }
 
-fn row_layout(row: &super::model::Row, metrics: &[Metric], default_tab: f64) -> RowLayout {
+/// A row's height, its cells' layouts and their paragraphs' offsets from
+/// the row top.
+struct RowLayout<'m> {
+    height: f64,
+    paras: Vec<ParaOffset>,
+    cells: Vec<CellPart<'m>>,
+    work: u64,
+}
+
+fn row_layout<'m>(row: &'m Row, metrics: &[Metric], default_tab: f64) -> RowLayout<'m> {
     let mut height = 0.0f64;
     let mut paras = Vec::new();
     let mut cells = Vec::new();
+    let mut work = 1;
+    let mut x = 0.0;
     for cell in &row.cells {
         let width = (cell.width - cell.margins[2] - cell.margins[3]).max(1.0);
         let layout = cell_layout(&cell.blocks, metrics, width, default_tab, true);
@@ -473,7 +646,13 @@ fn row_layout(row: &super::model::Row, metrics: &[Metric], default_tab: f64) -> 
         }
         let top = row.border_top + cell.margins[0];
         paras.extend(layout.paras.iter().map(|para| para.shifted(top)));
-        cells.push((layout, top));
+        work += layout.work;
+        cells.push(CellPart {
+            layout,
+            top,
+            x: x + cell.margins[2],
+        });
+        x += cell.width;
     }
     if let Some((value, exact)) = row.height {
         height = if exact { value } else { height.max(value) };
@@ -483,6 +662,7 @@ fn row_layout(row: &super::model::Row, metrics: &[Metric], default_tab: f64) -> 
         height,
         paras,
         cells,
+        work,
     }
 }
 
@@ -498,8 +678,83 @@ pub struct Placed {
     pub row_end: bool,
 }
 
-struct Flow<'m> {
+/// Points from the page's top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code, reason = "the PDF painter reads them")]
+pub(super) struct PageStart {
+    pub number: u32,
+    pub section: usize,
+    pub page: Page,
+    pub top: f64,
+    pub bottom: f64,
+}
+
+/// The part of a row on one page.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct RowSlice {
+    pub height: f64,
+    pub first: bool,
+    pub last: bool,
+}
+
+/// Each call comes once its placement is final; an `Err` stops pagination.
+pub(super) trait Sink {
+    fn page(&mut self, page: &PageStart) -> Result<()>;
+    /// `at`: the column's left edge and the line's top.
+    fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()>;
+    /// `origin`: the column's (a nested row's own) left edge and the slice's top.
+    fn row(&mut self, origin: Point, table: &Table, row: usize, slice: &RowSlice) -> Result<()>;
+    /// Body paragraphs and row ends only.
+    fn placed(&mut self, placed: Placed) -> Result<()>;
+}
+
+impl Sink for Vec<Placed> {
+    fn page(&mut self, _: &PageStart) -> Result<()> {
+        Ok(())
+    }
+
+    fn line(&mut self, _: Point, _: &Para, _: &Line) -> Result<()> {
+        Ok(())
+    }
+
+    fn row(&mut self, _: Point, _: &Table, _: usize, _: &RowSlice) -> Result<()> {
+        Ok(())
+    }
+
+    fn placed(&mut self, placed: Placed) -> Result<()> {
+        self.push(placed);
+        Ok(())
+    }
+}
+
+/// Pieces, lines and rows laid out before pagination gives up.
+pub(super) const MAX_LAYOUT_WORK: u64 = 100_000_000;
+
+fn bounds(model: &Model, section: usize, first: bool) -> (f64, f64) {
+    let s = &model.sections[section.min(model.sections.len() - 1)];
+    let p = &s.page;
+    let (header, footer) = if first {
+        (
+            s.first_header_height.unwrap_or(s.header_height),
+            s.first_footer_height.unwrap_or(s.footer_height),
+        )
+    } else {
+        (s.header_height, s.footer_height)
+    };
+    let top = p.top.max(p.header + header);
+    let bottom = p.height - p.bottom.max(p.footer + footer);
+    (top, bottom.max(top + 36.0))
+}
+
+struct Flow<'m, 's, S: Sink> {
     model: &'m Model,
+    sink: &'s mut S,
     section: usize,
     /// The physical page the current section started on.
     section_first_page: u32,
@@ -515,49 +770,81 @@ struct Flow<'m> {
     /// before).
     at_section_start: bool,
     previous: Option<&'m Para>,
-    out: Vec<Placed>,
+    last: Option<(u32, f64)>,
+    work: u64,
+    budget: u64,
 }
 
-impl<'m> Flow<'m> {
-    fn bounds(model: &Model, section: usize, first: bool) -> (f64, f64) {
-        let s = &model.sections[section.min(model.sections.len() - 1)];
-        let p = &s.page;
-        let (header, footer) = if first {
-            (
-                s.first_header_height.unwrap_or(s.header_height),
-                s.first_footer_height.unwrap_or(s.footer_height),
-            )
-        } else {
-            (s.header_height, s.footer_height)
-        };
-        let top = p.top.max(p.header + header);
-        let bottom = p.height - p.bottom.max(p.footer + footer);
-        (top, bottom.max(top + 36.0))
+impl<'m, S: Sink> Flow<'m, '_, S> {
+    fn charge(&mut self, work: u64) -> Result<()> {
+        self.work = self.work.saturating_add(work);
+        if self.work > self.budget {
+            return Err(Error::limit("max_layout_work", self.budget, self.work));
+        }
+        Ok(())
     }
 
-    fn new_page(&mut self) {
+    fn lines(&mut self, para: &Para) -> Result<Vec<Line>> {
+        let lines = lines(
+            para,
+            self.metrics(),
+            self.text_width(),
+            self.model.default_tab,
+        );
+        self.charge((para.pieces.len() + lines.len()) as u64)?;
+        Ok(lines)
+    }
+
+    fn row_layout(&mut self, row: &'m Row) -> Result<RowLayout<'m>> {
+        let layout = row_layout(row, self.metrics(), self.model.default_tab);
+        self.charge(layout.work)?;
+        Ok(layout)
+    }
+
+    fn section(&self) -> usize {
+        self.section.min(self.model.sections.len() - 1)
+    }
+
+    fn open_page(&mut self) -> Result<()> {
+        let section = self.section();
+        self.sink.page(&PageStart {
+            number: self.page,
+            section,
+            page: self.model.sections[section].page,
+            top: self.top,
+            bottom: self.bottom,
+        })
+    }
+
+    fn new_page(&mut self) -> Result<()> {
         self.page += 1;
         let first = self.page == self.section_first_page;
-        let (top, bottom) = Flow::bounds(self.model, self.section, first);
+        let (top, bottom) = bounds(self.model, self.section, first);
         self.top = top;
         self.bottom = bottom;
         self.y = top;
         self.at_top = true;
         self.previous = None;
+        self.open_page()
     }
 
     fn body_height(&self) -> f64 {
         self.bottom - self.top
     }
 
+    fn emit(&mut self, placed: Placed) -> Result<()> {
+        self.last = Some((placed.page, placed.y));
+        self.sink.placed(placed)
+    }
+
     /// Place `para` at its offset below the current position.
-    fn place(&mut self, para: ParaOffset) {
-        self.out.push(Placed {
+    fn place(&mut self, para: ParaOffset) -> Result<()> {
+        self.emit(Placed {
             node: para.node,
             page: self.page,
             y: self.y + para.offset,
             row_end: para.row_end,
-        });
+        })
     }
 
     fn metrics(&self) -> &'m [Metric] {
@@ -565,20 +852,82 @@ impl<'m> Flow<'m> {
     }
 
     fn text_width(&self) -> f64 {
-        self.model.sections[self.section.min(self.model.sections.len() - 1)]
-            .page
-            .text_width
+        self.model.sections[self.section()].page.text_width
+    }
+
+    fn column_left(&self) -> f64 {
+        let page = &self.model.sections[self.section()].page;
+        page.left + page.gutter
+    }
+
+    fn draw(&mut self, x: f64, y: f64, item: &Item<'m>) -> Result<()> {
+        let at = Point { x, y };
+        match item {
+            Item::Line(para, line) => self.sink.line(at, para, line),
+            Item::Row(table, row, height) => self.sink.row(
+                at,
+                table,
+                *row,
+                &RowSlice {
+                    height: *height,
+                    first: true,
+                    last: true,
+                },
+            ),
+        }
+    }
+
+    fn draw_row(
+        &mut self,
+        table: &'m Table,
+        row: usize,
+        layout: &RowLayout<'m>,
+        y: f64,
+    ) -> Result<()> {
+        let left = self.column_left();
+        let slice = RowSlice {
+            height: layout.height,
+            first: true,
+            last: true,
+        };
+        self.sink.row(Point { x: left, y }, table, row, &slice)?;
+        for part in &layout.cells {
+            for drawn in &part.layout.drawn {
+                self.draw(
+                    left + part.x + drawn.x,
+                    y + part.top + drawn.offset,
+                    &drawn.item,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn repeat_headers(
+        &mut self,
+        table: &'m Table,
+        headers: &[RowLayout<'m>],
+        height: f64,
+    ) -> Result<()> {
+        let mut y = self.y;
+        for (row, layout) in headers.iter().enumerate() {
+            self.draw_row(table, row, layout, y)?;
+            y += layout.height;
+        }
+        self.y += height;
+        Ok(())
     }
 
     /// Start section `next` after the current paragraph.
-    fn next_section(&mut self, next: usize) {
+    fn next_section(&mut self, next: usize) -> Result<()> {
         self.section = next.min(self.model.sections.len() - 1);
         if self.model.sections[self.section].continuous {
-            return;
+            return Ok(());
         }
         self.section_first_page = self.page + 1;
-        self.new_page();
+        self.new_page()?;
         self.at_section_start = true;
+        Ok(())
     }
 
     /// The space above `para` here: none at the top of a page (but the
@@ -596,15 +945,10 @@ impl<'m> Flow<'m> {
         }
     }
 
-    fn place_para(&mut self, para: &'m Para) {
-        let lines = lines(
-            para,
-            self.metrics(),
-            self.text_width(),
-            self.model.default_tab,
-        );
+    fn place_para(&mut self, para: &'m Para) -> Result<()> {
+        let lines = self.lines(para)?;
         if para.page_break_before && !self.at_top {
-            self.new_page();
+            self.new_page()?;
         }
         self.y += self.space_above(para);
         let total: f64 = lines.iter().map(|l| l.height).sum::<f64>()
@@ -615,7 +959,7 @@ impl<'m> Flow<'m> {
             && total <= self.body_height()
             && !lines.iter().any(|l| l.page_break)
         {
-            self.new_page();
+            self.new_page()?;
         }
         let mut first = true;
         let mut index = 0;
@@ -646,26 +990,28 @@ impl<'m> Flow<'m> {
                 if self.at_top {
                     fit = 1;
                 } else {
-                    self.new_page();
+                    self.new_page()?;
                     continue;
                 }
             }
             if first {
                 // Word reports an empty section-break paragraph where the
                 // paragraph before it starts.
-                let y = match (para.section_break, para.pieces.is_empty(), self.out.last()) {
-                    (Some(_), true, Some(last)) if last.page == self.page => last.y,
+                let y = match (para.section_break, para.pieces.is_empty(), self.last) {
+                    (Some(_), true, Some((page, y))) if page == self.page => y,
                     _ => self.y,
                 };
-                self.out.push(Placed {
+                self.emit(Placed {
                     node: para.node,
                     page: self.page,
                     y,
                     row_end: false,
-                });
+                })?;
                 first = false;
             }
+            let left = self.column_left();
             for line in &lines[index..index + fit] {
+                self.sink.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }
             self.at_top = false;
@@ -673,85 +1019,95 @@ impl<'m> Flow<'m> {
             self.at_section_start = false;
             index += fit;
             if index < lines.len() || lines[index - 1].page_break {
-                self.new_page();
+                self.new_page()?;
             }
         }
         if lines.is_empty() {
-            self.out.push(Placed {
+            self.emit(Placed {
                 node: para.node,
                 page: self.page,
                 y: self.y,
                 row_end: false,
-            });
+            })?;
         }
         if !self.at_top {
             self.previous = Some(para);
         }
         self.at_start = false;
         if let Some(next) = para.section_break {
-            self.next_section(next);
+            self.next_section(next)?;
         }
+        Ok(())
     }
 
-    fn place_table(&mut self, table: &'m Table) {
+    fn place_table(&mut self, table: &'m Table) -> Result<()> {
         if !self.at_top
             && let Some(previous) = self.previous
         {
             self.y += previous.after_spacing();
         }
-        let metrics = self.metrics();
-        let default_tab = self.model.default_tab;
         let headers = table.rows.iter().take_while(|r| r.header).count();
-        let header_height: f64 = table.rows[..headers]
+        let header_layouts = table.rows[..headers]
             .iter()
-            .map(|row| row_layout(row, metrics, default_tab).height)
-            .sum();
+            .map(|row| self.row_layout(row))
+            .collect::<Result<Vec<_>>>()?;
+        let header_height: f64 = header_layouts.iter().map(|layout| layout.height).sum();
         for (row_index, row) in table.rows.iter().enumerate() {
-            let layout = row_layout(row, metrics, default_tab);
+            let layout = self.row_layout(row)?;
             let fits = self.y + layout.height <= self.bottom + EPSILON;
             if !fits && !self.at_top {
                 let splittable = !row.cant_split && !row.header && layout.height > 0.0;
-                if splittable && self.split_row(row, &layout, header_height, headers, row_index) {
+                let repeat = row_index >= headers && headers > 0;
+                let headers = if repeat {
+                    Some((header_layouts.as_slice(), header_height))
+                } else {
+                    None
+                };
+                if splittable && self.split_row(table, row_index, &layout, headers)? {
                     continue;
                 }
-                self.new_page();
-                if row_index >= headers && headers > 0 {
-                    self.y += header_height;
+                self.new_page()?;
+                if let Some((layouts, height)) = headers {
+                    self.repeat_headers(table, layouts, height)?;
                 }
             }
             for para in &layout.paras {
-                self.place(*para);
+                self.place(*para)?;
             }
-            self.out.push(Placed {
+            self.emit(Placed {
                 node: row.node,
                 page: self.page,
                 y: self.y + row.border_top + row.cells.first().map_or(0.0, |c| c.margins[0]),
                 row_end: true,
-            });
+            })?;
+            self.draw_row(table, row_index, &layout, self.y)?;
             self.y += layout.height;
             self.at_top = false;
             self.at_start = false;
             self.at_section_start = false;
         }
         self.previous = None;
+        Ok(())
     }
 
     /// Split a row across the page break between lines; false when no
     /// line of any cell fits on this page.
     fn split_row(
         &mut self,
-        row: &super::model::Row,
-        layout: &RowLayout,
-        header_height: f64,
-        headers: usize,
+        table: &'m Table,
         row_index: usize,
-    ) -> bool {
+        layout: &RowLayout<'m>,
+        headers: Option<(&[RowLayout<'m>], f64)>,
+    ) -> Result<bool> {
+        let row = &table.rows[row_index];
         let available = self.bottom - self.y;
         let mut any = false;
         let mut rest = 0.0f64;
         let mut moved: Vec<ParaOffset> = Vec::new();
         let mut kept: Vec<ParaOffset> = Vec::new();
-        for (cell, (cell_layout, top)) in row.cells.iter().zip(&layout.cells) {
+        let mut cuts: Vec<Option<f64>> = Vec::new();
+        for (cell, part) in row.cells.iter().zip(&layout.cells) {
+            let (cell_layout, top) = (&part.layout, part.top);
             let lines = &cell_layout.lines;
             let mut cut = lines
                 .iter()
@@ -769,6 +1125,7 @@ impl<'m> Flow<'m> {
             }
             any |= cut != Some(0);
             let cut = cut.map(|k| lines[k].offset);
+            cuts.push(cut);
             match cut {
                 Some(cut) => {
                     rest = rest.max(cell_layout.content - cut + cell.margins[0] + cell.margins[1]);
@@ -779,51 +1136,84 @@ impl<'m> Flow<'m> {
                                 ..*para
                             });
                         } else {
-                            kept.push(para.shifted(*top));
+                            kept.push(para.shifted(top));
                         }
                     }
                 }
-                None => kept.extend(cell_layout.paras.iter().map(|para| para.shifted(*top))),
+                None => kept.extend(cell_layout.paras.iter().map(|para| para.shifted(top))),
             }
         }
         if !any {
-            return false;
+            return Ok(false);
+        }
+        let left = self.column_left();
+        let slice = RowSlice {
+            height: available,
+            first: true,
+            last: false,
+        };
+        self.sink
+            .row(Point { x: left, y: self.y }, table, row_index, &slice)?;
+        for (part, cut) in layout.cells.iter().zip(&cuts) {
+            for drawn in &part.layout.drawn {
+                if cut.is_none_or(|cut| drawn.offset < cut - EPSILON) {
+                    self.draw(
+                        left + part.x + drawn.x,
+                        self.y + part.top + drawn.offset,
+                        &drawn.item,
+                    )?;
+                }
+            }
         }
         for para in kept {
-            self.place(para);
+            self.place(para)?;
         }
-        self.out.push(Placed {
+        self.emit(Placed {
             node: row.node,
             page: self.page,
             y: self.y,
             row_end: true,
-        });
-        self.new_page();
-        if row_index >= headers && headers > 0 {
-            self.y += header_height;
+        })?;
+        self.new_page()?;
+        if let Some((layouts, height)) = headers {
+            self.repeat_headers(table, layouts, height)?;
+        }
+        let left = self.column_left();
+        let slice = RowSlice {
+            height: rest,
+            first: false,
+            last: true,
+        };
+        self.sink
+            .row(Point { x: left, y: self.y }, table, row_index, &slice)?;
+        for ((part, cut), cell) in layout.cells.iter().zip(&cuts).zip(&row.cells) {
+            let Some(cut) = *cut else {
+                continue;
+            };
+            for drawn in &part.layout.drawn {
+                if drawn.offset >= cut - EPSILON {
+                    let y = self.y + drawn.offset - cut + cell.margins[0];
+                    self.draw(left + part.x + drawn.x, y, &drawn.item)?;
+                }
+            }
         }
         for para in moved {
-            self.place(para);
+            self.place(para)?;
         }
         self.y += rest;
         self.at_top = false;
-        true
+        Ok(true)
     }
 
     /// Before a keep-with-next chain: break the page when the chain and
     /// the first lines of what follows it do not fit.
-    fn keep_chain(&mut self, blocks: &'m [Block], start: usize) {
+    fn keep_chain(&mut self, blocks: &'m [Block], start: usize) -> Result<()> {
         let mut need = 0.0;
         let mut previous = self.previous;
         let mut at_top = self.at_top;
         let mut index = start;
         while let Some(Block::Para(para)) = blocks.get(index) {
-            let lines = lines(
-                para,
-                self.metrics(),
-                self.text_width(),
-                self.model.default_tab,
-            );
+            let lines = self.lines(para)?;
             let space = if at_top { 0.0 } else { gap(previous, para) };
             if !para.keep_next {
                 let count = if para.widow_control {
@@ -846,20 +1236,25 @@ impl<'m> Flow<'m> {
             && let Some(row) = table.rows.first()
         {
             let after = previous.map_or(0.0, |p| p.after_spacing());
-            need += after + row_layout(row, self.metrics(), self.model.default_tab).height;
+            need += after + self.row_layout(row)?.height;
         }
         if !self.at_top && self.y + need > self.bottom + EPSILON && need <= self.body_height() {
-            self.new_page();
+            self.new_page()?;
         }
+        Ok(())
     }
 }
 
-/// Paginate the model; the placed paragraphs in document order (with
-/// table cell paragraphs and row end marks, as Word counts paragraphs).
-pub(super) fn paginate(model: &Model) -> (Vec<Placed>, u32) {
-    let (top, bottom) = Flow::bounds(model, 0, true);
+/// Paginate the model into `sink`; the page count.
+pub(super) fn paginate<S: Sink>(model: &Model, sink: &mut S) -> Result<u32> {
+    paginate_within(model, sink, MAX_LAYOUT_WORK)
+}
+
+fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<u32> {
+    let (top, bottom) = bounds(model, 0, true);
     let mut flow = Flow {
         model,
+        sink,
         section: 0,
         section_first_page: 1,
         page: 1,
@@ -870,33 +1265,35 @@ pub(super) fn paginate(model: &Model) -> (Vec<Placed>, u32) {
         at_start: true,
         at_section_start: true,
         previous: None,
-        out: Vec::new(),
+        last: None,
+        work: 0,
+        budget,
     };
+    flow.open_page()?;
     let mut chain_until = 0;
     for (index, block) in model.blocks.iter().enumerate() {
         match block {
             Block::Para(para) => {
                 if para.keep_next && index >= chain_until {
-                    flow.keep_chain(&model.blocks, index);
+                    flow.keep_chain(&model.blocks, index)?;
                     chain_until = index
                         + model.blocks[index..]
                             .iter()
                             .take_while(|b| matches!(b, Block::Para(p) if p.keep_next))
                             .count();
                 }
-                flow.place_para(para);
+                flow.place_para(para)?;
             }
-            Block::Table(table) => flow.place_table(table),
+            Block::Table(table) => flow.place_table(table)?,
         }
     }
-    let pages = flow.page;
-    (flow.out, pages)
+    Ok(flow.page)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::model::{Page, Section};
+    use crate::layout::model::{Label, Page, Section};
 
     const METRICS: [Metric; 1] = [Metric {
         height: 10.0,
@@ -934,11 +1331,15 @@ mod tests {
         Model {
             sections: vec![Section {
                 page: Page {
+                    width: 120.0,
                     height,
                     top: 10.0,
                     bottom: 10.0,
                     header: 0.0,
                     footer: 0.0,
+                    left: 10.0,
+                    right: 10.0,
+                    gutter: 0.0,
                     text_width: 100.0,
                 },
                 header_height: 0.0,
@@ -952,6 +1353,29 @@ mod tests {
             metrics: METRICS.to_vec(),
             default_tab: 36.0,
         }
+    }
+
+    fn run(model: &Model) -> (Vec<Placed>, u32) {
+        let mut placed = Vec::new();
+        let pages = paginate(model, &mut placed).unwrap();
+        (placed, pages)
+    }
+
+    fn text(text: &str, width: f64) -> Vec<Piece> {
+        text.chars()
+            .map(|ch| match ch {
+                '\t' => Piece::Tab { metric: 0 },
+                _ => Piece::Char {
+                    ch,
+                    width,
+                    metric: 0,
+                },
+            })
+            .collect()
+    }
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
     }
 
     #[test]
@@ -980,7 +1404,7 @@ mod tests {
         // Double spacing adds each font's own extra height above it: A
         // 8 + 10, B 6 + 10; the line only needs its single height to fit.
         p.line = LineSpacing::Multiple(2.0);
-        let line = lines(&p, &metrics, 100.0, 36.0)[0];
+        let line = lines(&p, &metrics, 100.0, 36.0).remove(0);
         assert_eq!((line.height, line.fit), (22.0, 12.0));
         // A list label counts with its ascent only (plus the text's extra).
         p.pieces = vec![char(0)];
@@ -1018,7 +1442,7 @@ mod tests {
         let mut double = para(1, 10.0);
         double.line = LineSpacing::Multiple(2.0);
         blocks.push(Block::Para(double));
-        let (placed, pages) = paginate(&model(blocks, 120.0));
+        let (placed, pages) = run(&model(blocks, 120.0));
         assert_eq!((placed[9].page, pages), (1, 1));
     }
 
@@ -1054,11 +1478,11 @@ mod tests {
         let first = para(9 * 5, 18.0);
         let mut second = para(3 * 5, 18.0);
         let blocks = vec![Block::Para(first.clone()), Block::Para(second.clone())];
-        let (placed, _) = paginate(&model(blocks, 120.0));
+        let (placed, _) = run(&model(blocks, 120.0));
         assert_eq!(placed[1].page, 1);
         second.widow_control = true;
         let blocks = vec![Block::Para(first), Block::Para(second)];
-        let (placed, pages) = paginate(&model(blocks, 120.0));
+        let (placed, pages) = run(&model(blocks, 120.0));
         assert_eq!((placed[1].page, pages), (2, 2));
     }
 
@@ -1067,9 +1491,223 @@ mod tests {
         let mut p = para(1, 10.0);
         p.before = 30.0;
         let blocks = (0..8).map(|_| Block::Para(p.clone())).collect();
-        let (placed, _) = paginate(&model(blocks, 120.0));
+        let (placed, _) = run(&model(blocks, 120.0));
         assert_eq!(placed[0].y, 40.0);
         let top_of_two = placed.iter().find(|p| p.page == 2).unwrap();
         assert_eq!(top_of_two.y, 10.0);
+    }
+
+    #[test]
+    fn a_left_aligned_line_keeps_its_start_width_and_slack() {
+        // Ten 18-point words, 2-point spaces, left indent 10, first line 5
+        // more: 4 words fit each line (to 93 and to 88), then 2.
+        let mut p = para(10, 18.0);
+        p.left = 10.0;
+        p.first = 5.0;
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        let geometry: Vec<_> = lines
+            .iter()
+            .map(|l| (l.pieces.clone(), l.start, l.width, l.slack, l.gaps, l.last))
+            .collect();
+        assert_eq!(
+            geometry,
+            [
+                (0..20, 15.0, 78.0, 7.0, 3, false),
+                (20..40, 10.0, 78.0, 12.0, 3, false),
+                (40..49, 10.0, 38.0, 52.0, 1, true),
+            ]
+        );
+        assert!(lines.iter().all(|l| l.baseline == 8.0 && l.tabs.is_empty()));
+    }
+
+    #[test]
+    fn a_justified_line_counts_its_gaps_and_may_overrun() {
+        // Twelve 15-point words, 2.2-point spaces: six a line, 101 points
+        // wide in 100, fitting only because the spaces may shrink.
+        let mut p = para(12, 15.0);
+        for piece in &mut p.pieces {
+            if let Piece::Char { ch: ' ', width, .. } = piece {
+                *width = 2.2;
+            }
+        }
+        p.justified = true;
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].pieces, 0..30);
+        for (line, last) in lines.iter().zip([false, true]) {
+            assert_eq!((line.gaps, line.last), (5, last));
+            assert!(close(line.width, 101.0), "{}", line.width);
+            assert!(close(line.slack, -1.0), "{}", line.slack);
+        }
+    }
+
+    #[test]
+    fn a_right_tab_moves_the_text_after_it_to_the_stop() {
+        // "a b<tab>c d" in 5-point characters, a right tab at 90: "c d" is
+        // 15 wide, so the tab moves from 15 to 75; one gap after the tab.
+        let p = Para {
+            pieces: text("a b\tc d", 5.0),
+            tabs: vec![(90.0, TabKind::Right)],
+            ..Para::default()
+        };
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        let line = &lines[0];
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            line.tabs,
+            [TabPlace {
+                piece: 3,
+                from: 15.0,
+                to: 75.0
+            }]
+        );
+        assert_eq!(
+            (line.start, line.width, line.slack, line.gaps),
+            (0.0, 90.0, 10.0, 1)
+        );
+    }
+
+    #[test]
+    fn a_list_item_starts_its_text_after_the_label() {
+        // A 10-point label and a tab, hanging indent 18: the text starts at
+        // the indent on the first line and every other.
+        let p = Para {
+            pieces: text("aaaa aaaa aaaa", 5.0),
+            left: 18.0,
+            first: -18.0,
+            label: Some(Label {
+                width: 10.0,
+                space: 0.0,
+                tab: true,
+                metric: 0,
+            }),
+            ..Para::default()
+        };
+        let lines = lines(&p, &METRICS, 70.0, 36.0);
+        let geometry: Vec<_> = lines
+            .iter()
+            .map(|l| (l.pieces.clone(), l.start, l.width, l.slack))
+            .collect();
+        assert_eq!(
+            geometry,
+            [(0..10, 18.0, 45.0, 7.0), (10..14, 18.0, 20.0, 32.0)]
+        );
+    }
+
+    #[test]
+    fn a_line_break_ends_a_line_as_the_paragraph_end_does() {
+        let mut p = para(2, 10.0);
+        p.pieces.insert(4, Piece::LineBreak { metric: 0 });
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        let ends: Vec<_> = lines.iter().map(|l| (l.pieces.clone(), l.last)).collect();
+        assert_eq!(ends, [(0..5, true), (5..10, true)]);
+    }
+
+    struct Failing {
+        fail_at: usize,
+        lines: usize,
+        pages: u32,
+        placed: usize,
+    }
+
+    impl Sink for Failing {
+        fn page(&mut self, _: &PageStart) -> Result<()> {
+            self.pages += 1;
+            Ok(())
+        }
+
+        fn line(&mut self, _: Point, _: &Para, _: &Line) -> Result<()> {
+            self.lines += 1;
+            if self.lines == self.fail_at {
+                return Err(Error::invalid_argument("sink_failed", "the sink failed"));
+            }
+            Ok(())
+        }
+
+        fn row(&mut self, _: Point, _: &Table, _: usize, _: &RowSlice) -> Result<()> {
+            Ok(())
+        }
+
+        fn placed(&mut self, _: Placed) -> Result<()> {
+            self.placed += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failing_sink_stops_pagination() {
+        // Thirty one-line paragraphs on three pages; the sink fails at the
+        // fifteenth line, on the second page.
+        let blocks = (0..30).map(|_| Block::Para(para(1, 10.0))).collect();
+        let model = model(blocks, 120.0);
+        let mut sink = Failing {
+            fail_at: 15,
+            lines: 0,
+            pages: 0,
+            placed: 0,
+        };
+        let error = paginate(&model, &mut sink).unwrap_err();
+        assert_eq!(error.reason(), "sink_failed");
+        assert_eq!((sink.lines, sink.placed, sink.pages), (15, 15, 2));
+        assert_eq!(run(&model).1, 3);
+    }
+
+    #[test]
+    fn layout_work_has_a_budget() {
+        // Ten paragraphs of 49 pieces and two lines: 510 units of work.
+        let blocks: Vec<Block> = (0..10).map(|_| Block::Para(para(10, 18.0))).collect();
+        let model = model(blocks, 120.0);
+        let error = paginate_within(&model, &mut Vec::new(), 500).unwrap_err();
+        assert_eq!(error.reason(), "max_layout_work");
+        assert!(paginate_within(&model, &mut Vec::new(), 510).is_ok());
+    }
+
+    #[test]
+    fn lines_in_table_cells_are_drawn_inside_their_cells() {
+        #[derive(Default)]
+        struct Lines(Vec<(u32, Point)>, u32);
+        impl Sink for Lines {
+            fn page(&mut self, page: &PageStart) -> Result<()> {
+                self.1 = page.number;
+                Ok(())
+            }
+            fn line(&mut self, at: Point, _: &Para, line: &Line) -> Result<()> {
+                self.0.push((
+                    self.1,
+                    Point {
+                        x: at.x + line.start,
+                        y: at.y,
+                    },
+                ));
+                Ok(())
+            }
+            fn row(&mut self, _: Point, _: &Table, _: usize, _: &RowSlice) -> Result<()> {
+                Ok(())
+            }
+            fn placed(&mut self, _: Placed) -> Result<()> {
+                Ok(())
+            }
+        }
+        let cell = |words| super::super::model::Cell {
+            width: 50.0,
+            margins: [1.0, 1.0, 5.0, 5.0],
+            blocks: vec![Block::Para(para(words, 10.0))],
+            vmerge: 0,
+        };
+        // A one-line cell beside a 12-line one, on a 100-point body after
+        // 9 lines: the row splits after one line of the long cell.
+        let row = Row {
+            cells: vec![cell(1), cell(36)],
+            ..Row::default()
+        };
+        let mut blocks: Vec<Block> = (0..8).map(|_| Block::Para(para(1, 10.0))).collect();
+        blocks.push(Block::Table(Table { rows: vec![row] }));
+        let mut sink = Lines::default();
+        paginate(&model(blocks, 120.0), &mut sink).unwrap();
+        let cells = &sink.0[8..];
+        assert_eq!(cells.len(), 13);
+        assert_eq!((cells[0].0, cells[0].1), (1, Point { x: 15.0, y: 91.0 }));
+        assert_eq!((cells[1].0, cells[1].1), (1, Point { x: 65.0, y: 91.0 }));
+        assert_eq!((cells[2].0, cells[2].1), (2, Point { x: 65.0, y: 11.0 }));
     }
 }

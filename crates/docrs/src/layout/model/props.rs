@@ -5,6 +5,10 @@ use crate::xml::{NodeId, XmlTree};
 
 const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
 
+/// Word clamps lengths to about ±22 inches and font sizes to 1–1,638 points.
+pub(super) const MAX_LENGTH: f64 = 22.0 * 72.0;
+const MAX_FONT_SIZE: f64 = 1638.0;
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct PPr {
     pub(super) before: Option<f64>,
@@ -118,10 +122,25 @@ pub(super) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
     )
 }
 
+pub(super) fn number(value: &str) -> Option<f64> {
+    value.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+pub(super) fn length(points: f64) -> Option<f64> {
+    (points.is_finite() && points.abs() <= MAX_LENGTH).then_some(points)
+}
+
 pub(super) fn twips(tree: &XmlTree, node: NodeId, name: &str) -> Option<f64> {
     w_attr(tree, node, name)
-        .and_then(|v| v.parse::<f64>().ok())
-        .map(|v| v * TWIP)
+        .and_then(number)
+        .and_then(|v| length(v * TWIP))
+}
+
+fn half_points(tree: &XmlTree, node: NodeId, min: f64) -> Option<f64> {
+    w_attr(tree, node, "val")
+        .and_then(number)
+        .map(|half| half / 2.0)
+        .filter(|size| (min..=MAX_FONT_SIZE).contains(size))
 }
 
 pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
@@ -144,7 +163,9 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
                     .map(|v| !matches!(v, "0" | "false" | "off"));
                 out.after_auto = w_attr(tree, child, "afterAutospacing")
                     .map(|v| !matches!(v, "0" | "false" | "off"));
-                if let Some(line) = w_attr(tree, child, "line").and_then(|v| v.parse::<f64>().ok())
+                if let Some(line) = w_attr(tree, child, "line")
+                    .and_then(number)
+                    .filter(|line| line.abs() * TWIP <= MAX_LENGTH)
                 {
                     let rule = match w_attr(tree, child, "lineRule") {
                         Some("exact") => LineRule::Exact,
@@ -231,25 +252,18 @@ pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
                 out.ascii = theme("asciiTheme").or_else(|| named("ascii"));
                 out.hansi = theme("hAnsiTheme").or_else(|| named("hAnsi"));
             }
-            "sz" => {
-                out.size = w_attr(tree, child, "val")
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .map(|v| v / 2.0)
-            }
+            "sz" => out.size = half_points(tree, child, 1.0),
             "b" => out.bold = Some(on_off(tree, child)),
             "i" => out.italic = Some(on_off(tree, child)),
             "caps" => out.caps = Some(on_off(tree, child)),
             "smallCaps" => out.small_caps = Some(on_off(tree, child)),
             "vanish" => out.vanish = Some(on_off(tree, child)),
             "spacing" => out.spacing = twips(tree, child, "val"),
-            "kern" => {
-                out.kern = w_attr(tree, child, "val")
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .map(|half| half / 2.0)
-            }
+            "kern" => out.kern = half_points(tree, child, 0.0),
             "w" => {
                 out.scale = w_attr(tree, child, "val")
-                    .and_then(|v| v.trim_end_matches('%').parse::<f64>().ok())
+                    .and_then(|v| number(v.trim_end_matches('%')))
+                    .filter(|scale| (1.0..=600.0).contains(scale))
             }
             "vertAlign" => {
                 out.vert = Some(matches!(

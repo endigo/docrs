@@ -1,7 +1,10 @@
-use super::props::{on_off, twips};
+use super::props::{length, number, on_off, twips};
 use super::{Builder, Cell, Row, Table};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
+
+/// Word's table grid holds at most 63 columns.
+const MAX_GRID_COLUMNS: usize = 63;
 
 #[derive(Clone)]
 pub(super) struct TableCtx {
@@ -91,6 +94,7 @@ impl Builder<'_> {
                     .and_then(|p| w_child(tree, p, "gridSpan"))
                     .and_then(|s| w_attr(tree, s, "val"))
                     .and_then(|v| v.parse::<usize>().ok())
+                    .filter(|span| *span <= MAX_GRID_COLUMNS)
                     .unwrap_or(1)
                     .max(1);
                 let width: f64 = if grid.len() >= column + span {
@@ -150,12 +154,10 @@ pub(super) fn borders(tree: &XmlTree, node: Option<NodeId>) -> [Option<f64>; 3] 
         for (slot, name) in out.iter_mut().zip(["top", "bottom", "insideH"]) {
             *slot = w_child(tree, node, name).map(|side| match w_attr(tree, side, "val") {
                 Some("none" | "nil") | None => 0.0,
-                Some(_) => {
-                    w_attr(tree, side, "sz")
-                        .and_then(|v| v.parse::<f64>().ok())
-                        .unwrap_or(2.0)
-                        / 8.0
-                }
+                Some(_) => w_attr(tree, side, "sz")
+                    .and_then(number)
+                    .and_then(|eighths| length(eighths / 8.0))
+                    .unwrap_or(0.25),
             });
         }
     }

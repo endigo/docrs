@@ -30,14 +30,28 @@ use theme::{Theme, read_font_kinds, read_theme};
 
 /// Page geometry in points.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code, reason = "the PDF painter reads them")]
 pub struct Page {
+    pub width: f64,
     pub height: f64,
     pub top: f64,
     pub bottom: f64,
     pub header: f64,
     pub footer: f64,
+    pub left: f64,
+    pub right: f64,
+    pub gutter: f64,
     /// Text width between the margins.
     pub text_width: f64,
+}
+
+/// Node ids are local to a part's tree. Headers and footers count from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum StoryId {
+    #[default]
+    Body,
+    Header(u32),
+    Footer(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -104,6 +118,7 @@ pub struct Label {
 
 #[derive(Debug, Clone, Default)]
 pub struct Para {
+    pub story: StoryId,
     pub node: Option<NodeId>,
     pub pieces: Vec<Piece>,
     pub before: f64,
@@ -198,6 +213,8 @@ pub(super) struct Builder<'a> {
     pub metrics: Vec<Metric>,
     metric_index: HashMap<(u64, u64), u32>,
     sections_seen: usize,
+    story: StoryId,
+    depth: usize,
 }
 
 fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
@@ -216,6 +233,8 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         metrics: Vec::new(),
         metric_index: HashMap::new(),
         sections_seen: 0,
+        story: StoryId::Body,
+        depth: 0,
     };
     let default_tab = part(txn, main, rt::SETTINGS)
         .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))
@@ -238,6 +257,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     let mut sections = Vec::new();
     let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
     let rels = txn.resolved_relationships(main)?;
+    let mut stories: HashMap<(&'static str, String), u32> = HashMap::new();
     for sect in &sects {
         let page = page_of(tree, Some(*sect));
         for reference in tree.child_elements(*sect) {
@@ -257,6 +277,13 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             };
             let Ok(story) = txn.tree(name) else {
                 continue;
+            };
+            let next = stories.keys().filter(|(k, _)| *k == kind).count() as u32 + 1;
+            let n = *stories.entry((kind, name.to_string())).or_insert(next);
+            builder.story = if kind == "header" {
+                StoryId::Header(n)
+            } else {
+                StoryId::Footer(n)
             };
             let mut story_blocks = Vec::new();
             builder.blocks(story, story.root(), None, &mut story_blocks);
@@ -295,6 +322,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             continuous: false,
         });
     }
+    builder.story = StoryId::Body;
     let mut blocks = Vec::new();
     if let Some(body) = body {
         builder.blocks(tree, body, None, &mut blocks);
@@ -319,11 +347,15 @@ fn page_of(tree: &XmlTree, sect: Option<NodeId>) -> Page {
     let right = get(mar, "right", 72.0);
     let gutter = get(mar, "gutter", 0.0);
     Page {
+        width,
         height,
         top: get(mar, "top", 72.0),
         bottom: get(mar, "bottom", 72.0),
         header: get(mar, "header", 36.0),
         footer: get(mar, "footer", 36.0),
+        left,
+        right,
+        gutter,
         text_width: (width - left - right - gutter).max(36.0),
     }
 }
