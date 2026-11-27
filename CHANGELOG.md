@@ -13,6 +13,10 @@
 
 - Contents page numbers are worked out again after `fields` are filled. A long value could push a heading onto the next page after its number was written, so the contents showed the page before. `report.toc` pages and fonts describe the filled document. Only the contents the conversion wrote is refreshed: a reference document's own contents, kept by `append` or a placeholder, is left as it is. Entries whose pages use Roman or other non-decimal numbers, or come after a numbering restart, also keep their numbers.
 
+### Command line
+
+- `docrs layout` shows each paragraph's text as Word displays it: field results, tabs and line breaks, not field codes.
+
 ## 1.0.1 (2026-11-23)
 
 ### Library
