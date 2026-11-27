@@ -16,6 +16,10 @@
 - In justified paragraphs, spaces between a list label or tab and the first word after it no longer let the line shrink to fit; only spaces between words do.
 - A table's header rows that are taller than the page body are no longer repeated on the following pages, as in Word. They start on a page of their own and run off its bottom, and the next row starts a new page. A 70-line header over 40 rows was estimated at 43 pages; Word and the estimate now give 3.
 - Page estimates align decimal tabs on the decimal point: the text before the first `.` ends at the stop.
+- `layout::FontSet` holds font files the caller supplies (TTF, OTF, TTC and OTC; the first 64 faces of a collection), built with `FontSet::builder()`. `add` reads every face of a file and returns each one's family and style as a document names it, whether it is variable or has CFF outlines, and whether its `fsType` allows embedding and subsetting. A file with a face that cannot be read adds nothing and is refused with `invalid_argument`: `font_format_unsupported` for WOFF, WOFF2, Type 1, CFF2, bitmap-only fonts and fonts without a format 4 or 12 cmap, else `font_malformed`, `font_cmap_invalid` or `font_too_large`. All files of a set share one parse budget, and a refused file spends it too. Families are found by name, full name and PostScript name. `alias` lays one family out in another, and an alias to a family found nowhere is ignored. Variable fonts are measured at their default instance.
+- `layout::layout_with` lays out with a `FontSet`: each family and style is measured from the document's embedded fonts, then the set, then the bundled table, then a substitute. A style the document does not embed is taken from the set. `layout::layout` keeps its signature and gives the same result.
+- `markdown::insert_source_with` numbers the contents with a `FontSet`. `insert_source` and the other conversions behave as before.
+- A face read from a font file keeps its glyph for each character and the file it came from (`Face::glyph`, `Face::file`), for the PDF writer to subset later. A face embedded in a document refers to its part, and `FontFile::read` reads it back from the document. Font names are also read from Unicode-platform name records, so Lucida Grande's collection reads all four faces.
 
 ### Node package
 
@@ -25,6 +29,8 @@
 
 - `docrs layout` shows each paragraph's text as Word displays it (field results, tabs, line breaks, non-breaking hyphens and symbols, not field codes), and marks the paragraphs of a table of contents with `toc`.
 - `layout --lines` prints every line of the estimated layout as it is laid out, one JSON object a line: `page`, `story`, `x`, `y`, `width`, `height`, `baseline`, `tabs`, `slack`, `gaps`, `last`, `align` and `text` (experimental).
+- `from-markdown`, `from-html`, `from-json` and `layout` take `--font FILE` and `--font-dir DIR` (both repeatable). The contents page numbers and the layout are measured with those fonts where the document embeds none of the family and style. A bad `--font` file fails the command. `--font-dir` reads the `.ttf`, `.otf`, `.ttc` and `.otc` files of the directory. Files it cannot read, files over 64 MiB (`font_file_too_large`), and files that are not supported fonts are skipped and listed in `fonts_skipped` with their reason.
+- `docrs fonts FILE… | --font-dir DIR` lists the families and styles font files provide, as a document must name them. It also shows whether each face has CFF outlines, is variable, or forbids embedding or subsetting (`--json` for the `docrs_fonts` report).
 
 ## 1.0.1 (2026-11-23)
 

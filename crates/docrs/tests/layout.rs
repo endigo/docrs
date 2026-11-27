@@ -910,3 +910,82 @@ fn a_body_row_taller_than_the_page_keeps_all_its_lines() {
     .unwrap();
     assert_eq!(drawn, 150);
 }
+
+fn inter() -> docrs::layout::FontSet {
+    let path = repo_root().join("tests/fixtures/fonts/inter/Inter[opsz,wght].ttf");
+    let mut builder = docrs::layout::FontSet::builder();
+    builder.add(std::fs::read(path).unwrap()).unwrap();
+    builder.build()
+}
+
+/// `tests/fixtures/pdf/sources/toc.md` converted into the Inter reference.
+fn inter_contents(fonts: &docrs::layout::FontSet) -> Document {
+    use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
+    let root = repo_root();
+    let source = std::fs::read_to_string(root.join("tests/fixtures/pdf/sources/toc.md")).unwrap();
+    let reference = root.join("tests/fixtures/pdf/references/inter.docx");
+    let mut doc = Document::open_path(reference, &Limits::default()).unwrap();
+    let options = MarkdownOptions::default();
+    insert_source_with(&mut doc, &source, InputFormat::Markdown, &options, fonts).unwrap();
+    doc
+}
+
+#[test]
+fn the_inter_fixture_is_one_variable_face() {
+    let fonts = inter();
+    let [face] = fonts.faces() else {
+        panic!("{:?}", fonts.faces());
+    };
+    assert_eq!(
+        (face.family.as_str(), face.bold, face.italic),
+        ("Inter", false, false)
+    );
+    assert!(face.variable && face.embeddable);
+}
+
+#[test]
+fn layout_with_an_empty_font_set_is_layout() {
+    let doc = inter_contents(&docrs::layout::FontSet::default());
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let plain = layout(&txn, &main, Vec::new()).unwrap();
+    let with = docrs::layout::layout_with(&txn, &main, &docrs::layout::FontSet::default()).unwrap();
+    assert_eq!(format!("{:?}", plain.placed), format!("{:?}", with.placed));
+    assert_eq!(
+        (plain.pages, &plain.missing_fonts, &plain.embedded_fonts),
+        (with.pages, &with.missing_fonts, &with.embedded_fonts)
+    );
+    for heading in [
+        "introduction",
+        "background",
+        "method",
+        "results",
+        "discussion",
+    ] {
+        for part in ["", "_part_1", "_part_2"] {
+            let bookmark = format!("{heading}{part}");
+            assert_eq!(
+                plain.bookmark_page(&bookmark),
+                with.bookmark_page(&bookmark)
+            );
+            assert!(plain.bookmark_page(&bookmark).is_some(), "{bookmark}");
+        }
+    }
+    assert_eq!(plain.missing_fonts, ["Inter"]);
+    let measured = docrs::layout::layout_with(&txn, &main, &inter()).unwrap();
+    assert!(measured.missing_fonts.is_empty());
+}
+
+#[test]
+fn a_supplied_font_numbers_the_contents() {
+    let fonts = inter();
+    let mut estimated = inter_contents(&docrs::layout::FontSet::default());
+    let refreshed =
+        docrs::layout::refresh_toc_page_numbers_with(&mut estimated, true, &fonts).unwrap();
+    assert!(refreshed.changed > 0);
+    let mut measured = inter_contents(&fonts);
+    let refreshed =
+        docrs::layout::refresh_toc_page_numbers_with(&mut measured, true, &fonts).unwrap();
+    assert_eq!(refreshed.changed, 0);
+    assert!(refreshed.layout.missing_fonts.is_empty());
+}

@@ -2,17 +2,19 @@
 //! height (hhea ascender + descender + line gap) per face.
 //!
 //! Three sources, best first: fonts embedded in the document
-//! (`word/fonts/*.odttf`, read with [`Face::parse`]), fonts the caller
-//! supplies, and the bundled table `font_metrics.bin` measured from the
+//! (`word/fonts/*.odttf`, read with [`Face::parse`]), the caller's
+//! [`FontSet`], and the bundled table `font_metrics.bin` measured from the
 //! fonts Word for Mac uses (`tools/layout/make_font_metrics.py`; numbers
 //! only, no glyph data). A family found in none of them falls back to a
 //! face of the same kind (serif, sans, monospace) and is reported.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
 use crate::error::{Error, Result};
+use crate::txn::Txn;
 
 /// One face's metrics, in font units.
 #[derive(Debug, Clone)]
@@ -30,13 +32,74 @@ pub struct Face {
     average_width: f64,
     codepoints: Arc<[u32]>,
     widths: Arc<[u16]>,
+    /// Each code point's glyph; empty for the bundled table.
+    glyphs: Arc<[u16]>,
     /// Pair kerning between `KERN_CODEPOINTS`, in font units, sorted.
     kerning: Arc<[KernPair]>,
+    file: Option<Arc<FontFile>>,
+}
+
+/// The font program a face was read from, and where the face's table
+/// directory starts in it.
+pub struct FontFile {
+    source: FileSource,
+    offset: usize,
+}
+
+enum FileSource {
+    Bytes(Arc<[u8]>),
+    /// A font the document embeds, read again from its part when needed.
+    Part {
+        name: String,
+        key: Option<[u8; 16]>,
+    },
+}
+
+impl FontFile {
+    /// The font file. An embedded font is read from its part through `txn`,
+    /// which must be over the document the face was laid out from. A keyed
+    /// font is deobfuscated into a copy of the part on every call, so a
+    /// writer reads each (part, key) once.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the PDF writer reads it"))]
+    pub(crate) fn read<'a>(&'a self, txn: &'a Txn<'_>) -> Option<Cow<'a, [u8]>> {
+        match &self.source {
+            FileSource::Bytes(bytes) => Some(Cow::Borrowed(bytes)),
+            FileSource::Part { name, key: None } => txn.binary(name),
+            FileSource::Part {
+                name,
+                key: Some(key),
+            } => {
+                let mut bytes = txn.binary(name)?.into_owned();
+                xor_font_key(&mut bytes, key);
+                Some(Cow::Owned(bytes))
+            }
+        }
+    }
+
+    /// Offset of the face's table directory (0 outside a collection).
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+}
+
+impl std::fmt::Debug for FontFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut out = f.debug_struct("FontFile");
+        match &self.source {
+            FileSource::Bytes(bytes) => out.field("bytes", &bytes.len()),
+            FileSource::Part { name, key } => {
+                out.field("part", name).field("keyed", &key.is_some())
+            }
+        };
+        out.field("offset", &self.offset).finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FontError {
     Malformed(&'static str),
+    Unnamed,
+    Unsupported(&'static str),
     CmapUnsorted,
     CmapReversedRange,
     CmapOutOfRange,
@@ -50,6 +113,11 @@ impl FontError {
                 "font_malformed",
                 format!("font table {table} is missing or malformed"),
             ),
+            FontError::Unnamed => (
+                "font_malformed",
+                "the font names no family or style (name ids 1 and 2)".into(),
+            ),
+            FontError::Unsupported(message) => ("font_format_unsupported", message.to_string()),
             FontError::CmapUnsorted => (
                 "font_cmap_invalid",
                 "cmap ranges are unsorted or overlap".into(),
@@ -104,15 +172,29 @@ impl Face {
     /// Advance width of `ch` in ems (the average width when the face has
     /// no glyph for it).
     pub fn advance(&self, ch: char) -> f64 {
+        let width = match self.mapped(ch) {
+            Some(index) if self.widths[index] != u16::MAX => f64::from(self.widths[index]),
+            _ => self.average_width,
+        };
+        width / self.units_per_em
+    }
+
+    /// The glyph `ch` maps to, when the face was read from a font file.
+    pub fn glyph(&self, ch: char) -> Option<u16> {
+        self.glyphs.get(self.mapped(ch)?).copied()
+    }
+
+    /// The font file the face was read from, for subsetting.
+    pub fn file(&self) -> Option<&FontFile> {
+        self.file.as_deref()
+    }
+
+    fn mapped(&self, ch: char) -> Option<usize> {
         let mut code = ch as u32;
         if self.symbol && (0x20..0x100).contains(&code) {
             code |= 0xF000;
         }
-        let width = match self.codepoints.binary_search(&code) {
-            Ok(index) if self.widths[index] != u16::MAX => f64::from(self.widths[index]),
-            _ => self.average_width,
-        };
-        width / self.units_per_em
+        self.codepoints.binary_search(&code).ok()
     }
 
     /// Kerning between `left` and `right` in ems (0 when the face has no
@@ -146,8 +228,9 @@ impl Face {
     }
 
     /// [`Face::parse`], saying why a face could not be read
-    /// (`invalid_argument`: `font_malformed`, `font_cmap_invalid` or
-    /// `font_too_large`).
+    /// (`invalid_argument`: `font_malformed`, `font_cmap_invalid`,
+    /// `font_too_large`, or `font_format_unsupported` for a cmap without
+    /// format 4 or 12).
     pub fn try_parse(data: &[u8], family: &str, bold: bool, italic: bool) -> Result<Face> {
         let mut budget = FILE_BUDGET;
         Ttf::new(data)
@@ -155,14 +238,29 @@ impl Face {
             .map_err(FontError::into_error)
     }
 
-    pub(crate) fn parse_within(
-        data: &[u8],
+    /// The first face of an embedded font, read from `plain` (part `part`
+    /// deobfuscated with `key`).
+    pub(crate) fn parse_embedded(
+        plain: &[u8],
+        part: &str,
+        key: Option<[u8; 16]>,
         family: &str,
-        bold: bool,
-        italic: bool,
         budget: &mut usize,
     ) -> Parsed<Face> {
-        Face::from_ttf(&Ttf::new(data)?, family, bold, italic, budget)
+        let offset = face_view(plain, 0).ok_or(FontError::Malformed("ttcf"))?;
+        let face = Face::from_ttf(&Ttf::new_at(plain, offset)?, family, false, false, budget)?;
+        let name = part.to_string();
+        Ok(face.with_file(FontFile {
+            source: FileSource::Part { name, key },
+            offset,
+        }))
+    }
+
+    fn with_file(self, file: FontFile) -> Face {
+        Face {
+            file: Some(Arc::new(file)),
+            ..self
+        }
     }
 
     pub(crate) fn restyled(&self, family: &str, bold: bool, italic: bool) -> Face {
@@ -221,22 +319,21 @@ impl Face {
             Some(table) => kern_pairs(table, &mapping, budget)?,
             None => Vec::new(),
         };
-        let codepoints: Arc<[u32]> = mapping.iter().map(|(c, _)| *c).collect();
-        let widths: Arc<[u16]> = mapping.iter().map(|(_, glyph)| advance(*glyph)).collect();
-        let symbol = mapping_is_symbol;
         Ok(Face {
             family: family.to_string(),
             bold,
             italic,
-            symbol,
+            symbol: mapping_is_symbol,
             units_per_em,
             ascender,
             descender,
             line_gap,
             average_width,
-            codepoints,
-            widths,
+            codepoints: mapping.iter().map(|(c, _)| *c).collect(),
+            widths: mapping.iter().map(|(_, glyph)| advance(*glyph)).collect(),
+            glyphs: mapping.iter().map(|(_, glyph)| *glyph).collect(),
             kerning: kerning.into(),
+            file: None,
         })
     }
 }
@@ -323,55 +420,138 @@ fn kern_pairs(table: &[u8], mapping: &[(u32, u16)], budget: &mut usize) -> Parse
 }
 
 impl Face {
-    /// Every face of a font file (one, or each of a collection), named and
-    /// styled the way documents name fonts: the family, with a style other
-    /// than regular, bold, italic or bold italic appended.
+    /// Every face of a font file (one, or each of the first 64 of a
+    /// collection), named and styled the way documents name fonts: the
+    /// family, with a style other than regular, bold, italic or bold italic
+    /// appended. Faces that cannot be read are skipped.
     pub fn parse_file(data: &[u8]) -> Vec<Face> {
-        let count = if data.get(..4) == Some(b"ttcf") {
-            be32(data, 8).unwrap_or(0) as usize
-        } else {
-            1
-        };
-        let mut out = Vec::new();
         let mut budget = FILE_BUDGET;
-        for index in 0..count.min(64) {
-            let Some(view) = face_view(data, index) else {
-                continue;
-            };
-            let Some(names) = Ttf::new_at(data, view)
-                .ok()
-                .and_then(|t| t.table(b"name").map(names))
-            else {
-                continue;
-            };
-            let (Some(family), Some(subfamily)) = (names.0, names.1) else {
-                continue;
-            };
-            let words: Vec<&str> = subfamily
-                .split_whitespace()
-                .map(|w| if w == "Oblique" { "Italic" } else { w })
-                .collect();
-            let italic = words.contains(&"Italic");
-            let rest: Vec<&str> = words.into_iter().filter(|w| *w != "Italic").collect();
-            let bold = rest == ["Bold"];
-            let plain = matches!(
-                rest.as_slice(),
-                [] | ["Regular"] | ["Roman"] | ["Plain"] | ["Book"] | ["Normal"] | ["Bold"]
-            );
-            let extra = rest.join(" ");
-            let family = if plain || family.ends_with(&extra) {
-                family
-            } else {
-                format!("{family} {extra}")
-            };
-            if let Ok(face) = Ttf::new_at(data, view)
-                .and_then(|t| Face::from_ttf(&t, &family, bold, italic, &mut budget))
-            {
-                out.push(face);
-            }
-        }
-        out
+        read_faces(&Arc::from(data), &mut budget)
+            .into_iter()
+            .filter_map(|read| read.ok().map(|named| named.face))
+            .collect()
     }
+}
+
+/// Faces read from one collection; the rest are left unread.
+const MAX_COLLECTION_FACES: usize = 64;
+
+/// A face read from a font file, with the other names it answers to.
+struct Named {
+    face: Face,
+    info: FontInfo,
+    /// Full name (name id 4) and PostScript name (id 6).
+    names: [Option<String>; 2],
+    /// Why a font set refuses the face, though its metrics read.
+    unsupported: Option<&'static str>,
+}
+
+fn read_faces(data: &Arc<[u8]>, budget: &mut usize) -> Vec<Parsed<Named>> {
+    let count = match data.get(..4) {
+        Some(b"ttcf") => be32(data, 8).unwrap_or(0) as usize,
+        Some(b"true" | b"OTTO" | [0, 1, 0, 0]) => 1,
+        Some(b"wOFF" | b"wOF2") => {
+            return vec![Err(FontError::Unsupported(
+                "WOFF and WOFF2 fonts are not supported; supply the TTF or OTF file",
+            ))];
+        }
+        Some(b"typ1" | b"%!PS" | b"%!Fo" | [0x80, 0x01, ..]) => {
+            return vec![Err(FontError::Unsupported(
+                "Type 1 fonts are not supported",
+            ))];
+        }
+        _ => {
+            return vec![Err(FontError::Unsupported(
+                "not a TrueType or OpenType font (TTF, OTF, TTC or OTC)",
+            ))];
+        }
+    };
+    (0..count.min(MAX_COLLECTION_FACES))
+        .map(|index| read_face(data, index, budget))
+        .collect()
+}
+
+fn read_face(data: &Arc<[u8]>, index: usize, budget: &mut usize) -> Parsed<Named> {
+    let offset = face_view(data, index).ok_or(FontError::Malformed("ttcf"))?;
+    if !matches!(
+        be32(data, offset),
+        Some(0x0001_0000 | 0x7472_7565 | 0x4F54_544F)
+    ) {
+        return Err(FontError::Malformed("table directory"));
+    }
+    let ttf = Ttf::new_at(data, offset)?;
+    let [Some(family), Some(subfamily), full, postscript] =
+        ttf.table(b"name").map(names).unwrap_or_default()
+    else {
+        return Err(FontError::Unnamed);
+    };
+    let cff = ttf.table(b"CFF ").is_some();
+    let unsupported = if ttf.table(b"CFF2").is_some() {
+        Some("CFF2 fonts are not supported")
+    } else if ttf.table(b"glyf").is_none() && !cff {
+        Some("bitmap-only fonts are not supported")
+    } else {
+        None
+    };
+    let (family, bold, italic) = document_style(family, &subfamily);
+    let face = Face::from_ttf(&ttf, &family, bold, italic, budget)
+        .map_err(|error| unsupported.map_or(error, FontError::Unsupported))?;
+    let (embeddable, subsettable) = licence(&ttf);
+    let info = FontInfo {
+        family,
+        bold,
+        italic,
+        variable: ttf.table(b"fvar").is_some(),
+        cff,
+        embeddable,
+        subsettable,
+    };
+    Ok(Named {
+        face: face.with_file(FontFile {
+            source: FileSource::Bytes(data.clone()),
+            offset,
+        }),
+        info,
+        names: [full, postscript],
+        unsupported,
+    })
+}
+
+/// The family and style a document names a face by, from its name table's
+/// family and subfamily.
+fn document_style(family: String, subfamily: &str) -> (String, bool, bool) {
+    let words: Vec<&str> = subfamily
+        .split_whitespace()
+        .map(|w| if w == "Oblique" { "Italic" } else { w })
+        .collect();
+    let italic = words.contains(&"Italic");
+    let rest: Vec<&str> = words.into_iter().filter(|w| *w != "Italic").collect();
+    let bold = rest == ["Bold"];
+    let plain = matches!(
+        rest.as_slice(),
+        [] | ["Regular"] | ["Roman"] | ["Plain"] | ["Book"] | ["Normal"] | ["Bold"]
+    );
+    let extra = rest.join(" ");
+    let family = if plain || family.ends_with(&extra) {
+        family
+    } else {
+        format!("{family} {extra}")
+    };
+    (family, bold, italic)
+}
+
+/// OS/2 `fsType` as (embeddable, subsettable). Restricted licence (bit 1)
+/// yields to editable or preview and print (bits 2, 3), as versions before
+/// 3 allow; bitmap only (bit 9) and no subsetting (bit 8) exist from
+/// version 2.
+fn licence(ttf: &Ttf<'_>) -> (bool, bool) {
+    let Some(os2) = ttf.table(b"OS/2") else {
+        return (true, true);
+    };
+    let fs_type = be16(os2, 8).unwrap_or(0);
+    let defined = |bit: u16| be16(os2, 0).is_some_and(|version| version >= 2) && fs_type & bit != 0;
+    let restricted = fs_type & 0x000E == 0x0002;
+    (!restricted && !defined(0x0200), !defined(0x0100))
 }
 
 /// Offset of face `index`'s table directory.
@@ -383,16 +563,13 @@ fn face_view(data: &[u8], index: usize) -> Option<usize> {
     }
 }
 
-/// (family, subfamily) from a name table (ids 1 and 2; Windows English,
-/// else Macintosh Roman).
-fn names(table: &[u8]) -> (Option<String>, Option<String>) {
-    let mut out: [Option<String>; 2] = [None, None];
-    let mut mac: [Option<String>; 2] = [None, None];
-    let Some(count) = be16(table, 2) else {
-        return (None, None);
-    };
-    let Some(strings) = be16(table, 4) else {
-        return (None, None);
+/// Name ids 1, 2, 4 and 6 (family, subfamily, full and PostScript name):
+/// Windows English, else Unicode, else Macintosh Roman.
+fn names(table: &[u8]) -> [Option<String>; 4] {
+    const IDS: [u16; 4] = [1, 2, 4, 6];
+    let mut best: [Option<(u8, String)>; 4] = Default::default();
+    let (Some(count), Some(strings)) = (be16(table, 2), be16(table, 4)) else {
+        return Default::default();
     };
     for index in 0..usize::from(count) {
         let at = 6 + 12 * index;
@@ -405,29 +582,36 @@ fn names(table: &[u8]) -> (Option<String>, Option<String>) {
         ) else {
             continue;
         };
-        if !(1..=2).contains(&id) {
+        let rank = match (platform, language) {
+            (3, 0x409 | 0) => 3,
+            (0, _) => 2,
+            (1, 0) => 1,
+            _ => continue,
+        };
+        let Some(slot) = IDS.iter().position(|wanted| *wanted == id) else {
+            continue;
+        };
+        if best[slot].as_ref().is_some_and(|(kept, _)| *kept >= rank) {
             continue;
         }
         let start = usize::from(strings) + usize::from(offset);
         let Some(raw) = table.get(start..start + usize::from(length)) else {
             continue;
         };
-        let slot = usize::from(id - 1);
-        if platform == 3 && (language == 0x409 || language == 0) && out[slot].is_none() {
+        let text = if platform == 1 {
+            raw.iter().map(|b| char::from(*b)).collect()
+        } else {
             let units: Vec<u16> = raw
                 .as_chunks::<2>()
                 .0
                 .iter()
                 .map(|c| u16::from_be_bytes(*c))
                 .collect();
-            out[slot] = Some(String::from_utf16_lossy(&units));
-        } else if platform == 1 && language == 0 && mac[slot].is_none() {
-            mac[slot] = Some(raw.iter().map(|b| char::from(*b)).collect());
-        }
+            String::from_utf16_lossy(&units)
+        };
+        best[slot] = Some((rank, text));
     }
-    let [family, subfamily] = out;
-    let [mac_family, mac_subfamily] = mac;
-    (family.or(mac_family), subfamily.or(mac_subfamily))
+    best.map(|name| name.map(|(_, text)| text))
 }
 
 fn be16(data: &[u8], at: usize) -> Option<u16> {
@@ -506,7 +690,10 @@ fn cmap(table: &[u8], glyphs: u32, budget: &mut usize) -> Parsed<Vec<(u32, u16)>
             best = Some((rank, offset, format));
         }
     }
-    let (_, offset, format) = best.ok_or(malformed)?;
+    let (_, offset, format) = best.ok_or(match count {
+        0 => malformed,
+        _ => FontError::Unsupported("the font has no Unicode cmap (format 4 or 12)"),
+    })?;
     let mut out = Vec::new();
     let mut charge = || -> Parsed<()> {
         *budget = budget.checked_sub(1).ok_or(FontError::TooLarge)?;
@@ -683,7 +870,9 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             average_width,
             codepoints,
             widths: widths.into(),
+            glyphs: Arc::new([]),
             kerning: kerning.into(),
+            file: None,
         }));
     }
     Some(out)
@@ -702,26 +891,173 @@ pub enum FontKind {
     Mono,
 }
 
-/// Faces by family for one layout: the document's embedded and the
-/// caller's fonts first, then the bundled table.
+/// One face a [`FontSet`] provides, named as a document names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FontInfo {
+    pub family: String,
+    pub bold: bool,
+    pub italic: bool,
+    /// Has variation axes; layout measures its default instance.
+    pub variable: bool,
+    /// Has CFF outlines (an OpenType `.otf`), not TrueType ones.
+    pub cff: bool,
+    /// The font's `fsType` allows embedding its outlines.
+    pub embeddable: bool,
+    /// The font's `fsType` allows embedding a subset.
+    pub subsettable: bool,
+}
+
+/// Font files the caller supplies to lay out with. Immutable and cheap to
+/// clone; build one with [`FontSet::builder`].
+#[derive(Debug, Clone, Default)]
+pub struct FontSet(Arc<FontSetInner>);
+
+#[derive(Debug, Default)]
+struct FontSetInner {
+    faces: Vec<Arc<Face>>,
+    infos: Vec<FontInfo>,
+    index: HashMap<String, [Option<usize>; 4]>,
+    aliases: HashMap<String, String>,
+}
+
+impl FontSet {
+    pub fn builder() -> FontSetBuilder {
+        FontSetBuilder {
+            faces: Vec::new(),
+            infos: Vec::new(),
+            names: Vec::new(),
+            aliases: HashMap::new(),
+            budget: FILE_BUDGET,
+        }
+    }
+
+    /// Every face, in the order added.
+    pub fn faces(&self) -> &[FontInfo] {
+        &self.0.infos
+    }
+
+    /// A set of already measured faces, found by family only.
+    pub(crate) fn from_faces(faces: Vec<Face>) -> FontSet {
+        let infos = faces
+            .iter()
+            .map(|face| FontInfo {
+                family: face.family.clone(),
+                bold: face.bold,
+                italic: face.italic,
+                variable: false,
+                cff: false,
+                embeddable: false,
+                subsettable: false,
+            })
+            .collect();
+        let faces: Vec<Arc<Face>> = faces.into_iter().map(Arc::new).collect();
+        FontSet(Arc::new(FontSetInner {
+            index: index(&faces),
+            faces,
+            infos,
+            aliases: HashMap::new(),
+        }))
+    }
+}
+
+/// Collects font files for a [`FontSet`].
+#[derive(Debug)]
+pub struct FontSetBuilder {
+    faces: Vec<Arc<Face>>,
+    infos: Vec<FontInfo>,
+    /// Each face's full and PostScript names.
+    names: Vec<[Option<String>; 2]>,
+    aliases: HashMap<String, String>,
+    budget: usize,
+}
+
+impl FontSetBuilder {
+    /// Adds every face of a TTF, OTF, TTC or OTC file (the first 64 of a
+    /// collection). Refuses the whole file, adding nothing, when a face
+    /// cannot be read (`invalid_argument`: `font_format_unsupported`,
+    /// `font_malformed`, `font_cmap_invalid` or `font_too_large`). The
+    /// files added share one parse budget, which a refused file spends too.
+    pub fn add(&mut self, bytes: impl Into<Arc<[u8]>>) -> Result<Vec<FontInfo>> {
+        let faces = read_faces(&bytes.into(), &mut self.budget)
+            .into_iter()
+            .map(|read| read.and_then(supported))
+            .collect::<Parsed<Vec<Named>>>()
+            .and_then(|faces| {
+                if faces.is_empty() {
+                    Err(FontError::Malformed("ttcf"))
+                } else {
+                    Ok(faces)
+                }
+            })
+            .map_err(FontError::into_error)?;
+        let infos: Vec<FontInfo> = faces.iter().map(|named| named.info.clone()).collect();
+        for named in faces {
+            self.faces.push(Arc::new(named.face));
+            self.infos.push(named.info);
+            self.names.push(named.names);
+        }
+        Ok(infos)
+    }
+
+    /// Lays out `family` with `to`'s faces (from this set, else the bundled
+    /// table) unless the document embeds `family`. Aliases are single-hop: `to`
+    /// is not itself aliased. An alias to a family found nowhere is ignored.
+    pub fn alias(&mut self, family: &str, to: &str) -> &mut Self {
+        self.aliases
+            .insert(family.trim().to_lowercase(), to.trim().to_lowercase());
+        self
+    }
+
+    pub fn build(&self) -> FontSet {
+        let mut index = index(&self.faces);
+        let families: HashSet<String> = index.keys().cloned().collect();
+        for (at, names) in self.names.iter().enumerate() {
+            for key in names.iter().flatten().map(|name| name.to_lowercase()) {
+                if !families.contains(&key) {
+                    index.entry(key).or_default()[slot(&self.faces[at])].get_or_insert(at);
+                }
+            }
+        }
+        FontSet(Arc::new(FontSetInner {
+            faces: self.faces.clone(),
+            infos: self.infos.clone(),
+            index,
+            aliases: self.aliases.clone(),
+        }))
+    }
+}
+
+fn supported(named: Named) -> Parsed<Named> {
+    match named.unsupported {
+        Some(message) => Err(FontError::Unsupported(message)),
+        None => Ok(named),
+    }
+}
+
+/// Faces by family for one layout: the document's embedded fonts first,
+/// then the caller's [`FontSet`], then the bundled table.
 #[derive(Default)]
 pub struct FontBook {
     own: Vec<Arc<Face>>,
     own_index: HashMap<String, [Option<usize>; 4]>,
-    /// Lower-cased family → indices into `own` (negative-free) or the
-    /// bundled table, per (bold, italic).
-    cache: HashMap<String, Option<FaceSet>>,
+    fonts: FontSet,
+    /// Lower-cased family → the faces found for it, per (bold, italic).
+    cache: HashMap<String, Option<Slots>>,
     /// Families that had to be substituted, as the document names them.
     pub missing: Vec<String>,
     missing_seen: HashSet<String>,
 }
 
+fn slot(face: &Face) -> usize {
+    usize::from(face.bold) | (usize::from(face.italic) << 1)
+}
+
 /// Lower-cased family → the first face of each (bold, italic) slot.
 fn index(faces: &[Arc<Face>]) -> HashMap<String, [Option<usize>; 4]> {
     let mut out: HashMap<String, [Option<usize>; 4]> = HashMap::new();
-    for (index, face) in faces.iter().enumerate() {
-        let slot = usize::from(face.bold) | (usize::from(face.italic) << 1);
-        out.entry(face.family.to_lowercase()).or_default()[slot].get_or_insert(index);
+    for (at, face) in faces.iter().enumerate() {
+        out.entry(face.family.to_lowercase()).or_default()[slot(face)].get_or_insert(at);
     }
     out
 }
@@ -732,46 +1068,75 @@ fn builtin_index() -> &'static HashMap<String, [Option<usize>; 4]> {
 }
 
 #[derive(Clone, Copy)]
-struct FaceSet {
-    own: bool,
-    faces: [Option<usize>; 4],
+enum Source {
+    Own,
+    Fonts,
+    Builtin,
+}
+
+/// A family's face per (bold, italic) slot, and where each comes from.
+type Slots = [Option<(Source, usize)>; 4];
+
+fn tagged(source: Source, faces: Option<&[Option<usize>; 4]>) -> Option<Slots> {
+    faces.map(|faces| faces.map(|face| face.map(|at| (source, at))))
+}
+
+/// Names Word resolves to another font.
+fn canonical(key: &str) -> &str {
+    match key {
+        "times" => "times new roman",
+        _ => key,
+    }
 }
 
 impl FontBook {
     /// A font book with `own` faces taking precedence over the table.
     pub fn new(own: Vec<Face>) -> FontBook {
+        FontBook::with_fonts(own, &FontSet::default())
+    }
+
+    /// A font book with `own` faces first, then `fonts`, then the table.
+    pub(crate) fn with_fonts(own: Vec<Face>, fonts: &FontSet) -> FontBook {
         let own: Vec<Arc<Face>> = own.into_iter().map(Arc::new).collect();
         FontBook {
             own_index: index(&own),
             own,
+            fonts: fonts.clone(),
             ..FontBook::default()
         }
     }
 
-    fn set(&mut self, family: &str) -> Option<FaceSet> {
-        let mut key = family.trim().to_lowercase();
-        // Names Word resolves to another font.
-        if key == "times" {
-            key = "times new roman".to_string();
-        }
+    fn set(&mut self, family: &str) -> Option<Slots> {
+        let key = family.trim().to_lowercase();
         if let Some(found) = self.cache.get(&key) {
             return *found;
         }
-        let found = self
-            .own_index
+        let target = self
+            .fonts
+            .0
+            .aliases
             .get(&key)
-            .map(|faces| FaceSet {
-                own: true,
-                faces: *faces,
-            })
-            .or_else(|| {
-                builtin_index().get(&key).map(|faces| FaceSet {
-                    own: false,
-                    faces: *faces,
-                })
-            });
+            .filter(|target| self.measured(target).is_some())
+            .unwrap_or(&key);
+        let found = self.lookup(&key, target);
         self.cache.insert(key, found);
         found
+    }
+
+    /// The document's faces for `family`, with the slots it lacks filled
+    /// from the set's faces for `measured`; else the table's.
+    fn lookup(&self, family: &str, measured: &str) -> Option<Slots> {
+        let own = tagged(Source::Own, self.own_index.get(canonical(family)));
+        let supplied = tagged(Source::Fonts, self.fonts.0.index.get(canonical(measured)));
+        match (own, supplied) {
+            (Some(own), Some(supplied)) => Some(std::array::from_fn(|at| own[at].or(supplied[at]))),
+            (own, supplied) => own.or(supplied).or_else(|| self.measured(measured)),
+        }
+    }
+
+    fn measured(&self, family: &str) -> Option<Slots> {
+        tagged(Source::Fonts, self.fonts.0.index.get(canonical(family)))
+            .or_else(|| tagged(Source::Builtin, builtin_index().get(canonical(family))))
     }
 
     /// Whether metrics exist for `family`.
@@ -790,22 +1155,23 @@ impl FontBook {
                     self.missing.push(family.to_string());
                 }
                 let substitute = match kind {
-                    FontKind::Serif => "Cambria",
-                    FontKind::Sans | FontKind::Mono => "Calibri",
+                    FontKind::Serif => "cambria",
+                    FontKind::Sans | FontKind::Mono => "calibri",
                 };
-                self.set(substitute).expect("bundled substitute fonts")
+                self.lookup(substitute, substitute)
+                    .expect("bundled substitute fonts")
             }
         };
         let wanted = usize::from(bold) | (usize::from(italic) << 1);
         let order = [wanted, wanted & 1, wanted & 2, 0, 1, 2, 3];
-        let index = order
+        let (source, at) = order
             .iter()
-            .find_map(|slot| set.faces[*slot])
+            .find_map(|slot| set[*slot])
             .expect("a face set has a face");
-        if set.own {
-            self.own[index].clone()
-        } else {
-            builtin()[index].clone()
+        match source {
+            Source::Own => self.own[at].clone(),
+            Source::Fonts => self.fonts.0.faces[at].clone(),
+            Source::Builtin => builtin()[at].clone(),
         }
     }
 }
@@ -922,14 +1288,16 @@ mod hostile {
     use proptest::prelude::*;
     use std::time::{Duration, Instant};
 
-    fn sfnt(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    pub(super) type Tables = Vec<([u8; 4], Vec<u8>)>;
+
+    pub(super) fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
         let mut out = vec![0, 1, 0, 0];
         out.extend((tables.len() as u16).to_be_bytes());
         out.extend([0; 6]);
         let mut at = 12 + 16 * tables.len();
         let mut body = Vec::new();
         for (tag, data) in tables {
-            out.extend(*tag);
+            out.extend(tag);
             out.extend([0; 4]);
             out.extend((at as u32).to_be_bytes());
             out.extend((data.len() as u32).to_be_bytes());
@@ -943,8 +1311,24 @@ mod hostile {
         out
     }
 
-    fn be(values: &[u16]) -> Vec<u8> {
+    pub(super) fn be(values: &[u16]) -> Vec<u8> {
         values.iter().flat_map(|v| v.to_be_bytes()).collect()
+    }
+
+    /// A Windows English name table holding `records` (name id, text).
+    pub(super) fn name_table(records: &[(u16, &str)]) -> Vec<u8> {
+        let texts: Vec<Vec<u8>> = records
+            .iter()
+            .map(|(_, text)| text.encode_utf16().flat_map(u16::to_be_bytes).collect())
+            .collect();
+        let mut out = be(&[0, records.len() as u16, 6 + 12 * records.len() as u16]);
+        let mut offset = 0;
+        for ((id, _), text) in records.iter().zip(&texts) {
+            out.extend(be(&[3, 1, 0x409, *id, text.len() as u16, offset]));
+            offset += text.len() as u16;
+        }
+        out.extend(texts.concat());
+        out
     }
 
     fn face_tables(glyphs: u16, cmap: Vec<u8>, kern: Option<Vec<u8>>) -> Vec<u8> {
@@ -957,6 +1341,16 @@ mod hostile {
         kern: Option<Vec<u8>>,
         metrics: u16,
     ) -> Vec<u8> {
+        let mut tables = base_tables(glyphs, cmap, metrics);
+        tables.push((*b"name", name_table(&[(1, "Test"), (2, "Regular")])));
+        if let Some(kern) = kern {
+            tables.push((*b"kern", kern));
+        }
+        sfnt(&tables)
+    }
+
+    /// Every table but `name`: glyph g advances 500 + 100 g of 1000 units.
+    pub(super) fn base_tables(glyphs: u16, cmap: Vec<u8>, metrics: u16) -> Tables {
         let mut head = vec![0; 54];
         head[18..20].copy_from_slice(&1000u16.to_be_bytes());
         let mut hhea = vec![0; 36];
@@ -966,42 +1360,23 @@ mod hostile {
         let mut maxp = vec![0, 0, 0x50, 0];
         maxp.extend(glyphs.to_be_bytes());
         let hmtx: Vec<u8> = (0..metrics).flat_map(|g| be(&[500 + 100 * g, 0])).collect();
-        let utf16 =
-            |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_be_bytes).collect() };
-        let (family, style) = (utf16("Test"), utf16("Regular"));
-        let mut name = be(&[0, 2, 6 + 24]);
-        name.extend(be(&[3, 1, 0x409, 1, family.len() as u16, 0]));
-        name.extend(be(&[
-            3,
-            1,
-            0x409,
-            2,
-            style.len() as u16,
-            family.len() as u16,
-        ]));
-        name.extend(family);
-        name.extend(style);
-        let mut tables = vec![
-            (b"head", head),
-            (b"hhea", hhea),
-            (b"maxp", maxp),
-            (b"hmtx", hmtx),
-            (b"cmap", cmap),
-            (b"name", name),
-        ];
-        if let Some(kern) = kern {
-            tables.push((b"kern", kern));
-        }
-        sfnt(&tables)
+        vec![
+            (*b"head", head),
+            (*b"hhea", hhea),
+            (*b"maxp", maxp),
+            (*b"hmtx", hmtx),
+            (*b"cmap", cmap),
+            (*b"glyf", Vec::new()),
+        ]
     }
 
-    fn format4(segments: &[(u16, u16, u16)]) -> Vec<u8> {
+    pub(super) fn format4(segments: &[(u16, u16, u16)]) -> Vec<u8> {
         let segments: Vec<_> = segments.iter().map(|&(s, e, d)| (s, e, d, 0)).collect();
         format4_with(&segments, &[])
     }
 
     /// Segments are (start, end, delta, idRangeOffset).
-    fn format4_with(segments: &[(u16, u16, u16, u16)], glyph_ids: &[u16]) -> Vec<u8> {
+    pub(super) fn format4_with(segments: &[(u16, u16, u16, u16)], glyph_ids: &[u16]) -> Vec<u8> {
         let n = segments.len();
         let length = (16 + 8 * n + 2 * glyph_ids.len()) as u16;
         let mut out = be(&[0, 1, 3, 1, 0, 12, 4, length, 0, 2 * n as u16, 0, 0, 0]);
@@ -1014,7 +1389,7 @@ mod hostile {
         out
     }
 
-    fn format12(groups: impl ExactSizeIterator<Item = (u32, u32, u32)>) -> Vec<u8> {
+    pub(super) fn format12(groups: impl ExactSizeIterator<Item = (u32, u32, u32)>) -> Vec<u8> {
         let mut out = be(&[0, 1, 3, 10, 0, 12, 12, 0]);
         out.extend((16 + 12 * groups.len() as u32).to_be_bytes());
         out.extend([0; 4]);
@@ -1035,7 +1410,7 @@ mod hostile {
         )
     }
 
-    fn rebase(font: &[u8], base: usize) -> Vec<u8> {
+    pub(super) fn rebase(font: &[u8], base: usize) -> Vec<u8> {
         let mut font = font.to_vec();
         for index in 0..usize::from(be16(&font, 4).unwrap()) {
             let at = 12 + 16 * index + 8;
@@ -1047,7 +1422,7 @@ mod hostile {
 
     /// A collection of `count` directory entries, entry `i` pointing at
     /// `faces[i % faces.len()]`.
-    fn collection(faces: &[Vec<u8>], count: usize) -> Vec<u8> {
+    pub(super) fn collection(faces: &[Vec<u8>], count: usize) -> Vec<u8> {
         let mut out = b"ttcf".to_vec();
         out.extend(be(&[1, 0]));
         out.extend((count as u32).to_be_bytes());
@@ -1075,7 +1450,7 @@ mod hostile {
         read(font, &mut budget).err()
     }
 
-    fn ab_cmap() -> Vec<u8> {
+    pub(super) fn ab_cmap() -> Vec<u8> {
         format4(&[(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)])
     }
 
@@ -1338,5 +1713,312 @@ mod hostile {
             let _ = Face::try_parse(&font, "Test", false, false);
             let _ = Face::parse_file(&font);
         }
+    }
+}
+
+#[cfg(test)]
+mod font_set {
+    use super::hostile::{
+        Tables, ab_cmap, base_tables, be, collection, format12, name_table, sfnt,
+    };
+    use super::*;
+
+    fn font(style: &str, extra: Tables) -> Vec<u8> {
+        let mut tables = base_tables(3, ab_cmap(), 3);
+        let (full, postscript) = (format!("Brand {style}"), format!("Brand-{style}"));
+        tables.push((
+            *b"name",
+            name_table(&[(1, "Brand"), (2, style), (4, &full), (6, &postscript)]),
+        ));
+        tables.extend(extra);
+        sfnt(&tables)
+    }
+
+    fn os2(version: u16, fs_type: u16) -> ([u8; 4], Vec<u8>) {
+        let mut table = vec![0; 96];
+        table[0..2].copy_from_slice(&version.to_be_bytes());
+        table[2..4].copy_from_slice(&550u16.to_be_bytes());
+        table[8..10].copy_from_slice(&fs_type.to_be_bytes());
+        (*b"OS/2", table)
+    }
+
+    fn set_of(files: &[Vec<u8>]) -> FontSet {
+        let mut builder = FontSet::builder();
+        for file in files {
+            builder.add(file.clone()).unwrap();
+        }
+        builder.build()
+    }
+
+    fn refusal(file: Vec<u8>) -> (&'static str, &'static str) {
+        let error = FontSet::builder().add(file).unwrap_err();
+        (error.code(), error.reason())
+    }
+
+    #[test]
+    fn faces_are_found_by_family_full_and_postscript_name() {
+        let fonts = set_of(&[font("Regular", vec![]), font("Bold", vec![])]);
+        let styles: Vec<_> = fonts.faces().iter().map(|f| (&*f.family, f.bold)).collect();
+        assert_eq!(styles, [("Brand", false), ("Brand", true)]);
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        for name in ["brand", "Brand Bold", "BRAND-BOLD", "Brand-Regular"] {
+            assert!(book.knows(name), "{name}");
+        }
+        let bold = book.face("Brand", true, false, FontKind::Sans);
+        assert!(bold.bold && (bold.advance('A') - 0.6).abs() < 1e-9);
+        assert!(book.face("Brand Bold", false, false, FontKind::Sans).bold);
+        assert!(!book.face("Brand", false, false, FontKind::Sans).bold);
+        assert!(book.missing.is_empty());
+    }
+
+    #[test]
+    fn a_face_keeps_its_glyphs_and_file() {
+        let regular = font("Regular", vec![]);
+        let bold = font("Bold", vec![]);
+        let ttc = collection(&[regular.clone(), bold], 2);
+        let mut builder = FontSet::builder();
+        let added = builder.add(ttc.clone()).unwrap();
+        assert_eq!(added.len(), 2);
+        let mut book = FontBook::with_fonts(Vec::new(), &builder.build());
+        let face = book.face("Brand", true, false, FontKind::Sans);
+        assert_eq!(
+            (face.glyph('A'), face.glyph('B'), face.glyph('C')),
+            (Some(1), Some(2), None)
+        );
+        let file = face.file().unwrap();
+        let document = crate::Document::new();
+        let txn = Txn::new(&document);
+        assert_eq!(*file.read(&txn).unwrap(), *ttc);
+        assert_eq!(file.offset(), 20 + regular.len());
+        let regular_face = book.face("Brand", false, false, FontKind::Sans);
+        assert_eq!(regular_face.file().unwrap().offset(), 20);
+    }
+
+    #[test]
+    fn a_variable_font_is_accepted_and_flagged() {
+        let fonts = set_of(&[font("Regular", vec![(*b"fvar", vec![0; 16])])]);
+        assert!(fonts.faces()[0].variable);
+        assert!(!set_of(&[font("Regular", vec![])]).faces()[0].variable);
+    }
+
+    #[test]
+    fn fs_type_is_read_per_os2_version() {
+        for (version, fs_type, embeddable, subsettable) in [
+            (4, 0x0000, true, true),
+            (4, 0x0002, false, true),
+            (4, 0x0003, false, true),
+            (4, 0x0004, true, true),
+            (4, 0x0008, true, true),
+            (1, 0x000A, true, true),
+            (4, 0x0100, true, false),
+            (4, 0x0200, false, true),
+            (2, 0x0308, false, false),
+            (1, 0x0300, true, true),
+        ] {
+            let fonts = set_of(&[font("Regular", vec![os2(version, fs_type)])]);
+            let face = &fonts.faces()[0];
+            assert_eq!(
+                (face.embeddable, face.subsettable),
+                (embeddable, subsettable),
+                "version {version}, {fs_type:#06x}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_alias_lays_a_family_out_in_another() {
+        let mut builder = FontSet::builder();
+        builder.add(font("Regular", vec![])).unwrap();
+        let fonts = builder
+            .alias("Calibri", "Brand")
+            .alias("Helvetica", "Arial")
+            .build();
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        assert_eq!(
+            book.face("calibri", false, false, FontKind::Sans).family,
+            "Brand"
+        );
+        assert_eq!(
+            book.face("Helvetica", false, false, FontKind::Sans).family,
+            "Arial"
+        );
+        let embedded = Face::try_parse(&font("Regular", vec![]), "Calibri", false, false).unwrap();
+        let mut book = FontBook::with_fonts(vec![embedded], &fonts);
+        assert_eq!(
+            book.face("Calibri", false, false, FontKind::Sans).family,
+            "Calibri"
+        );
+    }
+
+    #[test]
+    fn an_alias_to_a_family_found_nowhere_is_ignored() {
+        let fonts = FontSet::builder()
+            .alias("Calibri", "Not Loaded")
+            .alias("Arial", "Not Loaded")
+            .alias("Cambria", "Not Loaded")
+            .build();
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        assert!(book.knows("Arial") && book.knows("Calibri"));
+        let arial = book.face("Arial", false, false, FontKind::Sans);
+        assert_eq!(arial.family, "Arial");
+        assert_eq!(
+            book.face("No Such Font", false, false, FontKind::Sans)
+                .family,
+            "Calibri"
+        );
+        assert_eq!(
+            book.face("No Such Serif", false, false, FontKind::Serif)
+                .family,
+            "Cambria"
+        );
+        assert_eq!(book.missing, ["No Such Font", "No Such Serif"]);
+    }
+
+    #[test]
+    fn a_substitute_ignores_aliases() {
+        let mut builder = FontSet::builder();
+        builder.add(font("Regular", vec![])).unwrap();
+        let fonts = builder.alias("Calibri", "Brand").build();
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        assert_eq!(
+            book.face("No Such Font", false, false, FontKind::Sans)
+                .family,
+            "Calibri"
+        );
+    }
+
+    #[test]
+    fn aliases_apply_before_times_is_read_as_times_new_roman() {
+        let mut builder = FontSet::builder();
+        builder.add(font("Regular", vec![])).unwrap();
+        let fonts = builder
+            .alias("Times", "Brand")
+            .alias("Foo", "Times")
+            .build();
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        assert_eq!(
+            book.face("Times", false, false, FontKind::Serif).family,
+            "Brand"
+        );
+        assert_eq!(
+            book.face("Foo", false, false, FontKind::Serif).family,
+            "Times New Roman"
+        );
+        assert!(book.missing.is_empty());
+        let mut plain = FontBook::default();
+        assert_eq!(
+            plain.face("Times", false, false, FontKind::Serif).family,
+            "Times New Roman"
+        );
+    }
+
+    #[test]
+    fn embedded_and_supplied_faces_merge_per_style() {
+        let regular = Face::try_parse(&font("Regular", vec![]), "Brand", false, false).unwrap();
+        let bold = Face::try_parse(&font("Bold", vec![]), "Brand", true, false).unwrap();
+        let mut book = FontBook::with_fonts(vec![regular], &FontSet::from_faces(vec![bold]));
+        assert!(book.face("Brand", true, false, FontKind::Sans).bold);
+        assert!(!book.face("Brand", false, false, FontKind::Sans).bold);
+        assert!(!book.face("Brand", false, true, FontKind::Sans).bold);
+    }
+
+    #[test]
+    fn unicode_platform_names_are_read() {
+        let mut tables = base_tables(3, ab_cmap(), 3);
+        let mut name = name_table(&[(1, "Brand"), (2, "Bold")]);
+        for record in [6, 18] {
+            name[record..record + 2].copy_from_slice(&0u16.to_be_bytes());
+            name[record + 2..record + 4].copy_from_slice(&3u16.to_be_bytes());
+        }
+        tables.push((*b"name", name));
+        let fonts = set_of(&[sfnt(&tables)]);
+        assert_eq!(
+            (&*fonts.faces()[0].family, fonts.faces()[0].bold),
+            ("Brand", true)
+        );
+    }
+
+    #[test]
+    fn parse_file_keeps_faces_a_font_set_refuses() {
+        let cff2 = font("Regular", vec![(*b"CFF2", vec![0; 8])]);
+        let mut bitmap = font("Regular", vec![]);
+        let glyf = bitmap.windows(4).position(|w| w == b"glyf").unwrap();
+        bitmap[glyf..glyf + 4].copy_from_slice(b"EBDT");
+        for file in [cff2, bitmap.clone()] {
+            assert_eq!(Face::parse_file(&file).len(), 1);
+            assert_eq!(refusal(file).1, "font_format_unsupported");
+        }
+        let head = bitmap.windows(4).position(|w| w == b"head").unwrap();
+        bitmap[head..head + 4].copy_from_slice(b"bhed");
+        assert!(Face::parse_file(&bitmap).is_empty());
+        let error = FontSet::builder().add(bitmap).unwrap_err();
+        assert_eq!(error.reason(), "font_format_unsupported");
+        assert!(error.message().contains("bitmap-only"), "{error}");
+    }
+
+    #[test]
+    fn invalid_bytes_are_refused_and_add_nothing() {
+        let bad = sfnt(&{
+            let mut tables = base_tables(3, format12([(0x42, 0x41, 1)].into_iter()), 3);
+            tables.push((*b"name", name_table(&[(1, "Bad"), (2, "Regular")])));
+            tables
+        });
+        let mut builder = FontSet::builder();
+        let error = builder
+            .add(collection(&[font("Regular", vec![]), bad], 2))
+            .unwrap_err();
+        assert_eq!(error.reason(), "font_cmap_invalid");
+        builder.add(font("Bold", vec![])).unwrap();
+        let fonts = builder.build();
+        assert_eq!(fonts.faces().len(), 1);
+        assert!(fonts.faces()[0].bold);
+
+        let unsupported = ("invalid_argument", "font_format_unsupported");
+        let malformed = ("invalid_argument", "font_malformed");
+        let mut woff = font("Regular", vec![]);
+        woff[..4].copy_from_slice(b"wOF2");
+        assert_eq!(refusal(woff), unsupported);
+        assert_eq!(refusal(b"%!PS-AdobeFont-1.0: Brand".to_vec()), unsupported);
+        assert_eq!(refusal(vec![0x80, 0x01, 0, 0, 0, 0]), unsupported);
+        assert_eq!(refusal(b"plain text".to_vec()), unsupported);
+        assert_eq!(
+            refusal(font("Regular", vec![(*b"CFF2", vec![0; 8])])),
+            unsupported
+        );
+        let mut bitmap = font("Regular", vec![]);
+        let glyf = bitmap.windows(4).position(|w| w == b"glyf").unwrap();
+        bitmap[glyf..glyf + 4].copy_from_slice(b"EBDT");
+        assert_eq!(refusal(bitmap), unsupported);
+        assert_eq!(refusal(font("Regular", vec![])[..40].to_vec()), malformed);
+        assert_eq!(refusal(collection(&[], 0)), malformed);
+        let mut nameless = font("Regular", vec![]);
+        let name = nameless.windows(4).position(|w| w == b"name").unwrap();
+        nameless[name..name + 4].copy_from_slice(b"xxxx");
+        let error = FontSet::builder().add(nameless).unwrap_err();
+        assert_eq!(error.reason(), "font_malformed");
+        assert!(error.message().contains("names no family"), "{error}");
+        let mut format13 = base_tables(3, Vec::new(), 3);
+        format13[4].1 = be(&[0, 1, 3, 10, 0, 12, 13, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 1]);
+        format13.push((*b"name", name_table(&[(1, "Brand"), (2, "Regular")])));
+        assert_eq!(refusal(sfnt(&format13)), unsupported);
+    }
+
+    #[test]
+    fn otf_outlines_are_measured() {
+        let mut tables = base_tables(3, ab_cmap(), 3);
+        tables.retain(|(tag, _)| tag != b"glyf");
+        tables.push((*b"CFF ", vec![1, 0, 4, 1]));
+        tables.push((*b"name", name_table(&[(1, "Brand"), (2, "Regular")])));
+        let mut otf = sfnt(&tables);
+        otf[..4].copy_from_slice(b"OTTO");
+        let mut book = FontBook::with_fonts(Vec::new(), &set_of(&[otf]));
+        assert!(
+            (book
+                .face("Brand", false, false, FontKind::Sans)
+                .advance('B')
+                - 0.7)
+                .abs()
+                < 1e-9
+        );
     }
 }
