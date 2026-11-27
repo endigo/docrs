@@ -1,11 +1,6 @@
-"""Write the single-font reference documents the PDF fixtures convert into.
+"""Usage: python3 -I tools/pdf/make_references.py STARTER.docx OUT_DIR
 
-Usage: python3 -I tools/pdf/make_references.py STARTER.docx OUT_DIR
-
-STARTER is `docrs markdown-reference --out STARTER.docx`. Each output sets
-the theme's major and minor Latin typefaces to one family, so headings and
-body text share it. Zip entries keep a fixed timestamp, so the output only
-changes when the starter does.
+STARTER is `docrs markdown-reference --out STARTER.docx`.
 """
 
 import os

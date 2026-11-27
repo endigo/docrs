@@ -1,14 +1,5 @@
 #!/bin/sh
-# Convert the corpus (tools/pdf/corpus.tsv) and the PDF fixtures
-# (tests/fixtures/pdf/cases.tsv) and lay each out; with --word, export each
-# through Microsoft Word (macOS), dump Word's lines and compare the pages
-# Word starts each paragraph on with ours.
-#   tools/pdf/check.sh OUT_DIR [--word] [--png] [--update-fixtures]
-# OUT_DIR gets <case>.docx, <case>.layout.json, baseline.tsv and, with
-# --word, <case>.word.lines.json, environment.json, summary.tsv and
-# summary.md. Word's PDFs (and with --png their pages as PNG) go to
-# target/pdf-oracle/. --update-fixtures copies the fixtures' Word lines to
-# tests/fixtures/pdf/<case>/word.lines.json.
+# Lay out the corpus and the PDF fixtures; with --word, compare with Word (tools/pdf/README.md).
 set -e
 out=${1:?usage: tools/pdf/check.sh OUT_DIR [--word] [--png] [--update-fixtures]}
 shift
@@ -30,8 +21,6 @@ cases=$root/tests/fixtures/pdf/cases.tsv
 
 tail -n +2 "$cases" | while IFS=$tab read -r case source reference font options; do
     [ "$options" = "-" ] && options=
-    # $options is a list of flags.
-    # shellcheck disable=SC2086
     "$docrs" --json from-markdown "$root/$source" --reference "$root/$reference" \
         --out "$out/pdf-$case.docx" $options > /dev/null
     if [ "$font" = "-" ]; then

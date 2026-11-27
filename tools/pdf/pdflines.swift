@@ -1,10 +1,5 @@
-// Dump the text lines of each page of a PDF as JSON, in points from the
-// page's top-left corner, one line of output per text line:
-//   swiftc -O tools/pdf/pdflines.swift -o pdflines && ./pdflines FILE.pdf > lines.json
-// Lines, their text and bounds are PDFKit's (`selectionsByLine`). The
-// baseline is the y of the text origin (Tm and CTM, from the page's content
-// stream) near the line's bounds that most of its text showing operators
-// share; null when none is near (text drawn from a form XObject).
+// Each page's text lines as JSON, in points from the top-left (tools/pdf/README.md).
+// Baselines come from the content stream's text matrix, since PDFKit gives none.
 import CoreGraphics
 import Foundation
 import PDFKit
