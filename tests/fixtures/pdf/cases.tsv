@@ -1,0 +1,10 @@
+case	source	reference	font	options
+memo-arial	tests/fixtures/pdf/sources/memo.md	tests/fixtures/pdf/references/arial.docx	-	-
+memo-times-new-roman	tests/fixtures/pdf/sources/memo.md	tests/fixtures/pdf/references/times-new-roman.docx	-	-
+memo-inter	tests/fixtures/pdf/sources/memo.md	tests/fixtures/pdf/references/inter.docx	tests/fixtures/fonts/inter/Inter[opsz,wght].ttf	-
+lists-arial	tests/fixtures/pdf/sources/lists.md	tests/fixtures/pdf/references/arial.docx	-	-
+table-times-new-roman	tests/fixtures/pdf/sources/table.md	tests/fixtures/pdf/references/times-new-roman.docx	-	-
+cover-page	tests/fixtures/pdf/sources/cover.md	tests/fixtures/markdown/templates/v2/cover-page-sections.docx	-	--cover-page
+toc-arial	tests/fixtures/pdf/sources/toc.md	tests/fixtures/pdf/references/arial.docx	-	-
+toc-inter	tests/fixtures/pdf/sources/toc.md	tests/fixtures/pdf/references/inter.docx	tests/fixtures/fonts/inter/Inter[opsz,wght].ttf	-
+memo-aptos	tests/fixtures/pdf/sources/memo.md	tests/fixtures/pdf/references/aptos.docx	-	-
