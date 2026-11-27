@@ -41,24 +41,21 @@ fn layout(docx: &Path, font: Option<&Path>) -> Result<String, String> {
         serde_json::from_slice(&stdout).map_err(|err| err.to_string())?;
     let object = value.as_object_mut().ok_or("layout output is an object")?;
     object.remove("schema_version");
-    let mut text = String::from("{\n");
-    let last = object.len() - 1;
-    for (i, (key, value)) in object.iter().enumerate() {
-        let comma = if i == last { "" } else { "," };
-        match value.as_array().filter(|_| key == "paragraphs") {
-            Some(items) => {
-                writeln!(text, "  {key:?}: [").unwrap();
-                for (j, item) in items.iter().enumerate() {
-                    let sep = if j + 1 == items.len() { "" } else { "," };
-                    writeln!(text, "    {item}{sep}").unwrap();
-                }
-                writeln!(text, "  ]{comma}").unwrap();
+    Ok(snapshot_text(object))
+}
+
+fn snapshot_text(object: &serde_json::Map<String, serde_json::Value>) -> String {
+    let fields: Vec<String> = object
+        .iter()
+        .map(|(key, value)| match value.as_array() {
+            Some(items) if key == "paragraphs" && !items.is_empty() => {
+                let rows: Vec<String> = items.iter().map(|item| format!("    {item}")).collect();
+                format!("  {key:?}: [\n{}\n  ]", rows.join(",\n"))
             }
-            None => writeln!(text, "  {key:?}: {value}{comma}").unwrap(),
-        }
-    }
-    text.push_str("}\n");
-    Ok(text)
+            _ => format!("  {key:?}: {value}"),
+        })
+        .collect();
+    format!("{{\n{}\n}}\n", fields.join(",\n"))
 }
 
 fn convert(input: &Path, reference: &Path, out: &Path, flags: &[&str]) -> Result<(), String> {
@@ -198,16 +195,20 @@ fn stale_snapshots(snapshots: &Path, actual: &Snapshots) -> Vec<PathBuf> {
 }
 
 fn first_difference(recorded: &str, now: &str) -> String {
-    let line = recorded
-        .lines()
-        .zip(now.lines())
+    let (recorded, now): (Vec<&str>, Vec<&str>) =
+        (recorded.lines().collect(), now.lines().collect());
+    let pairs = recorded.iter().zip(&now);
+    let changed =
+        pairs.clone().filter(|(a, b)| a != b).count() + recorded.len().abs_diff(now.len());
+    let line = pairs
+        .clone()
         .position(|(a, b)| a != b)
-        .unwrap_or(recorded.lines().count().min(now.lines().count()));
+        .unwrap_or(recorded.len().min(now.len()));
     format!(
-        "differs from line {}\n    snapshot: {}\n    now:      {}",
+        "{changed} line(s) differ, the first is line {}\n    snapshot: {}\n    now:      {}",
         line + 1,
-        recorded.lines().nth(line).unwrap_or("(end)"),
-        now.lines().nth(line).unwrap_or("(end)"),
+        recorded.get(line).unwrap_or(&"(end)"),
+        now.get(line).unwrap_or(&"(end)"),
     )
 }
 
