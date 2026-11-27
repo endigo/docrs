@@ -20,6 +20,7 @@
 - `layout::layout_with` lays out with a `FontSet`: each family and style is measured from the document's embedded fonts, then the set, then the bundled table, then a substitute. A style the document does not embed is taken from the set. `layout::layout` keeps its signature and gives the same result.
 - `markdown::insert_source_with` numbers the contents with a `FontSet`. `insert_source` and the other conversions behave as before.
 - A face read from a font file keeps its glyph for each character and the file it came from (`Face::glyph`, `Face::file`), for the PDF writer to subset later. A face embedded in a document refers to its part, and `FontFile::read` reads it back from the document. Font names are also read from Unicode-platform name records, so Lucida Grande's collection reads all four faces.
+- Page estimates XOR the toggle properties (bold, italic, caps, small caps, strike, double strike, hidden) through each style's `basedOn` chain, as Word does: a bold paragraph style based on a bold style is not bold. Before, the nearest style won and that text was measured bold. No layout snapshot changed.
 
 ### Node package
 

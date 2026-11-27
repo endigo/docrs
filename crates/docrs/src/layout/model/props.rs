@@ -98,23 +98,28 @@ impl RPr {
         );
     }
 
-    /// Style layering: toggles XOR with `other`'s, the rest is replaced.
+    /// Style layering: toggles XOR with `other`'s (a `false` changes
+    /// nothing), the rest is replaced.
     pub(super) fn layer(&mut self, other: &RPr) {
-        let toggles = [
-            (self.bold, other.bold),
-            (self.italic, other.italic),
-            (self.caps, other.caps),
-            (self.small_caps, other.small_caps),
-        ];
-        self.merge(other);
-        let xor = |(mine, theirs): (Option<bool>, Option<bool>)| match (mine, theirs) {
+        let xor = |mine: Option<bool>, theirs: Option<bool>| match (mine, theirs) {
             (Some(a), Some(b)) => Some(a ^ b),
             (a, b) => b.or(a),
         };
-        self.bold = xor(toggles[0]);
-        self.italic = xor(toggles[1]);
-        self.caps = xor(toggles[2]);
-        self.small_caps = xor(toggles[3]);
+        let toggles = [
+            xor(self.bold, other.bold),
+            xor(self.italic, other.italic),
+            xor(self.caps, other.caps),
+            xor(self.small_caps, other.small_caps),
+            xor(self.vanish, other.vanish),
+        ];
+        self.merge(other);
+        [
+            self.bold,
+            self.italic,
+            self.caps,
+            self.small_caps,
+            self.vanish,
+        ] = toggles;
     }
 }
 

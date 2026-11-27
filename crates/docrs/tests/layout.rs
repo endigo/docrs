@@ -989,3 +989,89 @@ fn a_supplied_font_numbers_the_contents() {
     assert_eq!(refreshed.changed, 0);
     assert!(refreshed.layout.missing_fonts.is_empty());
 }
+
+fn line_widths(body: &str, styles: &str) -> Vec<f64> {
+    let doc = Document::open_bytes(&styled_package(body, styles), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut widths = Vec::new();
+    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
+        widths.push(line.width);
+        Ok(())
+    })
+    .unwrap();
+    widths
+}
+
+fn style(kind: &str, id: &str, based_on: &str, rpr: &str) -> String {
+    let based_on = if based_on.is_empty() {
+        String::new()
+    } else {
+        format!("<w:basedOn w:val=\"{based_on}\"/>")
+    };
+    format!(
+        "<w:style w:type=\"{kind}\" w:styleId=\"{id}\">{based_on}<w:rPr>{rpr}</w:rPr></w:style>"
+    )
+}
+
+/// In Times New Roman, whose italic is narrower than its roman.
+fn styled_run(pstyle: &str, rpr: &str) -> String {
+    format!(
+        "<w:p><w:pPr><w:pStyle w:val=\"{pstyle}\"/></w:pPr><w:r><w:rPr>{rpr}<w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/></w:rPr><w:t>Toggle</w:t></w:r></w:p>"
+    )
+}
+
+#[test]
+fn toggles_xor_through_the_style_chain_and_direct_formatting_is_absolute() {
+    let styles = [
+        style("paragraph", "Plain", "", ""),
+        style("paragraph", "Bold", "", "<w:b/>"),
+        style("paragraph", "BoldAgain", "Bold", "<w:b/>"),
+        style("paragraph", "BoldOff", "Bold", "<w:b w:val=\"0\"/>"),
+        style("paragraph", "Italic", "", "<w:i/>"),
+        style("character", "ItalicChar", "", "<w:i/>"),
+        style("character", "BoldChar", "", "<w:b/>"),
+        style("character", "BoldCharAgain", "BoldChar", "<w:b/>"),
+        style("paragraph", "Hidden", "", "<w:vanish/>"),
+        style("paragraph", "HiddenAgain", "Hidden", "<w:vanish/>"),
+    ]
+    .concat();
+    let body = [
+        styled_run("Plain", ""),
+        styled_run("Plain", "<w:b/>"),
+        styled_run("Bold", ""),
+        styled_run("BoldAgain", ""),
+        styled_run("BoldOff", ""),
+        styled_run("Bold", "<w:b w:val=\"0\"/>"),
+        styled_run("Plain", "<w:i/>"),
+        styled_run("Italic", "<w:rStyle w:val=\"ItalicChar\"/>"),
+        styled_run("Plain", "<w:rStyle w:val=\"BoldCharAgain\"/>"),
+        styled_run("HiddenAgain", ""),
+    ]
+    .concat();
+    let widths = line_widths(&body, &styles);
+    let [
+        plain,
+        bold,
+        style_bold,
+        bold_twice,
+        bold_off,
+        direct_off,
+        italic,
+        italic_twice,
+        char_twice,
+        shown,
+    ] = widths[..]
+    else {
+        panic!("{widths:?}");
+    };
+    assert!(bold > plain, "{widths:?}");
+    assert_eq!(style_bold, bold);
+    assert_eq!(bold_twice, plain, "bold in a style and its base cancel");
+    assert_eq!(bold_off, bold, "a false toggle in a style changes nothing");
+    assert_eq!(direct_off, plain, "direct formatting is absolute");
+    assert_ne!(italic, plain);
+    assert_eq!(italic_twice, plain, "paragraph and character italic cancel");
+    assert_eq!(char_twice, plain);
+    assert_eq!(shown, plain, "hidden in a style and its base cancel");
+}

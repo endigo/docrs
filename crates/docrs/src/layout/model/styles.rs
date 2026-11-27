@@ -94,7 +94,8 @@ impl Styles {
         styles
     }
 
-    /// A style's properties with its `basedOn` chain (nearest wins).
+    /// A style's properties with its `basedOn` chain: nearest wins, and
+    /// toggles XOR (ISO 29500-1 §17.7.3).
     pub(super) fn chain(&mut self, id: &str) -> Rc<(PPr, RPr)> {
         if let Some(found) = self.chains.get(id) {
             return found.clone();
@@ -113,7 +114,7 @@ impl Styles {
         for cur in ids.iter().rev() {
             if let Some(def) = self.defs.get(cur) {
                 ppr.merge(&def.ppr);
-                rpr.merge(&def.rpr);
+                rpr.layer(&def.rpr);
             }
         }
         let out = Rc::new((ppr, rpr));
