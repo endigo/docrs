@@ -3,15 +3,15 @@
   "missing_fonts": [],
   "pages": 1,
   "paragraphs": [
-    {"heading":false,"page":1,"row_end":false,"text":"Estate Planning Meeting Template","y":72.0},
-    {"heading":false,"page":1,"row_end":false,"text":"","y":84.0},
-    {"heading":false,"page":1,"row_end":false,"text":"Purpose: Review the client's existing es","y":95.5},
-    {"heading":false,"page":1,"row_end":false,"text":"","y":119.5},
-    {"heading":false,"page":1,"row_end":false,"text":"Sections to capture:","y":131.0},
-    {"heading":false,"page":1,"row_end":false,"text":"1. Document Review - list current wills,","y":143.0},
-    {"heading":false,"page":1,"row_end":false,"text":"2. Family Structure - dependants, blende","y":167.0},
-    {"heading":false,"page":1,"row_end":false,"text":"3. Executor Selection - who is nominated","y":179.0},
-    {"heading":false,"page":1,"row_end":false,"text":"4. Next Steps - agreed actions, referral","y":191.0}
+    {"heading":false,"page":1,"row_end":false,"text":"Estate Planning Meeting Template","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"","toc":false,"y":84.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Purpose: Review the client's existing es","toc":false,"y":95.5},
+    {"heading":false,"page":1,"row_end":false,"text":"","toc":false,"y":119.5},
+    {"heading":false,"page":1,"row_end":false,"text":"Sections to capture:","toc":false,"y":131.0},
+    {"heading":false,"page":1,"row_end":false,"text":"1. Document Review - list current wills,","toc":false,"y":143.0},
+    {"heading":false,"page":1,"row_end":false,"text":"2. Family Structure - dependants, blende","toc":false,"y":167.0},
+    {"heading":false,"page":1,"row_end":false,"text":"3. Executor Selection - who is nominated","toc":false,"y":179.0},
+    {"heading":false,"page":1,"row_end":false,"text":"4. Next Steps - agreed actions, referral","toc":false,"y":191.0}
   ],
   "schema": "docrs_layout",
   "version": 1
