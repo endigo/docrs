@@ -121,6 +121,147 @@ fn an_embedded_font_is_measured_before_the_bundled_table() {
     assert!((pitch - 11.499).abs() < 0.01, "{pitch}");
 }
 
+fn sfnt(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut out = vec![0, 1, 0, 0];
+    out.extend((tables.len() as u16).to_be_bytes());
+    out.extend([0u8; 6]);
+    let mut offset = 12 + 16 * tables.len();
+    for (tag, table) in tables {
+        out.extend(*tag);
+        out.extend(0u32.to_be_bytes());
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((table.len() as u32).to_be_bytes());
+        offset += table.len();
+    }
+    for (_, table) in tables {
+        out.extend(table);
+    }
+    out
+}
+
+/// A font mapping every code point, U+0000-10FFFF, in format 12 groups.
+fn full_unicode_font() -> Vec<u8> {
+    let mut head = vec![0u8; 54];
+    head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+    let mut hhea = vec![0u8; 36];
+    hhea[34..36].copy_from_slice(&1u16.to_be_bytes());
+    let starts: Vec<u32> = (0..0x11_0000).step_by(0xFFFF).collect();
+    let mut cmap = Vec::new();
+    for v in [0u16, 1, 3, 10] {
+        cmap.extend(v.to_be_bytes());
+    }
+    cmap.extend(12u32.to_be_bytes());
+    cmap.extend([0, 12, 0, 0]);
+    cmap.extend((16 + 12 * starts.len() as u32).to_be_bytes());
+    cmap.extend([0u8; 4]);
+    cmap.extend((starts.len() as u32).to_be_bytes());
+    for start in starts {
+        for v in [start, (start + 0xFFFE).min(0x10_FFFF), 0] {
+            cmap.extend(v.to_be_bytes());
+        }
+    }
+    sfnt(&[
+        (b"cmap", cmap),
+        (b"head", head),
+        (b"hhea", hhea),
+        (b"hmtx", vec![1, 244, 0, 0]),
+        (b"maxp", vec![0, 0, 0x50, 0, 0xFF, 0xFF]),
+    ])
+}
+
+/// `fonts` font table entries, each embedding `font` from one of `parts`
+/// parts; with `keyed`, each under a different font key.
+fn embedding_package(font: &[u8], fonts: usize, parts: usize, keyed: bool) -> Vec<u8> {
+    let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body><w:p><w:r><w:t>Text</w:t></w:r></w:p></w:body></w:document>"
+    );
+    let entries: String = (0..fonts)
+        .map(|i| {
+            let key = if keyed {
+                format!(" w:fontKey=\"{{{i:08X}-0000-0000-0000-000000000000}}\"")
+            } else {
+                String::new()
+            };
+            format!(
+                "<w:font w:name=\"F{i}\"><w:embedRegular r:id=\"rId{}\"{key}/></w:font>",
+                i % parts
+            )
+        })
+        .collect();
+    let font_table = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:fonts xmlns:w=\"{W}\" xmlns:r=\"{r}\">{entries}</w:fonts>"
+    );
+    let font_rels: String = (0..parts)
+        .map(|j| {
+            format!(
+                "<Relationship Id=\"rId{j}\" Type=\"{r}/font\" Target=\"fonts/font{j}.odttf\"/>"
+            )
+        })
+        .collect();
+    let relationships = |inner: &str| {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{inner}</Relationships>"
+        )
+    };
+    let ct = CT_XML.replace(
+        "</Types>",
+        "<Default Extension=\"odttf\" ContentType=\"application/vnd.openxmlformats-officedocument.obfuscatedFont\"/><Override PartName=\"/word/fontTable.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml\"/></Types>",
+    );
+    let document_rels = relationships(&format!(
+        "<Relationship Id=\"rId1\" Type=\"{r}/fontTable\" Target=\"fontTable.xml\"/>"
+    ));
+    let font_rels = relationships(&font_rels);
+    let names: Vec<String> = (0..parts)
+        .map(|j| format!("word/fonts/font{j}.odttf"))
+        .collect();
+    let mut members = vec![
+        RawMember::new("[Content_Types].xml", ct.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", document_rels.as_bytes()),
+        RawMember::new("word/fontTable.xml", font_table.as_bytes()),
+        RawMember::new("word/_rels/fontTable.xml.rels", font_rels.as_bytes()),
+    ];
+    members.extend(names.iter().map(|name| RawMember::new(name, font)));
+    build_zip(&members)
+}
+
+fn layout_of(package: &[u8]) -> docrs::layout::Layout {
+    let doc = Document::open_bytes(package, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    layout(&txn, &main, Vec::new()).unwrap()
+}
+
+#[test]
+fn one_font_embedded_a_thousand_times_is_read_once() {
+    let package = embedding_package(&full_unicode_font(), 1000, 1, false);
+    assert!(package.len() < 8 * 1024, "{}", package.len());
+    let started = std::time::Instant::now();
+    assert_eq!(layout_of(&package).embedded_fonts.len(), 1000);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+#[test]
+fn a_large_part_under_many_font_keys_is_copied_once() {
+    let package = embedding_package(&vec![0; 64 << 20], 2000, 1, true);
+    let started = std::time::Instant::now();
+    assert!(layout_of(&package).embedded_fonts.is_empty());
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn embedded_fonts_share_one_budget_and_report_what_it_leaves_unread() {
+    let estimate = layout_of(&embedding_package(&full_unicode_font(), 8, 8, false));
+    assert_eq!(estimate.embedded_fonts, ["F0", "F1", "F2", "F3"]);
+    assert_eq!(estimate.missing_fonts, ["F4", "F5", "F6", "F7"]);
+}
+
 const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
 /// A package with `body` and `styles` (inner XML of `w:styles`).

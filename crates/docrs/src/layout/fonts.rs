@@ -8,9 +8,11 @@
 //! only, no glyph data). A family found in none of them falls back to a
 //! face of the same kind (serif, sans, monospace) and is reported.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
+
+use crate::error::{Error, Result};
 
 /// One face's metrics, in font units.
 #[derive(Debug, Clone)]
@@ -27,10 +29,58 @@ pub struct Face {
     line_gap: f64,
     average_width: f64,
     codepoints: Arc<[u32]>,
-    widths: Vec<u16>,
+    widths: Arc<[u16]>,
     /// Pair kerning between `KERN_CODEPOINTS`, in font units, sorted.
-    kerning: Vec<((u32, u32), i16)>,
+    kerning: Arc<[KernPair]>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FontError {
+    Malformed(&'static str),
+    CmapUnsorted,
+    CmapReversedRange,
+    CmapOutOfRange,
+    TooLarge,
+}
+
+impl FontError {
+    fn into_error(self) -> Error {
+        let (reason, message) = match self {
+            FontError::Malformed(table) => (
+                "font_malformed",
+                format!("font table {table} is missing or malformed"),
+            ),
+            FontError::CmapUnsorted => (
+                "font_cmap_invalid",
+                "cmap ranges are unsorted or overlap".into(),
+            ),
+            FontError::CmapReversedRange => (
+                "font_cmap_invalid",
+                "a cmap range ends before it starts".into(),
+            ),
+            FontError::CmapOutOfRange => (
+                "font_cmap_invalid",
+                "a cmap range maps past the last code point or glyph".into(),
+            ),
+            FontError::TooLarge => (
+                "font_too_large",
+                "the font maps or kerns too many entries".into(),
+            ),
+        };
+        Error::invalid_argument(reason, message)
+    }
+}
+
+pub(crate) type Parsed<T> = std::result::Result<T, FontError>;
+
+type KernPair = ((u32, u32), i16);
+
+/// At most one mapping per Unicode code point.
+const MAX_MAPPINGS: usize = 0x11_0000;
+
+/// Cmap entries and kern records one font file, or one document's embedded
+/// fonts, may examine.
+pub(crate) const FILE_BUDGET: usize = 4 * MAX_MAPPINGS;
 
 /// Code points kerning is kept between (printable ASCII and the
 /// typographic quotes and dashes; as `tools/layout/make_font_metrics.py`).
@@ -92,45 +142,89 @@ impl Face {
     /// Metrics read from a TrueType/OpenType font file (one face of a
     /// collection), keeping the advances of every mapped code point.
     pub fn parse(data: &[u8], family: &str, bold: bool, italic: bool) -> Option<Face> {
-        Face::from_ttf(&Ttf::new(data)?, family, bold, italic)
+        Face::try_parse(data, family, bold, italic).ok()
     }
 
-    fn from_ttf(ttf: &Ttf<'_>, family: &str, bold: bool, italic: bool) -> Option<Face> {
-        let head = ttf.table(b"head")?;
-        let units_per_em = f64::from(be16(head, 18)?);
-        let hhea = ttf.table(b"hhea")?;
-        let ascender = f64::from(be16(hhea, 4)? as i16);
-        let descender = -f64::from(be16(hhea, 6)? as i16);
-        let line_gap = f64::from(be16(hhea, 8)? as i16);
-        let metrics = usize::from(be16(hhea, 34)?);
-        let hmtx = ttf.table(b"hmtx")?;
+    /// [`Face::parse`], saying why a face could not be read
+    /// (`invalid_argument`: `font_malformed`, `font_cmap_invalid` or
+    /// `font_too_large`).
+    pub fn try_parse(data: &[u8], family: &str, bold: bool, italic: bool) -> Result<Face> {
+        let mut budget = FILE_BUDGET;
+        Ttf::new(data)
+            .and_then(|ttf| Face::from_ttf(&ttf, family, bold, italic, &mut budget))
+            .map_err(FontError::into_error)
+    }
+
+    pub(crate) fn parse_within(
+        data: &[u8],
+        family: &str,
+        bold: bool,
+        italic: bool,
+        budget: &mut usize,
+    ) -> Parsed<Face> {
+        Face::from_ttf(&Ttf::new(data)?, family, bold, italic, budget)
+    }
+
+    pub(crate) fn restyled(&self, family: &str, bold: bool, italic: bool) -> Face {
+        Face {
+            family: family.to_string(),
+            bold,
+            italic,
+            ..self.clone()
+        }
+    }
+
+    fn from_ttf(
+        ttf: &Ttf<'_>,
+        family: &str,
+        bold: bool,
+        italic: bool,
+        budget: &mut usize,
+    ) -> Parsed<Face> {
+        let head = ttf.table(b"head").ok_or(FontError::Malformed("head"))?;
+        let units_per_em = be16(head, 18)
+            .filter(|u| *u != 0)
+            .ok_or(FontError::Malformed("head"))?;
+        let units_per_em = f64::from(units_per_em);
+        let hhea = ttf.table(b"hhea").ok_or(FontError::Malformed("hhea"))?;
+        let field = |at| be16(hhea, at).ok_or(FontError::Malformed("hhea"));
+        let ascender = f64::from(field(4)? as i16);
+        let descender = -f64::from(field(6)? as i16);
+        let line_gap = f64::from(field(8)? as i16);
+        let metrics = usize::from(field(34)?);
+        let hmtx = ttf
+            .table(b"hmtx")
+            .filter(|hmtx| metrics != 0 && hmtx.len() / 4 >= metrics)
+            .ok_or(FontError::Malformed("hmtx"))?;
         let average_width = ttf
             .table(b"OS/2")
             .and_then(|os2| be16(os2, 2))
             .map_or(units_per_em / 2.0, |w| f64::from(w as i16).max(1.0));
-        let mut mapping = cmap(ttf.table(b"cmap")?)?;
+        let glyphs = ttf
+            .table(b"maxp")
+            .and_then(|maxp| be16(maxp, 4))
+            .map_or(0x1_0000, u32::from);
+        let mut mapping = cmap(
+            ttf.table(b"cmap").ok_or(FontError::Malformed("cmap"))?,
+            glyphs,
+            budget,
+        )?;
         let mapping_is_symbol = !mapping.iter().any(|(c, _)| *c == 0x41)
             && mapping.iter().any(|(c, _)| (0xF020..0xF100).contains(c));
         mapping.sort_unstable();
         mapping.dedup_by_key(|(c, _)| *c);
         let advance = |glyph: u16| {
-            let index = usize::from(glyph).min(metrics.saturating_sub(1));
-            be16(hmtx, index * 4)
+            let index = usize::from(glyph).min(metrics - 1);
+            be16(hmtx, index * 4).map_or(0, |width| width.min(u16::MAX - 1))
         };
-        let kerning = ttf
-            .table(b"kern")
-            .map(|table| kern_pairs(table, &mapping))
-            .unwrap_or_default();
-        let mut codepoints = Vec::with_capacity(mapping.len());
-        let mut widths = Vec::with_capacity(mapping.len());
-        for (c, glyph) in mapping {
-            if let Some(width) = advance(glyph) {
-                codepoints.push(c);
-                widths.push(width.min(u16::MAX - 1));
-            }
-        }
+        let kerning = match ttf.table(b"kern") {
+            Some(table) => kern_pairs(table, &mapping, budget)?,
+            None => Vec::new(),
+        };
+        let codepoints: Arc<[u32]> = mapping.iter().map(|(c, _)| *c).collect();
+        let widths: Arc<[u16]> = mapping.iter().map(|(_, glyph)| advance(*glyph)).collect();
         let symbol = mapping_is_symbol;
-        Some(Face {
+        Ok(Face {
             family: family.to_string(),
             bold,
             italic,
@@ -140,38 +234,39 @@ impl Face {
             descender,
             line_gap,
             average_width,
-            codepoints: codepoints.into(),
+            codepoints,
             widths,
-            kerning,
+            kerning: kerning.into(),
         })
     }
 }
 
 /// The classic `kern` table's horizontal format 0 pairs (Microsoft
 /// version 0 and Apple version 1 layouts) between `KERN_CODEPOINTS`.
-fn kern_pairs(table: &[u8], mapping: &[(u32, u16)]) -> Vec<((u32, u32), i16)> {
+fn kern_pairs(table: &[u8], mapping: &[(u32, u16)], budget: &mut usize) -> Parsed<Vec<KernPair>> {
     let mut by_glyph: HashMap<u16, Vec<u32>> = HashMap::new();
     for (c, glyph) in mapping {
         if KERN_CODEPOINTS.contains(c) {
             by_glyph.entry(*glyph).or_default().push(*c);
         }
     }
-    let mut out = Vec::new();
+    let mut by_pair: HashMap<(u16, u16), i16> = HashMap::new();
+    let mut records = table.len() / 6;
+    let mut exhausted = false;
     let mut read = |at: usize| -> Option<()> {
         let pairs = usize::from(be16(table, at)?);
         for index in 0..pairs {
-            let record = at + 8 + 6 * index;
+            records = records.checked_sub(1)?;
+            let Some(left_budget) = budget.checked_sub(1) else {
+                exhausted = true;
+                return None;
+            };
+            *budget = left_budget;
+            let record = at.checked_add(8 + 6 * index)?;
             let (left, right) = (be16(table, record)?, be16(table, record + 2)?);
             let value = be16(table, record + 4)? as i16;
-            if value == 0 {
-                continue;
-            }
-            if let (Some(ls), Some(rs)) = (by_glyph.get(&left), by_glyph.get(&right)) {
-                for l in ls {
-                    for r in rs {
-                        out.push(((*l, *r), value));
-                    }
-                }
+            if value != 0 && by_glyph.contains_key(&left) && by_glyph.contains_key(&right) {
+                by_pair.entry((left, right)).or_insert(value);
             }
         }
         Some(())
@@ -187,6 +282,9 @@ fn kern_pairs(table: &[u8], mapping: &[(u32, u16)]) -> Vec<((u32, u32), i16)> {
                 read(at + 6);
             }
             at += usize::from(length).max(6);
+            if at >= table.len() {
+                break;
+            }
         }
     } else if be32(table, 0) == Some(0x0001_0000) {
         let count = be32(table, 4).unwrap_or(0).min(64);
@@ -198,12 +296,30 @@ fn kern_pairs(table: &[u8], mapping: &[(u32, u16)]) -> Vec<((u32, u32), i16)> {
             if coverage & 0xFF == 0 && coverage & 0xE000 == 0 {
                 read(at + 8);
             }
-            at += (length as usize).max(8);
+            match at.checked_add((length as usize).max(8)) {
+                Some(next) if next < table.len() => at = next,
+                _ => break,
+            }
+        }
+    }
+    if exhausted {
+        return Err(FontError::TooLarge);
+    }
+    let pairs: usize = by_pair
+        .keys()
+        .map(|(left, right)| by_glyph[left].len() * by_glyph[right].len())
+        .sum();
+    *budget = budget.checked_sub(pairs).ok_or(FontError::TooLarge)?;
+    let mut out = Vec::with_capacity(pairs);
+    for ((left, right), value) in by_pair {
+        for l in &by_glyph[&left] {
+            for r in &by_glyph[&right] {
+                out.push(((*l, *r), value));
+            }
         }
     }
     out.sort_unstable_by_key(|(key, _)| *key);
-    out.dedup_by_key(|(key, _)| *key);
-    out
+    Ok(out)
 }
 
 impl Face {
@@ -217,11 +333,14 @@ impl Face {
             1
         };
         let mut out = Vec::new();
+        let mut budget = FILE_BUDGET;
         for index in 0..count.min(64) {
             let Some(view) = face_view(data, index) else {
                 continue;
             };
-            let Some(names) = Ttf::new_at(data, view).and_then(|t| t.table(b"name").map(names))
+            let Some(names) = Ttf::new_at(data, view)
+                .ok()
+                .and_then(|t| t.table(b"name").map(names))
             else {
                 continue;
             };
@@ -245,8 +364,8 @@ impl Face {
             } else {
                 format!("{family} {extra}")
             };
-            if let Some(face) =
-                Ttf::new_at(data, view).and_then(|t| Face::from_ttf(&t, &family, bold, italic))
+            if let Ok(face) = Ttf::new_at(data, view)
+                .and_then(|t| Face::from_ttf(&t, &family, bold, italic, &mut budget))
             {
                 out.push(face);
             }
@@ -312,16 +431,15 @@ fn names(table: &[u8]) -> (Option<String>, Option<String>) {
 }
 
 fn be16(data: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
+    Some(u16::from_be_bytes(
+        data.get(at..at.checked_add(2)?)?.try_into().ok()?,
+    ))
 }
 
 fn be32(data: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes([
-        *data.get(at)?,
-        *data.get(at + 1)?,
-        *data.get(at + 2)?,
-        *data.get(at + 3)?,
-    ]))
+    Some(u32::from_be_bytes(
+        data.get(at..at.checked_add(4)?)?.try_into().ok()?,
+    ))
 }
 
 /// The table directory of the first face of a font file.
@@ -331,22 +449,33 @@ struct Ttf<'a> {
 }
 
 impl<'a> Ttf<'a> {
-    fn new(data: &'a [u8]) -> Option<Ttf<'a>> {
-        Ttf::new_at(data, face_view(data, 0)?)
+    fn new(data: &'a [u8]) -> Parsed<Ttf<'a>> {
+        Ttf::new_at(
+            data,
+            face_view(data, 0).ok_or(FontError::Malformed("ttcf"))?,
+        )
     }
 
-    fn new_at(data: &'a [u8], offset: usize) -> Option<Ttf<'a>> {
-        let count = usize::from(be16(data, offset + 4)?);
+    fn new_at(data: &'a [u8], offset: usize) -> Parsed<Ttf<'a>> {
+        let malformed = FontError::Malformed("table directory");
+        let directory = offset.checked_add(12).ok_or(malformed)?;
+        let count = usize::from(be16(data, offset + 4).ok_or(malformed)?);
+        if data.len().saturating_sub(directory) / 16 < count {
+            return Err(malformed);
+        }
         let mut tables = Vec::with_capacity(count);
         for index in 0..count {
-            let record = offset + 12 + 16 * index;
-            let tag: [u8; 4] = data.get(record..record + 4)?.try_into().ok()?;
-            let start = be32(data, record + 8)? as usize;
-            let length = be32(data, record + 12)? as usize;
-            data.get(start..start.checked_add(length)?)?;
-            tables.push((tag, start, length));
+            let record = directory + 16 * index;
+            let read = || -> Option<([u8; 4], usize, usize)> {
+                let tag: [u8; 4] = data.get(record..record + 4)?.try_into().ok()?;
+                let start = be32(data, record + 8)? as usize;
+                let length = be32(data, record + 12)? as usize;
+                data.get(start..start.checked_add(length)?)?;
+                Some((tag, start, length))
+            };
+            tables.push(read().ok_or(malformed)?);
         }
-        Some(Ttf { data, tables })
+        Ok(Ttf { data, tables })
     }
 
     fn table(&self, tag: &[u8; 4]) -> Option<&'a [u8]> {
@@ -356,14 +485,17 @@ impl<'a> Ttf<'a> {
 }
 
 /// The Unicode cmap (format 4 or 12): `(code point, glyph)`.
-fn cmap(table: &[u8]) -> Option<Vec<(u32, u16)>> {
-    let count = usize::from(be16(table, 2)?);
+fn cmap(table: &[u8], glyphs: u32, budget: &mut usize) -> Parsed<Vec<(u32, u16)>> {
+    let malformed = FontError::Malformed("cmap");
+    let field16 = |at| be16(table, at).ok_or(malformed);
+    let field32 = |at| be32(table, at).ok_or(malformed);
+    let count = usize::from(field16(2)?);
     let mut best: Option<(u8, usize, u16)> = None;
     for index in 0..count {
-        let platform = be16(table, 4 + 8 * index)?;
-        let encoding = be16(table, 6 + 8 * index)?;
-        let offset = be32(table, 8 + 8 * index)? as usize;
-        let format = be16(table, offset)?;
+        let platform = field16(4 + 8 * index)?;
+        let encoding = field16(6 + 8 * index)?;
+        let offset = field32(8 + 8 * index)? as usize;
+        let format = field16(offset)?;
         let rank = match (platform, encoding) {
             (3, 10) | (0, 4) => 3,
             (3, 1) | (0, 3) => 2,
@@ -374,56 +506,104 @@ fn cmap(table: &[u8]) -> Option<Vec<(u32, u16)>> {
             best = Some((rank, offset, format));
         }
     }
-    let (_, offset, format) = best?;
+    let (_, offset, format) = best.ok_or(malformed)?;
     let mut out = Vec::new();
+    let mut charge = || -> Parsed<()> {
+        *budget = budget.checked_sub(1).ok_or(FontError::TooLarge)?;
+        Ok(())
+    };
     if format == 4 {
-        let segments = usize::from(be16(table, offset + 6)?) / 2;
-        let ends = offset + 14;
-        let starts = ends + 2 * segments + 2;
-        let deltas = starts + 2 * segments;
-        let ranges = deltas + 2 * segments;
+        let length = usize::from(field16(offset + 2)?);
+        let sub = table.get(offset..offset + length).ok_or(malformed)?;
+        let field = |at| be16(sub, at).ok_or(malformed);
+        let seg_x2 = usize::from(field(6)?);
+        if seg_x2 == 0 || seg_x2 % 2 != 0 || 16 + 4 * seg_x2 > length {
+            return Err(malformed);
+        }
+        let segments = seg_x2 / 2;
+        let (ends, starts) = (14, 16 + seg_x2);
+        let (deltas, ranges) = (starts + seg_x2, starts + 2 * seg_x2);
+        if field(ends + seg_x2 - 2)? != 0xFFFF {
+            return Err(malformed);
+        }
+        let mut previous_end: Option<u16> = None;
         for s in 0..segments {
-            let end = be16(table, ends + 2 * s)?;
-            let start = be16(table, starts + 2 * s)?;
-            let delta = be16(table, deltas + 2 * s)?;
-            let range_offset = usize::from(be16(table, ranges + 2 * s)?);
+            let end = field(ends + 2 * s)?;
+            let start = field(starts + 2 * s)?;
+            let delta = field(deltas + 2 * s)?;
+            let range_offset = usize::from(field(ranges + 2 * s)?);
             if start > end {
-                continue;
+                return Err(FontError::CmapReversedRange);
             }
+            if previous_end.is_some_and(|p| end < p) {
+                return Err(FontError::CmapUnsorted);
+            }
+            previous_end = Some(end);
             for c in start..=end {
+                charge()?;
                 if c == 0xFFFF {
                     continue;
                 }
-                let glyph = if range_offset == 0 {
-                    c.wrapping_add(delta)
-                } else {
-                    let at = ranges + 2 * s + range_offset + 2 * usize::from(c - start);
-                    match be16(table, at) {
-                        Some(0) | None => 0,
-                        Some(g) => g.wrapping_add(delta),
-                    }
+                let glyph = match range_offset {
+                    0 => c.wrapping_add(delta),
+                    _ => match field(ranges + 2 * s + range_offset + 2 * usize::from(c - start))? {
+                        0 => 0,
+                        g => g.wrapping_add(delta),
+                    },
                 };
-                if glyph != 0 {
-                    out.push((u32::from(c), glyph));
+                if glyph == 0 {
+                    continue;
                 }
+                if u32::from(glyph) >= glyphs {
+                    return Err(FontError::CmapOutOfRange);
+                }
+                push(&mut out, u32::from(c), glyph)?;
             }
         }
     } else {
-        let groups = be32(table, offset + 12)? as usize;
-        for g in 0..groups.min(1 << 16) {
-            let at = offset + 16 + 12 * g;
-            let start = be32(table, at)?;
-            let end = be32(table, at + 4)?.min(start.saturating_add(0x10000));
-            let glyph = be32(table, at + 8)?;
+        let length = field32(offset + 4)? as usize;
+        let sub = offset
+            .checked_add(length)
+            .and_then(|end| table.get(offset..end))
+            .ok_or(malformed)?;
+        let field32 = |at| be32(sub, at).ok_or(malformed);
+        let groups = field32(12)? as usize;
+        let needed = groups.checked_mul(12).and_then(|n| n.checked_add(16));
+        if needed.is_none_or(|n| n > length) {
+            return Err(malformed);
+        }
+        let mut previous_end: Option<u32> = None;
+        for g in 0..groups {
+            let at = 16 + 12 * g;
+            let start = field32(at)?;
+            let end = field32(at + 4)?;
+            let glyph = field32(at + 8)?;
+            if start > end {
+                return Err(FontError::CmapReversedRange);
+            }
+            if previous_end.is_some_and(|p| start <= p) {
+                return Err(FontError::CmapUnsorted);
+            }
+            previous_end = Some(end);
+            if end > 0x10_FFFF || u64::from(glyph) + u64::from(end - start) >= u64::from(glyphs) {
+                return Err(FontError::CmapOutOfRange);
+            }
             for c in start..=end {
-                let id = glyph + (c - start);
-                if let Ok(id) = u16::try_from(id) {
-                    out.push((c, id));
-                }
+                charge()?;
+                push(&mut out, c, (glyph + (c - start)) as u16)?;
             }
         }
     }
-    Some(out)
+    Ok(out)
+}
+
+fn push(out: &mut Vec<(u32, u16)>, c: u32, glyph: u16) -> Parsed<()> {
+    if out.len() >= MAX_MAPPINGS {
+        return Err(FontError::TooLarge);
+    }
+    out.try_reserve(1).map_err(|_| FontError::TooLarge)?;
+    out.push((c, glyph));
+    Ok(())
 }
 
 fn builtin() -> &'static [Arc<Face>] {
@@ -502,8 +682,8 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             line_gap,
             average_width,
             codepoints,
-            widths,
-            kerning,
+            widths: widths.into(),
+            kerning: kerning.into(),
         }));
     }
     Some(out)
@@ -527,11 +707,28 @@ pub enum FontKind {
 #[derive(Default)]
 pub struct FontBook {
     own: Vec<Arc<Face>>,
+    own_index: HashMap<String, [Option<usize>; 4]>,
     /// Lower-cased family → indices into `own` (negative-free) or the
     /// bundled table, per (bold, italic).
     cache: HashMap<String, Option<FaceSet>>,
     /// Families that had to be substituted, as the document names them.
     pub missing: Vec<String>,
+    missing_seen: HashSet<String>,
+}
+
+/// Lower-cased family → the first face of each (bold, italic) slot.
+fn index(faces: &[Arc<Face>]) -> HashMap<String, [Option<usize>; 4]> {
+    let mut out: HashMap<String, [Option<usize>; 4]> = HashMap::new();
+    for (index, face) in faces.iter().enumerate() {
+        let slot = usize::from(face.bold) | (usize::from(face.italic) << 1);
+        out.entry(face.family.to_lowercase()).or_default()[slot].get_or_insert(index);
+    }
+    out
+}
+
+fn builtin_index() -> &'static HashMap<String, [Option<usize>; 4]> {
+    static INDEX: OnceLock<HashMap<String, [Option<usize>; 4]>> = OnceLock::new();
+    INDEX.get_or_init(|| index(builtin()))
 }
 
 #[derive(Clone, Copy)]
@@ -543,8 +740,10 @@ struct FaceSet {
 impl FontBook {
     /// A font book with `own` faces taking precedence over the table.
     pub fn new(own: Vec<Face>) -> FontBook {
+        let own: Vec<Arc<Face>> = own.into_iter().map(Arc::new).collect();
         FontBook {
-            own: own.into_iter().map(Arc::new).collect(),
+            own_index: index(&own),
+            own,
             ..FontBook::default()
         }
     }
@@ -558,19 +757,19 @@ impl FontBook {
         if let Some(found) = self.cache.get(&key) {
             return *found;
         }
-        let find = |faces: &[Arc<Face>]| {
-            let mut set = [None; 4];
-            for (index, face) in faces.iter().enumerate() {
-                if face.family.to_lowercase() == key {
-                    let slot = usize::from(face.bold) | (usize::from(face.italic) << 1);
-                    set[slot].get_or_insert(index);
-                }
-            }
-            set.iter().any(Option::is_some).then_some(set)
-        };
-        let found = find(&self.own)
-            .map(|faces| FaceSet { own: true, faces })
-            .or_else(|| find(builtin()).map(|faces| FaceSet { own: false, faces }));
+        let found = self
+            .own_index
+            .get(&key)
+            .map(|faces| FaceSet {
+                own: true,
+                faces: *faces,
+            })
+            .or_else(|| {
+                builtin_index().get(&key).map(|faces| FaceSet {
+                    own: false,
+                    faces: *faces,
+                })
+            });
         self.cache.insert(key, found);
         found
     }
@@ -587,9 +786,7 @@ impl FontBook {
         let set = match self.set(family) {
             Some(set) => set,
             None => {
-                if !family.is_empty()
-                    && !self.missing.iter().any(|m| m.eq_ignore_ascii_case(family))
-                {
+                if !family.is_empty() && self.missing_seen.insert(family.to_ascii_lowercase()) {
                     self.missing.push(family.to_string());
                 }
                 let substitute = match kind {
@@ -616,6 +813,14 @@ impl FontBook {
 /// Deobfuscate an embedded font (`.odttf`, ECMA-376 Part 1 §17.8.1): the
 /// first 32 bytes are XORed with the font key GUID's bytes, reversed.
 pub fn deobfuscate(data: &[u8], key: &str) -> Option<Vec<u8>> {
+    let key = font_key(key)?;
+    let mut out = data.to_vec();
+    xor_font_key(&mut out, &key);
+    Some(out)
+}
+
+/// The font key GUID's bytes, reversed, as they are XORed.
+pub(crate) fn font_key(key: &str) -> Option<[u8; 16]> {
     let hex: String = key.chars().filter(char::is_ascii_hexdigit).collect();
     if hex.len() != 32 {
         return None;
@@ -625,11 +830,14 @@ pub fn deobfuscate(data: &[u8], key: &str) -> Option<Vec<u8>> {
         *byte = u8::from_str_radix(&hex[2 * index..2 * index + 2], 16).ok()?;
     }
     guid.reverse();
-    let mut out = data.to_vec();
-    for (index, byte) in out.iter_mut().take(32).enumerate() {
-        *byte ^= guid[index % 16];
+    Some(guid)
+}
+
+/// XORs the first 32 bytes with `key`; applying it twice restores `data`.
+pub(crate) fn xor_font_key(data: &mut [u8], key: &[u8; 16]) {
+    for (index, byte) in data.iter_mut().take(32).enumerate() {
+        *byte ^= key[index % 16];
     }
-    Some(out)
 }
 
 #[cfg(test)]
@@ -705,5 +913,430 @@ mod coverage {
         let symbol = book.face("Symbol", false, false, FontKind::Serif);
         assert!(symbol.advance('\u{F0B7}') > 0.2);
         assert!((symbol.advance('\u{B7}') - symbol.advance('\u{F0B7}')).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod hostile {
+    use super::*;
+    use proptest::prelude::*;
+    use std::time::{Duration, Instant};
+
+    fn sfnt(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+        let mut out = vec![0, 1, 0, 0];
+        out.extend((tables.len() as u16).to_be_bytes());
+        out.extend([0; 6]);
+        let mut at = 12 + 16 * tables.len();
+        let mut body = Vec::new();
+        for (tag, data) in tables {
+            out.extend(*tag);
+            out.extend([0; 4]);
+            out.extend((at as u32).to_be_bytes());
+            out.extend((data.len() as u32).to_be_bytes());
+            body.extend(data);
+            while body.len() % 4 != 0 {
+                body.push(0);
+            }
+            at = 12 + 16 * tables.len() + body.len();
+        }
+        out.extend(body);
+        out
+    }
+
+    fn be(values: &[u16]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_be_bytes()).collect()
+    }
+
+    fn face_tables(glyphs: u16, cmap: Vec<u8>, kern: Option<Vec<u8>>) -> Vec<u8> {
+        face_with_metrics(glyphs, cmap, kern, 3)
+    }
+
+    fn face_with_metrics(
+        glyphs: u16,
+        cmap: Vec<u8>,
+        kern: Option<Vec<u8>>,
+        metrics: u16,
+    ) -> Vec<u8> {
+        let mut head = vec![0; 54];
+        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        let mut hhea = vec![0; 36];
+        hhea[4..6].copy_from_slice(&800u16.to_be_bytes());
+        hhea[6..8].copy_from_slice(&(-200i16).to_be_bytes());
+        hhea[34..36].copy_from_slice(&metrics.to_be_bytes());
+        let mut maxp = vec![0, 0, 0x50, 0];
+        maxp.extend(glyphs.to_be_bytes());
+        let hmtx: Vec<u8> = (0..metrics).flat_map(|g| be(&[500 + 100 * g, 0])).collect();
+        let utf16 =
+            |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_be_bytes).collect() };
+        let (family, style) = (utf16("Test"), utf16("Regular"));
+        let mut name = be(&[0, 2, 6 + 24]);
+        name.extend(be(&[3, 1, 0x409, 1, family.len() as u16, 0]));
+        name.extend(be(&[
+            3,
+            1,
+            0x409,
+            2,
+            style.len() as u16,
+            family.len() as u16,
+        ]));
+        name.extend(family);
+        name.extend(style);
+        let mut tables = vec![
+            (b"head", head),
+            (b"hhea", hhea),
+            (b"maxp", maxp),
+            (b"hmtx", hmtx),
+            (b"cmap", cmap),
+            (b"name", name),
+        ];
+        if let Some(kern) = kern {
+            tables.push((b"kern", kern));
+        }
+        sfnt(&tables)
+    }
+
+    fn format4(segments: &[(u16, u16, u16)]) -> Vec<u8> {
+        let segments: Vec<_> = segments.iter().map(|&(s, e, d)| (s, e, d, 0)).collect();
+        format4_with(&segments, &[])
+    }
+
+    /// Segments are (start, end, delta, idRangeOffset).
+    fn format4_with(segments: &[(u16, u16, u16, u16)], glyph_ids: &[u16]) -> Vec<u8> {
+        let n = segments.len();
+        let length = (16 + 8 * n + 2 * glyph_ids.len()) as u16;
+        let mut out = be(&[0, 1, 3, 1, 0, 12, 4, length, 0, 2 * n as u16, 0, 0, 0]);
+        out.extend(segments.iter().flat_map(|s| s.1.to_be_bytes()));
+        out.extend(be(&[0]));
+        out.extend(segments.iter().flat_map(|s| s.0.to_be_bytes()));
+        out.extend(segments.iter().flat_map(|s| s.2.to_be_bytes()));
+        out.extend(segments.iter().flat_map(|s| s.3.to_be_bytes()));
+        out.extend(be(glyph_ids));
+        out
+    }
+
+    fn format12(groups: impl ExactSizeIterator<Item = (u32, u32, u32)>) -> Vec<u8> {
+        let mut out = be(&[0, 1, 3, 10, 0, 12, 12, 0]);
+        out.extend((16 + 12 * groups.len() as u32).to_be_bytes());
+        out.extend([0; 4]);
+        out.extend((groups.len() as u32).to_be_bytes());
+        for (start, end, glyph) in groups {
+            out.extend(start.to_be_bytes());
+            out.extend(end.to_be_bytes());
+            out.extend(glyph.to_be_bytes());
+        }
+        out
+    }
+
+    fn full_unicode_cmap() -> Vec<u8> {
+        format12(
+            (0..0x11_0000u32)
+                .step_by(0xFFFF)
+                .map(|start| (start, (start + 0xFFFE).min(0x10_FFFF), 0)),
+        )
+    }
+
+    fn rebase(font: &[u8], base: usize) -> Vec<u8> {
+        let mut font = font.to_vec();
+        for index in 0..usize::from(be16(&font, 4).unwrap()) {
+            let at = 12 + 16 * index + 8;
+            let offset = be32(&font, at).unwrap() as usize + base;
+            font[at..at + 4].copy_from_slice(&(offset as u32).to_be_bytes());
+        }
+        font
+    }
+
+    /// A collection of `count` directory entries, entry `i` pointing at
+    /// `faces[i % faces.len()]`.
+    fn collection(faces: &[Vec<u8>], count: usize) -> Vec<u8> {
+        let mut out = b"ttcf".to_vec();
+        out.extend(be(&[1, 0]));
+        out.extend((count as u32).to_be_bytes());
+        let mut base = 12 + 4 * count;
+        let mut offsets = Vec::new();
+        for face in faces {
+            offsets.push(base);
+            base += face.len();
+        }
+        for index in 0..count {
+            out.extend((offsets[index % faces.len()] as u32).to_be_bytes());
+        }
+        for (face, offset) in faces.iter().zip(offsets) {
+            out.extend(rebase(face, offset));
+        }
+        out
+    }
+
+    fn read(font: &[u8], budget: &mut usize) -> Parsed<Face> {
+        Face::from_ttf(&Ttf::new(font)?, "Test", false, false, budget)
+    }
+
+    fn refusal(font: &[u8]) -> Option<FontError> {
+        let mut budget = FILE_BUDGET;
+        read(font, &mut budget).err()
+    }
+
+    fn ab_cmap() -> Vec<u8> {
+        format4(&[(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)])
+    }
+
+    fn valid() -> Vec<u8> {
+        let kern = {
+            let mut kern = be(&[0, 1, 0, 6 + 8 + 6, 1, 1, 0, 0, 0]);
+            kern.extend(be(&[1, 2, (-50i16) as u16]));
+            kern
+        };
+        face_tables(3, ab_cmap(), Some(kern))
+    }
+
+    fn quickly<T>(run: impl FnOnce() -> T) -> T {
+        let started = Instant::now();
+        let out = run();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        out
+    }
+
+    #[test]
+    fn a_small_valid_font_reads() {
+        let face = Face::try_parse(&valid(), "Test", false, false).unwrap();
+        assert!((face.advance('A') - 0.6).abs() < 1e-9);
+        assert!((face.advance('B') - 0.7).abs() < 1e-9);
+        assert!((face.kern('A', 'B') + 0.05).abs() < 1e-9);
+        assert!((face.line_height() - 1.0).abs() < 1e-9);
+        let faces = Face::parse_file(&valid());
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0].family, "Test");
+    }
+
+    #[test]
+    fn repeated_format_12_groups_are_refused_quickly() {
+        let font = face_tables(
+            0xFFFF,
+            format12((0..0x1_0000).map(|_| (0, 0xFFFE, 0))),
+            None,
+        );
+        assert!(font.len() > 700 * 1024);
+        assert_eq!(quickly(|| refusal(&font)), Some(FontError::CmapUnsorted));
+        assert!(quickly(|| Face::parse_file(&font)).is_empty());
+        let error = Face::try_parse(&font, "Test", false, false).unwrap_err();
+        assert_eq!(
+            (error.code(), error.reason()),
+            ("invalid_argument", "font_cmap_invalid")
+        );
+    }
+
+    #[test]
+    fn inconsistent_format_12_groups_are_refused() {
+        let parse = |groups: &[(u32, u32, u32)]| {
+            refusal(&face_tables(3, format12(groups.iter().copied()), None))
+        };
+        assert_eq!(parse(&[(0x41, 0x42, 1)]), None);
+        assert_eq!(
+            parse(&[(0x42, 0x41, 1)]),
+            Some(FontError::CmapReversedRange)
+        );
+        assert_eq!(
+            parse(&[(0x42, 0x42, 1), (0x41, 0x41, 2)]),
+            Some(FontError::CmapUnsorted)
+        );
+        assert_eq!(
+            parse(&[(0x41, 0x42, 1), (0x42, 0x43, 2)]),
+            Some(FontError::CmapUnsorted)
+        );
+        assert_eq!(parse(&[(0x41, 0x43, 1)]), Some(FontError::CmapOutOfRange));
+        assert_eq!(
+            parse(&[(0x11_0000, 0x11_0000, 1)]),
+            Some(FontError::CmapOutOfRange)
+        );
+    }
+
+    #[test]
+    fn repeated_format_4_segments_are_refused_quickly() {
+        let mut segments = vec![(0, 0xFFFE, 0); 7999];
+        segments.push((0xFFFF, 0xFFFF, 1));
+        let font = face_tables(0xFFFF, format4(&segments), None);
+        assert_eq!(quickly(|| refusal(&font)), Some(FontError::TooLarge));
+        assert!(quickly(|| Face::parse_file(&font)).is_empty());
+        let too_long = face_tables(0xFFFF, format4(&vec![(0, 0xFFFE, 0); 0x7FFF]), None);
+        assert_eq!(
+            quickly(|| refusal(&too_long)),
+            Some(FontError::Malformed("cmap"))
+        );
+    }
+
+    #[test]
+    fn a_format_4_subtable_must_be_whole() {
+        let malformed = Some(FontError::Malformed("cmap"));
+        let patched = |at: usize, value: u16| {
+            let mut cmap = ab_cmap();
+            cmap[12 + at..14 + at].copy_from_slice(&value.to_be_bytes());
+            refusal(&face_tables(3, cmap, None))
+        };
+        let length = (ab_cmap().len() - 12) as u16;
+        assert_eq!(patched(2, length), None);
+        assert_eq!(patched(2, length + 2), malformed);
+        assert_eq!(patched(2, length - 2), malformed);
+        assert_eq!(patched(6, 3), malformed);
+        assert_eq!(patched(6, 0), malformed);
+        let to_a = 1u16.wrapping_sub(0x41);
+        assert_eq!(
+            refusal(&face_tables(3, format4(&[(0x41, 0x42, to_a)]), None)),
+            malformed
+        );
+    }
+
+    #[test]
+    fn a_format_4_glyph_index_must_stay_in_its_subtable() {
+        let segments = [(0x41, 0x42, 0, 4), (0xFFFF, 0xFFFF, 1, 0)];
+        let mut budget = FILE_BUDGET;
+        let face = read(
+            &face_tables(3, format4_with(&segments, &[1, 2]), None),
+            &mut budget,
+        )
+        .unwrap();
+        assert!((face.advance('B') - 0.7).abs() < 1e-9);
+        let mut short = format4_with(&segments, &[1]);
+        short.extend(be(&[2]));
+        assert_eq!(
+            refusal(&face_tables(3, short, None)),
+            Some(FontError::Malformed("cmap"))
+        );
+    }
+
+    #[test]
+    fn inconsistent_format_4_segments_are_refused() {
+        let parse = |segments: &[(u16, u16, u16)]| {
+            let mut segments = segments.to_vec();
+            segments.push((0xFFFF, 0xFFFF, 1));
+            refusal(&face_tables(3, format4(&segments), None))
+        };
+        let to_a = 1u16.wrapping_sub(0x41);
+        assert_eq!(
+            parse(&[(0x42, 0x41, to_a)]),
+            Some(FontError::CmapReversedRange)
+        );
+        assert_eq!(
+            parse(&[(0x41, 0x42, to_a), (0x40, 0x41, to_a)]),
+            Some(FontError::CmapUnsorted)
+        );
+        assert_eq!(
+            parse(&[(0x41, 0x43, to_a)]),
+            Some(FontError::CmapOutOfRange)
+        );
+    }
+
+    #[test]
+    fn format_4_segments_may_share_one_code_point() {
+        let to_a = 1u16.wrapping_sub(0x41);
+        let segments = [
+            (0x41, 0x42, to_a),
+            (0x42, 0x42, 1u16.wrapping_sub(0x42)),
+            (0xFFFF, 0xFFFF, 1),
+        ];
+        let mut budget = FILE_BUDGET;
+        let face = read(&face_tables(3, format4(&segments), None), &mut budget).unwrap();
+        assert!((face.advance('A') - 0.6).abs() < 1e-9);
+        assert!((face.advance('B') - 0.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_format_12_subtable_must_be_whole() {
+        let patched = |length: u32| {
+            let mut cmap = format12([(0x41, 0x42, 1)].into_iter());
+            cmap[16..20].copy_from_slice(&length.to_be_bytes());
+            refusal(&face_tables(3, cmap, None))
+        };
+        assert_eq!(patched(28), None);
+        assert_eq!(patched(27), Some(FontError::Malformed("cmap")));
+        assert_eq!(patched(32), Some(FontError::Malformed("cmap")));
+    }
+
+    #[test]
+    fn a_collection_skips_its_inconsistent_face() {
+        let bad = face_tables(3, format12([(0x42, 0x41, 1)].into_iter()), None);
+        let faces = Face::parse_file(&collection(&[bad, valid()], 2));
+        assert_eq!(faces.len(), 1);
+        assert!((faces[0].advance('A') - 0.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_face_with_an_empty_hmtx_is_refused_before_its_cmap() {
+        let face = face_with_metrics(0xFFFF, full_unicode_cmap(), None, 0);
+        let mut budget = FILE_BUDGET;
+        assert_eq!(
+            read(&face, &mut budget).err(),
+            Some(FontError::Malformed("hmtx"))
+        );
+        assert_eq!(budget, FILE_BUDGET);
+        let ttc = collection(&[face], 64);
+        assert!(ttc.len() < 800, "{}", ttc.len());
+        assert!(quickly(|| Face::parse_file(&ttc)).is_empty());
+    }
+
+    #[test]
+    fn a_collection_sharing_one_full_cmap_stops_at_the_file_budget() {
+        let ttc = collection(&[face_tables(0xFFFF, full_unicode_cmap(), None)], 64);
+        let faces = quickly(|| Face::parse_file(&ttc));
+        assert_eq!(faces.len(), FILE_BUDGET / MAX_MAPPINGS);
+        assert!(faces.iter().all(|face| face.widths.len() == MAX_MAPPINGS));
+    }
+
+    #[test]
+    fn a_refused_face_is_charged_for_the_entries_it_read() {
+        let mut groups: Vec<_> = (0..0x10_0000u32)
+            .step_by(0xFFFF)
+            .map(|start| (start, start + 0xFFFE, 0))
+            .collect();
+        groups.push((0, 0, 0));
+        let face = face_tables(0xFFFF, format12(groups.into_iter()), None);
+        let mut budget = FILE_BUDGET;
+        assert_eq!(
+            read(&face, &mut budget).err(),
+            Some(FontError::CmapUnsorted)
+        );
+        assert!(FILE_BUDGET - budget >= 0x10_0000);
+        let ttc = collection(&[face, valid()], 64);
+        assert!(quickly(|| Face::parse_file(&ttc)).len() < 32);
+    }
+
+    #[test]
+    fn a_kern_pair_listed_twice_takes_its_first_value() {
+        let mut kern = be(&[0, 1, 0, 6 + 8 + 12, 1, 2, 0, 0, 0]);
+        kern.extend(be(&[1, 2, (-50i16) as u16, 1, 2, (-30i16) as u16]));
+        let mut budget = FILE_BUDGET;
+        let face = read(&face_tables(3, ab_cmap(), Some(kern)), &mut budget).unwrap();
+        assert!((face.kern('A', 'B') + 0.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn overlapping_kern_subtables_are_read_quickly() {
+        let mut kern = be(&[0, 0xFFFF]);
+        for _ in 0..0xFFFF {
+            kern.extend(be(&[0xFFFF, 6, 1]));
+        }
+        let font = face_tables(3, ab_cmap(), Some(kern));
+        let mut budget = FILE_BUDGET;
+        let face = quickly(|| read(&font, &mut budget)).unwrap();
+        assert_eq!(face.kern('A', 'B'), 0.0);
+    }
+
+    proptest! {
+        #[test]
+        fn mutated_fonts_never_panic(
+            edits in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..16),
+            cut in any::<usize>(),
+        ) {
+            let mut font = valid();
+            for (at, byte) in edits {
+                let at = at % font.len();
+                font[at] = byte;
+            }
+            font.truncate(font.len() - cut % 8);
+            let _ = Face::try_parse(&font, "Test", false, false);
+            let _ = Face::parse_file(&font);
+        }
     }
 }
