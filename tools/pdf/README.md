@@ -8,7 +8,7 @@ What the layout code decides today, recorded before the PDF engine changes `crat
 
 | Snapshot | Document |
 | -- | -- |
-| `templates/*.json`, `templates/v2/*.json` | each reference template in `tests/fixtures/markdown/templates` (47) |
+| `templates/*.json`, `templates/v2/*.json` | each reference template in `tests/fixtures/markdown/templates` (45) |
 | `examples/*.json` | each DOCX in `examples/markdown` |
 | `corpus/<case>.json` | each conversion in `corpus.tsv` (84) |
 | `pdf/<case>.json` | each PDF fixture in `tests/fixtures/pdf/cases.tsv` |
