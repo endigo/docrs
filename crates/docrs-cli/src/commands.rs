@@ -1,5 +1,6 @@
 //! Command implementations.
 
+use std::io::Write;
 use std::path::Path;
 
 use docrs::markdown::{InputFormat, MarkdownOptions, Placement, StylePolicy};
@@ -493,8 +494,11 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let main = document.package().main_part_name().to_string();
             if *lines {
                 let round = |v: f64| (v * 100.0).round() / 100.0;
-                docrs::layout::line_records(&txn, &main, faces, |line| {
-                    println!(
+                let mut out = std::io::stdout().lock();
+                let mut closed = false;
+                let result = docrs::layout::line_records(&txn, &main, faces, |line| {
+                    let written = writeln!(
+                        out,
                         "{}",
                         json!({
                             "page": line.page,
@@ -512,9 +516,15 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                             "text": line.text,
                         })
                     );
-                    Ok(())
-                })?;
-                return Ok(0);
+                    written.map_err(|err| {
+                        closed = err.kind() == std::io::ErrorKind::BrokenPipe;
+                        Error::io("write_failed", format!("writing a line: {err}"), err)
+                    })
+                });
+                return match result {
+                    Err(_) if closed => Ok(0),
+                    result => result.map(|()| 0),
+                };
             }
             let layout = docrs::layout::layout(&txn, &main, faces)?;
             let tree = txn.tree(&main)?;

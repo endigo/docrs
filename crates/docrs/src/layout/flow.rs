@@ -835,7 +835,7 @@ impl Sink for Vec<Placed> {
 /// before pagination gives up.
 pub(super) const MAX_LAYOUT_WORK: u64 = 200_000_000;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     pub(crate) static TEST_LAYOUT_WORK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
@@ -848,7 +848,7 @@ pub(super) fn within(work: u64, budget: u64) -> Result<()> {
 }
 
 pub(super) fn layout_work() -> u64 {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     if let Some(budget) = TEST_LAYOUT_WORK.get() {
         return budget;
     }
@@ -980,9 +980,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     /// Draw a slice of `table`'s row `row` with its top at `y`, and the
-    /// cell items `top` gives a top within the slice. Word cuts a row that
-    /// runs off the paper: lines whose baseline is past its edge are not
-    /// drawn.
+    /// cell items `top` gives a top within the slice. Word cuts a header or
+    /// can't-split row that runs off the paper: lines whose baseline is past
+    /// its edge are not drawn.
     fn draw_slice(
         &mut self,
         (table, row): (&'m Table, usize),
@@ -992,7 +992,11 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         top: impl Fn(usize, &CellPart<'m>, &Drawn<'m>) -> Option<f64>,
     ) -> Result<()> {
         let left = self.column_left();
-        let paper = self.model.sections[self.section()].page.height;
+        let paper = if table.rows[row].header || table.rows[row].cant_split {
+            self.model.sections[self.section()].page.height
+        } else {
+            f64::INFINITY
+        };
         let slice = RowSlice {
             height: slice.height.min(paper - y),
             ..slice
@@ -1237,6 +1241,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     ) -> Result<bool> {
         let row = &table.rows[row_index];
         let available = self.bottom - self.y;
+        if available <= 0.0 {
+            return Ok(false);
+        }
         let cuts: Vec<Option<usize>> = layout
             .cells
             .iter()
@@ -1832,6 +1839,43 @@ mod tests {
         let mut plain = repeated.clone();
         plain.rows[0].header = false;
         assert!(need(repeated) - need(plain) >= 3 * (26 + 5 + 1));
+    }
+
+    #[test]
+    fn a_row_after_a_header_past_the_page_bottom_is_not_split_there() {
+        // A 200-point header ends past the 100-point body; the next row has
+        // an empty cell, which has no line to cut before.
+        #[derive(Default)]
+        struct Slices(Vec<RowSlice>);
+        impl Sink for Slices {
+            fn row(&mut self, _: Point, _: &Table, _: usize, slice: &RowSlice) -> Result<()> {
+                self.0.push(*slice);
+                Ok(())
+            }
+        }
+        let mut table = header_table(20, 0);
+        table.rows.push(Row {
+            cells: vec![
+                super::super::model::Cell {
+                    width: 50.0,
+                    ..Default::default()
+                },
+                super::super::model::Cell {
+                    width: 50.0,
+                    blocks: vec![Block::Para(para(1, 10.0))],
+                    ..Default::default()
+                },
+            ],
+            ..Row::default()
+        });
+        let mut sink = Slices::default();
+        let pages = paginate(&model(vec![Block::Table(table)], 120.0), &mut sink).unwrap();
+        assert_eq!(pages, 2);
+        assert!(
+            sink.0
+                .iter()
+                .all(|slice| slice.height >= 0.0 && slice.first && slice.last)
+        );
     }
 
     #[test]

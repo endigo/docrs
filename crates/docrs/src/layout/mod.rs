@@ -19,6 +19,14 @@ use std::collections::{HashMap, HashSet};
 pub use flow::Placed;
 #[cfg(test)]
 pub(crate) use flow::TEST_LAYOUT_WORK;
+
+/// Lay out with this work bound instead of the default on this thread
+/// (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn set_test_layout_work(budget: Option<u64>) {
+    flow::TEST_LAYOUT_WORK.set(budget);
+}
 pub use fonts::{Face, FontBook};
 
 use fonts::{FontError, Parsed};

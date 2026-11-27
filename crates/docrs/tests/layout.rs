@@ -817,14 +817,11 @@ fn a_header_shared_by_many_sections_is_measured_once() {
     let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
-    let started = std::time::Instant::now();
-    let estimate = layout(&txn, &main, Vec::new()).unwrap();
-    assert_eq!(estimate.pages, 3001);
-    assert!(
-        started.elapsed().as_secs_f64() < 1.0,
-        "{:?}",
-        started.elapsed()
-    );
+    // Measuring the header once per section would take 3,000 times this.
+    docrs::layout::set_test_layout_work(Some(100_000));
+    let estimate = layout(&txn, &main, Vec::new());
+    docrs::layout::set_test_layout_work(None);
+    assert_eq!(estimate.unwrap().pages, 3001);
 }
 
 /// Text, then a table: a header row of `header` one-line paragraphs, then
@@ -893,4 +890,23 @@ fn a_header_row_that_fits_repeats_on_every_page() {
             .count();
         assert_eq!(heads, 3, "page {page}");
     }
+}
+
+#[test]
+fn a_body_row_taller_than_the_page_keeps_all_its_lines() {
+    let lines: String = (1..=150).map(|i| para(&format!("Line {i}"), "")).collect();
+    let body = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"9360\"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w=\"9360\" w:type=\"dxa\"/></w:tcPr>{lines}</w:tc></w:tr></w:tbl>{}",
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut drawn = 0;
+    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
+        drawn += usize::from(line.text.starts_with("Line"));
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(drawn, 150);
 }
