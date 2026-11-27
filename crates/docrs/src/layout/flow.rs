@@ -980,7 +980,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     /// Draw a slice of `table`'s row `row` with its top at `y`, and the
-    /// cell items `top` gives a top within the slice.
+    /// cell items `top` gives a top within the slice. Word cuts a row that
+    /// runs off the paper: lines whose baseline is past its edge are not
+    /// drawn.
     fn draw_slice(
         &mut self,
         (table, row): (&'m Table, usize),
@@ -990,6 +992,11 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         top: impl Fn(usize, &CellPart<'m>, &Drawn<'m>) -> Option<f64>,
     ) -> Result<()> {
         let left = self.column_left();
+        let paper = self.model.sections[self.section()].page.height;
+        let slice = RowSlice {
+            height: slice.height.min(paper - y),
+            ..slice
+        };
         self.row(Point { x: left, y }, table, row, &slice)?;
         for (cell, part) in layout.cells.iter().enumerate() {
             for drawn in &part.layout.drawn {
@@ -1001,10 +1008,13 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     y: y + top,
                 };
                 match &drawn.item {
-                    Item::Line(para, line) => self.line(at, para, line)?,
-                    Item::Row(table, row, height) => {
-                        self.row(at, table, *row, &RowSlice::whole(*height))?
+                    Item::Line(para, line) if at.y + line.baseline <= paper + EPSILON => {
+                        self.line(at, para, line)?
                     }
+                    Item::Row(table, row, height) if at.y < paper => {
+                        self.row(at, table, *row, &RowSlice::whole(height.min(paper - at.y)))?
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1030,6 +1040,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         headers: &[RowLayout<'m>],
         height: f64,
     ) -> Result<()> {
+        // Word repeats no header taller than the page body.
+        if height > self.body_height() + EPSILON {
+            return Ok(());
+        }
         let mut y = self.y;
         for (row, layout) in headers.iter().enumerate() {
             self.charge(layout.work)?;
@@ -1801,12 +1815,30 @@ mod tests {
 
     #[test]
     fn repeated_header_rows_count_as_work() {
-        // A 200-point header row on a 100-point body, then ten rows: each
-        // row takes a page of its own and repeats the header's 20 lines.
-        let small = model(vec![Block::Table(header_table(20, 10))], 120.0);
-        assert_eq!(run(&small).1, 11);
-        let error = paginate_within(&small, &mut Vec::new(), 1000).unwrap_err();
-        assert_eq!(error.reason(), "max_layout_work");
+        // A 50-point header row on a 100-point body, then 20 rows: three
+        // later pages repeat the header, each its layout (26), 5 lines and
+        // the row.
+        let need = |table: Table| {
+            let model = model(vec![Block::Table(table)], 120.0);
+            (1..)
+                .find(|budget| paginate_within(&model, &mut Vec::new(), *budget).is_ok())
+                .unwrap()
+        };
+        let repeated = header_table(5, 20);
+        assert_eq!(
+            run(&model(vec![Block::Table(repeated.clone())], 120.0)).1,
+            4
+        );
+        let mut plain = repeated.clone();
+        plain.rows[0].header = false;
+        assert!(need(repeated) - need(plain) >= 3 * (26 + 5 + 1));
+    }
+
+    #[test]
+    fn a_header_taller_than_the_page_is_not_repeated() {
+        // 3,000 header lines over 3,000 rows: drawn once, not 3,000 times.
+        let large = model(vec![Block::Table(header_table(3000, 3000))], 120.0);
+        assert!(paginate_within(&large, &mut Vec::new(), 100_000).is_ok());
     }
 
     #[test]

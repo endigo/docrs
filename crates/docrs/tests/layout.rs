@@ -575,3 +575,71 @@ fn a_header_shared_by_many_sections_is_measured_once() {
         started.elapsed()
     );
 }
+
+/// Text, then a table: a header row of `header` one-line paragraphs, then
+/// `rows` two-cell rows. Each line on each page.
+fn header_table_lines(header: usize, rows: usize) -> (u32, Vec<docrs::layout::LineRecord>) {
+    let cell = |paras: String| {
+        format!("<w:tc><w:tcPr><w:tcW w:w=\"4680\" w:type=\"dxa\"/></w:tcPr>{paras}</w:tc>")
+    };
+    let heading: String = (1..=header)
+        .map(|i| para(&format!("Head {i}"), ""))
+        .collect();
+    let body: String = (1..=rows)
+        .map(|i| {
+            format!(
+                "<w:tr>{}{}</w:tr>",
+                cell(para(&format!("Row {i}"), "")),
+                cell(para("x", ""))
+            )
+        })
+        .collect();
+    let body = format!(
+        "{}<w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:trPr><w:tblHeader/></w:trPr>{}{}</w:tr>{body}</w:tbl>{}",
+        para("Before the table.", ""),
+        cell(heading),
+        cell(para("", "")),
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let pages = layout(&txn, &main, Vec::new()).unwrap().pages;
+    let mut lines = Vec::new();
+    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
+        lines.push(line);
+        Ok(())
+    })
+    .unwrap();
+    (pages, lines)
+}
+
+#[test]
+fn a_header_row_taller_than_the_page_is_cut_and_not_repeated() {
+    // Word for Mac 16.115: 3 pages. The 70-line header moves whole to
+    // page 2, is drawn down to the paper's edge and not repeated; page 3
+    // starts with Row 1.
+    let (pages, lines) = header_table_lines(70, 40);
+    assert_eq!(pages, 3);
+    let heads: Vec<_> = lines
+        .iter()
+        .filter(|l| l.text.starts_with("Head"))
+        .collect();
+    assert!(heads.iter().all(|l| l.page == 2 && l.baseline <= 792.0));
+    assert!(heads.len() < 70 && heads.len() > 50, "{}", heads.len());
+    let row = lines.iter().find(|l| l.text == "Row 1").unwrap();
+    assert_eq!(row.page, 3);
+}
+
+#[test]
+fn a_header_row_that_fits_repeats_on_every_page() {
+    let (pages, lines) = header_table_lines(3, 120);
+    assert_eq!(pages, 3);
+    for page in 1..=3 {
+        let heads = lines
+            .iter()
+            .filter(|l| l.page == page && l.text.starts_with("Head"))
+            .count();
+        assert_eq!(heads, 3, "page {page}");
+    }
+}
