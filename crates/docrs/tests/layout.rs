@@ -784,3 +784,45 @@ fn a_page_past_22_inches_keeps_its_size() {
     let main = doc.package().main_part_name().to_string();
     assert_eq!(layout(&txn, &main, Vec::new()).unwrap().pages, 1);
 }
+
+#[test]
+fn a_header_shared_by_many_sections_is_measured_once() {
+    // 3,000 sections share one 3,000-paragraph header.
+    let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let header_paras = "<w:p><w:r><w:t>Header</w:t></w:r></w:p>".repeat(3000);
+    let header = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:hdr xmlns:w=\"{W}\">{header_paras}</w:hdr>"
+    );
+    let sect = "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId1\"/></w:sectPr>";
+    let body: String = (0..3000)
+        .map(|_| format!("<w:p><w:pPr>{sect}</w:pPr></w:p>"))
+        .collect();
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\" xmlns:r=\"{r}\"><w:body>{body}{sect}</w:body></w:document>"
+    );
+    let ct = CT_XML.replace(
+        "</Types>",
+        "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/></Types>",
+    );
+    let rels = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{r}/header\" Target=\"header1.xml\"/></Relationships>"
+    );
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", ct.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/header1.xml", header.as_bytes()),
+    ]);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let started = std::time::Instant::now();
+    let estimate = layout(&txn, &main, Vec::new()).unwrap();
+    assert_eq!(estimate.pages, 3001);
+    assert!(
+        started.elapsed().as_secs_f64() < 1.0,
+        "{:?}",
+        started.elapsed()
+    );
+}

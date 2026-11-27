@@ -3157,26 +3157,23 @@ impl<'p> Renderer<'_, '_, 'p> {
                 .map(|(number, _)| tree.text_content(*number))
                 .collect()
         };
-        let layout = match crate::layout::write_page_numbers(
-            self.txn,
-            main,
-            &self.toc.numbers,
-            true,
-        ) {
-            Err(error) if error.reason() == "max_layout_work" => {
-                let tree = self.txn.tree_mut(main)?;
-                for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
-                    crate::wml::set_leading_text(tree, *number, text)?;
+        let layout =
+            match crate::layout::write_page_numbers(self.txn, main, &self.toc.numbers, true) {
+                Err(error) if error.reason() == "max_layout_work" => {
+                    let tree = self.txn.tree_mut(main)?;
+                    for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
+                        crate::wml::set_leading_text(tree, *number, text)?;
+                    }
+                    set_update_fields_on_open(self.txn)?;
+                    self.warn(
+                        "toc_page_numbers_skipped",
+                        super::TOC_PAGE_NUMBERS_SKIPPED.to_string(),
+                        None,
+                    );
+                    return Ok(());
                 }
-                self.warn(
-                    "toc_page_numbers_skipped",
-                    "the document is too long or complex to estimate its pages; contents page numbers are left for Word to fill in".to_string(),
-                    None,
-                );
-                return Ok(());
-            }
-            result => result?.1,
-        };
+                result => result?.1,
+            };
         for font in &layout.missing_fonts {
             self.warn(
                 "font_metrics_missing",
@@ -4187,6 +4184,13 @@ mod tests {
             })
             .collect();
         assert_eq!(numbers, ["1", "1"]);
+        let settings = txn
+            .part_related_by(&main, crate::package::rels::rt::SETTINGS)
+            .unwrap()
+            .unwrap();
+        let settings = txn.tree(&settings).unwrap();
+        let update = w_child(settings, settings.root(), "updateFields").unwrap();
+        assert_eq!(w_attr(settings, update, "val"), Some("true"));
     }
 
     #[test]

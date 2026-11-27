@@ -506,6 +506,7 @@ fn page_ref_bookmark(instruction: &str) -> Option<String> {
 /// A laid-out line (`docrs layout --lines`). Experimental.
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LineRecord {
     /// Physical page, from 1.
     pub page: u32,
