@@ -27,8 +27,7 @@ pub(super) fn cmap<'a>(entries: impl Iterator<Item = (Cid, &'a str)>) -> Vec<u8>
         for (cid, text) in block {
             write_hex(&mut out, &cid.to_be_bytes());
             out.push(b' ');
-            let utf16: Vec<u8> = text.encode_utf16().flat_map(u16::to_be_bytes).collect();
-            write_hex(&mut out, &utf16);
+            write_hex(&mut out, &utf16(text));
             out.push(b'\n');
         }
         out.extend_from_slice(b"endbfchar\n");
@@ -36,6 +35,27 @@ pub(super) fn cmap<'a>(entries: impl Iterator<Item = (Cid, &'a str)>) -> Vec<u8>
     out.extend_from_slice(TAIL.as_bytes());
     out
 }
+
+/// `text` in UTF-16BE, cut after the last whole character that fits a
+/// CMap destination string (512 bytes, Adobe Technical Note #5014).
+fn utf16(text: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    for c in text.chars() {
+        let mut units = [0; 2];
+        let bytes: Vec<u8> = c
+            .encode_utf16(&mut units)
+            .iter()
+            .flat_map(|unit| unit.to_be_bytes())
+            .collect();
+        if out.len() + bytes.len() > MAX_TARGET {
+            break;
+        }
+        out.extend(bytes);
+    }
+    out
+}
+
+const MAX_TARGET: usize = 512;
 
 #[cfg(test)]
 mod tests {
@@ -49,6 +69,16 @@ mod tests {
             "3 beginbfchar\n<0001> <0041>\n<0003> <D83CDD30>\n<0004> <00660069>\nendbfchar\n"
         ));
         assert!(!map.contains("<0002>"));
+    }
+
+    #[test]
+    fn a_target_stops_at_512_bytes_on_a_whole_character() {
+        assert_eq!(utf16(&"a".repeat(300)).len(), 512);
+        let pairs = format!("a{}", "\u{1F130}".repeat(200));
+        assert_eq!(utf16(&pairs).len(), 2 + 4 * 127);
+        let map = String::from_utf8(cmap([(1, "x".repeat(1000).as_str())].into_iter())).unwrap();
+        let target = map.lines().find(|line| line.starts_with("<0001>")).unwrap();
+        assert_eq!(target.len(), "<0001> <>".len() + 1024);
     }
 
     #[test]

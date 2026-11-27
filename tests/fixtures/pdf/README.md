@@ -15,7 +15,7 @@ Small English documents for the PDF engine. `cases.tsv` gives each case's source
 The references set one family for headings and body:
 
 - `references/arial.docx`, `times-new-roman.docx`, `aptos.docx` and `inter.docx` are written by `tools/pdf/make_references.py` from `docrs markdown-reference`. They set the theme's major and minor Latin fonts.
-- Inter is in `../fonts/inter` (see `../fonts/PROVENANCE.md`). It is a variable font, as Google Fonts ships it. Until layout instances variable fonts, it measures the default (Regular) instance for every weight, so the Inter snapshots will move when instancing lands.
+- Inter is in `../fonts/inter` (see `../fonts/PROVENANCE.md`). It is a variable font, as Google Fonts ships it. Layout measures its default (Regular) instance for every weight, while the PDF draws the instance a run's weight selects; wave 3 (the painter) closes this with one source of advances: layout's `FontBook` gives a face per (file, face, `Style`) whose advances are that instance's, chosen by the same Style-to-axis rule the PDF uses (`layout::variation::Fvar::variation`, which `FaceInfo::instance` calls), and a check that each CID's `/W` equals layout's advance for its glyph. The Inter snapshots will move then.
 
 `<case>/word.lines.json` is Word's line geometry for the case, and `environment.json` the Word, macOS and font files it was made with (`tools/pdf/check.sh OUT_DIR --fixtures-only --word --update-fixtures`). Word's PDFs themselves are not committed.
 

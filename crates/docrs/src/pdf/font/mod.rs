@@ -17,13 +17,14 @@ use subsetter::GlyphRemapper;
 use self::face::{FaceInfo, Instance, Outlines};
 use self::program::Advances;
 use super::writer::{Dict, Object, Ref, Writer, count, name, text};
+use crate::layout::fonts::Face;
 use crate::{Error, Result};
 
-pub use self::face::Style;
 #[cfg(any(test, feature = "test-support"))]
 pub use self::sample::SampleLine;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use self::sample::{glyphs_by_cmap, text_document};
+pub use crate::layout::variation::Style;
 
 /// A character code in an embedded font's content stream (two bytes, `Identity-H`).
 pub(crate) type Cid = u16;
@@ -42,43 +43,69 @@ impl FaceRef {
 /// The fonts of one document, by font file, face and variation instance.
 #[derive(Default)]
 pub(crate) struct FontResources {
+    files: Vec<SourceFile>,
+    /// Each allocation passed to [`FontResources::add_face`] (kept, so its
+    /// address stays its own), by address and length, to its file.
+    seen: HashMap<(usize, usize), usize>,
+    held: Vec<Arc<[u8]>>,
+    infos: HashMap<(usize, u32), Arc<FaceInfo>>,
+    refs: HashMap<InstanceKey, FaceRef>,
     faces: Vec<Resource>,
 }
 
-struct Resource {
+/// File, face index, and each axis value away from the default (as bits).
+type InstanceKey = (usize, u32, Vec<([u8; 4], u32)>);
+
+/// A font file, once per content.
+struct SourceFile {
     data: Arc<[u8]>,
+    digest: [u8; 32],
+}
+
+struct Resource {
+    file: usize,
     index: u32,
-    info: FaceInfo,
+    info: Arc<FaceInfo>,
     instance: Instance,
     /// Source glyphs in the order they were first used; unused when the
     /// face may not be subset.
     remapper: GlyphRemapper,
     /// CID to the source glyph and the text it was first drawn for.
     glyphs: BTreeMap<Cid, (u16, String)>,
-    cids: HashMap<(u16, String), Cid>,
+    /// Source glyph to each text it was drawn for, with its CID.
+    cids: HashMap<u16, Vec<(String, Cid)>>,
 }
 
 impl FontResources {
-    /// Face `index` of a font file at the instance `style` selects. Refuses
-    /// a face whose licence forbids embedding (`pdf_font_embedding_restricted`).
+    /// Face `index` of a font file at the instance `style` selects. The face
+    /// must read as layout reads fonts (`font_malformed`,
+    /// `font_cmap_invalid`, `font_too_large`, …), and its licence must allow
+    /// embedding (`pdf_font_embedding_restricted`). A file is read once,
+    /// however often it is passed.
     pub(crate) fn add_face(
         &mut self,
         data: Arc<[u8]>,
         index: u32,
         style: Style,
     ) -> Result<FaceRef> {
-        let info = FaceInfo::read(&data, index)?;
+        let file = self.file(data);
+        let info = self.info(file, index)?;
         let instance = info.instance(style);
-        let known = self.faces.iter().position(|face| {
-            face.index == index
-                && face.instance.variation == instance.variation
-                && (Arc::ptr_eq(&face.data, &data) || face.data == data)
-        });
-        if let Some(known) = known {
-            return Ok(FaceRef(known));
+        let key = (
+            file,
+            index,
+            instance
+                .variation
+                .iter()
+                .map(|(tag, value)| (*tag, value.to_bits()))
+                .collect(),
+        );
+        if let Some(known) = self.refs.get(&key) {
+            return Ok(*known);
         }
+        let face = FaceRef(self.faces.len());
         self.faces.push(Resource {
-            data,
+            file,
             index,
             info,
             instance,
@@ -86,7 +113,41 @@ impl FontResources {
             glyphs: BTreeMap::new(),
             cids: HashMap::new(),
         });
-        Ok(FaceRef(self.faces.len() - 1))
+        self.refs.insert(key, face);
+        Ok(face)
+    }
+
+    /// The file `data` holds: known by its allocation, else by its digest.
+    fn file(&mut self, data: Arc<[u8]>) -> usize {
+        let address = (Arc::as_ptr(&data) as *const u8 as usize, data.len());
+        if let Some(file) = self.seen.get(&address) {
+            return *file;
+        }
+        let digest: [u8; 32] = Sha256::digest(&data).into();
+        let file = match self.files.iter().position(|file| file.digest == digest) {
+            Some(file) => file,
+            None => {
+                self.files.push(SourceFile {
+                    data: data.clone(),
+                    digest,
+                });
+                self.files.len() - 1
+            }
+        };
+        self.seen.insert(address, file);
+        self.held.push(data);
+        file
+    }
+
+    fn info(&mut self, file: usize, index: u32) -> Result<Arc<FaceInfo>> {
+        if let Some(info) = self.infos.get(&(file, index)) {
+            return Ok(info.clone());
+        }
+        let data = &self.files[file].data;
+        Face::read_at(data, index as usize)?;
+        let info = Arc::new(FaceInfo::read(data, index)?);
+        self.infos.insert((file, index), info.clone());
+        Ok(info)
     }
 
     /// The CID that draws glyph `glyph` of `face` and extracts as `text`.
@@ -102,8 +163,14 @@ impl FontResources {
                 format!("{} has no glyph {glyph}", face.info.label),
             ));
         }
-        if let Some(cid) = face.cids.get(&(glyph, text.to_string())) {
-            return Ok(*cid);
+        let known = face.cids.get(&glyph).and_then(|texts| {
+            texts
+                .iter()
+                .find(|(drawn, _)| drawn == text)
+                .map(|(_, cid)| *cid)
+        });
+        if let Some(cid) = known {
+            return Ok(cid);
         }
         let cid = match face.info.outlines {
             Outlines::Cff => face.keep(glyph),
@@ -121,7 +188,10 @@ impl FontResources {
         face.glyphs
             .entry(cid)
             .or_insert_with(|| (glyph, text.to_string()));
-        face.cids.insert((glyph, text.to_string()), cid);
+        face.cids
+            .entry(glyph)
+            .or_default()
+            .push((text.to_string(), cid));
         Ok(cid)
     }
 
@@ -131,15 +201,18 @@ impl FontResources {
         self.faces
             .iter()
             .enumerate()
-            .map(|(index, face)| Ok((FaceRef(index).resource_name(), face.write(writer)?)))
+            .map(|(index, face)| {
+                let data = &self.files[face.file].data;
+                Ok((FaceRef(index).resource_name(), face.write(data, writer)?))
+            })
             .collect()
     }
 }
 
 impl Resource {
-    fn write(&self, writer: &mut Writer) -> Result<Ref> {
+    fn write(&self, data: &[u8], writer: &mut Writer) -> Result<Ref> {
         let program = program::embed(
-            &self.data,
+            data,
             self.index,
             &self.info,
             &self.instance.variation,
@@ -147,7 +220,7 @@ impl Resource {
         )?;
         let advances = Advances::read(&program)?;
         let cff = self.info.outlines == Outlines::Cff;
-        let base_font = format!("{}+{}", self.tag(), self.instance.postscript_name);
+        let base_font = self.base_font();
         let type0 = writer.alloc()?;
         let cid_font = writer.alloc()?;
         let descriptor = writer.alloc()?;
@@ -188,12 +261,19 @@ impl Resource {
             .iter()
             .map(|(cid, (_, text))| (*cid, text.as_str()));
         writer.stream(to_unicode, Dict::new(), &to_unicode::cmap(texts))?;
+        // ISO 32000-1 9.7.6.1: a Type0 font over a CIDFontType0 font is
+        // named after it and its CMap.
+        let type0_name = if cff {
+            format!("{base_font}-Identity-H")
+        } else {
+            base_font
+        };
         writer.dict(
             type0,
             Dict::new()
                 .with("Type", name("Font"))
                 .with("Subtype", name("Type0"))
-                .with("BaseFont", name(&base_font))
+                .with("BaseFont", name(&type0_name))
                 .with("Encoding", name("Identity-H"))
                 .with("DescendantFonts", vec![Object::from(cid_font)])
                 .with("ToUnicode", to_unicode),
@@ -216,6 +296,15 @@ impl Resource {
             self.remapper.get(glyph).unwrap_or(0)
         } else {
             glyph
+        }
+    }
+
+    /// The PostScript name, after a subset tag when the program is a subset.
+    fn base_font(&self) -> String {
+        if self.info.subsettable {
+            format!("{}+{}", self.tag(), self.instance.postscript_name)
+        } else {
+            self.instance.postscript_name.clone()
         }
     }
 
@@ -275,6 +364,8 @@ impl Resource {
         map
     }
 
+    /// The bbox, and the italic angle of an `ital` instance, are the default
+    /// instance's: subsetter keeps the source `head` and `post` tables.
     fn descriptor(&self, base_font: &str, cff: bool, file: Ref) -> Dict {
         let info = &self.info;
         let instance = &self.instance;

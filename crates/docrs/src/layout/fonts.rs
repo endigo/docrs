@@ -256,11 +256,12 @@ impl Face {
         }))
     }
 
-    /// Face `index` of a font file, read as a font set reads it.
-    #[cfg(all(feature = "pdf", any(test, feature = "test-support")))]
-    pub(crate) fn read_at(data: &[u8], index: usize) -> Result<Face> {
+    /// Face `index` of a font file, read as a font set reads it, within
+    /// one file's parse budget.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn read_at(data: &Arc<[u8]>, index: usize) -> Result<Face> {
         let mut budget = FILE_BUDGET;
-        read_face(&Arc::from(data), index, &mut budget)
+        read_face(data, index, &mut budget)
             .map(|named| named.face)
             .map_err(FontError::into_error)
     }

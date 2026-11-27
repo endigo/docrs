@@ -26,7 +26,7 @@ pub struct SampleLine<'a> {
 /// Each character's glyph in face `index`'s Unicode cmap, glyph 0 for a
 /// character it does not map.
 pub(crate) fn glyphs_by_cmap(font: &[u8], index: u32, text: &str) -> Result<Vec<(u16, String)>> {
-    let face = Face::read_at(font, index as usize)?;
+    let face = Face::read_at(&Arc::from(font), index as usize)?;
     Ok(text
         .chars()
         .map(|c| (face.glyph(c).unwrap_or(0), c.to_string()))
@@ -46,7 +46,7 @@ pub(crate) fn text_document(
     let mut baseline = A4.1 - MARGIN;
     for line in lines {
         let face = fonts.add_face(Arc::from(line.font), line.index, line.style)?;
-        let metrics = Face::read_at(line.font, line.index as usize)?;
+        let metrics = Face::read_at(&Arc::from(line.font), line.index as usize)?;
         baseline -= line.size * 1.5;
         content.extend_from_slice(b"BT ");
         write_name(&mut content, &face.resource_name())?;

@@ -2,21 +2,8 @@
 //! embed, its descriptor metrics and its variation axes.
 
 use crate::layout::fonts::{FontError, Ttf, be16, be32, licence, names};
+use crate::layout::variation::{Fvar, Style, Variation};
 use crate::{Error, Result};
-
-/// The weight and italic a run asks for; a static face ignores both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Style {
-    pub weight: u16,
-    pub italic: bool,
-}
-
-impl Style {
-    pub const REGULAR: Style = Style {
-        weight: 400,
-        italic: false,
-    };
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Outlines {
@@ -24,25 +11,6 @@ pub(super) enum Outlines {
     Cff,
     Cff2,
 }
-
-/// A variation axis: tag, minimum, default and maximum.
-#[derive(Debug, Clone, Copy)]
-struct Axis {
-    tag: [u8; 4],
-    min: f32,
-    default: f32,
-    max: f32,
-}
-
-#[derive(Debug, Clone)]
-struct NamedInstance {
-    subfamily: u16,
-    postscript: Option<u16>,
-    coordinates: Vec<f32>,
-}
-
-/// Axis values away from the default location, in axis order.
-pub(super) type Variation = Vec<([u8; 4], f32)>;
 
 #[derive(Debug, Clone)]
 pub(super) struct FaceInfo {
@@ -62,8 +30,7 @@ pub(super) struct FaceInfo {
     pub fixed_pitch: bool,
     pub serif: bool,
     postscript_name: String,
-    axes: Vec<Axis>,
-    instances: Vec<NamedInstance>,
+    fvar: Fvar,
     names: Vec<u8>,
 }
 
@@ -96,7 +63,7 @@ impl FaceInfo {
             Outlines::Cff2
         } else {
             return Err(Error::invalid_argument(
-                "pdf_font_embedding_restricted",
+                "pdf_font_no_outlines",
                 format!("{label} has no outlines to embed"),
             ));
         };
@@ -105,6 +72,14 @@ impl FaceInfo {
             return Err(Error::invalid_argument(
                 "pdf_font_embedding_restricted",
                 format!("the licence of {label} does not allow embedding it in a PDF"),
+            ));
+        }
+        if !subsettable && ttf.table(b"CFF ").is_some_and(cid_keyed) {
+            return Err(Error::invalid_argument(
+                "pdf_font_embedding_unsupported",
+                format!(
+                    "the licence of {label} allows embedding it only whole, and a whole CID-keyed CFF font is not supported"
+                ),
             ));
         }
         let head = ttf.table(b"head").ok_or_else(|| malformed("head"))?;
@@ -123,7 +98,6 @@ impl FaceInfo {
             .map(|name| postscript(&name))
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| postscript(&label));
-        let (axes, instances) = ttf.table(b"fvar").map(variations).unwrap_or_default();
         Ok(FaceInfo {
             outlines,
             subsettable,
@@ -146,28 +120,14 @@ impl FaceInfo {
             serif: matches!(be16(os2, 30).map(|class| class >> 8), Some(1..=5 | 7)),
             postscript_name,
             label,
-            axes,
-            instances,
+            fvar: ttf.table(b"fvar").map(Fvar::read).unwrap_or_default(),
             names,
         })
     }
 
-    /// The instance a style selects: `wght` set to the weight, and `ital`
-    /// (else `slnt`) to its italic end when the style is italic.
+    /// The instance `style` selects, by [`Fvar::variation`].
     pub(super) fn instance(&self, style: Style) -> Instance {
-        let has_ital = self.axes.iter().any(|axis| &axis.tag == b"ital");
-        let mut variation = Variation::new();
-        for axis in &self.axes {
-            let value = match &axis.tag {
-                b"wght" => f32::from(style.weight).clamp(axis.min, axis.max),
-                b"ital" if style.italic => axis.max,
-                b"slnt" if style.italic && !has_ital => axis.min,
-                _ => continue,
-            };
-            if value != axis.default {
-                variation.push((axis.tag, value));
-            }
-        }
+        let variation = self.fvar.variation(style);
         let value = |tag: &[u8; 4]| {
             variation
                 .iter()
@@ -185,27 +145,22 @@ impl FaceInfo {
     }
 
     /// Adobe Technical Note #5902: a named instance's own name, else the
-    /// family prefix and each axis value away from the default.
+    /// family prefix (letters and digits) with the instance's subfamily
+    /// after a hyphen, else with each axis value after an underscore.
     fn instance_name(&self, variation: &Variation) -> String {
         if variation.is_empty() {
             return self.postscript_name.clone();
         }
-        let coordinates: Vec<f32> = self
-            .axes
-            .iter()
-            .map(|axis| {
-                variation
-                    .iter()
-                    .find(|(tag, _)| *tag == axis.tag)
-                    .map_or(axis.default, |(_, value)| *value)
-            })
-            .collect();
-        let prefix = name(&self.names, 25)
+        let prefix: String = name(&self.names, 25)
             .or_else(|| name(&self.names, 16))
             .or_else(|| name(&self.names, 1))
-            .map(|prefix| postscript(&prefix))
-            .unwrap_or_else(|| self.postscript_name.clone());
+            .unwrap_or_else(|| self.postscript_name.clone())
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect();
+        let coordinates = self.fvar.coordinates(variation);
         let named = self
+            .fvar
             .instances
             .iter()
             .find(|instance| instance.coordinates == coordinates);
@@ -214,13 +169,12 @@ impl FaceInfo {
                 return postscript(&own);
             }
             if let Some(subfamily) = name(&self.names, instance.subfamily) {
-                return format!("{prefix}-{}", postscript(&subfamily));
+                return postscript(&format!("{prefix}-{subfamily}"));
             }
         }
         let mut out = prefix;
-        for (index, (tag, value)) in variation.iter().enumerate() {
-            out.push(if index == 0 { '-' } else { '_' });
-            out.push_str(&format!("{value}{}", String::from_utf8_lossy(tag)));
+        for (tag, value) in variation {
+            out.push_str(&format!("_{value}{}", String::from_utf8_lossy(tag)));
         }
         postscript(&out)
     }
@@ -239,52 +193,54 @@ fn postscript(name: &str) -> String {
         .collect()
 }
 
-fn fixed(table: &[u8], at: usize) -> Option<f32> {
-    be32(table, at).map(|v| v as i32 as f32 / 65536.0)
+/// A CFF table whose Top DICT has a `ROS` operator (12 30): its charset
+/// maps glyph ids to CIDs that need not equal them.
+fn cid_keyed(cff: &[u8]) -> bool {
+    let top_dict = cff.get(2).and_then(|size| {
+        let (_, top_dicts) = index_entry(cff, usize::from(*size))?;
+        index_entry(cff, top_dicts)
+    });
+    top_dict.is_some_and(|(dict, _)| has_ros(dict).unwrap_or(false))
 }
 
-fn variations(fvar: &[u8]) -> (Vec<Axis>, Vec<NamedInstance>) {
-    let field = |at| be16(fvar, at).map(usize::from);
-    let (Some(axes_at), Some(count), Some(axis_size), Some(instances), Some(instance_size)) =
-        (field(4), field(8), field(10), field(12), field(14))
-    else {
-        return Default::default();
-    };
-    if axis_size < 20 {
-        return Default::default();
+fn has_ros(dict: &[u8]) -> Option<bool> {
+    let mut at = 0;
+    while let Some(&byte) = dict.get(at) {
+        at += match byte {
+            12 if dict.get(at + 1) == Some(&30) => return Some(true),
+            12 | 28 | 247..=254 => 2 + usize::from(byte == 28),
+            29 => 5,
+            30 => {
+                let end = dict[at + 1..]
+                    .iter()
+                    .position(|b| b & 0x0F == 0x0F || b >> 4 == 0x0F)?;
+                end + 2
+            }
+            _ => 1,
+        };
     }
-    let axes: Option<Vec<Axis>> = (0..count)
-        .map(|index| {
-            let at = axes_at + index * axis_size;
-            Some(Axis {
-                tag: fvar.get(at..at + 4)?.try_into().ok()?,
-                min: fixed(fvar, at + 4)?,
-                default: fixed(fvar, at + 8)?,
-                max: fixed(fvar, at + 12)?,
-            })
-        })
-        .collect();
-    let Some(axes) = axes else {
-        return Default::default();
+    Some(false)
+}
+
+/// The first entry of the CFF INDEX at `at`, and where the INDEX ends.
+fn index_entry(cff: &[u8], at: usize) -> Option<(&[u8], usize)> {
+    let count = usize::from(be16(cff, at)?);
+    if count == 0 {
+        return Some((&[], at + 2));
+    }
+    let size = usize::from(*cff.get(at + 2)?);
+    if !(1..=4).contains(&size) {
+        return None;
+    }
+    let offset = |index: usize| -> Option<usize> {
+        let start = at + 3 + index * size;
+        let bytes = cff.get(start..start + size)?;
+        Some(bytes.iter().fold(0, |sum, b| sum << 8 | usize::from(*b)))
     };
-    let start = axes_at + count * axis_size;
-    let named = (0..instances)
-        .map_while(|index| {
-            let at = start + index * instance_size;
-            let coordinates: Option<Vec<f32>> = (0..count)
-                .map(|axis| fixed(fvar, at + 4 + 4 * axis))
-                .collect();
-            Some(NamedInstance {
-                subfamily: be16(fvar, at)?,
-                postscript: (instance_size >= count * 4 + 6)
-                    .then(|| be16(fvar, at + 4 + 4 * count))
-                    .flatten()
-                    .filter(|id| *id != 0xFFFF),
-                coordinates: coordinates?,
-            })
-        })
-        .collect();
-    (axes, named)
+    let data = at + 2 + (count + 1) * size;
+    let (first, second, last) = (offset(0)?, offset(1)?, offset(count)?);
+    let entry = cff.get(data + first..data + second)?;
+    Some((entry, data + last))
 }
 
 #[cfg(test)]
@@ -309,7 +265,7 @@ mod tests {
         let name = |weight| inter.instance(style(weight, false)).postscript_name;
         assert_eq!(name(400), "Inter-Regular");
         assert_eq!(name(700), "Inter-Bold");
-        assert_eq!(name(650), "Inter-650wght");
+        assert_eq!(name(650), "Inter_650wght");
         assert_eq!(name(1000), "Inter-Black");
     }
 
@@ -328,27 +284,37 @@ mod tests {
     }
 
     #[test]
-    fn italic_takes_the_ital_axis_else_slnt() {
-        let axis = |tag: &[u8; 4], min, default, max| Axis {
-            tag: *tag,
-            min,
-            default,
-            max,
-        };
-        let wght = axis(b"wght", 100.0, 400.0, 900.0);
-        let slnt = axis(b"slnt", -10.0, 0.0, 0.0);
-        let ital = axis(b"ital", 0.0, 0.0, 1.0);
-        let face = |axes| FaceInfo {
-            axes,
-            instances: Vec::new(),
-            ..inter()
-        };
-        let slanted = face(vec![wght, slnt]).instance(style(700, true));
-        assert_eq!(slanted.variation, [(*b"wght", 700.0), (*b"slnt", -10.0)]);
+    fn a_slant_sets_the_italic_angle() {
+        let mut face = inter();
+        face.fvar.axes.push(crate::layout::variation::Axis {
+            tag: *b"slnt",
+            min: -10.0,
+            default: 0.0,
+            max: 0.0,
+        });
+        face.fvar.instances.clear();
+        let slanted = face.instance(style(700, true));
         assert_eq!((slanted.italic_angle, slanted.italic), (-10.0, true));
-        assert_eq!(slanted.postscript_name, "Inter-700wght_-10slnt");
-        let italic = face(vec![wght, slnt, ital]).instance(style(400, true));
-        assert_eq!(italic.variation, [(*b"ital", 1.0)]);
-        assert_eq!((italic.italic_angle, italic.italic), (0.0, true));
+        assert_eq!(slanted.postscript_name, "Inter_700wght_-10slnt");
+    }
+
+    /// A CFF table: header, a one-name INDEX, then a Top DICT INDEX.
+    fn cff(top_dict: &[u8]) -> Vec<u8> {
+        let mut out = vec![1, 0, 4, 1, 0, 1, 1, 1, 2, b'A'];
+        out.extend([0, 1, 1, 1, 1 + top_dict.len() as u8]);
+        out.extend(top_dict);
+        out
+    }
+
+    #[test]
+    fn a_ros_operator_makes_a_cff_font_cid_keyed() {
+        let ros = [139, 140, 139, 12, 30];
+        assert!(cid_keyed(&cff(&ros)));
+        let real_then_ros = [30, 0x1A, 0x2F, 139, 139, 139, 12, 30];
+        assert!(cid_keyed(&cff(&real_then_ros)));
+        let name_keyed = [28, 0, 5, 15, 139, 12, 7];
+        assert!(!cid_keyed(&cff(&name_keyed)));
+        assert!(!cid_keyed(&cff(&[30, 0x11])));
+        assert!(!cid_keyed(&[1, 0]));
     }
 }

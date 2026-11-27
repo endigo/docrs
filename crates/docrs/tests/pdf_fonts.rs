@@ -259,17 +259,49 @@ fn closure(tables: &BTreeMap<String, Vec<u8>>, glyphs: &[u16]) -> BTreeSet<u16> 
     seen
 }
 
+/// The directory record of table `tag` in a font file (not a collection).
+fn record(font: &[u8], tag: &[u8; 4]) -> usize {
+    (0..usize::from(be16(font, 4)))
+        .map(|table| 12 + 16 * table)
+        .find(|record| &font[*record..record + 4] == tag)
+        .unwrap()
+}
+
 /// A copy of `font` with `fsType` (OS/2 offset 8) set.
 fn with_fs_type(font: &[u8], fs_type: u16) -> Vec<u8> {
     let mut font = font.to_vec();
-    let count = usize::from(be16(&font, 4));
-    let os2 = (0..count)
-        .map(|table| 12 + 16 * table)
-        .find(|record| &font[*record..record + 4] == b"OS/2")
-        .map(|record| be32(&font, record + 8))
-        .unwrap();
+    let os2 = be32(&font, record(&font, b"OS/2") + 8);
     font[os2 + 8..os2 + 10].copy_from_slice(&fs_type.to_be_bytes());
     font
+}
+
+/// A font file of `tables`, their checksums left 0.
+fn sfnt(version: &[u8; 4], tables: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+    let mut out = version.to_vec();
+    out.extend((tables.len() as u16).to_be_bytes());
+    out.extend([0; 6]);
+    let mut offset = 12 + 16 * tables.len();
+    for (tag, table) in tables {
+        out.extend(tag.as_bytes());
+        out.extend([0; 4]);
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((table.len() as u32).to_be_bytes());
+        offset += table.len().next_multiple_of(4);
+    }
+    for table in tables.values() {
+        out.extend(table);
+        out.resize(out.len().next_multiple_of(4), 0);
+    }
+    out
+}
+
+/// The OpenType checksum: big-endian words summed, the last zero-padded.
+fn checksum(data: &[u8]) -> u32 {
+    data.chunks(4).fold(0_u32, |sum, chunk| {
+        let mut word = [0; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        sum.wrapping_add(u32::from_be_bytes(word))
+    })
 }
 
 /// A collection of whole font files, their tables shared by none.
@@ -426,6 +458,12 @@ fn a_cff_font_embeds_as_opentype() {
         "CIDFontType0"
     );
     assert!(!descendant(&pdf, font).contains_key("CIDToGIDMap"));
+    let cid_font = name_of(&pdf, descendant(&pdf, font), "BaseFont");
+    assert!(cid_font.ends_with("+SourceSans3-Regular"), "{cid_font}");
+    assert_eq!(
+        name_of(&pdf, font, "BaseFont"),
+        format!("{cid_font}-Identity-H")
+    );
     let (key, subset) = program(&pdf, font);
     assert_eq!(key, "FontFile3");
     let file = pdf.get(descriptor(&pdf, font), "FontFile3");
@@ -466,6 +504,11 @@ fn a_face_that_may_not_be_subset_is_embedded_whole() {
     let pdf = Pdf::parse(&bytes).unwrap();
     assert_eq!(texts(&pdf), ["Whole"]);
     assert_eq!(program(&pdf, &fonts(&pdf)["F1"]).1, whole);
+    assert_eq!(
+        name_of(&pdf, &fonts(&pdf)["F1"], "BaseFont"),
+        "LiberationSerif",
+        "a whole font is not a subset, so it has no tag"
+    );
 
     let file = collection(&[&source_sans(), &whole]);
     let bytes = document(&[in_face(&file, 1, Style::REGULAR, "Whole")]).unwrap();
@@ -475,7 +518,15 @@ fn a_face_that_may_not_be_subset_is_embedded_whole() {
     let fonts = fonts(&pdf);
     let (_, embedded) = program(&pdf, &fonts["F1"]);
     assert_eq!(&embedded[..4], b"\x00\x01\x00\x00");
-    assert_eq!(tables(&embedded, 0), tables(&whole, 0));
+    assert_eq!(name_of(&pdf, &fonts["F1"], "BaseFont"), "LiberationSerif");
+    let (mut ours, mut theirs) = (tables(&embedded, 0), tables(&whole, 0));
+    let head = ours.get_mut("head").unwrap();
+    assert_eq!(checksum(&embedded), 0xB1B0_AFBA);
+    head[8..12].fill(0);
+    let head_record = record(&embedded, b"head");
+    assert_eq!(be32(&embedded, head_record + 4) as u32, checksum(head));
+    theirs.get_mut("head").unwrap()[8..12].fill(0);
+    assert_eq!(ours, theirs);
     let map = pdf
         .stream_data(pdf.get(descendant(&pdf, &fonts["F1"]), "CIDToGIDMap"))
         .unwrap();
@@ -564,4 +615,114 @@ fn output_matches_the_golden_file() {
         "differs from {}",
         path.display()
     );
+}
+
+#[test]
+fn a_variation_axis_whose_range_misses_its_default_is_ignored() {
+    let mut font = inter();
+    let fvar = be32(&font, record(&font, b"fvar") + 8);
+    let axes = fvar + usize::from(be16(&font, fvar + 4));
+    let wght = (0..usize::from(be16(&font, fvar + 8)))
+        .map(|axis| axes + 20 * axis)
+        .find(|at| &font[*at..at + 4] == b"wght")
+        .unwrap();
+    font[wght + 4..wght + 8].copy_from_slice(&(950_i32 << 16).to_be_bytes());
+    let bytes = document(&[line(&font, BOLD, "Bold")]).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    assert_eq!(texts(&pdf), ["Bold"]);
+    let base = name_of(&pdf, &fonts(&pdf)["F1"], "BaseFont").to_string();
+    assert_eq!(
+        &base[6..],
+        "+Inter-Regular",
+        "drawn at the default instance"
+    );
+}
+
+#[test]
+fn overlapping_tables_in_a_whole_collection_face_are_refused() {
+    let file = overlapping_collection(&with_fs_type(&liberation(), 0x0100));
+    let err = document(&[in_face(&file, 0, Style::REGULAR, "a")]).unwrap_err();
+    assert_eq!(err.reason(), "font_malformed", "{}", err.message());
+    let subsettable = overlapping_collection(&liberation());
+    document(&[in_face(&subsettable, 0, Style::REGULAR, "a")]).unwrap();
+}
+
+/// A collection of `whole` whose directory adds 300 records naming its `glyf`.
+fn overlapping_collection(whole: &[u8]) -> Vec<u8> {
+    let real: Vec<(Vec<u8>, usize, usize)> = (0..usize::from(be16(whole, 4)))
+        .map(|table| 12 + 16 * table)
+        .map(|at| {
+            (
+                whole[at..at + 4].to_vec(),
+                be32(whole, at + 8),
+                be32(whole, at + 12),
+            )
+        })
+        .collect();
+    let glyf = real
+        .iter()
+        .find(|(tag, _, _)| tag == b"glyf")
+        .unwrap()
+        .clone();
+    let copies = (0..300).map(|n| (format!("x{n:03}").into_bytes(), glyf.1, glyf.2));
+    let records: Vec<_> = real.into_iter().chain(copies).collect();
+    let base = 16 + 12 + 16 * records.len();
+    let mut file = b"ttcf\x00\x01\x00\x00\x00\x00\x00\x01\x00\x00\x00\x10".to_vec();
+    file.extend(&whole[..4]);
+    file.extend((records.len() as u16).to_be_bytes());
+    file.extend([0; 6]);
+    for (tag, offset, length) in &records {
+        file.extend(tag);
+        file.extend([0; 4]);
+        file.extend(((base + offset) as u32).to_be_bytes());
+        file.extend((*length as u32).to_be_bytes());
+    }
+    file.extend(whole);
+    assert!(glyf.2 * 300 > file.len());
+    file
+}
+
+#[test]
+fn a_whole_cid_keyed_cff_font_is_refused() {
+    let source = source_sans();
+    let bytes = document(&[line(&source, Style::REGULAR, "Cid")]).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let (_, subset) = program(&pdf, &fonts(&pdf)["F1"]);
+    let mut font = tables(&subset, 0);
+    assert!(
+        font["CFF "].windows(2).any(|w| w == [12, 30]),
+        "subsetter writes a CID-keyed CFF"
+    );
+    let mut os2 = tables(&source, 0)["OS/2"].clone();
+    os2[8..10].copy_from_slice(&0x0100_u16.to_be_bytes());
+    font.insert("OS/2".into(), os2);
+    let empty_cmap = [
+        0, 0, 0, 1, 0, 3, 0, 1, 0, 0, 0, 12, 0, 4, 0, 24, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0xFF, 0xFF,
+        0, 0, 0xFF, 0xFF, 0, 1, 0, 0,
+    ];
+    font.insert("cmap".into(), empty_cmap.to_vec());
+    let font = sfnt(b"OTTO", &font);
+    let err = document(&[SampleLine {
+        font: &font,
+        index: 0,
+        style: Style::REGULAR,
+        size: 24.0,
+        glyphs: vec![(1, "C".into())],
+    }])
+    .unwrap_err();
+    assert_eq!(
+        err.reason(),
+        "pdf_font_embedding_unsupported",
+        "{}",
+        err.message()
+    );
+}
+
+#[test]
+fn a_font_without_outlines_is_refused_as_such() {
+    let mut font = liberation();
+    let glyf = record(&font, b"glyf");
+    font[glyf..glyf + 4].copy_from_slice(b"glyX");
+    let err = document(&[line(&font, Style::REGULAR, "a")]).unwrap_err();
+    assert_eq!(err.reason(), "pdf_font_no_outlines", "{}", err.message());
 }

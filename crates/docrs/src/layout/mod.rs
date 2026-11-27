@@ -13,6 +13,7 @@
 mod flow;
 pub mod fonts;
 pub(crate) mod model;
+pub(crate) mod variation;
 
 use std::collections::{HashMap, HashSet};
 

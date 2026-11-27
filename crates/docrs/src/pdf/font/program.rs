@@ -1,9 +1,12 @@
 //! The font program a PDF embeds: a subset, an instance, or the whole face.
 
+use std::borrow::Cow;
+
 use subsetter::{GlyphRemapper, Tag};
 
-use super::face::{FaceInfo, Outlines, Variation};
+use super::face::{FaceInfo, Outlines};
 use crate::layout::fonts::{FontError, Ttf, be16};
+use crate::layout::variation::Variation;
 use crate::{Error, Result};
 
 /// The subset of `remapper`'s glyphs (and the glyphs they are built from)
@@ -45,13 +48,24 @@ fn subset(
     })
 }
 
-/// One face of a collection as a font file of its own.
+/// One face of a collection as a font file of its own. A directory whose
+/// tables add up to more than the file is refused: its records overlap,
+/// and copying each would multiply the file.
 fn standalone(data: &[u8], index: u32, outlines: Outlines) -> Result<Vec<u8>> {
     if data.get(..4) != Some(b"ttcf") {
         return Ok(data.to_vec());
     }
     let ttf = Ttf::face(data, index).map_err(FontError::into_error)?;
-    let mut tables: Vec<([u8; 4], &[u8])> = ttf.tables().collect();
+    let mut tables: Vec<([u8; 4], Cow<[u8]>)> = ttf
+        .tables()
+        .map(|(tag, table)| (tag, Cow::Borrowed(table)))
+        .collect();
+    let total = tables
+        .iter()
+        .try_fold(0_usize, |sum, (_, table)| sum.checked_add(table.len()));
+    if total.is_none_or(|total| total > data.len()) {
+        return Err(FontError::Malformed("table directory").into_error());
+    }
     tables.sort_by_key(|(tag, _)| *tag);
     let count = tables.len() as u16;
     let selector = count.checked_ilog2().unwrap_or(0) as u16;
@@ -65,7 +79,12 @@ fn standalone(data: &[u8], index: u32, outlines: Outlines) -> Result<Vec<u8>> {
         out.extend_from_slice(&field.to_be_bytes());
     }
     let mut offset = 12 + 16 * tables.len();
-    for (tag, table) in &tables {
+    let mut adjustment = None;
+    for (tag, table) in &mut tables {
+        if tag == b"head" && table.len() >= 12 {
+            table.to_mut()[8..12].fill(0);
+            adjustment = Some(offset + 8);
+        }
         out.extend_from_slice(tag);
         out.extend_from_slice(&checksum(table).to_be_bytes());
         out.extend_from_slice(&(offset as u32).to_be_bytes());
@@ -76,8 +95,15 @@ fn standalone(data: &[u8], index: u32, outlines: Outlines) -> Result<Vec<u8>> {
         out.extend_from_slice(table);
         out.resize(out.len().next_multiple_of(4), 0);
     }
+    if let Some(at) = adjustment {
+        let value = CHECKSUM_MAGIC.wrapping_sub(checksum(&out));
+        out[at..at + 4].copy_from_slice(&value.to_be_bytes());
+    }
     Ok(out)
 }
+
+/// OpenType `head.checkSumAdjustment`: this minus the whole file's checksum.
+const CHECKSUM_MAGIC: u32 = 0xB1B0_AFBA;
 
 fn checksum(table: &[u8]) -> u32 {
     table.chunks(4).fold(0u32, |sum, chunk| {
