@@ -562,7 +562,9 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         "italic": face.italic,
                         "style": fonts::style(face),
                         "variable": face.variable,
+                        "cff": face.cff,
                         "embeddable": face.embeddable,
+                        "subsettable": face.subsettable,
                     })).collect::<Vec<_>>(),
                 })).collect::<Vec<_>>(),
                 "skipped": loaded.skipped_json(),
@@ -775,13 +777,8 @@ fn convert(
     if *acknowledge_protection {
         document.acknowledge_protection()?;
     }
-    let report = docrs::markdown::insert_source_with_fonts(
-        &mut document,
-        &text,
-        format,
-        &options,
-        &fonts.set,
-    )?;
+    let report =
+        docrs::markdown::insert_source_with(&mut document, &text, format, &options, &fonts.set)?;
     let patch = document.save(out)?;
     let mut value = json!({"schema": schema, "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "save": patch.to_json(), "out": out});
     fonts.report_skipped(&mut value);
@@ -828,11 +825,16 @@ fn fonts_text(loaded: &fonts::Loaded) -> String {
         text.push_str(&format!("{}\n", path.display()));
         for face in faces {
             let mut notes = Vec::new();
+            if face.cff {
+                notes.push("CFF outlines");
+            }
             if face.variable {
                 notes.push("variable: measured at its default instance");
             }
             if !face.embeddable {
                 notes.push("its licence forbids embedding");
+            } else if !face.subsettable {
+                notes.push("its licence forbids subsetting");
             }
             let notes = if notes.is_empty() {
                 String::new()

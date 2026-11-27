@@ -44,8 +44,14 @@ impl Loaded {
     }
 }
 
-/// Reads `--font` files, failing on the first bad one, and every file of
-/// each `--font-dir`, skipping those that cannot be read or are not fonts.
+/// A `--font-dir` file larger than this is skipped unread.
+const MAX_DIR_FONT_BYTES: u64 = 64 << 20;
+
+const FONT_EXTENSIONS: [&str; 4] = ["ttf", "otf", "ttc", "otc"];
+
+/// Reads `--font` files, failing on the first bad one, and the font files
+/// of each `--font-dir`, skipping those that cannot be read, are too large
+/// or are not supported.
 pub fn load(args: &FontArgs) -> Result<Loaded> {
     let mut builder = FontSet::builder();
     let mut loaded = Loaded {
@@ -63,7 +69,8 @@ pub fn load(args: &FontArgs) -> Result<Loaded> {
     }
     for dir in &args.font_dirs {
         for path in dir_files(dir)? {
-            match read_font(&path).and_then(|bytes| builder.add(bytes)) {
+            let read = within_cap(&path).and_then(|()| read_font(&path));
+            match read.and_then(|bytes| builder.add(bytes)) {
                 Ok(faces) => loaded.files.push((path, faces)),
                 Err(err) => loaded.skipped.push((path, err)),
             }
@@ -77,6 +84,24 @@ fn in_file(path: &Path, err: &Error) -> String {
     format!("font {}: {}", path.display(), err.message())
 }
 
+fn within_cap(path: &Path) -> Result<()> {
+    let size = std::fs::metadata(path).map_err(|err| {
+        let message = format!("reading font {}: {err}", path.display());
+        Error::io("font_unreadable", message, err)
+    })?;
+    if size.len() > MAX_DIR_FONT_BYTES {
+        return Err(Error::invalid_argument(
+            "font_file_too_large",
+            format!(
+                "{} MiB, over the {} MiB a --font-dir file may have",
+                size.len() >> 20,
+                MAX_DIR_FONT_BYTES >> 20
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn read_font(path: &Path) -> Result<Vec<u8>> {
     std::fs::read(path).map_err(|err| {
         let message = format!("reading font {}: {err}", path.display());
@@ -84,7 +109,7 @@ fn read_font(path: &Path) -> Result<Vec<u8>> {
     })
 }
 
-/// The directory's files, sorted, hidden files left out.
+/// The directory's font files by extension, sorted, hidden files left out.
 fn dir_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let unreadable = |err| {
         let message = format!("reading font directory {}: {err}", dir.display());
@@ -96,7 +121,10 @@ fn dir_files(dir: &Path) -> Result<Vec<PathBuf>> {
         let hidden = path
             .file_name()
             .is_some_and(|name| name.to_string_lossy().starts_with('.'));
-        if !hidden && !path.is_dir() {
+        let font = path.extension().is_some_and(|extension| {
+            FONT_EXTENSIONS.contains(&extension.to_string_lossy().to_ascii_lowercase().as_str())
+        });
+        if font && !hidden && !path.is_dir() {
             out.push(path);
         }
     }

@@ -295,7 +295,7 @@ enum Command {
         /// Font files (TTF, OTF, TTC or OTC).
         #[arg(required_unless_present = "font_dirs")]
         files: Vec<std::path::PathBuf>,
-        /// Every font file in DIR (repeatable); other files are listed as skipped.
+        /// The font files in DIR (repeatable), as `--font-dir` reads them.
         #[arg(long = "font-dir", value_name = "DIR")]
         font_dirs: Vec<std::path::PathBuf>,
     },
@@ -317,8 +317,9 @@ struct FontArgs {
     /// be read fails the command.
     #[arg(long = "font", value_name = "FILE")]
     fonts: Vec<std::path::PathBuf>,
-    /// Every font file in DIR (repeatable). Files that cannot be read or
-    /// are not supported fonts are skipped and listed in `fonts_skipped`.
+    /// The .ttf, .otf, .ttc and .otc files in DIR (repeatable). Files that
+    /// cannot be read, are over 64 MiB or are not supported fonts are
+    /// skipped and listed in `fonts_skipped`.
     #[arg(long = "font-dir", value_name = "DIR")]
     font_dirs: Vec<std::path::PathBuf>,
 }
