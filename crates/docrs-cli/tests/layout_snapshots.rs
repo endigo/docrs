@@ -1,8 +1,4 @@
-//! `docrs layout --json` for every reference template, every example
-//! document, the conversions in `tools/pdf/corpus.tsv` and the PDF fixtures
-//! in `tests/fixtures/pdf/cases.tsv`, compared with the snapshots under
-//! `tests/fixtures/layout/`. `DOCRS_UPDATE_SNAPSHOTS=1` rewrites them, and
-//! the manifests' hashes.
+//! `docrs layout --json` against `tests/fixtures/layout/` (tools/pdf/README.md).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -124,15 +120,9 @@ fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn layout_matches_the_snapshots() {
-    let root = root();
-    let update = std::env::var_os(UPDATE).is_some_and(|v| v == "1");
-    let snapshots = root.join("tests/fixtures/layout");
-    let work = tempfile::tempdir().unwrap();
-    let mut failures = Vec::new();
-    let mut actual: BTreeMap<PathBuf, Result<String, String>> = BTreeMap::new();
+type Snapshots = BTreeMap<PathBuf, Result<String, String>>;
 
+fn document_snapshots(root: &Path, snapshots: &Path, actual: &mut Snapshots) {
     let templates = root.join("tests/fixtures/markdown/templates");
     for (dir, into) in [
         (templates.clone(), "templates"),
@@ -144,12 +134,20 @@ fn layout_matches_the_snapshots() {
             actual.insert(snapshot, layout(&docx, None));
         }
     }
+}
 
-    let manifest = root.join("tools/pdf/corpus.tsv");
-    let mut rewritten = String::from("case\ttemplate\ttemplate_sha256\tinput\tinput_sha256\n");
-    for row in tsv(&manifest) {
+/// The corpus manifest with today's hashes, and the hashes that changed.
+fn corpus_snapshots(
+    root: &Path,
+    snapshots: &Path,
+    work: &Path,
+    actual: &mut Snapshots,
+) -> (String, Vec<String>) {
+    let mut manifest = String::from("case\ttemplate\ttemplate_sha256\tinput\tinput_sha256\n");
+    let mut changed = Vec::new();
+    for row in tsv(&root.join("tools/pdf/corpus.tsv")) {
         let [case, template, template_hash, input, input_hash] = &row[..] else {
-            panic!("{}: a row has five columns: {row:?}", manifest.display());
+            panic!("tools/pdf/corpus.tsv: a row has five columns: {row:?}");
         };
         let (template_path, input_path) = (root.join(template), root.join(input));
         let (template_now, input_now) = (sha256(&template_path), sha256(&input_path));
@@ -157,49 +155,83 @@ fn layout_matches_the_snapshots() {
             (template, template_hash, &template_now),
             (input, input_hash, &input_now),
         ] {
-            if recorded != now && !update {
-                failures.push(format!(
+            if recorded != now {
+                changed.push(format!(
                     "tools/pdf/corpus.tsv: {case}: {file} hashes {now}, the manifest says {recorded}"
                 ));
             }
         }
         writeln!(
-            rewritten,
+            manifest,
             "{case}\t{template}\t{template_now}\t{input}\t{input_now}"
         )
         .unwrap();
-        let out = work.path().join(format!("{case}.docx"));
+        let out = work.join(format!("{case}.docx"));
         let result = convert(&input_path, &template_path, &out, &["--toc"])
             .and_then(|()| layout(&out, None));
         actual.insert(snapshots.join(format!("corpus/{case}.json")), result);
     }
+    (manifest, changed)
+}
 
+fn fixture_snapshots(root: &Path, snapshots: &Path, work: &Path, actual: &mut Snapshots) {
     for row in tsv(&root.join("tests/fixtures/pdf/cases.tsv")) {
         let [case, source, reference, font, options] = &row[..] else {
             panic!("tests/fixtures/pdf/cases.tsv: a row has five columns: {row:?}");
         };
         let flags: Vec<&str> = options.split(' ').filter(|o| *o != "-").collect();
         let font = (font != "-").then(|| root.join(font));
-        let out = work.path().join(format!("pdf-{case}.docx"));
+        let out = work.join(format!("pdf-{case}.docx"));
         let result = convert(&root.join(source), &root.join(reference), &out, &flags)
             .and_then(|()| layout(&out, font.as_deref()));
         actual.insert(snapshots.join(format!("pdf/{case}.json")), result);
     }
+}
 
+fn stale_snapshots(snapshots: &Path, actual: &Snapshots) -> Vec<PathBuf> {
+    let mut stale = Vec::new();
+    files_under(snapshots, &mut stale);
+    stale.retain(|path| {
+        path.extension().is_some_and(|ext| ext == "json") && !actual.contains_key(path)
+    });
+    stale
+}
+
+fn first_difference(recorded: &str, now: &str) -> String {
+    let line = recorded
+        .lines()
+        .zip(now.lines())
+        .position(|(a, b)| a != b)
+        .unwrap_or(recorded.lines().count().min(now.lines().count()));
+    format!(
+        "differs from line {}\n    snapshot: {}\n    now:      {}",
+        line + 1,
+        recorded.lines().nth(line).unwrap_or("(end)"),
+        now.lines().nth(line).unwrap_or("(end)"),
+    )
+}
+
+#[test]
+fn layout_matches_the_snapshots() {
+    let root = root();
+    let update = std::env::var_os(UPDATE).is_some_and(|v| v == "1");
+    let snapshots = root.join("tests/fixtures/layout");
+    let work = tempfile::tempdir().unwrap();
+    let mut actual = Snapshots::new();
+    document_snapshots(&root, &snapshots, &mut actual);
+    let (manifest, mut failures) = corpus_snapshots(&root, &snapshots, work.path(), &mut actual);
+    fixture_snapshots(&root, &snapshots, work.path(), &mut actual);
+    let stale = stale_snapshots(&snapshots, &actual);
     let shown = |path: &Path| {
         path.strip_prefix(&root)
             .unwrap_or(path)
             .display()
             .to_string()
     };
-    let mut stale = Vec::new();
-    files_under(&snapshots, &mut stale);
-    stale.retain(|path| {
-        path.extension().is_some_and(|ext| ext == "json") && !actual.contains_key(path)
-    });
 
     if update {
-        std::fs::write(&manifest, rewritten).unwrap();
+        failures.clear();
+        std::fs::write(root.join("tools/pdf/corpus.tsv"), manifest).unwrap();
         for path in &stale {
             std::fs::remove_file(path).unwrap();
         }
@@ -209,39 +241,27 @@ fn layout_matches_the_snapshots() {
         }
     }
     for (path, result) in &actual {
-        let text = match result {
-            Ok(text) => text,
+        let now = match result {
+            Ok(now) => now,
             Err(err) => {
                 failures.push(format!("{}: {err}", shown(path)));
                 continue;
             }
         };
         let recorded = std::fs::read_to_string(path).ok();
-        if recorded.as_deref() == Some(text.as_str()) {
+        if recorded.as_deref() == Some(now.as_str()) {
             continue;
         }
         if update {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, text).unwrap();
+            std::fs::write(path, now).unwrap();
             continue;
         }
-        failures.push(match recorded {
-            None => format!("{}: no snapshot", shown(path)),
-            Some(recorded) => {
-                let line = recorded
-                    .lines()
-                    .zip(text.lines())
-                    .position(|(a, b)| a != b)
-                    .unwrap_or(recorded.lines().count().min(text.lines().count()));
-                format!(
-                    "{}: differs from line {}\n    snapshot: {}\n    now:      {}",
-                    shown(path),
-                    line + 1,
-                    recorded.lines().nth(line).unwrap_or("(end)"),
-                    text.lines().nth(line).unwrap_or("(end)"),
-                )
-            }
-        });
+        let problem = match recorded {
+            None => "no snapshot".to_string(),
+            Some(recorded) => first_difference(&recorded, now),
+        };
+        failures.push(format!("{}: {problem}", shown(path)));
     }
     assert!(
         failures.is_empty(),
