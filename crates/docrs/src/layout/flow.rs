@@ -488,14 +488,16 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
     b.out
 }
 
-/// Total height of blocks stacked in `width` (headers, footers).
+/// Total height of blocks stacked in `width` (headers, footers), and the
+/// work it took.
 pub(super) fn stack_height(
     blocks: &[Block],
     metrics: &[Metric],
     width: f64,
     default_tab: f64,
-) -> f64 {
-    cell_layout(blocks, metrics, width, default_tab, false).content
+) -> (f64, u64) {
+    let layout = cell_layout(blocks, metrics, width, default_tab, false);
+    (layout.content, layout.work)
 }
 
 impl Para {
@@ -829,15 +831,23 @@ impl Sink for Vec<Placed> {
     }
 }
 
-/// Pieces, lines, rows and sink calls before pagination gives up.
-pub(super) const MAX_LAYOUT_WORK: u64 = 20_000_000;
+/// Pieces, lines, rows and sink calls, headers and footers included,
+/// before pagination gives up.
+pub(super) const MAX_LAYOUT_WORK: u64 = 200_000_000;
 
 #[cfg(test)]
 thread_local! {
     pub(crate) static TEST_LAYOUT_WORK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
-fn layout_work() -> u64 {
+pub(super) fn within(work: u64, budget: u64) -> Result<()> {
+    if work > budget {
+        return Err(Error::work_bound("max_layout_work", budget, work));
+    }
+    Ok(())
+}
+
+pub(super) fn layout_work() -> u64 {
     #[cfg(test)]
     if let Some(budget) = TEST_LAYOUT_WORK.get() {
         return budget;
@@ -887,10 +897,7 @@ struct Flow<'m, 's, S: Sink> {
 impl<'m, S: Sink> Flow<'m, '_, S> {
     fn charge(&mut self, work: u64) -> Result<()> {
         self.work = self.work.saturating_add(work);
-        if self.work > self.budget {
-            return Err(Error::work_bound("max_layout_work", self.budget, self.work));
-        }
-        Ok(())
+        within(self.work, self.budget)
     }
 
     fn lines(&mut self, para: &Para) -> Result<Vec<Line>> {
@@ -1366,6 +1373,7 @@ fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<
         work: 0,
         budget,
     };
+    flow.charge(model.work)?;
     flow.open_page()?;
     let mut chain_until = 0;
     for (index, block) in model.blocks.iter().enumerate() {
@@ -1449,6 +1457,7 @@ mod tests {
             blocks,
             metrics: METRICS.to_vec(),
             default_tab: 36.0,
+            work: 0,
         }
     }
 
@@ -1797,10 +1806,6 @@ mod tests {
         let small = model(vec![Block::Table(header_table(20, 10))], 120.0);
         assert_eq!(run(&small).1, 11);
         let error = paginate_within(&small, &mut Vec::new(), 1000).unwrap_err();
-        assert_eq!(error.reason(), "max_layout_work");
-        // A header of 3,000 lines over 3,000 rows: 9 million lines to draw.
-        let large = model(vec![Block::Table(header_table(3000, 3000))], 120.0);
-        let error = paginate(&large, &mut Vec::new()).unwrap_err();
         assert_eq!(error.reason(), "max_layout_work");
     }
 

@@ -3164,9 +3164,10 @@ impl<'p> Renderer<'_, '_, 'p> {
                     for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
                         crate::wml::set_leading_text(tree, *number, text)?;
                     }
+                    set_update_fields_on_open(self.txn)?;
                     self.warn(
                         "toc_page_numbers_skipped",
-                        "the document is too long or complex to estimate its pages; contents page numbers are left for Word to fill in".to_string(),
+                        super::TOC_PAGE_NUMBERS_SKIPPED.to_string(),
                         None,
                     );
                     return Ok(());
@@ -4202,6 +4203,13 @@ mod tests {
             })
             .collect();
         assert_eq!(numbers, ["1", "1"]);
+        let settings = txn
+            .part_related_by(&main, crate::package::rels::rt::SETTINGS)
+            .unwrap()
+            .unwrap();
+        let settings = txn.tree(&settings).unwrap();
+        let update = w_child(settings, settings.root(), "updateFields").unwrap();
+        assert_eq!(w_attr(settings, update, "val"), Some("true"));
     }
 
     #[test]

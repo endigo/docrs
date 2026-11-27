@@ -251,6 +251,8 @@ pub struct Model {
     pub blocks: Vec<Block>,
     pub metrics: Vec<Metric>,
     pub default_tab: f64,
+    /// Layout work already done measuring headers and footers.
+    pub work: u64,
 }
 
 pub(super) struct Builder<'a> {
@@ -306,8 +308,10 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     let mut sections = Vec::new();
     let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
     let rels = txn.resolved_relationships(main)?;
-    let mut stories: HashMap<String, StoryId> = HashMap::new();
+    let mut stories: HashMap<String, Vec<Block>> = HashMap::new();
+    let mut heights: HashMap<(String, u64), f64> = HashMap::new();
     let (mut headers, mut footers) = (0, 0);
+    let mut work = 0;
     for sect in &sects {
         let page = page_of(tree, Some(*sect));
         for reference in tree.child_elements(*sect) {
@@ -328,23 +332,30 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             let Ok(story) = txn.tree(name) else {
                 continue;
             };
-            builder.story = *stories.entry(name.to_string()).or_insert_with(|| {
-                if kind == "header" {
+            let blocks = stories.entry(name.to_string()).or_insert_with(|| {
+                builder.story = if kind == "header" {
                     headers += 1;
                     StoryId::Header(headers)
                 } else {
                     footers += 1;
                     StoryId::Footer(footers)
-                }
+                };
+                let mut blocks = Vec::new();
+                builder.blocks(story, story.root(), None, &mut blocks);
+                blocks
             });
-            let mut story_blocks = Vec::new();
-            builder.blocks(story, story.root(), None, &mut story_blocks);
-            let height = super::flow::stack_height(
-                &story_blocks,
-                &builder.metrics,
-                page.text_width,
-                default_tab,
-            );
+            let key = (name.to_string(), page.text_width.to_bits());
+            let height = *heights.entry(key).or_insert_with(|| {
+                let (height, cost) = super::flow::stack_height(
+                    blocks,
+                    &builder.metrics,
+                    page.text_width,
+                    default_tab,
+                );
+                work += cost;
+                height
+            });
+            super::flow::within(work, super::flow::layout_work())?;
             inherited.insert((kind, which), height);
         }
         let get =
@@ -384,6 +395,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         blocks,
         metrics: builder.metrics,
         default_tab,
+        work,
     })
 }
 

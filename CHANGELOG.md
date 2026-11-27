@@ -11,11 +11,14 @@
 - Page estimates clamp out-of-range numbers to Word's bounds instead of using them: lengths to ±22 inches, font sizes to 1–1,638 points, character scale to 1–600 %, line spacing to 132 lines or 22 inches. Infinite and not-a-number values count as absent. A 30-inch page is laid out as a 22-inch one.
 - Tables nested deeper than 32 levels are laid out as plain paragraphs of the cell around them, so headings and bookmarks inside them keep a page number.
 - A cell's `gridSpan` is clamped to 1–63 columns. A huge value no longer overflows.
-- A document too long or complex for the layout work bound no longer fails conversion: its contents page numbers are left for Word to fill in, with a `toc_page_numbers_skipped` warning.
+- Page estimates have a fixed bound on layout work: 200 million units (pieces, lines, rows and lines drawn, headers and footers included), about 4 seconds. `layout::layout` and `docrs layout` fail with `resource_limit` `max_layout_work` past it. A header or footer shared by many sections is measured once per page width.
+- When the contents page numbers of a conversion would pass that bound, the conversion still succeeds: the numbers are not estimated, Word is asked to update fields when it opens the document, and a `toc_page_numbers_skipped` warning says so.
+- In justified paragraphs, spaces between a list label or tab and the first word after it no longer let the line shrink to fit; only spaces between words do.
+- Page estimates align decimal tabs on the decimal point: the text before the first `.` ends at the stop.
 
 ### Command line
 
-- `layout --lines` prints every line of the estimated layout as one JSON object a line: page, story, position, width, baseline and text (experimental).
+- `layout --lines` prints every line of the estimated layout as it is laid out, one JSON object a line: `page`, `story`, `x`, `y`, `width`, `height`, `baseline`, `tabs`, `slack`, `gaps`, `last`, `align` and `text` (experimental).
 
 ## 1.0.1 (2026-11-23)
 
