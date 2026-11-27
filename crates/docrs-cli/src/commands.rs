@@ -488,13 +488,13 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     eprintln!("docrs: font skipped: {}: {}", path.display(), err.message());
                 }
                 let closed = std::cell::Cell::new(false);
-                let write = |out: &mut dyn Write, value: serde_json::Value| {
-                    writeln!(out, "{value}").map_err(|err| {
+                let out = std::cell::RefCell::new(std::io::stdout().lock());
+                let write = |value: serde_json::Value| {
+                    writeln!(out.borrow_mut(), "{value}").map_err(|err| {
                         closed.set(err.kind() == std::io::ErrorKind::BrokenPipe);
                         Error::io("write_failed", format!("writing a line: {err}"), err)
                     })
                 };
-                let mut out = std::io::stdout().lock();
                 let result = docrs::layout::line_records_with(
                     &txn,
                     &main,
@@ -502,10 +502,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     |looks, links| {
                         let looks: Vec<_> = looks.iter().map(|l| look_json(l, round)).collect();
                         let links: Vec<_> = links.iter().map(link_json).collect();
-                        write(
-                            &mut std::io::stdout().lock(),
-                            json!({"looks": looks, "links": links}),
-                        )
+                        write(json!({"looks": looks, "links": links}))
                     },
                     |line| {
                         let runs: Vec<_> = line
@@ -513,25 +510,22 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                             .iter()
                             .map(|run| json!({"text": run.text, "look": run.look}))
                             .collect();
-                        write(
-                            &mut out,
-                            json!({
-                                "page": line.page,
-                                "story": line.story,
-                                "x": round(line.x),
-                                "y": round(line.y),
-                                "width": round(line.width),
-                                "height": round(line.height),
-                                "baseline": round(line.baseline),
-                                "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
-                                "slack": round(line.slack),
-                                "gaps": line.gaps,
-                                "last": line.last,
-                                "align": line.align,
-                                "text": line.text,
-                                "runs": runs,
-                            }),
-                        )
+                        write(json!({
+                            "page": line.page,
+                            "story": line.story,
+                            "x": round(line.x),
+                            "y": round(line.y),
+                            "width": round(line.width),
+                            "height": round(line.height),
+                            "baseline": round(line.baseline),
+                            "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                            "slack": round(line.slack),
+                            "gaps": line.gaps,
+                            "last": line.last,
+                            "align": line.align,
+                            "text": line.text,
+                            "runs": runs,
+                        }))
                     },
                 );
                 return match result {
