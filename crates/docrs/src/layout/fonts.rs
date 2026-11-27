@@ -8,7 +8,7 @@
 //! only, no glyph data). A family found in none of them falls back to a
 //! face of the same kind (serif, sans, monospace) and is reported.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
@@ -707,11 +707,28 @@ pub enum FontKind {
 #[derive(Default)]
 pub struct FontBook {
     own: Vec<Arc<Face>>,
+    own_index: HashMap<String, [Option<usize>; 4]>,
     /// Lower-cased family → indices into `own` (negative-free) or the
     /// bundled table, per (bold, italic).
     cache: HashMap<String, Option<FaceSet>>,
     /// Families that had to be substituted, as the document names them.
     pub missing: Vec<String>,
+    missing_seen: HashSet<String>,
+}
+
+/// Lower-cased family → the first face of each (bold, italic) slot.
+fn index(faces: &[Arc<Face>]) -> HashMap<String, [Option<usize>; 4]> {
+    let mut out: HashMap<String, [Option<usize>; 4]> = HashMap::new();
+    for (index, face) in faces.iter().enumerate() {
+        let slot = usize::from(face.bold) | (usize::from(face.italic) << 1);
+        out.entry(face.family.to_lowercase()).or_default()[slot].get_or_insert(index);
+    }
+    out
+}
+
+fn builtin_index() -> &'static HashMap<String, [Option<usize>; 4]> {
+    static INDEX: OnceLock<HashMap<String, [Option<usize>; 4]>> = OnceLock::new();
+    INDEX.get_or_init(|| index(builtin()))
 }
 
 #[derive(Clone, Copy)]
@@ -723,8 +740,10 @@ struct FaceSet {
 impl FontBook {
     /// A font book with `own` faces taking precedence over the table.
     pub fn new(own: Vec<Face>) -> FontBook {
+        let own: Vec<Arc<Face>> = own.into_iter().map(Arc::new).collect();
         FontBook {
-            own: own.into_iter().map(Arc::new).collect(),
+            own_index: index(&own),
+            own,
             ..FontBook::default()
         }
     }
@@ -738,19 +757,19 @@ impl FontBook {
         if let Some(found) = self.cache.get(&key) {
             return *found;
         }
-        let find = |faces: &[Arc<Face>]| {
-            let mut set = [None; 4];
-            for (index, face) in faces.iter().enumerate() {
-                if face.family.to_lowercase() == key {
-                    let slot = usize::from(face.bold) | (usize::from(face.italic) << 1);
-                    set[slot].get_or_insert(index);
-                }
-            }
-            set.iter().any(Option::is_some).then_some(set)
-        };
-        let found = find(&self.own)
-            .map(|faces| FaceSet { own: true, faces })
-            .or_else(|| find(builtin()).map(|faces| FaceSet { own: false, faces }));
+        let found = self
+            .own_index
+            .get(&key)
+            .map(|faces| FaceSet {
+                own: true,
+                faces: *faces,
+            })
+            .or_else(|| {
+                builtin_index().get(&key).map(|faces| FaceSet {
+                    own: false,
+                    faces: *faces,
+                })
+            });
         self.cache.insert(key, found);
         found
     }
@@ -767,9 +786,7 @@ impl FontBook {
         let set = match self.set(family) {
             Some(set) => set,
             None => {
-                if !family.is_empty()
-                    && !self.missing.iter().any(|m| m.eq_ignore_ascii_case(family))
-                {
+                if !family.is_empty() && self.missing_seen.insert(family.to_ascii_lowercase()) {
                     self.missing.push(family.to_string());
                 }
                 let substitute = match kind {
