@@ -10,6 +10,7 @@
 //! only after the output file has been atomically committed.
 
 mod commands;
+mod paragraphs;
 
 use std::process::ExitCode;
 

@@ -3,10 +3,10 @@
   "missing_fonts": [],
   "pages": 1,
   "paragraphs": [
-    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","y":84.0},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph.","y":108.06},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","y":132.43},
-    {"heading":false,"page":1,"row_end":false,"text":"Another body paragraph.","y":152.54}
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","toc":false,"y":84.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph.","toc":false,"y":108.06},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","toc":false,"y":132.43},
+    {"heading":false,"page":1,"row_end":false,"text":"Another body paragraph.","toc":false,"y":152.54}
   ],
   "schema": "docrs_layout",
   "version": 1

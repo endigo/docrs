@@ -3,12 +3,12 @@
   "missing_fonts": [],
   "pages": 1,
   "paragraphs": [
-    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","y":72.0},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample first paragraph, formatted by han","y":99.85},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, formatted by hand","y":122.35},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","y":144.84},
-    {"heading":false,"page":1,"row_end":false,"text":"Another first paragraph, formatted by ha","y":170.21},
-    {"heading":false,"page":1,"row_end":false,"text":"Another body paragraph, formatted by han","y":192.7}
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample first paragraph, formatted by han","toc":false,"y":99.85},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, formatted by hand","toc":false,"y":122.35},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","toc":false,"y":144.84},
+    {"heading":false,"page":1,"row_end":false,"text":"Another first paragraph, formatted by ha","toc":false,"y":170.21},
+    {"heading":false,"page":1,"row_end":false,"text":"Another body paragraph, formatted by han","toc":false,"y":192.7}
   ],
   "schema": "docrs_layout",
   "version": 1

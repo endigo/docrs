@@ -3,12 +3,12 @@
   "missing_fonts": [],
   "pages": 1,
   "paragraphs": [
-    {"heading":false,"page":1,"row_end":false,"text":"Strategy recommendations","y":90.0},
-    {"heading":false,"page":1,"row_end":false,"text":"Body text under a heading that is only d","y":117.08},
-    {"heading":false,"page":1,"row_end":false,"text":"Superannuation","y":143.57},
-    {"heading":false,"page":1,"row_end":false,"text":"More body text.","y":164.69},
-    {"heading":false,"page":1,"row_end":false,"text":"Contributions","y":189.18},
-    {"heading":false,"page":1,"row_end":false,"text":"Even more body text.","y":207.33}
+    {"heading":false,"page":1,"row_end":false,"text":"Strategy recommendations","toc":false,"y":90.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Body text under a heading that is only d","toc":false,"y":117.08},
+    {"heading":false,"page":1,"row_end":false,"text":"Superannuation","toc":false,"y":143.57},
+    {"heading":false,"page":1,"row_end":false,"text":"More body text.","toc":false,"y":164.69},
+    {"heading":false,"page":1,"row_end":false,"text":"Contributions","toc":false,"y":189.18},
+    {"heading":false,"page":1,"row_end":false,"text":"Even more body text.","toc":false,"y":207.33}
   ],
   "schema": "docrs_layout",
   "version": 1

@@ -3,15 +3,15 @@
   "missing_fonts": [],
   "pages": 1,
   "paragraphs": [
-    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","y":72.0},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to re","y":100.4},
-    {"heading":false,"page":1,"row_end":false,"text":"Asset","y":128.9},
-    {"heading":false,"page":1,"row_end":false,"text":"Value","y":128.9},
-    {"heading":false,"page":1,"row_end":true,"text":null,"y":128.9},
-    {"heading":false,"page":1,"row_end":false,"text":"Home","y":153.46},
-    {"heading":false,"page":1,"row_end":false,"text":"$1,200,000","y":153.46},
-    {"heading":false,"page":1,"row_end":true,"text":null,"y":153.46},
-    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to re","y":179.03}
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to re","toc":false,"y":100.4},
+    {"heading":false,"page":1,"row_end":false,"text":"Asset","toc":false,"y":128.9},
+    {"heading":false,"page":1,"row_end":false,"text":"Value","toc":false,"y":128.9},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":128.9},
+    {"heading":false,"page":1,"row_end":false,"text":"Home","toc":false,"y":153.46},
+    {"heading":false,"page":1,"row_end":false,"text":"$1,200,000","toc":false,"y":153.46},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":153.46},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to re","toc":false,"y":179.03}
   ],
   "schema": "docrs_layout",
   "version": 1

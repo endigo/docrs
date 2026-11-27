@@ -15,7 +15,7 @@
 
 ### Command line
 
-- `docrs layout` shows each paragraph's text as Word displays it: field results, tabs and line breaks, not field codes.
+- `docrs layout` shows each paragraph's text as Word displays it (field results, tabs, line breaks, non-breaking hyphens and symbols, not field codes), and marks the paragraphs of a table of contents with `toc`.
 
 ## 1.0.1 (2026-11-23)
 
