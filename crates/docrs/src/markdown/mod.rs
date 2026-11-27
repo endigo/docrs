@@ -61,6 +61,7 @@ pub use ast::MAX_NESTING_DEPTH;
 pub use inspect::inspect;
 pub use styles::{Role, RoleStyle, StylePolicy};
 
+use crate::layout::FontSet;
 use crate::protection::{OperationClass, refuse_if_protected};
 use crate::txn::Txn;
 use crate::{Document, Error, RefusalKind, Result};
@@ -440,7 +441,19 @@ pub fn insert_source(
     format: InputFormat,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_with(document, source, format, options, false)
+    insert_source_with_fonts(document, source, format, options, &FontSet::default())
+}
+
+/// [`insert_source`], estimating the contents page numbers with `fonts`
+/// where the document embeds no font of a family.
+pub fn insert_source_with_fonts(
+    document: &mut Document,
+    source: &str,
+    format: InputFormat,
+    options: &MarkdownOptions,
+    fonts: &FontSet,
+) -> Result<MarkdownReport> {
+    insert_with(document, source, format, options, fonts, false)
 }
 
 fn insert_with(
@@ -448,6 +461,7 @@ fn insert_with(
     markdown: &str,
     format: InputFormat,
     options: &MarkdownOptions,
+    fonts: &FontSet,
     prefer_own_styles: bool,
 ) -> Result<MarkdownReport> {
     if let Some(depth) = options.toc_depth
@@ -506,6 +520,7 @@ fn insert_with(
             &parsed,
             &metadata,
             options,
+            fonts,
             prefer_own_styles,
             &mut report,
             &mut resolver,
@@ -578,6 +593,7 @@ pub fn reference_document() -> Result<Document> {
         REFERENCE_SAMPLE,
         InputFormat::Markdown,
         &options,
+        &FontSet::default(),
         true,
     )?;
     Ok(document)

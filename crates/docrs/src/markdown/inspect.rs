@@ -216,6 +216,7 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
         &parsed,
         &Metadata::default(),
         &trial_options,
+        &crate::layout::FontSet::default(),
         false,
         &mut report,
         &mut resolver,

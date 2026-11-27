@@ -16,6 +16,10 @@
 - In justified paragraphs, spaces between a list label or tab and the first word after it no longer let the line shrink to fit; only spaces between words do.
 - A table's header rows that are taller than the page body are no longer repeated on the following pages, as in Word. They start on a page of their own and run off its bottom, and the next row starts a new page. A 70-line header over 40 rows was estimated at 43 pages; Word and the estimate now give 3.
 - Page estimates align decimal tabs on the decimal point: the text before the first `.` ends at the stop.
+- `layout::FontSet` holds font files the caller supplies (TTF, OTF, TTC and OTC), built with `FontSet::builder()`: `add` reads every face of a file and returns each one's family and style as a document names it, whether it is variable and whether its `fsType` allows embedding. A file with a face that cannot be read adds nothing and is refused with `invalid_argument` (`font_format_unsupported` for WOFF, WOFF2, Type 1, CFF2 and bitmap-only fonts, else `font_malformed`, `font_cmap_invalid` or `font_too_large`). All files of a set share one parse budget. Families are found by name, full name and PostScript name, and `alias` lays one family out in another. Variable fonts are measured at their default instance.
+- `layout::layout_with` lays out with a `FontSet`: a family is measured from the document's embedded fonts, then the set, then the bundled table, then a substitute. `layout::layout` keeps its signature and gives the same result.
+- `markdown::insert_source_with_fonts` numbers the contents with a `FontSet`. `insert_source` and the other conversions behave as before.
+- A face read from a font file keeps its glyph for each character and the file it came from (`Face::glyph`, `Face::file`), for the PDF writer to subset later. A font embedded in a document keeps its part, deobfuscated when read.
 
 ### Node package
 

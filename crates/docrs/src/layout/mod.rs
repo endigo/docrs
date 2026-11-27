@@ -15,6 +15,7 @@ pub mod fonts;
 mod model;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub use flow::Placed;
 #[cfg(test)]
@@ -27,7 +28,7 @@ pub(crate) use flow::TEST_LAYOUT_WORK;
 pub fn set_test_layout_work(budget: Option<u64>) {
     flow::TEST_LAYOUT_WORK.set(budget);
 }
-pub use fonts::{Face, FontBook};
+pub use fonts::{Face, FontBook, FontFile, FontInfo, FontSet, FontSetBuilder};
 
 use fonts::{FontError, Parsed};
 
@@ -72,8 +73,8 @@ impl Layout {
 }
 
 /// Embedded fonts of the document (`w:embedRegular` and friends in the
-/// font table), deobfuscated and measured within one budget, and the
-/// families whose fonts the budget left unread.
+/// font table), deobfuscated and measured within one budget, each face
+/// keeping its part, and the families whose fonts the budget left unread.
 fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)> {
     let (mut out, mut unread) = (Vec::new(), Vec::new());
     let Some(table) = txn.part_related_by(main, rt::FONT_TABLE)? else {
@@ -82,7 +83,8 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
     let tree = txn.tree(&table)?;
     let rels = txn.resolved_relationships(&table)?;
     let mut budget = fonts::FILE_BUDGET;
-    let mut copies: HashMap<&str, Vec<u8>> = HashMap::new();
+    let mut parts: HashMap<&str, Option<Arc<[u8]>>> = HashMap::new();
+    let mut plain: HashMap<&str, Vec<u8>> = HashMap::new();
     let mut parsed: HashMap<(&str, Option<[u8; 16]>), Parsed<Face>> = HashMap::new();
     for font in w_children(tree, tree.root(), "font") {
         let Some(name) = w_attr(tree, font, "name") else {
@@ -111,16 +113,18 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
                 None => None,
             };
             let face = parsed.entry((part.as_str(), key)).or_insert_with(|| {
-                let unreadable = Err(FontError::Malformed("embedded font part"));
-                let Some(bytes) = txn.binary(part) else {
-                    return unreadable;
+                let bytes = parts
+                    .entry(part)
+                    .or_insert_with(|| txn.binary(part).map(|bytes| bytes.into()));
+                let Some(bytes) = bytes else {
+                    return Err(FontError::Malformed("embedded font part"));
                 };
                 let Some(key) = key else {
-                    return Face::parse_within(&bytes, name, bold, italic, &mut budget);
+                    return Face::parse_embedded(bytes, bytes, None, name, &mut budget);
                 };
-                let copy = copies.entry(part).or_insert_with(|| bytes.to_vec());
+                let copy = plain.entry(part).or_insert_with(|| bytes.to_vec());
                 fonts::xor_font_key(copy, &key);
-                let face = Face::parse_within(copy, name, bold, italic, &mut budget);
+                let face = Face::parse_embedded(copy, bytes, Some(key), name, &mut budget);
                 fonts::xor_font_key(copy, &key);
                 face
             });
@@ -137,23 +141,27 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
 fn model_of(
     txn: &Txn<'_>,
     main: &str,
-    extra: Vec<Face>,
+    fonts: &FontSet,
 ) -> Result<(model::Model, FontBook, Vec<String>, Vec<String>)> {
     let (embedded, unread) = embedded_fonts(txn, main)?;
     let mut embedded_names: Vec<String> = embedded.iter().map(|f| f.family.clone()).collect();
     embedded_names.dedup();
-    let mut own = embedded;
-    own.extend(extra);
-    let mut book = FontBook::new(own);
+    let mut book = FontBook::with_fonts(embedded, fonts);
     let model = model::build(txn, main, &mut book)?;
     Ok((model, book, embedded_names, unread))
 }
 
-/// Estimate the layout of `main`'s body. `fonts` are extra font files the
-/// caller has (measured locally, never shipped); the document's embedded
-/// fonts take precedence over them and over the bundled table.
+/// Estimate the layout of `main`'s body, measuring `extra` faces where the
+/// document embeds no font of their family. See [`layout_with`].
 pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
-    let (model, book, embedded_names, unread) = model_of(txn, main, extra)?;
+    layout_with(txn, main, &FontSet::from_faces(extra))
+}
+
+/// Estimate the layout of `main`'s body. Each family is measured from the
+/// document's embedded fonts, else `fonts`, else the bundled table, else
+/// a substitute of its kind (reported in `missing_fonts`).
+pub fn layout_with(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Layout> {
+    let (model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
     let mut by_node: HashMap<(StoryId, NodeId), Vec<String>> = HashMap::new();
     collect_bookmarks(&model.blocks, &mut by_node);
     let mut placed = Vec::new();
@@ -201,6 +209,7 @@ pub(crate) fn write_page_numbers(
     main: &str,
     numbers: &[(NodeId, String)],
     blank_unplaced: bool,
+    fonts: &FontSet,
 ) -> Result<(usize, Layout)> {
     let before: Vec<String> = {
         let tree = txn.tree(main)?;
@@ -208,7 +217,7 @@ pub(crate) fn write_page_numbers(
     };
     let mut pass = 0;
     let estimate = loop {
-        let estimate = layout(txn, main, Vec::new())?;
+        let estimate = layout_with(txn, main, fonts)?;
         pass += 1;
         let updates: Vec<(NodeId, String)> = {
             let tree = txn.tree(main)?;
@@ -261,6 +270,17 @@ pub fn refresh_toc_page_numbers(
     document: &mut Document,
     converted_only: bool,
 ) -> Result<TocRefresh> {
+    refresh_toc_page_numbers_with(document, converted_only, &FontSet::default())
+}
+
+/// [`refresh_toc_page_numbers`], measuring with `fonts`. Internal to
+/// docrs-wasm, not covered by semver.
+#[doc(hidden)]
+pub fn refresh_toc_page_numbers_with(
+    document: &mut Document,
+    converted_only: bool,
+    fonts: &FontSet,
+) -> Result<TocRefresh> {
     refuse_if_protected(
         document,
         "refresh contents page numbers",
@@ -279,7 +299,7 @@ pub fn refresh_toc_page_numbers(
             .collect::<Vec<_>>()
     };
     let mut txn = Txn::new(document);
-    let (changed, layout) = write_page_numbers(&mut txn, &main, &numbers, false)?;
+    let (changed, layout) = write_page_numbers(&mut txn, &main, &numbers, false, fonts)?;
     if changed > 0 {
         let staged = txn.finish()?;
         document.commit(staged)?;
@@ -546,7 +566,18 @@ pub fn line_records(
     extra: Vec<Face>,
     each: impl FnMut(LineRecord) -> Result<()>,
 ) -> Result<()> {
-    let (model, ..) = model_of(txn, main, extra)?;
+    line_records_with(txn, main, &FontSet::from_faces(extra), each)
+}
+
+/// [`line_records`], measuring with `fonts`. Experimental.
+#[doc(hidden)]
+pub fn line_records_with(
+    txn: &Txn<'_>,
+    main: &str,
+    fonts: &FontSet,
+    each: impl FnMut(LineRecord) -> Result<()>,
+) -> Result<()> {
+    let (model, ..) = model_of(txn, main, fonts)?;
     flow::paginate(&model, &mut LineDump { page: 0, each })?;
     Ok(())
 }

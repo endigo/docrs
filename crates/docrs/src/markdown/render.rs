@@ -22,6 +22,7 @@ use crate::authoring::{
 use crate::coreprops::{CoreProperty, ensure_part as ensure_core_part, write as write_core};
 use crate::fields::{fld_char_run, instr_text_run, set_update_fields_on_open};
 use crate::image::Image;
+use crate::layout::FontSet;
 use crate::numbering::{add_previous, get_or_create_numbering, import_fragment, next_free_ids};
 use crate::oxml::{add_t, append, insert_before_successors, set_w, w_el};
 use crate::package::rels::rt;
@@ -330,6 +331,7 @@ pub(crate) struct Renderer<'t, 'd, 'p> {
     txn: &'t mut Txn<'d>,
     parsed: &'p Parsed,
     options: &'p MarkdownOptions,
+    fonts: &'p FontSet,
     report: &'t mut MarkdownReport,
     styles: &'t mut Resolver,
     main: String,
@@ -362,11 +364,13 @@ struct TocState {
 }
 
 /// Render `parsed` into the transaction's main document.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
     txn: &mut Txn<'_>,
     parsed: &Parsed,
     metadata: &Metadata,
     options: &MarkdownOptions,
+    fonts: &FontSet,
     prefer_own_styles: bool,
     report: &mut MarkdownReport,
     styles: &mut Resolver,
@@ -404,6 +408,7 @@ pub(crate) fn render(
         txn,
         parsed,
         options,
+        fonts,
         report,
         styles,
         main: main.clone(),
@@ -3157,23 +3162,28 @@ impl<'p> Renderer<'_, '_, 'p> {
                 .map(|(number, _)| tree.text_content(*number))
                 .collect()
         };
-        let layout =
-            match crate::layout::write_page_numbers(self.txn, main, &self.toc.numbers, true) {
-                Err(error) if error.reason() == "max_layout_work" => {
-                    let tree = self.txn.tree_mut(main)?;
-                    for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
-                        crate::wml::set_leading_text(tree, *number, text)?;
-                    }
-                    set_update_fields_on_open(self.txn)?;
-                    self.warn(
-                        "toc_page_numbers_skipped",
-                        super::TOC_PAGE_NUMBERS_SKIPPED.to_string(),
-                        None,
-                    );
-                    return Ok(());
+        let layout = match crate::layout::write_page_numbers(
+            self.txn,
+            main,
+            &self.toc.numbers,
+            true,
+            self.fonts,
+        ) {
+            Err(error) if error.reason() == "max_layout_work" => {
+                let tree = self.txn.tree_mut(main)?;
+                for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
+                    crate::wml::set_leading_text(tree, *number, text)?;
                 }
-                result => result?.1,
-            };
+                set_update_fields_on_open(self.txn)?;
+                self.warn(
+                    "toc_page_numbers_skipped",
+                    super::TOC_PAGE_NUMBERS_SKIPPED.to_string(),
+                    None,
+                );
+                return Ok(());
+            }
+            result => result?.1,
+        };
         for font in &layout.missing_fonts {
             self.warn(
                 "font_metrics_missing",
