@@ -21,11 +21,13 @@ pub use fonts::{Face, FontBook};
 
 use fonts::{FontError, Parsed};
 
-use crate::Result;
+use crate::fields::fieldcode;
 use crate::package::rels::rt;
+use crate::protection::{OperationClass, refuse_if_protected};
 use crate::txn::Txn;
-use crate::wml::{R, w_attr, w_child, w_children};
-use crate::xml::NodeId;
+use crate::wml::{R, W, set_leading_text, w_attr, w_child, w_children};
+use crate::xml::{NodeId, XmlTree};
+use crate::{Document, Result};
 
 /// The estimated layout of a document's body.
 #[derive(Debug, Clone)]
@@ -166,6 +168,184 @@ fn missing_fonts(substituted: &[String], unread: Vec<String>) -> Vec<String> {
             .filter(|family| seen.insert(family.to_lowercase())),
     );
     out
+}
+
+/// Layout passes [`write_page_numbers`] makes at most: a number written
+/// can change the contents' own length and so the pages after it.
+const PAGE_NUMBER_PASSES: usize = 3;
+
+/// Write each `(w:t, bookmark)` page number from a fresh layout of `main`,
+/// re-laying out until the numbers are stable. A bookmark the layout does
+/// not place gets an empty number when `blank_unplaced`, else keeps its
+/// own. Returns how many numbers differ from before, and the last layout.
+pub(crate) fn write_page_numbers(
+    txn: &mut Txn<'_>,
+    main: &str,
+    numbers: &[(NodeId, String)],
+    blank_unplaced: bool,
+) -> Result<(usize, Layout)> {
+    let before: Vec<String> = {
+        let tree = txn.tree(main)?;
+        numbers.iter().map(|(t, _)| tree.text_content(*t)).collect()
+    };
+    let mut pass = 0;
+    let estimate = loop {
+        let estimate = layout(txn, main, Vec::new())?;
+        pass += 1;
+        let updates: Vec<(NodeId, String)> = {
+            let tree = txn.tree(main)?;
+            numbers
+                .iter()
+                .filter_map(|(t, bookmark)| {
+                    let shown = match estimate.bookmark_page(bookmark) {
+                        Some(page) => estimate.page_number(page).to_string(),
+                        None if blank_unplaced => String::new(),
+                        None => return None,
+                    };
+                    (tree.text_content(*t) != shown).then_some((*t, shown))
+                })
+                .collect()
+        };
+        if !updates.is_empty() {
+            let tree = txn.tree_mut(main)?;
+            for (t, shown) in &updates {
+                set_leading_text(tree, *t, shown)?;
+            }
+        }
+        if updates.is_empty() || pass == PAGE_NUMBER_PASSES {
+            break estimate;
+        }
+    };
+    let tree = txn.tree(main)?;
+    let changed = numbers
+        .iter()
+        .zip(&before)
+        .filter(|((t, _), old)| tree.text_content(*t) != **old)
+        .count();
+    Ok((changed, estimate))
+}
+
+/// Rewrite the page numbers every table of contents in the main body shows
+/// (the cached results of the PAGEREF fields inside a TOC field) from a
+/// fresh layout, as the Markdown converter computes them. For a document
+/// edited after conversion, such as merge fields filled with longer text.
+/// Returns how many numbers changed; with none, the document is untouched.
+///
+/// A PAGEREF is rewritten when its result is a single `w:t` and its only
+/// switches are `\h` and `\* MERGEFORMAT`; one whose bookmark the layout
+/// does not place keeps its number.
+pub fn refresh_page_numbers(document: &mut Document) -> Result<usize> {
+    let main = document.package().main_part_name().to_string();
+    let numbers = toc_page_refs(document.package().xml(&main)?);
+    if numbers.is_empty() {
+        return Ok(0);
+    }
+    let mut txn = Txn::new(document);
+    let (changed, _) = write_page_numbers(&mut txn, &main, &numbers, false)?;
+    if changed == 0 {
+        return Ok(0);
+    }
+    let staged = txn.finish()?;
+    refuse_if_protected(
+        document,
+        "refresh contents page numbers",
+        OperationClass::BodyContent,
+    )?;
+    document.commit(staged)?;
+    Ok(changed)
+}
+
+struct OpenField {
+    instruction: String,
+    in_code: bool,
+    texts: Vec<NodeId>,
+}
+
+/// `(w:t, bookmark)` of every PAGEREF field nested in a TOC field's result,
+/// in document order.
+fn toc_page_refs(tree: &XmlTree) -> Vec<(NodeId, String)> {
+    let mut open = Vec::new();
+    let mut out = Vec::new();
+    walk_fields(tree, tree.root(), &mut open, &mut out);
+    out
+}
+
+fn walk_fields(
+    tree: &XmlTree,
+    node: NodeId,
+    open: &mut Vec<OpenField>,
+    out: &mut Vec<(NodeId, String)>,
+) {
+    for child in tree.child_elements(node) {
+        if tree.ns_uri(child) != Some(W) {
+            walk_fields(tree, child, open, out);
+            continue;
+        }
+        match tree.local_name(child).unwrap_or("") {
+            "del" | "moveFrom" => {}
+            "fldChar" => match w_attr(tree, child, "fldCharType") {
+                Some("begin") => open.push(OpenField {
+                    instruction: String::new(),
+                    in_code: true,
+                    texts: Vec::new(),
+                }),
+                Some("separate") => {
+                    if let Some(field) = open.last_mut() {
+                        field.in_code = false;
+                    }
+                }
+                Some("end") => {
+                    let Some(field) = open.pop() else { continue };
+                    let in_toc = open
+                        .iter()
+                        .any(|outer| !outer.in_code && is_command(&outer.instruction, "TOC"));
+                    if let (true, [t], Some(bookmark)) = (
+                        in_toc,
+                        field.texts.as_slice(),
+                        page_ref_bookmark(&field.instruction),
+                    ) {
+                        out.push((*t, bookmark));
+                    }
+                }
+                _ => {}
+            },
+            "instrText" => {
+                if let Some(field) = open.last_mut().filter(|f| f.in_code) {
+                    field.instruction.push_str(&tree.text_content(child));
+                }
+            }
+            "t" => {
+                if let Some(field) = open.last_mut().filter(|f| !f.in_code) {
+                    field.texts.push(child);
+                }
+            }
+            _ => walk_fields(tree, child, open, out),
+        }
+    }
+}
+
+fn is_command(instruction: &str, command: &str) -> bool {
+    instruction
+        .split_whitespace()
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case(command))
+}
+
+fn page_ref_bookmark(instruction: &str) -> Option<String> {
+    let operand = fieldcode::command_operand(instruction, "PAGEREF").ok()??;
+    let tokens = fieldcode::tokens(instruction).ok()?;
+    let mut switches = tokens[2..].iter().map(|t| (t.quoted, t.value.as_str()));
+    while let Some(switch) = switches.next() {
+        match switch {
+            (false, s) if s.eq_ignore_ascii_case("\\h") => {}
+            (false, "\\*") => match switches.next() {
+                Some((_, format)) if format.eq_ignore_ascii_case("MERGEFORMAT") => {}
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    Some(operand.value)
 }
 
 fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<NodeId, Vec<String>>) {

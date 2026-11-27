@@ -404,3 +404,49 @@ fn a_field_nested_in_field_code_measures_nothing_of_its_result() {
     let y = |first: &str| estimate(&format!("{first}{after}"), "").placed[1].y;
     assert!((y(&nested) - y(&plain)).abs() < 0.01);
 }
+
+/// A contents entry as Word writes one: a `_Toc` hyperlink whose PAGEREF
+/// result is a web-hidden run.
+fn word_entry(bookmark: &str, text: &str, shown: &str, switches: &str) -> String {
+    format!(
+        "<w:hyperlink w:anchor=\"{bookmark}\" w:history=\"1\"><w:r><w:t>{text}</w:t></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:tab/></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:instrText xml:space=\"preserve\"> PAGEREF {bookmark} {switches} </w:instrText></w:r><w:r><w:rPr><w:webHidden/></w:rPr></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:t>{shown}</w:t></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:fldChar w:fldCharType=\"end\"/></w:r></w:hyperlink>"
+    )
+}
+
+#[test]
+fn refresh_rewrites_the_page_numbers_of_a_contents_word_wrote() {
+    let toc = format!(
+        "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>\
+         <w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> TOC \\o \"1-3\" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>{}</w:p>\
+         <w:p>{}</w:p><w:p>{}</w:p><w:p><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p></w:sdtContent></w:sdt>",
+        word_entry("_Toc1", "One", "7", "\\h"),
+        word_entry("_Toc2", "Two", "1", "\\h \\* MERGEFORMAT"),
+        word_entry("_Toc2", "Two", "1", "\\p"),
+    );
+    let heading = |bookmark: &str, text: &str| {
+        format!(
+            "<w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:bookmarkStart w:id=\"0\" w:name=\"{bookmark}\"/><w:r><w:t>{text}</w:t></w:r><w:bookmarkEnd w:id=\"0\"/></w:p>"
+        )
+    };
+    let outside = "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGEREF _Toc2 \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>9</w:t></w:r><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>";
+    let body = format!(
+        "{toc}{outside}{}{}",
+        heading("_Toc1", "One"),
+        heading("_Toc2", "Two")
+    );
+    let mut doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    assert_eq!(docrs::layout::refresh_page_numbers(&mut doc).unwrap(), 2);
+    let xml = document_xml(&doc);
+    let shown: Vec<&str> = xml
+        .match_indices(
+            "<w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:rPr><w:webHidden/></w:rPr><w:t>",
+        )
+        .map(|(at, found)| {
+            let rest = &xml[at + found.len()..];
+            &rest[..rest.find('<').unwrap()]
+        })
+        .collect();
+    assert_eq!(shown, ["2", "3", "1"], "{xml}");
+    assert!(xml.contains("<w:t>9</w:t>"), "{xml}");
+    assert_eq!(docrs::layout::refresh_page_numbers(&mut doc).unwrap(), 0);
+}

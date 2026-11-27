@@ -3149,43 +3149,23 @@ impl<'p> Renderer<'_, '_, 'p> {
     /// metrics), and repeat while the numbers change the contents' own
     /// length.
     fn toc_page_numbers(&mut self, main: &str) -> Result<()> {
-        let mut layout = None;
-        for _ in 0..3 {
-            let estimate = crate::layout::layout(self.txn, main, Vec::new())?;
-            let mut changed = false;
-            let tree = self.txn.tree_mut(main)?;
-            for (number, bookmark) in &self.toc.numbers {
-                let shown = estimate
-                    .bookmark_page(bookmark)
-                    .map_or_else(String::new, |page| estimate.page_number(page).to_string());
-                let current = tree.text_content(*number);
-                if current != shown {
-                    crate::wml::set_leading_text(tree, *number, &shown)?;
-                    changed = true;
-                }
-            }
-            layout = Some(estimate);
-            if !changed {
-                break;
-            }
-        }
-        if let Some(layout) = layout {
-            for font in &layout.missing_fonts {
-                self.warn(
+        let (_, layout) =
+            crate::layout::write_page_numbers(self.txn, main, &self.toc.numbers, true)?;
+        for font in &layout.missing_fonts {
+            self.warn(
                     "font_metrics_missing",
                     format!(
                         "no metrics for the font {font:?}; contents page numbers are estimated with a substitute"
                     ),
                     None,
                 );
-            }
-            self.report.toc = Some(super::TocReport {
-                entries: self.toc.numbers.len(),
-                pages: layout.pages,
-                missing_fonts: layout.missing_fonts.clone(),
-                embedded_fonts: layout.embedded_fonts.clone(),
-            });
         }
+        self.report.toc = Some(super::TocReport {
+            entries: self.toc.numbers.len(),
+            pages: layout.pages,
+            missing_fonts: layout.missing_fonts.clone(),
+            embedded_fonts: layout.embedded_fonts.clone(),
+        });
         Ok(())
     }
 
