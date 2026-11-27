@@ -50,6 +50,9 @@ fn one_page() -> Vec<u8> {
     write(&[A4], &info, &Limits::default()).unwrap()
 }
 
+/// After an intended change to the output, regenerate the file with
+/// `DOCRS_BLESS=1 cargo test -p docrs --test pdf output_matches_the_golden_file`,
+/// then run `qpdf --check` on it and review the diff.
 fn golden_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/pdf/one-page.pdf")
 }
@@ -58,9 +61,9 @@ fn golden_path() -> PathBuf {
 fn three_pages_read_back() {
     let pdf = Pdf::parse(&sample()).unwrap();
     assert_eq!(pdf.version, "1.7");
-    assert_eq!(pdf.page_count(), 3);
+    assert_eq!(pdf.pages().unwrap().len(), 3);
     assert_eq!(
-        pdf.media_boxes(),
+        pdf.media_boxes().unwrap(),
         [
             [0.0, 0.0, 595.276, 841.89],
             [0.0, 0.0, 792.0, 612.0],
@@ -104,7 +107,7 @@ fn empty_info_still_names_the_producer() {
 #[test]
 fn streams_have_their_written_length_and_inflate() {
     let pdf = Pdf::parse(&sample()).unwrap();
-    for page in pdf.pages() {
+    for page in pdf.pages().unwrap() {
         let contents = page.get("Contents").unwrap();
         let Value::Stream(dict, raw) = pdf.resolve(contents) else {
             panic!("page contents are not a stream");
@@ -121,7 +124,8 @@ fn xref_offsets_point_at_their_objects() {
     let pdf = Pdf::parse(&sample()).unwrap();
     let size = pdf.get(&pdf.trailer, "Size").number().unwrap() as usize;
     assert_eq!(pdf.xref.len() + 1, size);
-    for &(number, offset) in &pdf.xref {
+    for entry in &pdf.xref {
+        let (number, offset) = (entry.number, entry.offset);
         let expected = format!("{number} 0 obj\n");
         assert!(
             pdf.bytes[offset..].starts_with(expected.as_bytes()),
@@ -134,6 +138,9 @@ fn xref_offsets_point_at_their_objects() {
 fn output_matches_the_golden_file() {
     assert_eq!(sample(), sample());
     let bytes = one_page();
+    if std::env::var_os("DOCRS_BLESS").is_some() {
+        std::fs::write(golden_path(), &bytes).unwrap();
+    }
     let golden = std::fs::read(golden_path()).unwrap();
     assert_eq!(
         String::from_utf8_lossy(&bytes),
@@ -181,14 +188,14 @@ fn page_lists_and_sizes_are_checked() {
         err.reason()
     };
     assert_eq!(refused(&[]), "pdf_no_pages");
-    for side in [f64::NAN, f64::INFINITY, 0.0, -1.0, 14_400.001] {
+    for side in [f64::NAN, f64::INFINITY, 0.0, -1.0, 0.001, 2.999, 14_400.001] {
         assert_eq!(refused(&[A4, (side, 100.0)]), "pdf_page_size");
         assert_eq!(refused(&[(100.0, side)]), "pdf_page_size");
     }
-    let largest = write(&[(14_400.0, 0.001)], &info, &Limits::default()).unwrap();
+    let extremes = write(&[(14_400.0, 3.0)], &info, &Limits::default()).unwrap();
     assert_eq!(
-        Pdf::parse(&largest).unwrap().media_boxes(),
-        [[0.0, 0.0, 14_400.0, 0.001]]
+        Pdf::parse(&extremes).unwrap().media_boxes().unwrap(),
+        [[0.0, 0.0, 14_400.0, 3.0]]
     );
 }
 
@@ -265,7 +272,7 @@ fn rejected(bytes: &[u8]) -> String {
 #[test]
 fn reader_inherits_page_attributes() {
     let pdf = Pdf::parse(&handmade(&TREE, "/Root 1 0 R")).unwrap();
-    assert_eq!(pdf.media_boxes(), [[0.0, 0.0, 100.0, 200.0]]);
+    assert_eq!(pdf.media_boxes().unwrap(), [[0.0, 0.0, 100.0, 200.0]]);
 }
 
 #[test]
@@ -316,7 +323,7 @@ fn reader_follows_prev() {
     );
     let pdf = Pdf::parse(&bytes).unwrap();
     assert_eq!(pdf.xref.len(), 3);
-    assert_eq!(pdf.media_boxes(), [[0.0, 0.0, 50.0, 60.0]]);
+    assert_eq!(pdf.media_boxes().unwrap(), [[0.0, 0.0, 50.0, 60.0]]);
 }
 
 #[test]
@@ -361,8 +368,109 @@ fn content_tokenizer_is_strict() {
         (b"0 0 mm", "unknown operator \"mm\""),
         (b"0 0", "operands without an operator"),
         (b"EI", "unknown operator \"EI\""),
+        (b"5 m", "m with operands"),
+        (b"(x) /N re", "re with operands"),
+        (b"/F1 Tf", "Tf with operands"),
+        (b"0 0 0 0 0 sc", "sc with operands"),
+        (b"Q", "Q without a matching q"),
+        (b"q", "content ends inside q or BT"),
+        (b"BT BT ET ET", "BT inside a text object"),
+        (b"ET", "ET without BT"),
+        (b"BT", "content ends inside q or BT"),
     ] {
         let err = tokenize_content(content).unwrap_err();
         assert!(err.contains(error), "{content:?}: {err}");
     }
+}
+
+#[test]
+fn content_tokenizer_checks_colour_operands() {
+    for content in [
+        &b"0.5 sc"[..],
+        b"1 0 0 1 SC",
+        b"/P0 scn",
+        b"0.2 0.3 /P1 SCN",
+        b"1 scn",
+    ] {
+        tokenize_content(content).unwrap();
+    }
+    assert!(tokenize_content(b"/P0 0.5 scn").is_err());
+}
+
+#[test]
+fn reader_refuses_reference_cycles() {
+    let own_length = "<< /Length 1 0 R >>\nstream\nhello\nendstream";
+    assert!(rejected(&handmade(&[own_length], "")).contains("refers to itself"));
+    let kids_cycle = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
+    ];
+    let pdf = Pdf::parse(&handmade(&kids_cycle, "/Root 1 0 R")).unwrap();
+    assert!(pdf.pages().unwrap_err().contains("twice"));
+    let parent_cycle = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 4 0 R >>",
+        "<< /Parent 3 0 R >>",
+    ];
+    let pdf = Pdf::parse(&handmade(&parent_cycle, "/Root 1 0 R")).unwrap();
+    assert!(pdf.media_boxes().unwrap_err().contains("cyclic /Parent"));
+}
+
+#[test]
+fn reader_checks_the_page_tree() {
+    let miscounted = [
+        TREE[0],
+        "<< /Type /Pages /Kids [3 0 R] /Count 2 >>",
+        TREE[2],
+    ];
+    let pdf = Pdf::parse(&handmade(&miscounted, "/Root 1 0 R")).unwrap();
+    assert!(pdf.pages().unwrap_err().contains("/Count"));
+    let dangling = ["<< /Type /Catalog /Pages 9 0 R >>"];
+    let pdf = Pdf::parse(&handmade(&dangling, "/Root 1 0 R")).unwrap();
+    assert!(pdf.pages().unwrap_err().contains("not a dictionary"));
+}
+
+#[test]
+fn reader_checks_the_file_structure() {
+    let text = String::from_utf8(handmade(&TREE, "/Root 1 0 R")).unwrap();
+    let lone_cr =
+        String::from_utf8(handmade(&["<< /Length 5 >>\rstream\rhello\nendstream"], "")).unwrap();
+    let lone_cr = lone_cr.replace("<< /Length 5 >>\rstream\r", "<< /Length 5 >>\nstream\r");
+    assert!(rejected(lone_cr.as_bytes()).contains("CR LF or LF"));
+    let generation = text.replacen("3 0 obj", "3 5 obj", 1);
+    assert!(rejected(generation.as_bytes()).contains("found 3 5"));
+    let xref_generation = text.replacen("00000 n", "00007 n", 1);
+    assert!(rejected(xref_generation.as_bytes()).contains("xref says object 1 7"));
+    let junk = format!("{text}junk\n");
+    assert!(rejected(junk.as_bytes()).contains("after %%EOF"));
+    let one_line = text.replace("startxref\n", "startxref ");
+    assert!(rejected(one_line.as_bytes()).contains("startxref"));
+    let size = text.replace("/Size 4", "/Size 5");
+    assert!(rejected(size.as_bytes()).contains("/Size"));
+    let overflow = text.replace("xref\n0 4\n", "xref\n4294967295 4\n");
+    assert!(rejected(overflow.as_bytes()).contains("past u32"));
+}
+
+#[test]
+fn reader_returns_raw_streams() {
+    let jpeg = "<< /Filter /DCTDecode /Length 4 >>\nstream\nJPEG\nendstream";
+    let pdf = Pdf::parse(&handmade(&[jpeg], "")).unwrap();
+    let (dict, raw) = pdf.raw_stream(&Value::Ref(1, 0)).unwrap();
+    assert_eq!(
+        (dict["Filter"].clone(), raw),
+        (Value::Name("DCTDecode".into()), &b"JPEG"[..])
+    );
+    assert!(
+        pdf.stream_data(&Value::Ref(1, 0))
+            .unwrap_err()
+            .contains("unsupported filter")
+    );
+}
+
+#[test]
+fn reader_refuses_integers_beyond_i64() {
+    let huge = "[340282346638528859811704183484516925440]";
+    assert!(rejected(&handmade(&[huge], "")).contains("bad number"));
 }

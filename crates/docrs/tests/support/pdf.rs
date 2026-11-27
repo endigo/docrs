@@ -48,13 +48,21 @@ pub struct Op {
     pub operands: Vec<Value>,
 }
 
+/// An in-use xref entry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Entry {
+    pub number: u32,
+    pub generation: u16,
+    pub offset: usize,
+}
+
 pub struct Pdf {
     pub bytes: Vec<u8>,
     pub version: String,
     /// The `startxref` offset: the newest xref section.
     pub xref_at: usize,
-    /// `(object number, byte offset)` for every in-use object, all sections merged.
-    pub xref: Vec<(u32, usize)>,
+    /// Every in-use object, all sections merged, by number.
+    pub xref: Vec<Entry>,
     pub trailer: Dict,
     pub objects: BTreeMap<u32, Value>,
 }
@@ -62,7 +70,7 @@ pub struct Pdf {
 impl Pdf {
     pub fn parse(bytes: &[u8]) -> Result<Pdf, String> {
         let version = header_version(bytes)?;
-        let xref_at = startxref(bytes)?;
+        let xref_at = last_startxref(bytes)?;
         let mut sections = Vec::new();
         let mut next = Some(xref_at);
         let mut seen = BTreeSet::new();
@@ -70,53 +78,64 @@ impl Pdf {
             if !seen.insert(at) {
                 return Err(format!("/Prev loops back to {at}"));
             }
-            let (entries, trailer) = xref_section(bytes, at)?;
-            next = match trailer.get("Prev") {
+            let section = xref_section(bytes, at, sections.is_empty())?;
+            next = match section.trailer.get("Prev") {
                 None => None,
                 Some(Value::Int(prev)) => Some(usize::try_from(*prev).map_err(|_| "bad /Prev")?),
                 Some(other) => return Err(format!("bad /Prev {other:?}")),
             };
-            sections.push((entries, trailer));
+            sections.push(section);
         }
-        let mut offsets = BTreeMap::new();
-        for (entries, _) in sections.iter().rev() {
-            for &(number, offset) in entries {
-                match offset {
-                    Some(offset) => offsets.insert(number, offset),
-                    None => offsets.remove(&number),
-                };
+        let mut entries = BTreeMap::new();
+        for section in sections.iter().rev() {
+            for &(number, entry) in &section.entries {
+                entries.insert(number, entry);
             }
+        }
+        let trailer = sections.swap_remove(0).trailer;
+        let highest = entries.keys().next_back().copied().unwrap_or(0);
+        if trailer.get("Size") != Some(&Value::Int(i64::from(highest) + 1)) {
+            return Err(format!(
+                "/Size {:?} does not match the highest object {highest}",
+                trailer.get("Size")
+            ));
         }
         let mut pdf = Pdf {
             bytes: bytes.to_vec(),
             version,
             xref_at,
-            xref: offsets.into_iter().collect(),
-            trailer: sections.swap_remove(0).1,
+            xref: entries.into_values().flatten().collect(),
+            trailer,
             objects: BTreeMap::new(),
         };
-        for &(number, _) in &pdf.xref {
-            let object = pdf.load(number)?;
-            pdf.objects.insert(number, object);
+        for entry in pdf.xref.clone() {
+            let object = pdf.load(entry, &mut BTreeSet::new())?;
+            pdf.objects.insert(entry.number, object);
         }
         Ok(pdf)
     }
 
-    fn offset_of(&self, number: u32) -> Result<usize, String> {
+    fn entry(&self, number: u32) -> Result<Entry, String> {
         self.xref
             .iter()
-            .find(|&&(n, _)| n == number)
-            .map(|&(_, offset)| offset)
+            .find(|entry| entry.number == number)
+            .copied()
             .ok_or_else(|| format!("object {number} is not in the xref table"))
     }
 
-    fn load(&self, number: u32) -> Result<Value, String> {
-        let mut lexer = Lexer::new(&self.bytes, self.offset_of(number)?);
-        let found = lexer.int()?;
-        lexer.int()?;
+    fn load(&self, entry: Entry, loading: &mut BTreeSet<u32>) -> Result<Value, String> {
+        let number = entry.number;
+        if !loading.insert(number) {
+            return Err(format!("object {number} refers to itself"));
+        }
+        let mut lexer = Lexer::new(&self.bytes, entry.offset);
+        let found = (lexer.int()?, lexer.int()?);
         lexer.expect_keyword("obj")?;
-        if found != i64::from(number) {
-            return Err(format!("xref says object {number} but found {found}"));
+        if found != (i64::from(number), i64::from(entry.generation)) {
+            return Err(format!(
+                "xref says object {number} {} but found {} {}",
+                entry.generation, found.0, found.1
+            ));
         }
         let value = lexer.value()?;
         if !lexer.peek_keyword("stream") {
@@ -127,10 +146,11 @@ impl Pdf {
             return Err(format!("stream {number} has no dictionary"));
         };
         lexer.expect_keyword("stream")?;
-        lexer
-            .eol()
-            .ok_or("stream keyword not followed by an end of line")?;
-        let length = self.stream_length(&dict)?;
+        if !lexer.rest().starts_with(b"\r\n") && !lexer.rest().starts_with(b"\n") {
+            return Err("stream keyword not followed by CR LF or LF".into());
+        }
+        lexer.eol();
+        let length = self.stream_length(&dict, loading)?;
         let data = lexer.take(length)?.to_vec();
         lexer.eol();
         if !lexer.rest().starts_with(b"endstream") {
@@ -143,9 +163,9 @@ impl Pdf {
         Ok(Value::Stream(dict, data))
     }
 
-    fn stream_length(&self, dict: &Dict) -> Result<usize, String> {
+    fn stream_length(&self, dict: &Dict, loading: &mut BTreeSet<u32>) -> Result<usize, String> {
         let length = match dict.get("Length").ok_or("stream without /Length")? {
-            Value::Ref(number, _) => self.load(*number)?,
+            Value::Ref(number, _) => self.load(self.entry(*number)?, loading)?,
             direct => direct.clone(),
         };
         match length {
@@ -166,16 +186,22 @@ impl Pdf {
             .map_or(&Value::Null, |value| self.resolve(value))
     }
 
+    /// A stream's dictionary and bytes as stored, whatever its filter.
+    pub fn raw_stream<'a>(&'a self, value: &'a Value) -> Result<(&'a Dict, &'a [u8]), String> {
+        match self.resolve(value) {
+            Value::Stream(dict, raw) => Ok((dict, raw)),
+            other => Err(format!("not a stream: {other:?}")),
+        }
+    }
+
     /// A stream's data, inflated when its filter is `/FlateDecode`.
     pub fn stream_data(&self, value: &Value) -> Result<Vec<u8>, String> {
-        let Value::Stream(dict, raw) = self.resolve(value) else {
-            return Err("not a stream".into());
-        };
+        let (dict, raw) = self.raw_stream(value)?;
         match self.get(dict, "Filter") {
-            Value::Null => Ok(raw.clone()),
+            Value::Null => Ok(raw.to_vec()),
             Value::Name(filter) if filter == "FlateDecode" => {
                 let mut out = Vec::new();
-                ZlibDecoder::new(&raw[..])
+                ZlibDecoder::new(raw)
                     .read_to_end(&mut out)
                     .map_err(|err| format!("inflate: {err}"))?;
                 Ok(out)
@@ -184,65 +210,93 @@ impl Pdf {
         }
     }
 
-    pub fn catalog(&self) -> &Dict {
+    pub fn catalog(&self) -> Result<&Dict, String> {
         self.get(&self.trailer, "Root")
             .dict()
-            .expect("/Root dictionary")
+            .ok_or_else(|| "/Root is not a dictionary".into())
     }
 
-    /// Leaf page dictionaries in document order.
-    pub fn pages(&self) -> Vec<&Dict> {
+    /// Leaf page dictionaries in document order; every `/Count` must match.
+    pub fn pages(&self) -> Result<Vec<&Dict>, String> {
+        let root = self
+            .catalog()?
+            .get("Pages")
+            .ok_or("catalog without /Pages")?;
         let mut out = Vec::new();
-        self.collect_pages(self.get(self.catalog(), "Pages"), &mut out);
-        out
+        self.collect_pages(root, &mut BTreeSet::new(), &mut out)?;
+        Ok(out)
     }
 
-    fn collect_pages<'a>(&'a self, node: &'a Value, out: &mut Vec<&'a Dict>) {
-        let dict = node.dict().expect("page tree node");
+    fn collect_pages<'a>(
+        &'a self,
+        node: &'a Value,
+        visited: &mut BTreeSet<u32>,
+        out: &mut Vec<&'a Dict>,
+    ) -> Result<(), String> {
+        let Value::Ref(number, _) = node else {
+            return Err(format!("page tree node is not a reference: {node:?}"));
+        };
+        if !visited.insert(*number) {
+            return Err(format!("page tree visits object {number} twice"));
+        }
+        let dict = self
+            .resolve(node)
+            .dict()
+            .ok_or_else(|| format!("page tree node {number} is not a dictionary"))?;
         match self.get(dict, "Type") {
             Value::Name(kind) if kind == "Pages" => {
                 let Value::Array(kids) = self.get(dict, "Kids") else {
-                    panic!("/Kids is not an array");
+                    return Err(format!("/Kids of {number} is not an array"));
                 };
+                let before = out.len();
                 for kid in kids {
-                    self.collect_pages(self.resolve(kid), out);
+                    self.collect_pages(kid, visited, out)?;
+                }
+                let leaves = (out.len() - before) as f64;
+                if self.get(dict, "Count").number() != Some(leaves) {
+                    return Err(format!("/Count of {number} is not its {leaves} pages"));
                 }
             }
-            _ => out.push(dict),
+            Value::Name(kind) if kind == "Page" => out.push(dict),
+            other => return Err(format!("page tree node {number} has /Type {other:?}")),
         }
-    }
-
-    pub fn page_count(&self) -> i64 {
-        let pages = self.get(self.catalog(), "Pages").dict().expect("/Pages");
-        self.get(pages, "Count").number().expect("/Count") as i64
+        Ok(())
     }
 
     /// A page attribute, inherited through `/Parent` when the page lacks it.
-    pub fn page_attr<'a>(&'a self, page: &'a Dict, key: &str) -> &'a Value {
+    pub fn page_attr<'a>(&'a self, page: &'a Dict, key: &str) -> Result<&'a Value, String> {
         let mut node = page;
+        let mut visited = BTreeSet::new();
         loop {
             if node.contains_key(key) {
-                return self.get(node, key);
+                return Ok(self.get(node, key));
             }
-            match self.get(node, "Parent").dict() {
-                Some(parent) => node = parent,
-                None => return &Value::Null,
+            match node.get("Parent") {
+                None => return Ok(&Value::Null),
+                Some(Value::Ref(number, _)) if visited.insert(*number) => {
+                    node = self
+                        .objects
+                        .get(number)
+                        .and_then(Value::dict)
+                        .ok_or_else(|| format!("/Parent {number} is not a dictionary"))?;
+                }
+                Some(other) => return Err(format!("bad or cyclic /Parent {other:?}")),
             }
         }
     }
 
-    pub fn media_boxes(&self) -> Vec<[f64; 4]> {
-        self.pages()
+    pub fn media_boxes(&self) -> Result<Vec<[f64; 4]>, String> {
+        self.pages()?
             .into_iter()
             .map(|page| {
-                let Value::Array(items) = self.page_attr(page, "MediaBox") else {
-                    panic!("page without /MediaBox");
+                let Value::Array(items) = self.page_attr(page, "MediaBox")? else {
+                    return Err("page without /MediaBox".to_string());
                 };
-                let numbers: Vec<f64> = items
-                    .iter()
-                    .map(|v| self.resolve(v).number().unwrap())
-                    .collect();
-                numbers.try_into().expect("four MediaBox numbers")
+                let numbers: Option<Vec<f64>> =
+                    items.iter().map(|v| self.resolve(v).number()).collect();
+                numbers
+                    .and_then(|numbers| numbers.try_into().ok())
+                    .ok_or_else(|| format!("bad /MediaBox {items:?}"))
             })
             .collect()
     }
@@ -283,42 +337,167 @@ pub fn decode_text(bytes: &[u8]) -> Result<String, String> {
         .collect()
 }
 
-const OPERATORS: &[&str] = &[
-    "b", "B", "b*", "B*", "BDC", "BMC", "BT", "BX", "c", "cm", "CS", "cs", "d", "d0", "d1", "Do",
-    "DP", "EMC", "ET", "EX", "f", "F", "f*", "G", "g", "gs", "h", "i", "j", "J", "K", "k", "l",
-    "m", "M", "MP", "n", "q", "Q", "re", "RG", "rg", "ri", "s", "S", "SC", "sc", "SCN", "scn",
-    "sh", "T*", "Tc", "Td", "TD", "Tf", "Tj", "TJ", "TL", "Tm", "Tr", "Ts", "Tw", "Tz", "v", "w",
-    "W", "W*", "y", "'", "\"",
+/// Operand shapes (ISO 32000-1 Annex A): `n` number, `N` name, `s` string,
+/// `a` array, `p` name or dictionary; `*` one to four numbers, `+` numbers,
+/// a name, or numbers and then a name.
+const OPERATORS: &[(&str, &str)] = &[
+    ("b", ""),
+    ("B", ""),
+    ("b*", ""),
+    ("B*", ""),
+    ("BDC", "Np"),
+    ("BMC", "N"),
+    ("BT", ""),
+    ("BX", ""),
+    ("c", "nnnnnn"),
+    ("cm", "nnnnnn"),
+    ("CS", "N"),
+    ("cs", "N"),
+    ("d", "an"),
+    ("d0", "nn"),
+    ("d1", "nnnnnn"),
+    ("Do", "N"),
+    ("DP", "Np"),
+    ("EMC", ""),
+    ("ET", ""),
+    ("EX", ""),
+    ("f", ""),
+    ("F", ""),
+    ("f*", ""),
+    ("G", "n"),
+    ("g", "n"),
+    ("gs", "N"),
+    ("h", ""),
+    ("i", "n"),
+    ("j", "n"),
+    ("J", "n"),
+    ("K", "nnnn"),
+    ("k", "nnnn"),
+    ("l", "nn"),
+    ("m", "nn"),
+    ("M", "n"),
+    ("MP", "N"),
+    ("n", ""),
+    ("q", ""),
+    ("Q", ""),
+    ("re", "nnnn"),
+    ("RG", "nnn"),
+    ("rg", "nnn"),
+    ("ri", "N"),
+    ("s", ""),
+    ("S", ""),
+    ("SC", "*"),
+    ("sc", "*"),
+    ("SCN", "+"),
+    ("scn", "+"),
+    ("sh", "N"),
+    ("T*", ""),
+    ("Tc", "n"),
+    ("Td", "nn"),
+    ("TD", "nn"),
+    ("Tf", "Nn"),
+    ("Tj", "s"),
+    ("TJ", "a"),
+    ("TL", "n"),
+    ("Tm", "nnnnnn"),
+    ("Tr", "n"),
+    ("Ts", "n"),
+    ("Tw", "n"),
+    ("Tz", "n"),
+    ("v", "nnnn"),
+    ("w", "n"),
+    ("W", ""),
+    ("W*", ""),
+    ("y", "nnnn"),
+    ("'", "s"),
+    ("\"", "nns"),
 ];
 
-/// Operations of a content stream; unknown operators, references and
-/// exponents are errors.
+fn fits(shape: u8, operand: &Value) -> bool {
+    matches!(
+        (shape, operand),
+        (b'n', Value::Int(_) | Value::Real(_))
+            | (b'N', Value::Name(_))
+            | (b's', Value::Str(_))
+            | (b'a', Value::Array(_))
+            | (b'p', Value::Name(_) | Value::Dict(_))
+    )
+}
+
+fn operands_fit(shape: &str, operands: &[Value]) -> bool {
+    let numbers = |values: &[Value]| values.iter().all(|value| fits(b'n', value));
+    match shape {
+        "*" => (1..=4).contains(&operands.len()) && numbers(operands),
+        "+" => match operands {
+            [before @ .., Value::Name(_)] => numbers(before),
+            _ => !operands.is_empty() && numbers(operands),
+        },
+        _ => {
+            shape.len() == operands.len()
+                && shape
+                    .bytes()
+                    .zip(operands)
+                    .all(|(shape, operand)| fits(shape, operand))
+        }
+    }
+}
+
+/// Operations of a content stream. Unknown operators, wrong operands,
+/// references, exponents and unbalanced `q`/`Q` or `BT`/`ET` are errors.
 pub fn tokenize_content(data: &[u8]) -> Result<Vec<Op>, String> {
     let mut lexer = Lexer::new(data, 0);
     lexer.content = true;
     let mut ops = Vec::new();
     let mut operands = Vec::new();
+    let mut saved_states = 0_usize;
+    let mut in_text = false;
     while !lexer.at_end() {
-        match lexer.value()? {
-            Value::Operator(operator) if operator == "BI" => {
-                if !operands.is_empty() {
-                    return Err("operands before BI".into());
-                }
-                ops.push(Op {
-                    operator,
-                    operands: lexer.inline_image()?,
-                });
+        let operator = match lexer.value()? {
+            Value::Operator(operator) => operator,
+            operand => {
+                operands.push(operand);
+                continue;
             }
-            Value::Operator(operator) if OPERATORS.contains(&operator.as_str()) => ops.push(Op {
-                operator,
-                operands: std::mem::take(&mut operands),
-            }),
-            Value::Operator(operator) => return Err(format!("unknown operator {operator:?}")),
-            operand => operands.push(operand),
+        };
+        if operator == "BI" {
+            if !operands.is_empty() {
+                return Err("operands before BI".into());
+            }
+            let operands = lexer.inline_image()?;
+            ops.push(Op { operator, operands });
+            continue;
         }
+        let shape = OPERATORS
+            .iter()
+            .find(|(name, _)| *name == operator)
+            .map(|&(_, shape)| shape)
+            .ok_or_else(|| format!("unknown operator {operator:?}"))?;
+        if !operands_fit(shape, &operands) {
+            return Err(format!("{operator} with operands {operands:?}"));
+        }
+        match operator.as_str() {
+            "q" => saved_states += 1,
+            "Q" => {
+                saved_states = saved_states
+                    .checked_sub(1)
+                    .ok_or("Q without a matching q")?
+            }
+            "BT" if in_text => return Err("BT inside a text object".into()),
+            "BT" => in_text = true,
+            "ET" if !in_text => return Err("ET without BT".into()),
+            "ET" => in_text = false,
+            _ => {}
+        }
+        ops.push(Op {
+            operator,
+            operands: std::mem::take(&mut operands),
+        });
     }
     if !operands.is_empty() {
         return Err(format!("operands without an operator: {operands:?}"));
+    }
+    if saved_states > 0 || in_text {
+        return Err("content ends inside q or BT".into());
     }
     Ok(ops)
 }
@@ -331,48 +510,65 @@ fn header_version(bytes: &[u8]) -> Result<String, String> {
         .ok_or_else(|| format!("no %PDF- header: {line:?}"))
 }
 
-fn startxref(bytes: &[u8]) -> Result<usize, String> {
-    let tail = &bytes[bytes.len().saturating_sub(64)..];
-    let text = String::from_utf8_lossy(tail);
-    let after = text.rsplit_once("startxref").ok_or("no startxref")?.1;
-    let mut lines = after.split_whitespace();
-    let offset = lines.next().ok_or("no xref offset")?;
-    if lines.next() != Some("%%EOF") {
-        return Err("file does not end with %%EOF".into());
-    }
-    offset
-        .parse()
-        .map_err(|_| format!("bad startxref {offset:?}"))
+/// The offset in the file's last `startxref` line.
+fn last_startxref(bytes: &[u8]) -> Result<usize, String> {
+    let at = bytes
+        .windows(9)
+        .rposition(|window| window == b"startxref")
+        .ok_or("no startxref")?;
+    Lexer::new(bytes, at).startxref()
 }
 
-type Entries = Vec<(u32, Option<usize>)>;
+type Entries = Vec<(u32, Option<Entry>)>;
 
-/// One xref section and its trailer; a free entry's offset is `None`.
-fn xref_section(bytes: &[u8], at: usize) -> Result<(Entries, Dict), String> {
+struct Section {
+    entries: Entries,
+    trailer: Dict,
+}
+
+/// One xref section, its trailer and the `startxref` line after it; a free
+/// entry is `None`. The newest section must end the file.
+fn xref_section(bytes: &[u8], at: usize, newest: bool) -> Result<Section, String> {
     let mut lexer = Lexer::new(bytes, at);
     lexer.expect_keyword("xref")?;
     let mut entries = Vec::new();
     while !lexer.peek_keyword("trailer") {
         let first = u32::try_from(lexer.int()?).map_err(|_| "bad subsection start")?;
         let count = u32::try_from(lexer.int()?).map_err(|_| "bad subsection count")?;
+        let end = first.checked_add(count).ok_or("subsection past u32")?;
         lexer
             .eol()
             .ok_or("subsection header without an end of line")?;
-        for number in first..first + count {
-            let entry = lexer.take(20)?;
-            let (offset, generation, in_use) = xref_entry(entry)
-                .ok_or_else(|| format!("bad xref entry {:?}", String::from_utf8_lossy(entry)))?;
+        for number in first..end {
+            let raw = lexer.take(20)?;
+            let (offset, generation, in_use) = xref_entry(raw)
+                .ok_or_else(|| format!("bad xref entry {:?}", String::from_utf8_lossy(raw)))?;
             if number == 0 && (in_use || generation != 65_535) {
                 return Err("xref entry 0 is not free with generation 65535".into());
             }
-            entries.push((number, in_use.then_some(offset)));
+            let generation = u16::try_from(generation).map_err(|_| "xref generation past 65535")?;
+            let entry = in_use.then_some(Entry {
+                number,
+                generation,
+                offset,
+            });
+            entries.push((number, entry));
         }
     }
     lexer.expect_keyword("trailer")?;
     let Value::Dict(trailer) = lexer.value()? else {
         return Err("trailer is not a dictionary".into());
     };
-    Ok((entries, trailer))
+    lexer.skip_whitespace();
+    if lexer.startxref()? != at {
+        return Err(format!(
+            "the startxref after the trailer at {at} points elsewhere"
+        ));
+    }
+    if newest && !lexer.rest().iter().all(|&b| is_space(b)) {
+        return Err("data after %%EOF".into());
+    }
+    Ok(Section { entries, trailer })
 }
 
 /// `\d{10} \d{5} [nf]` and a two-byte end of line (7.5.4).
@@ -433,22 +629,50 @@ impl<'a> Lexer<'a> {
         self.pos >= self.bytes.len()
     }
 
+    fn skip_whitespace(&mut self) {
+        while self.rest().first().copied().is_some_and(is_space) {
+            self.pos += 1;
+        }
+    }
+
     fn skip_space(&mut self) {
-        while let Some(&byte) = self.bytes.get(self.pos) {
-            if is_space(byte) {
+        loop {
+            self.skip_whitespace();
+            if self.rest().first() != Some(&b'%') {
+                return;
+            }
+            while self
+                .rest()
+                .first()
+                .is_some_and(|&b| b != b'\n' && b != b'\r')
+            {
                 self.pos += 1;
-            } else if byte == b'%' {
-                while self
-                    .bytes
-                    .get(self.pos)
-                    .is_some_and(|&b| b != b'\n' && b != b'\r')
-                {
-                    self.pos += 1;
-                }
-            } else {
-                break;
             }
         }
+    }
+
+    /// `startxref`, an end of line, the offset, an end of line and `%%EOF`.
+    fn startxref(&mut self) -> Result<usize, String> {
+        let malformed = || "malformed startxref line".to_string();
+        if !self.rest().starts_with(b"startxref") {
+            return Err(malformed());
+        }
+        self.pos += 9;
+        self.eol().ok_or_else(malformed)?;
+        let digits = self.word();
+        if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+            return Err(malformed());
+        }
+        let offset = std::str::from_utf8(digits)
+            .unwrap()
+            .parse()
+            .map_err(|_| malformed())?;
+        self.eol().ok_or_else(malformed)?;
+        if !self.rest().starts_with(b"%%EOF") {
+            return Err(malformed());
+        }
+        self.pos += 5;
+        Ok(offset)
     }
 
     fn take(&mut self, count: usize) -> Result<&'a [u8], String> {
@@ -570,24 +794,25 @@ impl<'a> Lexer<'a> {
         Ok(first)
     }
 
-    /// `[+-]?\d*\.?\d*` with a digit, ended by a space or a delimiter.
+    /// `[+-]?\d*\.?\d*` with a digit, ended by a space or a delimiter. An
+    /// integer must fit in i64.
     fn number(&mut self) -> Result<Value, String> {
         let start = self.pos;
         let token = self.word();
         let text = std::str::from_utf8(token).map_err(|_| "number not ASCII")?;
         let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+        let dots = unsigned.bytes().filter(|&b| b == b'.').count();
         let well_formed = unsigned.bytes().any(|b| b.is_ascii_digit())
             && unsigned.bytes().all(|b| b.is_ascii_digit() || b == b'.')
-            && unsigned.bytes().filter(|&b| b == b'.').count() <= 1;
+            && dots <= 1;
+        let bad = || format!("bad number {text:?} at {start}");
         if !well_formed {
-            return Err(format!("bad number {text:?} at {start}"));
+            return Err(bad());
         }
-        if let Ok(int) = text.parse::<i64>() {
-            return Ok(Value::Int(int));
+        if dots == 0 {
+            return text.parse().map(Value::Int).map_err(|_| bad());
         }
-        text.parse::<f64>()
-            .map(Value::Real)
-            .map_err(|_| format!("bad number {text:?} at {start}"))
+        text.parse().map(Value::Real).map_err(|_| bad())
     }
 
     fn dictionary(&mut self) -> Result<Value, String> {
