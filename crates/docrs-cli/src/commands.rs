@@ -30,6 +30,25 @@ fn emit(json_mode: bool, value: Value, human: impl FnOnce() -> String) {
     }
 }
 
+/// A paragraph's text as Word shows it: field results, not field codes.
+fn shown_text(tree: &docrs::xml::XmlTree, paragraph: docrs::xml::NodeId) -> String {
+    let w = docrs::wml::W;
+    let in_run = |node| {
+        tree.parent(node)
+            .is_some_and(|parent| tree.is(parent, w, "r"))
+    };
+    tree.descendants(paragraph)
+        .filter_map(|node| match tree.local_name(node) {
+            Some("t") if tree.is(node, w, "t") => Some(tree.text_content(node)),
+            Some("tab") if tree.is(node, w, "tab") && in_run(node) => Some("\t".to_string()),
+            Some("br" | "cr") if tree.is(node, w, "br") || tree.is(node, w, "cr") => {
+                in_run(node).then(|| "\n".to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn emit_composition(
     json_mode: bool,
     schema: &str,
@@ -503,7 +522,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     "page": p.page,
                     "y": (p.y * 100.0).round() / 100.0,
                     "row_end": p.row_end,
-                    "text": p.node.filter(|_| !p.row_end).map(|n| tree.text_content(n).chars().take(40).collect::<String>()),
+                    "text": p.node.filter(|_| !p.row_end).map(|n| shown_text(tree, n).chars().take(40).collect::<String>()),
                     "heading": p.node.filter(|_| !p.row_end).is_some_and(|n| tree.child_elements(n).any(|c| tree.local_name(c) == Some("bookmarkStart"))),
                 })).collect::<Vec<_>>(),
             });

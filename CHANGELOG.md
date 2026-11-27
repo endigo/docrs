@@ -9,6 +9,10 @@
 - A kern pair listed twice in a font's `kern` table takes its first value, as Word does. Perpetua Titling MT Bold lists period then double quote at −78 and −51 units; estimates measured from the font file used −51, and Word for Mac sets −78.
 - Page estimates look font families up by name instead of scanning every face for each new family. A document naming 20,000 families took 0.64 s to lay out, and now takes 0.08 s, with the same result.
 
+### Command line
+
+- `docrs layout` shows each paragraph's text as Word displays it: field results, tabs and line breaks, not field codes.
+
 ## 1.0.1 (2026-11-23)
 
 ### Library
