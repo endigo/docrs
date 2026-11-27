@@ -98,8 +98,9 @@ impl Styles {
         styles
     }
 
-    /// A style's properties with its `basedOn` chain: nearest wins, and
-    /// toggles XOR (ISO 29500-1 §17.7.3).
+    /// A style's properties with its `basedOn` chain, nearest first: Word
+    /// resets a toggle a style sets instead of XORing it (MS-OI29500
+    /// §2.1.258).
     pub(super) fn chain(&mut self, id: &str) -> Rc<(PPr, RPr)> {
         if let Some(found) = self.chains.get(id) {
             return found.clone();
@@ -108,7 +109,7 @@ impl Styles {
         let mut rpr = RPr::default();
         for def in self.lineage(id).into_iter().rev() {
             ppr.merge(&def.ppr);
-            rpr.layer(&def.rpr);
+            rpr.merge(&def.rpr);
         }
         let out = Rc::new((ppr, rpr));
         self.chains.insert(id.to_string(), out.clone());

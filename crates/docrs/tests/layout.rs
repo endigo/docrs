@@ -1040,56 +1040,59 @@ fn styled_run(pstyle: &str, rpr: &str) -> String {
 }
 
 #[test]
-fn toggles_xor_through_the_style_chain_and_direct_formatting_is_absolute() {
+fn toggles_take_the_nearest_style_in_a_chain_and_xor_across_levels() {
     let styles = [
         style("paragraph", "Plain", "", ""),
         style("paragraph", "Bold", "", "<w:b/>"),
-        style("paragraph", "BoldAgain", "Bold", "<w:b/>"),
-        style("paragraph", "BoldOff", "Bold", "<w:b w:val=\"0\"/>"),
+        style("paragraph", "Again", "Bold", "<w:b/>"),
+        style("paragraph", "Off", "Bold", "<w:b w:val=\"0\"/>"),
         style("paragraph", "Italic", "", "<w:i/>"),
         style("character", "ItalicChar", "", "<w:i/>"),
         style("character", "BoldChar", "", "<w:b/>"),
-        style("character", "BoldCharAgain", "BoldChar", "<w:b/>"),
+        style("character", "BoldCharOff", "BoldChar", "<w:b w:val=\"0\"/>"),
         style("paragraph", "Hidden", "", "<w:vanish/>"),
-        style("paragraph", "HiddenAgain", "Hidden", "<w:vanish/>"),
+        style(
+            "paragraph",
+            "HiddenOff",
+            "Hidden",
+            "<w:vanish w:val=\"0\"/>",
+        ),
     ]
     .concat();
     let body = [
         styled_run("Plain", ""),
         styled_run("Plain", "<w:b/>"),
-        styled_run("Bold", ""),
-        styled_run("BoldAgain", ""),
-        styled_run("BoldOff", ""),
+        styled_run("Again", ""),
+        styled_run("Off", ""),
         styled_run("Bold", "<w:b w:val=\"0\"/>"),
         styled_run("Plain", "<w:i/>"),
         styled_run("Italic", "<w:rStyle w:val=\"ItalicChar\"/>"),
-        styled_run("Plain", "<w:rStyle w:val=\"BoldCharAgain\"/>"),
-        styled_run("HiddenAgain", ""),
+        styled_run("Plain", "<w:rStyle w:val=\"BoldCharOff\"/>"),
+        styled_run("HiddenOff", ""),
     ]
     .concat();
     let widths = line_widths(&body, &styles);
     let [
         plain,
         bold,
-        style_bold,
-        bold_twice,
-        bold_off,
+        again,
+        off,
         direct_off,
         italic,
-        italic_twice,
-        char_twice,
+        italic_xor,
+        char_off,
         shown,
     ] = widths[..]
     else {
         panic!("{widths:?}");
     };
     assert!(bold > plain, "{widths:?}");
-    assert_eq!(style_bold, bold);
-    assert_eq!(bold_twice, plain, "bold in a style and its base cancel");
-    assert_eq!(bold_off, bold, "a false toggle in a style changes nothing");
+    // MS-OI29500 §2.1.258: a style's own value resets the toggle.
+    assert_eq!(again, bold, "bold based on bold is bold");
+    assert_eq!(off, plain, "bold off based on bold is regular");
     assert_eq!(direct_off, plain, "direct formatting is absolute");
     assert_ne!(italic, plain);
-    assert_eq!(italic_twice, plain, "paragraph and character italic cancel");
-    assert_eq!(char_twice, plain);
-    assert_eq!(shown, plain, "hidden in a style and its base cancel");
+    assert_eq!(italic_xor, plain, "paragraph and character italic cancel");
+    assert_eq!(char_off, plain);
+    assert_eq!(shown, plain, "hidden off based on hidden is shown");
 }

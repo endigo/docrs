@@ -4,9 +4,10 @@
 //! Formatting is resolved as Word does: document defaults, then the table
 //! style (in tables), the paragraph style chain, the numbering level's
 //! paragraph properties and direct formatting; run properties likewise
-//! through the character style. The nearest value wins, except that the
-//! toggle properties (bold, italic, caps, small caps, hidden) XOR through
-//! every style and the document defaults; direct formatting is absolute.
+//! through the character style. Within one style chain the nearest value
+//! wins; the toggle properties (bold, italic, caps, small caps, strike,
+//! hidden) XOR across the document defaults and the table, paragraph and
+//! character styles, and direct formatting is absolute.
 
 mod build;
 mod colour;

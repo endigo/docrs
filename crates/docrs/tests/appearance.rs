@@ -135,7 +135,12 @@ fn styles() -> String {
         style("paragraph", "BoldPara", "Normal", "<w:b/>"),
         style("paragraph", "ItalicPara", "Normal", "<w:i/>"),
         style("paragraph", "StrikePara", "Normal", "<w:strike/>"),
-        style("paragraph", "StrikeAgain", "StrikePara", "<w:strike/>"),
+        style(
+            "paragraph",
+            "StrikeOff",
+            "StrikePara",
+            "<w:strike w:val=\"0\"/>",
+        ),
         style("character", "ItalicChar", "", "<w:i/>"),
         style(
             "character",
@@ -215,9 +220,9 @@ fn body() -> String {
             .concat(),
         ),
         para(
-            &pstyle("StrikeAgain"),
+            &pstyle("StrikeOff"),
             &[
-                run("", "strike-twice "),
+                run("", "strike-off "),
                 run("<w:strike/>", "strike "),
                 run("<w:dstrike/>", "dstrike"),
             ]
@@ -393,7 +398,7 @@ fn toggles_xor_through_styles_and_direct_formatting_is_absolute() {
     assert!(!look(&runs, "direct-bold-off").bold);
     assert!(look(&runs, "style-italic").italic);
     assert!(!look(&runs, "italic-xor").italic);
-    assert_eq!(look(&runs, "strike-twice").strike, Strike::None);
+    assert_eq!(look(&runs, "strike-off").strike, Strike::None);
     assert_eq!(look(&runs, "strike").strike, Strike::Single);
     assert_eq!(look(&runs, "dstrike").strike, Strike::Double);
 }

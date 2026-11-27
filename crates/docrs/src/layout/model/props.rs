@@ -132,7 +132,6 @@ impl RPr {
             xor(self.small_caps, other.small_caps),
             xor(self.vanish, other.vanish),
             xor(self.strike, other.strike),
-            xor(self.dstrike, other.dstrike),
         ];
         self.merge(other);
         [
@@ -142,7 +141,6 @@ impl RPr {
             self.small_caps,
             self.vanish,
             self.strike,
-            self.dstrike,
         ] = toggles;
     }
 }
