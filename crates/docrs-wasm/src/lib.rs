@@ -295,8 +295,14 @@ pub fn convert(
         .as_ref()
         .and_then(|fields| fields["filled"].as_u64())
         .unwrap_or(0);
-    if filled > 0 && report.toc.is_some() {
-        docrs::layout::refresh_page_numbers(&mut document)?;
+    if let (true, Some(toc)) = (filled > 0, report.toc.as_mut()) {
+        let refreshed = docrs::layout::refresh_page_numbers_with_layout(&mut document)?;
+        if let Some(layout) = refreshed.layout {
+            toc.entries = refreshed.entries;
+            toc.pages = layout.pages;
+            toc.missing_fonts = layout.missing_fonts;
+            toc.embedded_fonts = layout.embedded_fonts;
+        }
     }
     if options.redact {
         report.redact();
@@ -1116,10 +1122,10 @@ mod tests {
     }
 
     #[test]
-    fn contents_page_numbers_follow_the_fields_filled_in() {
+    fn contents_page_numbers_and_report_follow_the_fields_filled_in() {
         let filler = "Filler text that takes a full line of the page body here.\n\n".repeat(56);
         let source = format!("# Intro\n\nDear {{{{Client}}}},\n\n{filler}# Late\n\nEnd.\n");
-        let late_page = |fields: &[(&str, &str)]| {
+        let late_page = |fields: &[(&str, &str)]| -> (String, u64) {
             let options = Options {
                 toc: Some(true),
                 fields: fields
@@ -1135,7 +1141,7 @@ mod tests {
                 Timestamp::from_unix(0),
             )
             .unwrap();
-            assert!(converted.report["toc"].is_object());
+            let pages = converted.report["toc"]["pages"].as_u64().unwrap();
             let document = reopen(&converted.docx);
             let xml = String::from_utf8(docrs::xml::serialize(
                 document.package().xml("word/document.xml").unwrap(),
@@ -1143,11 +1149,11 @@ mod tests {
             .unwrap();
             let rest = &xml[xml.find(" PAGEREF late ").unwrap()..];
             let number = &rest[rest.find("<w:t>").unwrap() + 5..];
-            number[..number.find('<').unwrap()].to_string()
+            (number[..number.find('<').unwrap()].to_string(), pages)
         };
-        assert_eq!(late_page(&[]), "3");
         let value = "Jo Smith of a long merge value ".repeat(12);
-        assert_eq!(late_page(&[("Client", &value)]), "4");
+        assert_eq!(late_page(&[]), ("3".to_string(), 3));
+        assert_eq!(late_page(&[("Client", &value)]), ("4".to_string(), 4));
     }
 
     fn fill_fields_in(
