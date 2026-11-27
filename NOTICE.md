@@ -52,3 +52,7 @@ macOS and Microsoft Word for Mac and from Office's downloaded cloud fonts
 families LibreOffice-made templates name. The font names in the table are
 the families' names as documents refer to them; the fonts' trademarks
 belong to their owners.
+
+## Fonts
+
+`tests/fixtures/fonts/` holds openly licensed fonts the PDF fixtures use, each with its licence; `tests/fixtures/fonts/PROVENANCE.md` gives their sources and hashes.

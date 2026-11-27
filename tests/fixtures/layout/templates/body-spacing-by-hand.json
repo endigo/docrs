@@ -1,0 +1,14 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","toc":false,"y":84.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to be","toc":false,"y":109.85},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to be","toc":false,"y":134.85},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","toc":false,"y":171.85},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph, long enough to be","toc":false,"y":195.22}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

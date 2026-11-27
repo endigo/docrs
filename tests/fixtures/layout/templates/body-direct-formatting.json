@@ -1,0 +1,14 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","toc":false,"y":84.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph one with direct fo","toc":false,"y":112.34},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph two with direct fo","toc":false,"y":134.83},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","toc":false,"y":157.32},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph three with direct ","toc":false,"y":181.17}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

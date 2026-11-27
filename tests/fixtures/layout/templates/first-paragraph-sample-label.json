@@ -1,0 +1,14 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Heading 1","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"First Paragraph.","toc":false,"y":100.4},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph written the way an","toc":false,"y":124.2},
+    {"heading":false,"page":1,"row_end":false,"text":"Heading 2","toc":false,"y":152.2},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph written the way an","toc":false,"y":178.29}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

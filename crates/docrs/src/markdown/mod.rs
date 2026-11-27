@@ -263,6 +263,8 @@ pub struct TocReport {
     pub embedded_fonts: Vec<String>,
 }
 
+const TOC_PAGE_NUMBERS_SKIPPED: &str = "the document is too long or complex to estimate its pages; Word is asked to update the contents page numbers when it opens the document";
+
 /// Every warning code, with a fixed description that quotes nothing from
 /// the input ([`MarkdownReport::redact`]).
 pub const WARNING_CODES: &[(&str, &str)] = &[
@@ -354,6 +356,7 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "toc_outside_body",
         "a table of contents marker inside a footnote was dropped",
     ),
+    ("toc_page_numbers_skipped", TOC_PAGE_NUMBERS_SKIPPED),
     (
         "undefined_footnote",
         "a footnote reference has no definition and is kept as text",

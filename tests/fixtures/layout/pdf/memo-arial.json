@@ -1,0 +1,26 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":true,"page":1,"row_end":false,"text":"Office relocation","toc":false,"y":96.0},
+    {"heading":false,"page":1,"row_end":false,"text":"To: All staff\nFrom: Operations\nDate: 2 N","toc":false,"y":114.51},
+    {"heading":false,"page":1,"row_end":false,"text":"The lease on our current office ends on ","toc":false,"y":164.15},
+    {"heading":true,"page":1,"row_end":false,"text":"Why we are moving","toc":false,"y":232.34},
+    {"heading":false,"page":1,"row_end":false,"text":"The current office was planned for forty","toc":false,"y":249.53},
+    {"heading":false,"page":1,"row_end":false,"text":"We also looked at staying and taking the","toc":false,"y":328.26},
+    {"heading":true,"page":1,"row_end":false,"text":"Timeline","toc":false,"y":396.44},
+    {"heading":false,"page":1,"row_end":false,"text":"The fit-out starts on 5 January and is d","toc":false,"y":413.64},
+    {"heading":false,"page":1,"row_end":false,"text":"If the fit-out runs late, the move moves","toc":false,"y":477.82},
+    {"heading":true,"page":1,"row_end":false,"text":"What each team needs to do","toc":false,"y":531.46},
+    {"heading":false,"page":1,"row_end":false,"text":"Every team lead will receive a floor pla","toc":false,"y":548.65},
+    {"heading":false,"page":1,"row_end":false,"text":"Personal items should go home before the","toc":false,"y":612.84},
+    {"heading":false,"page":1,"row_end":false,"text":"Laptops, monitors and docking stations w","toc":false,"y":662.47},
+    {"heading":true,"page":2,"row_end":false,"text":"Getting there","toc":false,"y":72.0},
+    {"heading":false,"page":2,"row_end":false,"text":"The new office is at 120 Harbour Street,","toc":false,"y":89.19},
+    {"heading":true,"page":2,"row_end":false,"text":"Questions","toc":false,"y":157.38},
+    {"heading":false,"page":2,"row_end":false,"text":"Operations will hold two open sessions i","toc":false,"y":174.57}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

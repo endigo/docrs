@@ -17,6 +17,16 @@ mod model;
 use std::collections::{HashMap, HashSet};
 
 pub use flow::Placed;
+#[cfg(test)]
+pub(crate) use flow::TEST_LAYOUT_WORK;
+
+/// Lay out with this work bound instead of the default on this thread
+/// (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn set_test_layout_work(budget: Option<u64>) {
+    flow::TEST_LAYOUT_WORK.set(budget);
+}
 pub use fonts::{Face, FontBook};
 
 use fonts::{FontError, Parsed};
@@ -28,6 +38,7 @@ use crate::txn::Txn;
 use crate::wml::{R, W, set_leading_text, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Result};
+use model::StoryId;
 
 /// The estimated layout of a document's body.
 #[derive(Debug, Clone)]
@@ -123,10 +134,11 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
     Ok((out, unread))
 }
 
-/// Estimate the layout of `main`'s body. `fonts` are extra font files the
-/// caller has (measured locally, never shipped); the document's embedded
-/// fonts take precedence over them and over the bundled table.
-pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
+fn model_of(
+    txn: &Txn<'_>,
+    main: &str,
+    extra: Vec<Face>,
+) -> Result<(model::Model, FontBook, Vec<String>, Vec<String>)> {
     let (embedded, unread) = embedded_fonts(txn, main)?;
     let mut embedded_names: Vec<String> = embedded.iter().map(|f| f.family.clone()).collect();
     embedded_names.dedup();
@@ -134,12 +146,21 @@ pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
     own.extend(extra);
     let mut book = FontBook::new(own);
     let model = model::build(txn, main, &mut book)?;
-    let mut by_node: HashMap<NodeId, Vec<String>> = HashMap::new();
+    Ok((model, book, embedded_names, unread))
+}
+
+/// Estimate the layout of `main`'s body. `fonts` are extra font files the
+/// caller has (measured locally, never shipped); the document's embedded
+/// fonts take precedence over them and over the bundled table.
+pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
+    let (model, book, embedded_names, unread) = model_of(txn, main, extra)?;
+    let mut by_node: HashMap<(StoryId, NodeId), Vec<String>> = HashMap::new();
     collect_bookmarks(&model.blocks, &mut by_node);
-    let (placed, pages) = flow::paginate(&model);
+    let mut placed = Vec::new();
+    let pages = flow::paginate(&model, &mut placed)?;
     let mut bookmarks = HashMap::new();
     for entry in &placed {
-        if let Some(names) = entry.node.and_then(|n| by_node.get(&n)) {
+        if let Some(names) = entry.node.and_then(|n| by_node.get(&(StoryId::Body, n))) {
             for name in names {
                 bookmarks.entry(name.clone()).or_insert(entry.page);
             }
@@ -490,12 +511,103 @@ fn page_ref_bookmark(instruction: &str) -> Option<String> {
     Some(operand.value)
 }
 
-fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<NodeId, Vec<String>>) {
+/// A laid-out line (`docrs layout --lines`). Experimental.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct LineRecord {
+    /// Physical page, from 1.
+    pub page: u32,
+    pub story: String,
+    /// Points from the page's top-left corner, as are `baseline` and `tabs`.
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub baseline: f64,
+    /// Where each tab moves from and to.
+    pub tabs: Vec<(f64, f64)>,
+    /// The width left over before alignment; a justified line spreads it
+    /// over its `gaps`.
+    pub slack: f64,
+    pub gaps: u32,
+    /// Ends the paragraph, or in a line or page break.
+    pub last: bool,
+    /// `w:jc`'s value: `left`, `center`, `right`, `both`, `distribute`…
+    pub align: &'static str,
+    pub text: String,
+}
+
+/// Every line of `main`'s body. Experimental.
+#[doc(hidden)]
+pub fn line_records(
+    txn: &Txn<'_>,
+    main: &str,
+    extra: Vec<Face>,
+    each: impl FnMut(LineRecord) -> Result<()>,
+) -> Result<()> {
+    let (model, ..) = model_of(txn, main, extra)?;
+    flow::paginate(&model, &mut LineDump { page: 0, each })?;
+    Ok(())
+}
+
+struct LineDump<F> {
+    page: u32,
+    each: F,
+}
+
+impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
+    fn page(&mut self, page: &flow::PageStart) -> Result<()> {
+        self.page = page.number;
+        Ok(())
+    }
+
+    fn line(&mut self, at: flow::Point, para: &model::Para, line: &flow::Line) -> Result<()> {
+        let pieces = para
+            .pieces
+            .get(line.pieces.start as usize..line.pieces.end as usize)
+            .unwrap_or_default();
+        let text = pieces
+            .iter()
+            .filter_map(|piece| match piece {
+                model::Piece::Char { ch, .. } => Some(*ch),
+                model::Piece::Tab { .. } => Some('\t'),
+                _ => None,
+            })
+            .collect();
+        let story = match para.story {
+            StoryId::Body => "body".to_string(),
+            StoryId::Header(n) => format!("header{n}"),
+            StoryId::Footer(n) => format!("footer{n}"),
+        };
+        (self.each)(LineRecord {
+            page: self.page,
+            story,
+            x: at.x + line.start,
+            y: at.y,
+            width: line.width,
+            height: line.height,
+            baseline: at.y + line.baseline,
+            tabs: line
+                .tabs
+                .iter()
+                .map(|tab| (at.x + tab.from, at.x + tab.to))
+                .collect(),
+            slack: line.slack,
+            gaps: line.gaps,
+            last: line.last,
+            align: para.align.name(),
+            text,
+        })
+    }
+}
+
+fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId), Vec<String>>) {
     for block in blocks {
         match block {
             model::Block::Para(para) => {
                 if let (Some(node), false) = (para.node, para.bookmarks.is_empty()) {
-                    out.insert(node, para.bookmarks.clone());
+                    out.insert((para.story, node), para.bookmarks.clone());
                 }
             }
             model::Block::Table(table) => {
@@ -506,5 +618,34 @@ fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<NodeId, Vec<Stri
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model::{Block, Para, StoryId};
+    use super::*;
+
+    #[test]
+    fn bookmarks_are_keyed_by_story_and_node() {
+        // Node ids are per part: a header paragraph can share one with a
+        // body paragraph.
+        let node = Some(NodeId(3));
+        let para = |story, name: &str| {
+            Block::Para(Para {
+                story,
+                node,
+                bookmarks: vec![name.to_string()],
+                ..Para::default()
+            })
+        };
+        let blocks = [
+            para(StoryId::Header(1), "inHeader"),
+            para(StoryId::Body, "inBody"),
+        ];
+        let mut map = HashMap::new();
+        collect_bookmarks(&blocks, &mut map);
+        assert_eq!(map[&(StoryId::Body, NodeId(3))], ["inBody"]);
+        assert_eq!(map[&(StoryId::Header(1), NodeId(3))], ["inHeader"]);
     }
 }

@@ -1,0 +1,33 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":true,"page":1,"row_end":false,"text":"Onboarding checklist","toc":false,"y":96.0},
+    {"heading":false,"page":1,"row_end":false,"text":"The first list covers the first day.","toc":false,"y":114.51},
+    {"heading":false,"page":1,"row_end":false,"text":"Collect your laptop from the IT desk.","toc":false,"y":135.06},
+    {"heading":false,"page":1,"row_end":false,"text":"Set up your accounts:","toc":false,"y":149.61},
+    {"heading":false,"page":1,"row_end":false,"text":"Sign in to email and change the temporar","toc":false,"y":174.15},
+    {"heading":false,"page":1,"row_end":false,"text":"Turn on two-factor sign-in.","toc":false,"y":188.7},
+    {"heading":false,"page":1,"row_end":false,"text":"Join the team chat channels:","toc":false,"y":203.24},
+    {"heading":false,"page":1,"row_end":false,"text":"General","toc":false,"y":227.79},
+    {"heading":false,"page":1,"row_end":false,"text":"Announcements","toc":false,"y":243.08},
+    {"heading":false,"page":1,"row_end":false,"text":"Your own team's channel","toc":false,"y":258.37},
+    {"heading":false,"page":1,"row_end":false,"text":"Read the security policy and sign the ac","toc":false,"y":283.65},
+    {"heading":false,"page":1,"row_end":false,"text":"Meet your buddy for lunch.","toc":false,"y":298.2},
+    {"heading":false,"page":1,"row_end":false,"text":"Some things are worth knowing from the s","toc":false,"y":322.75},
+    {"heading":false,"page":1,"row_end":false,"text":"The office opens at eight and closes at ","toc":false,"y":343.29},
+    {"heading":false,"page":1,"row_end":false,"text":"Visitors sign in at reception.","toc":false,"y":358.58},
+    {"heading":false,"page":1,"row_end":false,"text":"Contractors also need a badge from facil","toc":false,"y":383.87},
+    {"heading":false,"page":1,"row_end":false,"text":"Delivery drivers wait in the lobby.","toc":false,"y":399.15},
+    {"heading":false,"page":1,"row_end":false,"text":"The kitchen is cleaned every afternoon a","toc":false,"y":424.44},
+    {"heading":false,"page":1,"row_end":false,"text":"The second list covers the first week. I","toc":false,"y":449.73},
+    {"heading":false,"page":1,"row_end":false,"text":"Book the induction sessions you have not","toc":false,"y":470.28},
+    {"heading":false,"page":1,"row_end":false,"text":"Agree your first goals with your manager","toc":false,"y":484.82},
+    {"heading":false,"page":1,"row_end":false,"text":"Keep them to three or fewer.","toc":false,"y":509.37},
+    {"heading":false,"page":1,"row_end":false,"text":"Write each one down with a date.","toc":false,"y":524.66},
+    {"heading":false,"page":1,"row_end":false,"text":"Review the handbook and ask about anythi","toc":false,"y":549.94}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

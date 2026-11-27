@@ -1,0 +1,12 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Record of Advice","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Body text here is Arial 11 applied direc","toc":false,"y":99.85},
+    {"heading":false,"page":1,"row_end":false,"text":"A second body paragraph with the same di","toc":false,"y":135.16}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

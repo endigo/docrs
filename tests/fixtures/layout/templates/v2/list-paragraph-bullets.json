@@ -1,0 +1,13 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Recommendations","toc":false,"y":90.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Start an account-based pension.","toc":false,"y":117.08},
+    {"heading":false,"page":1,"row_end":false,"text":"Keep a two-year cash buffer.","toc":false,"y":132.15},
+    {"heading":false,"page":1,"row_end":false,"text":"Review beneficiary nominations.","toc":false,"y":146.64}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

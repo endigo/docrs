@@ -1,0 +1,11 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Acme Wealth advice template","toc":false,"y":68.7},
+    {"heading":false,"page":1,"row_end":false,"text":"House body copy, bullets and numbers.","toc":false,"y":92.76}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

@@ -1,0 +1,31 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Table of Contents","toc":true,"y":96.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Summary\t2","toc":true,"y":115.85},
+    {"heading":false,"page":1,"row_end":false,"text":"Results\t2","toc":true,"y":134.51},
+    {"heading":false,"page":1,"row_end":false,"text":"Next steps\t2","toc":true,"y":153.16},
+    {"heading":true,"page":2,"row_end":false,"text":"Summary","toc":false,"y":72.0},
+    {"heading":false,"page":2,"row_end":false,"text":"Revenue grew 18% in North America; see t","toc":false,"y":89.37},
+    {"heading":true,"page":2,"row_end":false,"text":"Results","toc":false,"y":113.02},
+    {"heading":false,"page":2,"row_end":false,"text":"Region","toc":false,"y":131.4},
+    {"heading":false,"page":2,"row_end":false,"text":"Q1","toc":false,"y":131.4},
+    {"heading":false,"page":2,"row_end":false,"text":"Q2","toc":false,"y":131.4},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":131.4},
+    {"heading":false,"page":2,"row_end":false,"text":"North America","toc":false,"y":144.55},
+    {"heading":false,"page":2,"row_end":false,"text":"1,200","toc":false,"y":144.55},
+    {"heading":false,"page":2,"row_end":false,"text":"1,420","toc":false,"y":144.55},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":144.55},
+    {"heading":false,"page":2,"row_end":false,"text":"Europe","toc":false,"y":157.69},
+    {"heading":false,"page":2,"row_end":false,"text":"980","toc":false,"y":157.69},
+    {"heading":false,"page":2,"row_end":false,"text":"1,010","toc":false,"y":157.69},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":157.69},
+    {"heading":true,"page":2,"row_end":false,"text":"Next steps","toc":false,"y":181.34},
+    {"heading":false,"page":2,"row_end":false,"text":"Confirm the Europe forecast.","toc":false,"y":198.72},
+    {"heading":false,"page":2,"row_end":false,"text":"Circulate the review by Friday.","toc":false,"y":220.37}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

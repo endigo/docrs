@@ -8,10 +8,23 @@
 - A hostile font file, passed with `--font` or embedded in a document, no longer exhausts memory or time. A face is refused when its cmap ranges are out of order or out of range, its cmap subtable overruns its declared length (or, in format 4, lacks the final 0xFFFF segment), or its `hmtx` is missing or short. A collection skips that face, and the new `Face::try_parse` returns `invalid_argument` with reason `font_cmap_invalid`, `font_malformed` or `font_too_large`. The cmap entries and kern records read across one font file, or across one document's embedded fonts, share a budget of 4 × 1,114,112 that is charged before allocating. A font part embedded many times is copied at most once and parsed once per font key, whatever the key's spelling. A family whose embedded font is left unread by the budget is reported in `missing_fonts`, with a `font_metrics_missing` warning, instead of being dropped silently.
 - A kern pair listed twice in a font's `kern` table takes its first value, as Word does. Perpetua Titling MT Bold lists period then double quote at −78 and −51 units; estimates measured from the font file used −51, and Word for Mac sets −78.
 - Page estimates look font families up by name instead of scanning every face for each new family. A document naming 20,000 families took 0.64 s to lay out, and now takes 0.08 s, with the same result.
+- Page estimates clamp out-of-range numbers to Word's bounds instead of using them: lengths to ±22 inches, font sizes to 1–1,638 points, character scale to 1–600 %, line spacing to 132 lines or 22 inches. Infinite and not-a-number values count as absent. A 30-inch page is laid out as a 22-inch one.
+- Tables nested deeper than 32 levels are laid out as plain paragraphs of the cell around them, so headings and bookmarks inside them keep a page number.
+- A cell's `gridSpan` is clamped to 1–63 columns. A huge value no longer overflows.
+- Page estimates have a fixed bound on layout work: 200 million units (pieces, lines, rows and lines drawn, headers and footers included), about 4 seconds. `layout::layout` and `docrs layout` fail with `resource_limit` `max_layout_work` past it. A header or footer shared by many sections is measured once per page width.
+- When the contents page numbers of a conversion would pass that bound, the conversion still succeeds: the numbers are not estimated, Word is asked to update fields when it opens the document, and a `toc_page_numbers_skipped` warning says so.
+- In justified paragraphs, spaces between a list label or tab and the first word after it no longer let the line shrink to fit; only spaces between words do.
+- A table's header rows that are taller than the page body are no longer repeated on the following pages, as in Word. They start on a page of their own and run off its bottom, and the next row starts a new page. A 70-line header over 40 rows was estimated at 43 pages; Word and the estimate now give 3.
+- Page estimates align decimal tabs on the decimal point: the text before the first `.` ends at the stop.
 
 ### Node package
 
 - Contents page numbers are worked out again after `fields` are filled. A long value could push a heading onto the next page after its number was written, so the contents showed the page before. `report.toc` pages and fonts describe the filled document. Only the contents the conversion wrote is refreshed: a reference document's own contents, kept by `append` or a placeholder, is left as it is. Entries whose pages use Roman or other non-decimal numbers, or come after a numbering restart, also keep their numbers.
+
+### Command line
+
+- `docrs layout` shows each paragraph's text as Word displays it (field results, tabs, line breaks, non-breaking hyphens and symbols, not field codes), and marks the paragraphs of a table of contents with `toc`.
+- `layout --lines` prints every line of the estimated layout as it is laid out, one JSON object a line: `page`, `story`, `x`, `y`, `width`, `height`, `baseline`, `tabs`, `slack`, `gaps`, `last`, `align` and `text` (experimental).
 
 ## 1.0.1 (2026-11-23)
 

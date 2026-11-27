@@ -1,0 +1,24 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"MEMORANDUM","toc":false,"y":70.85},
+    {"heading":false,"page":1,"row_end":false,"text":"To","toc":false,"y":110.03},
+    {"heading":false,"page":1,"row_end":false,"text":"Platform team","toc":false,"y":110.03},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":110.03},
+    {"heading":false,"page":1,"row_end":false,"text":"From","toc":false,"y":134.25},
+    {"heading":false,"page":1,"row_end":false,"text":"Paper Instruments","toc":false,"y":134.25},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":134.25},
+    {"heading":false,"page":1,"row_end":false,"text":"Date","toc":false,"y":158.47},
+    {"heading":false,"page":1,"row_end":false,"text":"19 October 2026","toc":false,"y":158.47},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":158.47},
+    {"heading":false,"page":1,"row_end":false,"text":"Subject","toc":false,"y":182.69},
+    {"heading":false,"page":1,"row_end":false,"text":"Quarterly review","toc":false,"y":182.69},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":182.69},
+    {"heading":false,"page":1,"row_end":false,"text":"{{content}}","toc":false,"y":207.41},
+    {"heading":false,"page":1,"row_end":false,"text":"Confidential — internal distribution onl","toc":false,"y":231.13}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

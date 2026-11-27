@@ -19,3 +19,9 @@ under `markdown/` are committed `.docx` files, described in
 `markdown/templates/README.md` and `markdown/templates/v2/README.md`;
 `markdown/html-converted-template.docx` is written by
 `tools/markdown/make_html_converted_template.py`.
+
+`layout/` holds `docrs layout` snapshots, written by
+`crates/docrs-cli/tests/layout_snapshots.rs` (`tools/pdf/README.md`).
+`pdf/` holds the PDF engine's fixture sources and their reference
+documents (`pdf/README.md`). `fonts/` holds openly licensed fonts the
+fixtures use, with their licences (`fonts/PROVENANCE.md`).

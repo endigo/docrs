@@ -1,0 +1,29 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Portrait section","toc":false,"y":90.0},
+    {"heading":false,"page":1,"row_end":false,"text":"The first section is portrait A4 with 2.","toc":false,"y":117.08},
+    {"heading":false,"page":1,"row_end":false,"text":"","toc":false,"y":117.08},
+    {"heading":false,"page":2,"row_end":false,"text":"Landscape appendix","toc":false,"y":90.0},
+    {"heading":false,"page":2,"row_end":false,"text":"Product","toc":false,"y":122.43},
+    {"heading":false,"page":2,"row_end":false,"text":"Current","toc":false,"y":122.43},
+    {"heading":false,"page":2,"row_end":false,"text":"Recommended","toc":false,"y":122.43},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":120.43},
+    {"heading":false,"page":2,"row_end":false,"text":"Superannuation","toc":false,"y":146.06},
+    {"heading":false,"page":2,"row_end":false,"text":"$412,000","toc":false,"y":146.06},
+    {"heading":false,"page":2,"row_end":false,"text":"$412,000","toc":false,"y":146.06},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":144.06},
+    {"heading":false,"page":2,"row_end":false,"text":"Account-based pension","toc":false,"y":169.68},
+    {"heading":false,"page":2,"row_end":false,"text":"Nil","toc":false,"y":169.68},
+    {"heading":false,"page":2,"row_end":false,"text":"$250,000","toc":false,"y":169.68},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":167.68},
+    {"heading":false,"page":2,"row_end":false,"text":"Cash buffer","toc":false,"y":193.31},
+    {"heading":false,"page":2,"row_end":false,"text":"$18,000","toc":false,"y":193.31},
+    {"heading":false,"page":2,"row_end":false,"text":"$60,000","toc":false,"y":193.31},
+    {"heading":false,"page":2,"row_end":true,"text":null,"toc":false,"y":191.31}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

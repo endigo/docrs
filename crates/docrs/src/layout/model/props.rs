@@ -1,9 +1,16 @@
-use super::{LineRule, TabKind};
+use super::{Align, LineRule, TabKind};
 use crate::units::TWIPS_PER_PT;
 use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
 const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
+
+/// Word clamps lengths to ±22 inches.
+const MAX_LENGTH: f64 = 22.0 * 72.0;
+/// Word clamps font sizes to 1–1,638 points.
+const FONT_SIZES: (f64, f64) = (1.0, 1638.0);
+/// Line spacing in 240ths of a line or twips: 132 lines, or 22 inches.
+const MAX_LINE: f64 = 31680.0;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct PPr {
@@ -20,7 +27,7 @@ pub(super) struct PPr {
     pub(super) page_break_before: Option<bool>,
     pub(super) widow_control: Option<bool>,
     pub(super) contextual: Option<bool>,
-    pub(super) justified: Option<bool>,
+    pub(super) align: Option<Align>,
     pub(super) tabs: Vec<(f64, TabKind)>,
     pub(super) num: Option<(String, Option<u8>)>,
     pub(super) ilvl: Option<u8>,
@@ -45,7 +52,7 @@ impl PPr {
             page_break_before,
             widow_control,
             contextual,
-            justified,
+            align,
             num,
             ilvl
         );
@@ -118,10 +125,24 @@ pub(super) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
     )
 }
 
+pub(super) fn number(value: &str) -> Option<f64> {
+    value.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+pub(super) fn length(points: f64) -> f64 {
+    points.clamp(-MAX_LENGTH, MAX_LENGTH)
+}
+
 pub(super) fn twips(tree: &XmlTree, node: NodeId, name: &str) -> Option<f64> {
     w_attr(tree, node, name)
-        .and_then(|v| v.parse::<f64>().ok())
-        .map(|v| v * TWIP)
+        .and_then(number)
+        .map(|v| length(v * TWIP))
+}
+
+fn half_points(tree: &XmlTree, node: NodeId, min: f64) -> Option<f64> {
+    w_attr(tree, node, "val")
+        .and_then(number)
+        .map(|half| (half / 2.0).clamp(min, FONT_SIZES.1))
 }
 
 pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
@@ -144,7 +165,9 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
                     .map(|v| !matches!(v, "0" | "false" | "off"));
                 out.after_auto = w_attr(tree, child, "afterAutospacing")
                     .map(|v| !matches!(v, "0" | "false" | "off"));
-                if let Some(line) = w_attr(tree, child, "line").and_then(|v| v.parse::<f64>().ok())
+                if let Some(line) = w_attr(tree, child, "line")
+                    .and_then(number)
+                    .map(|line| line.clamp(-MAX_LINE, MAX_LINE))
                 {
                     let rule = match w_attr(tree, child, "lineRule") {
                         Some("exact") => LineRule::Exact,
@@ -168,19 +191,7 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
             "pageBreakBefore" => out.page_break_before = Some(on_off(tree, child)),
             "widowControl" => out.widow_control = Some(on_off(tree, child)),
             "contextualSpacing" => out.contextual = Some(on_off(tree, child)),
-            "jc" => {
-                out.justified = Some(matches!(
-                    w_attr(tree, child, "val"),
-                    Some(
-                        "both"
-                            | "distribute"
-                            | "lowKashida"
-                            | "mediumKashida"
-                            | "highKashida"
-                            | "thaiDistribute"
-                    )
-                ))
-            }
+            "jc" => out.align = Some(Align::read(w_attr(tree, child, "val"))),
             "tabs" => {
                 for tab in w_children(tree, child, "tab") {
                     let Some(pos) = twips(tree, tab, "pos") else {
@@ -231,25 +242,18 @@ pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
                 out.ascii = theme("asciiTheme").or_else(|| named("ascii"));
                 out.hansi = theme("hAnsiTheme").or_else(|| named("hAnsi"));
             }
-            "sz" => {
-                out.size = w_attr(tree, child, "val")
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .map(|v| v / 2.0)
-            }
+            "sz" => out.size = half_points(tree, child, FONT_SIZES.0),
             "b" => out.bold = Some(on_off(tree, child)),
             "i" => out.italic = Some(on_off(tree, child)),
             "caps" => out.caps = Some(on_off(tree, child)),
             "smallCaps" => out.small_caps = Some(on_off(tree, child)),
             "vanish" => out.vanish = Some(on_off(tree, child)),
             "spacing" => out.spacing = twips(tree, child, "val"),
-            "kern" => {
-                out.kern = w_attr(tree, child, "val")
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .map(|half| half / 2.0)
-            }
+            "kern" => out.kern = half_points(tree, child, 0.0),
             "w" => {
                 out.scale = w_attr(tree, child, "val")
-                    .and_then(|v| v.trim_end_matches('%').parse::<f64>().ok())
+                    .and_then(|v| number(v.trim_end_matches('%')))
+                    .map(|scale| scale.clamp(1.0, 600.0))
             }
             "vertAlign" => {
                 out.vert = Some(matches!(

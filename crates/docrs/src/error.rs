@@ -150,6 +150,25 @@ impl Error {
         }
     }
 
+    /// A fixed internal bound on work, not a configured [`crate::Limits`]
+    /// budget.
+    pub(crate) fn work_bound(limit: &'static str, allowed: u64, observed: u64) -> Self {
+        Error {
+            kind: ErrorKind::ResourceLimit,
+            reason: limit,
+            message: format!(
+                "internal work bound {limit} exceeded: allowed {allowed}, observed at least {observed}; \
+                 the document needs more layout work than docrs does for one document"
+            ),
+            limit: Some(LimitExceeded {
+                limit,
+                allowed,
+                observed,
+            }),
+            source: None,
+        }
+    }
+
     /// An exceeded resource budget.
     pub fn limit(limit: &'static str, allowed: u64, observed: u64) -> Self {
         Error {

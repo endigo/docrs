@@ -655,3 +655,258 @@ fn a_conversion_refreshes_its_own_contents_only() {
     assert_eq!(refresh(&mut doc), 1);
     assert_eq!(entry_numbers(&doc), ["2", "2"]);
 }
+
+#[test]
+fn placed_paragraphs_are_the_body_s_only() {
+    // Node ids are per part: header paragraphs must not show.
+    let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let header = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:hdr xmlns:w=\"{W}\"><w:p><w:bookmarkStart w:id=\"1\" w:name=\"inHeader\"/><w:r><w:t>Header</w:t></w:r></w:p><w:p/><w:p/></w:hdr>"
+    );
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\" xmlns:r=\"{r}\"><w:body><w:p><w:r><w:t>One</w:t></w:r></w:p><w:p><w:bookmarkStart w:id=\"2\" w:name=\"inBody\"/><w:r><w:t>Two</w:t></w:r></w:p><w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId1\"/></w:sectPr></w:body></w:document>"
+    );
+    let ct = CT_XML.replace(
+        "</Types>",
+        "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/></Types>",
+    );
+    let rels = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{r}/header\" Target=\"header1.xml\"/></Relationships>"
+    );
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", ct.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/header1.xml", header.as_bytes()),
+    ]);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let estimate = layout(&txn, &main, Vec::new()).unwrap();
+    let tree = txn.tree(&main).unwrap();
+    let texts: Vec<String> = estimate
+        .placed
+        .iter()
+        .map(|p| tree.text_content(p.node.unwrap()))
+        .collect();
+    assert_eq!(texts, ["One", "Two"]);
+    assert_eq!(estimate.bookmark_page("inBody"), Some(1));
+    assert_eq!(estimate.bookmark_page("inHeader"), None);
+}
+
+#[test]
+fn tables_nested_past_32_levels_keep_their_paragraphs() {
+    // Sixty tables, each in the one cell of the one before; each cell's
+    // paragraph is bookmarked with its table's level.
+    let mut body = String::new();
+    for level in (1..=60).rev() {
+        body = format!(
+            "<w:tbl><w:tr><w:tc><w:p><w:bookmarkStart w:id=\"{level}\" w:name=\"level{level}\"/><w:r><w:t>{level}</w:t></w:r></w:p>{body}<w:p/></w:tc></w:tr></w:tbl>"
+        );
+    }
+    let estimate = estimate(&format!("{body}{}", para("after", "")), "");
+    for level in [32, 33, 60] {
+        assert_eq!(estimate.bookmark_page(&format!("level{level}")), Some(1));
+    }
+}
+
+/// `first` (a paragraph) and a paragraph after it: the second one's top.
+fn after(first: &str) -> f64 {
+    estimate(&format!("{first}{}", para("after", "")), "").placed[1].y
+}
+
+#[test]
+fn non_finite_numbers_count_as_absent() {
+    let long = "word ".repeat(40);
+    let plain = after(&para(&long, ""));
+    for (ppr, rpr) in [
+        ("<w:ind w:left=\"NaN\" w:right=\"inf\"/>", ""),
+        ("<w:spacing w:after=\"inf\" w:line=\"NaN\"/>", ""),
+        ("", "<w:sz w:val=\"NaN\"/><w:spacing w:val=\"inf\"/>"),
+        ("", "<w:sz w:val=\"1e400\"/><w:w w:val=\"-inf\"/>"),
+    ] {
+        let first = format!(
+            "<w:p><w:pPr>{ppr}</w:pPr><w:r><w:rPr>{rpr}</w:rPr><w:t xml:space=\"preserve\">{long}</w:t></w:r></w:p>"
+        );
+        assert_eq!(after(&first), plain, "{ppr}{rpr}");
+    }
+}
+
+#[test]
+fn out_of_range_numbers_are_clamped_to_word_s_bounds() {
+    // Each pair lays out alike: the value past Word's bound, and the bound.
+    let long = "word ".repeat(40);
+    let run = |ppr: &str, rpr: &str| {
+        after(&format!(
+            "<w:p><w:pPr>{ppr}</w:pPr><w:r><w:rPr>{rpr}</w:rPr><w:t xml:space=\"preserve\">{long}</w:t></w:r></w:p>"
+        ))
+    };
+    for (beyond, bound) in [
+        ("<w:sz w:val=\"4000\"/>", "<w:sz w:val=\"3276\"/>"),
+        ("<w:sz w:val=\"1\"/>", "<w:sz w:val=\"2\"/>"),
+    ] {
+        assert_eq!(run("", beyond), run("", bound), "{beyond}");
+    }
+    for (beyond, bound) in [
+        (
+            "<w:ind w:firstLine=\"-40000\"/>",
+            "<w:ind w:firstLine=\"-31680\"/>",
+        ),
+        (
+            "<w:spacing w:before=\"40000\"/>",
+            "<w:spacing w:before=\"31680\"/>",
+        ),
+        (
+            "<w:spacing w:line=\"40000\" w:lineRule=\"exact\"/>",
+            "<w:spacing w:line=\"31680\" w:lineRule=\"exact\"/>",
+        ),
+    ] {
+        assert_eq!(run(beyond, ""), run(bound, ""), "{beyond}");
+    }
+}
+
+#[test]
+fn a_page_past_22_inches_keeps_its_size() {
+    // A 30-inch page is laid out as Word's largest, 22 inches: 80 lines
+    // fit on one page, as on a 30-inch one.
+    let body: String = (0..80).map(|i| para(&format!("line {i}"), "")).collect();
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"43200\" w:h=\"43200\"/></w:sectPr></w:body></w:document>"
+    );
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", CT_XML.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+    ]);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    assert_eq!(layout(&txn, &main, Vec::new()).unwrap().pages, 1);
+}
+
+#[test]
+fn a_header_shared_by_many_sections_is_measured_once() {
+    // 3,000 sections share one 3,000-paragraph header.
+    let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let header_paras = "<w:p><w:r><w:t>Header</w:t></w:r></w:p>".repeat(3000);
+    let header = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:hdr xmlns:w=\"{W}\">{header_paras}</w:hdr>"
+    );
+    let sect = "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId1\"/></w:sectPr>";
+    let body: String = (0..3000)
+        .map(|_| format!("<w:p><w:pPr>{sect}</w:pPr></w:p>"))
+        .collect();
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\" xmlns:r=\"{r}\"><w:body>{body}{sect}</w:body></w:document>"
+    );
+    let ct = CT_XML.replace(
+        "</Types>",
+        "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/></Types>",
+    );
+    let rels = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{r}/header\" Target=\"header1.xml\"/></Relationships>"
+    );
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", ct.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/header1.xml", header.as_bytes()),
+    ]);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    // Measuring the header once per section would take 3,000 times this.
+    docrs::layout::set_test_layout_work(Some(100_000));
+    let estimate = layout(&txn, &main, Vec::new());
+    docrs::layout::set_test_layout_work(None);
+    assert_eq!(estimate.unwrap().pages, 3001);
+}
+
+/// Text, then a table: a header row of `header` one-line paragraphs, then
+/// `rows` two-cell rows. Each line on each page.
+fn header_table_lines(header: usize, rows: usize) -> (u32, Vec<docrs::layout::LineRecord>) {
+    let cell = |paras: String| {
+        format!("<w:tc><w:tcPr><w:tcW w:w=\"4680\" w:type=\"dxa\"/></w:tcPr>{paras}</w:tc>")
+    };
+    let heading: String = (1..=header)
+        .map(|i| para(&format!("Head {i}"), ""))
+        .collect();
+    let body: String = (1..=rows)
+        .map(|i| {
+            format!(
+                "<w:tr>{}{}</w:tr>",
+                cell(para(&format!("Row {i}"), "")),
+                cell(para("x", ""))
+            )
+        })
+        .collect();
+    let body = format!(
+        "{}<w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:trPr><w:tblHeader/></w:trPr>{}{}</w:tr>{body}</w:tbl>{}",
+        para("Before the table.", ""),
+        cell(heading),
+        cell(para("", "")),
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let pages = layout(&txn, &main, Vec::new()).unwrap().pages;
+    let mut lines = Vec::new();
+    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
+        lines.push(line);
+        Ok(())
+    })
+    .unwrap();
+    (pages, lines)
+}
+
+#[test]
+fn a_header_row_taller_than_the_page_is_cut_and_not_repeated() {
+    // Word for Mac 16.115: 3 pages. The 70-line header moves whole to
+    // page 2, is drawn down to the paper's edge and not repeated; page 3
+    // starts with Row 1.
+    let (pages, lines) = header_table_lines(70, 40);
+    assert_eq!(pages, 3);
+    let heads: Vec<_> = lines
+        .iter()
+        .filter(|l| l.text.starts_with("Head"))
+        .collect();
+    assert!(heads.iter().all(|l| l.page == 2 && l.baseline <= 792.0));
+    assert!(heads.len() < 70 && heads.len() > 50, "{}", heads.len());
+    let row = lines.iter().find(|l| l.text == "Row 1").unwrap();
+    assert_eq!(row.page, 3);
+}
+
+#[test]
+fn a_header_row_that_fits_repeats_on_every_page() {
+    let (pages, lines) = header_table_lines(3, 120);
+    assert_eq!(pages, 3);
+    for page in 1..=3 {
+        let heads = lines
+            .iter()
+            .filter(|l| l.page == page && l.text.starts_with("Head"))
+            .count();
+        assert_eq!(heads, 3, "page {page}");
+    }
+}
+
+#[test]
+fn a_body_row_taller_than_the_page_keeps_all_its_lines() {
+    let lines: String = (1..=150).map(|i| para(&format!("Line {i}"), "")).collect();
+    let body = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"9360\"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w=\"9360\" w:type=\"dxa\"/></w:tcPr>{lines}</w:tc></w:tr></w:tbl>{}",
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut drawn = 0;
+    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
+        drawn += usize::from(line.text.starts_with("Line"));
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(drawn, 150);
+}

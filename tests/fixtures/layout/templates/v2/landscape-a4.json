@@ -1,0 +1,33 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Statement of Advice","toc":false,"y":56.7},
+    {"heading":false,"page":1,"row_end":false,"text":"Prepared for Alex and Sam Example","toc":false,"y":94.44},
+    {"heading":false,"page":1,"row_end":false,"text":"1. Executive summary","toc":false,"y":130.88},
+    {"heading":false,"page":1,"row_end":false,"text":"This sample text shows the body style. T","toc":false,"y":157.96},
+    {"heading":false,"page":1,"row_end":false,"text":"Your goals","toc":false,"y":183.13},
+    {"heading":false,"page":1,"row_end":false,"text":"Retire at 63 with an income of $80,000 a","toc":false,"y":204.26},
+    {"heading":false,"page":1,"row_end":false,"text":"Cash flow","toc":false,"y":227.43},
+    {"heading":false,"page":1,"row_end":false,"text":"Product","toc":false,"y":250.93},
+    {"heading":false,"page":1,"row_end":false,"text":"Current","toc":false,"y":250.93},
+    {"heading":false,"page":1,"row_end":false,"text":"Recommended","toc":false,"y":250.93},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":248.93},
+    {"heading":false,"page":1,"row_end":false,"text":"Superannuation","toc":false,"y":273.34},
+    {"heading":false,"page":1,"row_end":false,"text":"$412,000","toc":false,"y":273.34},
+    {"heading":false,"page":1,"row_end":false,"text":"$412,000","toc":false,"y":273.34},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":271.34},
+    {"heading":false,"page":1,"row_end":false,"text":"Account-based pension","toc":false,"y":295.74},
+    {"heading":false,"page":1,"row_end":false,"text":"Nil","toc":false,"y":295.74},
+    {"heading":false,"page":1,"row_end":false,"text":"$250,000","toc":false,"y":295.74},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":293.74},
+    {"heading":false,"page":1,"row_end":false,"text":"Cash buffer","toc":false,"y":318.15},
+    {"heading":false,"page":1,"row_end":false,"text":"$18,000","toc":false,"y":318.15},
+    {"heading":false,"page":1,"row_end":false,"text":"$60,000","toc":false,"y":318.15},
+    {"heading":false,"page":1,"row_end":true,"text":null,"toc":false,"y":316.15},
+    {"heading":false,"page":1,"row_end":false,"text":"","toc":false,"y":335.71}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

@@ -1,0 +1,17 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading one","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph written the way an","toc":false,"y":98.4},
+    {"heading":false,"page":1,"row_end":false,"text":"A bullet point in the template, as the p","toc":false,"y":144.35},
+    {"heading":false,"page":1,"row_end":false,"text":"Another bullet point in the template, in","toc":false,"y":156.99},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading two","toc":false,"y":177.64},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph written the way an","toc":false,"y":201.74},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample heading three","toc":false,"y":247.69},
+    {"heading":false,"page":1,"row_end":false,"text":"Sample body paragraph written the way an","toc":false,"y":269.49}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

@@ -1,0 +1,12 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Statement of Advice","toc":false,"y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"Every paragraph in this template uses No","toc":false,"y":105.8},
+    {"heading":false,"page":1,"row_end":false,"text":"There are no heading, Body Text, Title o","toc":false,"y":143.57}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

@@ -1,5 +1,6 @@
 //! Command implementations.
 
+use std::io::Write;
 use std::path::Path;
 
 use docrs::markdown::{InputFormat, MarkdownOptions, Placement, StylePolicy};
@@ -11,7 +12,7 @@ use docrs::{
 };
 use serde_json::{Value, json};
 
-use crate::{Command, ConvertArgs};
+use crate::{Command, ConvertArgs, paragraphs};
 
 fn read(path: &Path) -> Result<Vec<u8>> {
     std::fs::read(path)
@@ -476,7 +477,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             );
             Ok(0)
         }
-        Command::Layout { file, fonts } => {
+        Command::Layout { file, fonts, lines } => {
             let (document, _) = open_reference(Some(file), limits, false)?;
             let mut faces = Vec::new();
             for path in fonts {
@@ -491,8 +492,47 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             }
             let txn = docrs::txn::Txn::new(&document);
             let main = document.package().main_part_name().to_string();
+            if *lines {
+                let round = |v: f64| (v * 100.0).round() / 100.0;
+                let mut out = std::io::stdout().lock();
+                let mut closed = false;
+                let result = docrs::layout::line_records(&txn, &main, faces, |line| {
+                    let written = writeln!(
+                        out,
+                        "{}",
+                        json!({
+                            "page": line.page,
+                            "story": line.story,
+                            "x": round(line.x),
+                            "y": round(line.y),
+                            "width": round(line.width),
+                            "height": round(line.height),
+                            "baseline": round(line.baseline),
+                            "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                            "slack": round(line.slack),
+                            "gaps": line.gaps,
+                            "last": line.last,
+                            "align": line.align,
+                            "text": line.text,
+                        })
+                    );
+                    written.map_err(|err| {
+                        closed = err.kind() == std::io::ErrorKind::BrokenPipe;
+                        Error::io("write_failed", format!("writing a line: {err}"), err)
+                    })
+                });
+                return match result {
+                    Err(_) if closed => Ok(0),
+                    result => result.map(|()| 0),
+                };
+            }
             let layout = docrs::layout::layout(&txn, &main, faces)?;
             let tree = txn.tree(&main)?;
+            let contents = tree
+                .child_elements(tree.root())
+                .find(|&n| docrs::wml::is_w(tree, n, "body"))
+                .map(|body| paragraphs::contents_paragraphs(tree, body))
+                .unwrap_or_default();
             let value = json!({
                 "schema": "docrs_layout",
                 "version": 1,
@@ -503,7 +543,8 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     "page": p.page,
                     "y": (p.y * 100.0).round() / 100.0,
                     "row_end": p.row_end,
-                    "text": p.node.filter(|_| !p.row_end).map(|n| tree.text_content(n).chars().take(40).collect::<String>()),
+                    "text": p.node.filter(|_| !p.row_end).map(|n| paragraphs::shown_text(tree, n).chars().take(40).collect::<String>()),
+                    "toc": p.node.is_some_and(|n| contents.contains(&n)),
                     "heading": p.node.filter(|_| !p.row_end).is_some_and(|n| tree.child_elements(n).any(|c| tree.local_name(c) == Some("bookmarkStart"))),
                 })).collect::<Vec<_>>(),
             });
