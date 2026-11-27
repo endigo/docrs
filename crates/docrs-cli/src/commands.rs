@@ -12,7 +12,7 @@ use docrs::{
 };
 use serde_json::{Value, json};
 
-use crate::{Command, ConvertArgs, paragraphs};
+use crate::{Command, ConvertArgs, FontArgs, fonts, paragraphs};
 
 fn read(path: &Path) -> Result<Vec<u8>> {
     std::fs::read(path)
@@ -479,24 +479,17 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
         }
         Command::Layout { file, fonts, lines } => {
             let (document, _) = open_reference(Some(file), limits, false)?;
-            let mut faces = Vec::new();
-            for path in fonts {
-                let data = std::fs::read(path).map_err(|err| {
-                    Error::io(
-                        "font_unreadable",
-                        format!("reading font {}: {err}", path.display()),
-                        err,
-                    )
-                })?;
-                faces.extend(docrs::layout::Face::parse_file(&data));
-            }
+            let fonts = fonts::load(fonts)?;
             let txn = docrs::txn::Txn::new(&document);
             let main = document.package().main_part_name().to_string();
             if *lines {
                 let round = |v: f64| (v * 100.0).round() / 100.0;
+                for (path, err) in &fonts.skipped {
+                    eprintln!("docrs: font skipped: {}: {}", path.display(), err.message());
+                }
                 let mut out = std::io::stdout().lock();
                 let mut closed = false;
-                let result = docrs::layout::line_records(&txn, &main, faces, |line| {
+                let result = docrs::layout::line_records_with(&txn, &main, &fonts.set, |line| {
                     let written = writeln!(
                         out,
                         "{}",
@@ -526,14 +519,14 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     result => result.map(|()| 0),
                 };
             }
-            let layout = docrs::layout::layout(&txn, &main, faces)?;
+            let layout = docrs::layout::layout_with(&txn, &main, &fonts.set)?;
             let tree = txn.tree(&main)?;
             let contents = tree
                 .child_elements(tree.root())
                 .find(|&n| docrs::wml::is_w(tree, n, "body"))
                 .map(|body| paragraphs::contents_paragraphs(tree, body))
                 .unwrap_or_default();
-            let value = json!({
+            let mut value = json!({
                 "schema": "docrs_layout",
                 "version": 1,
                 "pages": layout.pages,
@@ -548,8 +541,33 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                     "heading": p.node.filter(|_| !p.row_end).is_some_and(|n| tree.child_elements(n).any(|c| tree.local_name(c) == Some("bookmarkStart"))),
                 })).collect::<Vec<_>>(),
             });
+            fonts.report_skipped(&mut value);
             let text = serde_json::to_string_pretty(&value).unwrap_or_default();
             emit(json_mode, value, || text);
+            Ok(0)
+        }
+        Command::Fonts { files, font_dirs } => {
+            let loaded = fonts::load(&FontArgs {
+                fonts: files.clone(),
+                font_dirs: font_dirs.clone(),
+            })?;
+            let value = json!({
+                "schema": "docrs_fonts",
+                "version": 1,
+                "files": loaded.files.iter().map(|(path, faces)| json!({
+                    "path": path,
+                    "faces": faces.iter().map(|face| json!({
+                        "family": face.family,
+                        "bold": face.bold,
+                        "italic": face.italic,
+                        "style": fonts::style(face),
+                        "variable": face.variable,
+                        "embeddable": face.embeddable,
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+                "skipped": loaded.skipped_json(),
+            });
+            emit(json_mode, value, || fonts_text(&loaded));
             Ok(0)
         }
         Command::MarkdownInspect {
@@ -691,7 +709,9 @@ fn convert(
         no_cover_page,
         acknowledge_protection,
         strict_package,
+        fonts,
     } = source;
+    let fonts = fonts::load(fonts)?;
     let text = if input.as_os_str() == "-" {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
@@ -755,9 +775,16 @@ fn convert(
     if *acknowledge_protection {
         document.acknowledge_protection()?;
     }
-    let report = docrs::markdown::insert_source(&mut document, &text, format, &options)?;
+    let report = docrs::markdown::insert_source_with_fonts(
+        &mut document,
+        &text,
+        format,
+        &options,
+        &fonts.set,
+    )?;
     let patch = document.save(out)?;
-    let value = json!({"schema": schema, "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "save": patch.to_json(), "out": out});
+    let mut value = json!({"schema": schema, "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "save": patch.to_json(), "out": out});
+    fonts.report_skipped(&mut value);
     emit(json_mode, value, || {
         let c = &report.counts;
         let mut text = format!(
@@ -774,6 +801,7 @@ fn convert(
         for item in &set_aside {
             text.push_str(&format!("\n  reference package: {item}"));
         }
+        text.push_str(&fonts.skipped_text());
         if !report.created_styles.is_empty() {
             text.push_str(&format!(
                 "\n  added styles missing from the reference: {}",
@@ -791,6 +819,37 @@ fn convert(
         text
     });
     Ok(0)
+}
+
+/// Each file's faces, a line each, then the files skipped.
+fn fonts_text(loaded: &fonts::Loaded) -> String {
+    let mut text = String::new();
+    for (path, faces) in &loaded.files {
+        text.push_str(&format!("{}\n", path.display()));
+        for face in faces {
+            let mut notes = Vec::new();
+            if face.variable {
+                notes.push("variable: measured at its default instance");
+            }
+            if !face.embeddable {
+                notes.push("its licence forbids embedding");
+            }
+            let notes = if notes.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", notes.join("; "))
+            };
+            text.push_str(&format!(
+                "  {:<28} {}{notes}\n",
+                face.family,
+                fonts::style(face)
+            ));
+        }
+    }
+    for (path, err) in &loaded.skipped {
+        text.push_str(&format!("skipped {}: {}\n", path.display(), err.message()));
+    }
+    text.trim_end().to_string()
 }
 
 fn nothing_replaced(find: &str, refused: &[docrs::replace::RefusedMatch]) -> Error {

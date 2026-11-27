@@ -10,6 +10,7 @@
 //! only after the output file has been atomically committed.
 
 mod commands;
+mod fonts;
 mod paragraphs;
 
 use std::process::ExitCode;
@@ -259,10 +260,8 @@ enum Command {
     Layout {
         /// The .docx file.
         file: std::path::PathBuf,
-        /// A font file to measure with (repeatable), for fonts the bundled
-        /// table lacks; it is read locally and never stored.
-        #[arg(long = "font", value_name = "FILE")]
-        fonts: Vec<std::path::PathBuf>,
+        #[command(flatten)]
+        fonts: FontArgs,
         /// Print every line instead, one JSON object a line: page, story,
         /// x, y, width, height, baseline, tabs (points from the page's top-left
         /// corner), slack, gaps, last, align and text. Experimental.
@@ -291,6 +290,15 @@ enum Command {
         #[arg(long)]
         strict_package: bool,
     },
+    /// The families and styles font files provide, as a document names them.
+    Fonts {
+        /// Font files (TTF, OTF, TTC or OTC).
+        #[arg(required_unless_present = "font_dirs")]
+        files: Vec<std::path::PathBuf>,
+        /// Every font file in DIR (repeatable); other files are listed as skipped.
+        #[arg(long = "font-dir", value_name = "DIR")]
+        font_dirs: Vec<std::path::PathBuf>,
+    },
     /// Open and patch-save without edits (byte-identical when unchanged).
     Roundtrip {
         /// Input package.
@@ -299,6 +307,20 @@ enum Command {
         #[arg(long)]
         out: std::path::PathBuf,
     },
+}
+
+/// Fonts to lay out with, where the document embeds none of the family.
+/// They are read locally and never stored in the output.
+#[derive(Args)]
+struct FontArgs {
+    /// A font file: TTF, OTF, TTC or OTC (repeatable). A file that cannot
+    /// be read fails the command.
+    #[arg(long = "font", value_name = "FILE")]
+    fonts: Vec<std::path::PathBuf>,
+    /// Every font file in DIR (repeatable). Files that cannot be read or
+    /// are not supported fonts are skipped and listed in `fonts_skipped`.
+    #[arg(long = "font-dir", value_name = "DIR")]
+    font_dirs: Vec<std::path::PathBuf>,
 }
 
 /// The options `from-markdown`, `from-html` and `from-json` share.
@@ -389,6 +411,8 @@ struct ConvertArgs {
     /// of setting them aside.
     #[arg(long)]
     strict_package: bool,
+    #[command(flatten)]
+    fonts: FontArgs,
 }
 
 fn exit_code(err: &Error) -> u8 {

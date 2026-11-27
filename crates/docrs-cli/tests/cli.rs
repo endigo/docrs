@@ -764,3 +764,90 @@ fn layout_lines_ends_quietly_when_its_reader_stops() {
     assert!(first.starts_with('{'), "{first}");
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
+
+fn repo(rel: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(rel)
+}
+
+const INTER_DIR: &str = "tests/fixtures/fonts/inter";
+
+#[test]
+fn fonts_lists_faces_and_the_directory_files_it_skips() {
+    let output = bin()
+        .args(["--json", "fonts", "--font-dir"])
+        .arg(repo(INTER_DIR))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let report = json_of(&output);
+    assert_eq!(report["schema"], "docrs_fonts");
+    let files = report["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        files[0]["faces"],
+        serde_json::json!([{"family": "Inter", "bold": false, "italic": false, "style": "regular", "variable": true, "embeddable": true}])
+    );
+    let skipped = report["skipped"].as_array().unwrap();
+    assert_eq!(skipped.len(), 1);
+    assert!(skipped[0]["path"].as_str().unwrap().ends_with("OFL.txt"));
+    assert_eq!(skipped[0]["reason"], "font_format_unsupported");
+
+    let output = bin()
+        .args(["--json", "fonts"])
+        .arg(repo(INTER_DIR).join("OFL.txt"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        json_of(&output)["error"]["reason"],
+        "font_format_unsupported"
+    );
+}
+
+#[test]
+fn a_supplied_font_measures_the_contents_numbers() {
+    let dir = tempfile::tempdir().unwrap();
+    let convert = |fonts: &[&std::ffi::OsStr]| {
+        let output = bin()
+            .args(["--json", "from-markdown"])
+            .arg(repo("tests/fixtures/pdf/sources/toc.md"))
+            .arg("--reference")
+            .arg(repo("tests/fixtures/pdf/references/inter.docx"))
+            .arg("--out")
+            .arg(dir.path().join("toc.docx"))
+            .args(fonts)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        json_of(&output)
+    };
+    let without = convert(&[]);
+    assert_eq!(
+        without["markdown"]["toc"]["missing_fonts"],
+        serde_json::json!(["Inter"])
+    );
+    assert!(without.get("fonts_skipped").is_none());
+    let font_dir = repo(INTER_DIR);
+    let with = convert(&["--font-dir".as_ref(), font_dir.as_os_str()]);
+    assert_eq!(
+        with["markdown"]["toc"]["missing_fonts"],
+        serde_json::json!([])
+    );
+    assert!(
+        with["fonts_skipped"][0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("OFL.txt")
+    );
+
+    let output = bin()
+        .args(["--json", "layout"])
+        .arg(dir.path().join("toc.docx"))
+        .arg("--font")
+        .arg(repo(INTER_DIR).join("OFL.txt"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+}

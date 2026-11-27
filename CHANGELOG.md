@@ -29,6 +29,8 @@
 
 - `docrs layout` shows each paragraph's text as Word displays it (field results, tabs, line breaks, non-breaking hyphens and symbols, not field codes), and marks the paragraphs of a table of contents with `toc`.
 - `layout --lines` prints every line of the estimated layout as it is laid out, one JSON object a line: `page`, `story`, `x`, `y`, `width`, `height`, `baseline`, `tabs`, `slack`, `gaps`, `last`, `align` and `text` (experimental).
+- `from-markdown`, `from-html`, `from-json` and `layout` take `--font FILE` (repeatable) and `--font-dir DIR`. The contents page numbers and the layout are measured with those fonts where the document embeds none of the family. A bad `--font` file fails the command. Files in a `--font-dir` that cannot be read or are not supported fonts are skipped and listed in `fonts_skipped`.
+- `docrs fonts FILE… | --font-dir DIR` lists the families and styles font files provide, as a document must name them, and whether each is variable or forbids embedding (`--json` for the `docrs_fonts` report).
 
 ## 1.0.1 (2026-11-23)
 
