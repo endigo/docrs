@@ -363,12 +363,16 @@ struct TocState {
     numbers: Vec<(NodeId, String)>,
 }
 
-/// Render `parsed` into the transaction's main document.
-#[allow(clippy::too_many_arguments)]
+/// A parsed source and its front matter.
+pub(crate) struct Input<'a> {
+    pub parsed: &'a Parsed,
+    pub metadata: &'a Metadata,
+}
+
+/// Render `input` into the transaction's main document.
 pub(crate) fn render(
     txn: &mut Txn<'_>,
-    parsed: &Parsed,
-    metadata: &Metadata,
+    Input { parsed, metadata }: Input<'_>,
     options: &MarkdownOptions,
     fonts: &FontSet,
     prefer_own_styles: bool,

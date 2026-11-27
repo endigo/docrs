@@ -213,8 +213,10 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
             .with_sample(sample);
     let outcome = render::render(
         &mut trial,
-        &parsed,
-        &Metadata::default(),
+        render::Input {
+            parsed: &parsed,
+            metadata: &Metadata::default(),
+        },
         &trial_options,
         &crate::layout::FontSet::default(),
         false,

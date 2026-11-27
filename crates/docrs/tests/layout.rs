@@ -920,13 +920,13 @@ fn inter() -> docrs::layout::FontSet {
 
 /// `tests/fixtures/pdf/sources/toc.md` converted into the Inter reference.
 fn inter_contents(fonts: &docrs::layout::FontSet) -> Document {
-    use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with_fonts};
+    use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
     let root = repo_root();
     let source = std::fs::read_to_string(root.join("tests/fixtures/pdf/sources/toc.md")).unwrap();
     let reference = root.join("tests/fixtures/pdf/references/inter.docx");
     let mut doc = Document::open_path(reference, &Limits::default()).unwrap();
     let options = MarkdownOptions::default();
-    insert_source_with_fonts(&mut doc, &source, InputFormat::Markdown, &options, fonts).unwrap();
+    insert_source_with(&mut doc, &source, InputFormat::Markdown, &options, fonts).unwrap();
     doc
 }
 

@@ -15,7 +15,6 @@ pub mod fonts;
 mod model;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 pub use flow::Placed;
 #[cfg(test)]
@@ -73,8 +72,8 @@ impl Layout {
 }
 
 /// Embedded fonts of the document (`w:embedRegular` and friends in the
-/// font table), deobfuscated and measured within one budget, each face
-/// keeping its part, and the families whose fonts the budget left unread.
+/// font table), deobfuscated and measured within one budget, and the
+/// families whose fonts the budget left unread.
 fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)> {
     let (mut out, mut unread) = (Vec::new(), Vec::new());
     let Some(table) = txn.part_related_by(main, rt::FONT_TABLE)? else {
@@ -83,8 +82,7 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
     let tree = txn.tree(&table)?;
     let rels = txn.resolved_relationships(&table)?;
     let mut budget = fonts::FILE_BUDGET;
-    let mut parts: HashMap<&str, Option<Arc<[u8]>>> = HashMap::new();
-    let mut plain: HashMap<&str, Vec<u8>> = HashMap::new();
+    let mut copies: HashMap<&str, Vec<u8>> = HashMap::new();
     let mut parsed: HashMap<(&str, Option<[u8; 16]>), Parsed<Face>> = HashMap::new();
     for font in w_children(tree, tree.root(), "font") {
         let Some(name) = w_attr(tree, font, "name") else {
@@ -113,18 +111,15 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
                 None => None,
             };
             let face = parsed.entry((part.as_str(), key)).or_insert_with(|| {
-                let bytes = parts
-                    .entry(part)
-                    .or_insert_with(|| txn.binary(part).map(|bytes| bytes.into()));
-                let Some(bytes) = bytes else {
+                let Some(bytes) = txn.binary(part) else {
                     return Err(FontError::Malformed("embedded font part"));
                 };
                 let Some(key) = key else {
-                    return Face::parse_embedded(bytes, bytes, None, name, &mut budget);
+                    return Face::parse_embedded(&bytes, part, None, name, &mut budget);
                 };
-                let copy = plain.entry(part).or_insert_with(|| bytes.to_vec());
+                let copy = copies.entry(part).or_insert_with(|| bytes.to_vec());
                 fonts::xor_font_key(copy, &key);
-                let face = Face::parse_embedded(copy, bytes, Some(key), name, &mut budget);
+                let face = Face::parse_embedded(copy, part, Some(key), name, &mut budget);
                 fonts::xor_font_key(copy, &key);
                 face
             });
@@ -151,15 +146,15 @@ fn model_of(
     Ok((model, book, embedded_names, unread))
 }
 
-/// Estimate the layout of `main`'s body, measuring `extra` faces where the
-/// document embeds no font of their family. See [`layout_with`].
+/// Estimate the layout of `main`'s body, measuring `extra` faces in the
+/// styles the document embeds no font for. See [`layout_with`].
 pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
     layout_with(txn, main, &FontSet::from_faces(extra))
 }
 
-/// Estimate the layout of `main`'s body. Each family is measured from the
-/// document's embedded fonts, else `fonts`, else the bundled table, else
-/// a substitute of its kind (reported in `missing_fonts`).
+/// Estimate the layout of `main`'s body. Each family and style is measured
+/// from the document's embedded fonts, else `fonts`, else the bundled
+/// table, else a substitute of its kind (reported in `missing_fonts`).
 pub fn layout_with(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Layout> {
     let (model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
     let mut by_node: HashMap<(StoryId, NodeId), Vec<String>> = HashMap::new();

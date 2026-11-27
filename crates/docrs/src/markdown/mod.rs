@@ -441,12 +441,12 @@ pub fn insert_source(
     format: InputFormat,
     options: &MarkdownOptions,
 ) -> Result<MarkdownReport> {
-    insert_source_with_fonts(document, source, format, options, &FontSet::default())
+    insert_source_with(document, source, format, options, &FontSet::default())
 }
 
 /// [`insert_source`], estimating the contents page numbers with `fonts`
 /// where the document embeds no font of a family.
-pub fn insert_source_with_fonts(
+pub fn insert_source_with(
     document: &mut Document,
     source: &str,
     format: InputFormat,
@@ -517,8 +517,10 @@ fn insert_with(
         let mut resolver = styles::Resolver::new(options.style_map.clone(), options.style_policy);
         let toc_numbers = render::render(
             &mut txn,
-            &parsed,
-            &metadata,
+            render::Input {
+                parsed: &parsed,
+                metadata: &metadata,
+            },
             options,
             fonts,
             prefer_own_styles,
