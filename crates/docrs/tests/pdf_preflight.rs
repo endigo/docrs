@@ -725,7 +725,16 @@ fn many_pictures_and_links_scan_in_linear_time() {
     );
     assert_eq!(subjects(&found, NOT_YET_DRAWN), [("image", 8_000)]);
 
-    let ids: Vec<String> = (0..200_000).map(|i| format!("rIdL{i}")).collect();
+    // Linear work grows 4x with 4x the links, quadratic 16x; the ratio
+    // holds whatever the machine's speed.
+    let small = links_scan_time(25_000);
+    let large = links_scan_time(100_000);
+    assert!(large < small * 8, "{small:?} then {large:?}");
+}
+
+/// The fastest of three scans of `count` links.
+fn links_scan_time(count: usize) -> std::time::Duration {
+    let ids: Vec<String> = (0..count).map(|i| format!("rIdL{i}")).collect();
     let links: Vec<(&str, &str)> = ids
         .iter()
         .map(|id| (id.as_str(), "https://example.com/"))
@@ -736,14 +745,16 @@ fn many_pictures_and_links_scan_in_linear_time() {
             .collect::<String>(),
     );
     let document = docx(&body, &[], &links);
-    let started = std::time::Instant::now();
-    let found = report(&document);
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(1),
-        "{:?}",
-        started.elapsed()
-    );
-    assert_eq!(subjects(&found, NOT_YET_DRAWN), [("link", 200_000)]);
+    (0..3)
+        .map(|_| {
+            let started = std::time::Instant::now();
+            let found = report(&document);
+            let elapsed = started.elapsed();
+            assert_eq!(subjects(&found, NOT_YET_DRAWN), [("link", count)]);
+            elapsed
+        })
+        .min()
+        .unwrap()
 }
 
 #[test]
@@ -870,4 +881,75 @@ fn scripts_that_need_shaping_are_flagged() {
         &[],
     );
     assert!(subjects(&report(&latin), "pdf_text_unsupported").is_empty());
+}
+
+#[test]
+fn a_style_border_survives_another_edge_cleared() {
+    let styles = concat!(
+        r#"<w:style w:type="paragraph" w:styleId="Ruled"><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4"/></w:pBdr></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="RuledChild"><w:basedOn w:val="Ruled"/><w:pPr><w:pBdr><w:top w:val="nil"/></w:pBdr></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Unruled"><w:basedOn w:val="Ruled"/><w:pPr><w:pBdr><w:bottom w:val="nil"/></w:pBdr></w:pPr></w:style>"#,
+    );
+    let paragraph = |ppr: &str| para(&format!("<w:pPr>{ppr}</w:pPr>{}", run("<w:t>x</w:t>")));
+    let body = paragraph(r#"<w:pStyle w:val="Ruled"/>"#)
+        + &paragraph(r#"<w:pStyle w:val="Ruled"/><w:pBdr><w:top w:val="nil"/></w:pBdr>"#)
+        + &paragraph(r#"<w:pStyle w:val="RuledChild"/>"#)
+        + &paragraph(r#"<w:pStyle w:val="Unruled"/>"#);
+    let document = docx(
+        &body,
+        &[xml_part("word/styles.xml", "styles", "styles", styles)],
+        &[],
+    );
+    let found = report(&document);
+    assert!(
+        subjects(&found, NOT_YET_DRAWN).contains(&("border", 3)),
+        "{:?}",
+        subjects(&found, NOT_YET_DRAWN)
+    );
+}
+
+#[test]
+fn row_shading_vml_links_and_computed_hyperlinks_are_checked() {
+    let complex = |instruction: &str, nested: &str| {
+        run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+            + &run(&format!("<w:instrText>{instruction}</w:instrText>"))
+            + nested
+            + &run(r#"<w:fldChar w:fldCharType="separate"/>"#)
+            + &run("<w:t>result</w:t>")
+            + &run(r#"<w:fldChar w:fldCharType="end"/>"#)
+    };
+    let nested = complex(" REF target ", "");
+    let body = concat!(
+        r#"<w:tbl><w:tr><w:tblPrEx><w:shd w:val="clear" w:fill="FFFF00"/></w:tblPrEx>"#,
+        r#"<w:tc><w:p/></w:tc></w:tr></w:tbl>"#
+    )
+    .to_string()
+        + &para(&run(
+            r#"<w:pict><v:rect href="javascript:alert(1)" style="width:5pt;height:5pt"/></w:pict>"#,
+        ))
+        + &para(&complex(" HYPERLINK ", &nested));
+    let found = report(&docx(&body, &[], &[]));
+    assert!(
+        subjects(&found, NOT_YET_DRAWN).contains(&("shading", 1)),
+        "{:?}",
+        subjects(&found, NOT_YET_DRAWN)
+    );
+    assert!(
+        !subjects(&found, NOT_YET_DRAWN)
+            .iter()
+            .any(|(s, _)| *s == "link"),
+        "{:?}",
+        subjects(&found, NOT_YET_DRAWN)
+    );
+    assert_eq!(subjects(&found, "pdf_link_scheme_skipped"), [("link", 2)]);
+    let message = &found
+        .warnings
+        .iter()
+        .find(|w| w.code == "pdf_link_scheme_skipped")
+        .unwrap()
+        .message;
+    assert!(
+        message.contains("\"javascript:\"") && message.contains("\"computed\""),
+        "{message}"
+    );
 }

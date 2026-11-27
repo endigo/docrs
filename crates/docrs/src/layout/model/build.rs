@@ -568,7 +568,7 @@ impl Builder<'_> {
 
 /// A HYPERLINK field's target: its URI (with `\l`'s bookmark as the
 /// fragment), else the bookmark.
-fn field_link(code: &str) -> Option<Link> {
+pub(crate) fn field_link(code: &str) -> Option<Link> {
     let tokens = fieldcode::tokens(code).ok()?;
     let (command, rest) = tokens.split_first()?;
     if command.quoted || !command.value.eq_ignore_ascii_case("HYPERLINK") {

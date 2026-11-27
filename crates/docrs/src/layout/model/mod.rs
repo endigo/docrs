@@ -29,6 +29,8 @@ use crate::package::rels::{Relationship, rt};
 use crate::txn::Txn;
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
+#[cfg(feature = "pdf")]
+pub(crate) use build::field_link;
 pub use colour::{Colour, Rgb};
 pub(crate) use formatting::Formatting;
 #[cfg(feature = "pdf")]

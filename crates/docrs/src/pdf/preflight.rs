@@ -6,10 +6,9 @@
 use std::collections::HashMap;
 
 use super::{MAX_LOCATIONS, NOT_YET_DRAWN, PdfLocation, PdfReport, PdfWarning, description};
-use crate::fields::fieldcode;
 use crate::layout::model::{
-    Formatting, Frame, ParaFormat, RPr, StoryRef, TableCtx, any_border, horizontal, on_off,
-    section_properties, shaded, story_references,
+    Formatting, Frame, Link, ParaFormat, RPr, StoryRef, TableCtx, any_border, field_link,
+    horizontal, on_off, section_properties, shaded, story_references,
 };
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
@@ -319,7 +318,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             "tblBorders" | "tcBorders" if any_border(tree, node) => {
                 self.note(NOT_YET_DRAWN, "border")
             }
-            "shd" if matches!(parent, Some("tblPr" | "tcPr")) && shaded(tree, node) => {
+            "shd" if matches!(parent, Some("tblPr" | "tblPrEx" | "tcPr")) && shaded(tree, node) => {
                 self.note(NOT_YET_DRAWN, "shading")
             }
             "bidiVisual" if on => self.note(TEXT, RTL),
@@ -538,9 +537,11 @@ impl<'s, 'd> Scan<'s, 'd> {
             "PRINTDATE" => self.note(FIELD, "PRINTDATE"),
             "HYPERLINK" => {
                 self.note(NOT_YET_DRAWN, "field");
-                match fieldcode::command_operand(instruction, "HYPERLINK") {
-                    Ok(Some(target)) => self.link(&target.value),
-                    _ => self.note(NOT_YET_DRAWN, "link"),
+                match field_link(instruction) {
+                    Some(Link::Uri(target)) => self.link(&target),
+                    Some(Link::Anchor(_)) => self.note(NOT_YET_DRAWN, "link"),
+                    // The target is a nested field's result, unknown here.
+                    _ => self.note_with(LINK, "link", "computed".to_string()),
                 }
             }
             _ => self.note(NOT_YET_DRAWN, "field"),
@@ -589,6 +590,9 @@ impl<'s, 'd> Scan<'s, 'd> {
     /// A VML shape. Its text box or picture counts first, so a rule that
     /// holds either is not mistaken for a plain rule.
     fn vml(&mut self, tree: &XmlTree, node: NodeId) {
+        if let Some(href) = tree.attr(node, None, "href") {
+            self.link(href);
+        }
         let find = |name: &str| tree.descendants(node).find(|&n| tree.is(n, VML, name));
         if is_watermark(tree.attr(node, None, "id")) {
             self.note(WATERMARK, "watermark");
