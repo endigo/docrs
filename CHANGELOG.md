@@ -8,6 +8,10 @@
 - A hostile font file, passed with `--font` or embedded in a document, no longer exhausts memory or time. A face is refused when its cmap ranges are out of order or out of range, its cmap subtable overruns its declared length (or, in format 4, lacks the final 0xFFFF segment), or its `hmtx` is missing or short. A collection skips that face, and the new `Face::try_parse` returns `invalid_argument` with reason `font_cmap_invalid`, `font_malformed` or `font_too_large`. The cmap entries and kern records read across one font file, or across one document's embedded fonts, share a budget of 4 × 1,114,112 that is charged before allocating. A font part embedded many times is copied at most once and parsed once per font key, whatever the key's spelling. A family whose embedded font is left unread by the budget is reported in `missing_fonts`, with a `font_metrics_missing` warning, instead of being dropped silently.
 - A kern pair listed twice in a font's `kern` table takes its first value, as Word does. Perpetua Titling MT Bold lists period then double quote at −78 and −51 units; estimates measured from the font file used −51, and Word for Mac sets −78.
 - Page estimates look font families up by name instead of scanning every face for each new family. A document naming 20,000 families took 0.64 s to lay out, and now takes 0.08 s, with the same result.
+- Page estimates clamp out-of-range numbers to Word's bounds instead of using them: lengths to ±22 inches, font sizes to 1–1,638 points, character scale to 1–600 %, line spacing to 132 lines or 22 inches. Infinite and not-a-number values count as absent. A 30-inch page is laid out as a 22-inch one.
+- Tables nested deeper than 32 levels are laid out as plain paragraphs of the cell around them, so headings and bookmarks inside them keep a page number.
+- A cell's `gridSpan` is clamped to 1–63 columns. A huge value no longer overflows.
+- A document too long or complex for the layout work bound no longer fails conversion: its contents page numbers are left for Word to fill in, with a `toc_page_numbers_skipped` warning.
 
 ### Node package
 

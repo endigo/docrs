@@ -3149,8 +3149,34 @@ impl<'p> Renderer<'_, '_, 'p> {
     /// metrics), and repeat while the numbers change the contents' own
     /// length.
     fn toc_page_numbers(&mut self, main: &str) -> Result<()> {
-        let (_, layout) =
-            crate::layout::write_page_numbers(self.txn, main, &self.toc.numbers, true)?;
+        let unwritten: Vec<String> = {
+            let tree = self.txn.tree(main)?;
+            self.toc
+                .numbers
+                .iter()
+                .map(|(number, _)| tree.text_content(*number))
+                .collect()
+        };
+        let layout = match crate::layout::write_page_numbers(
+            self.txn,
+            main,
+            &self.toc.numbers,
+            true,
+        ) {
+            Err(error) if error.reason() == "max_layout_work" => {
+                let tree = self.txn.tree_mut(main)?;
+                for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
+                    crate::wml::set_leading_text(tree, *number, text)?;
+                }
+                self.warn(
+                    "toc_page_numbers_skipped",
+                    "the document is too long or complex to estimate its pages; contents page numbers are left for Word to fill in".to_string(),
+                    None,
+                );
+                return Ok(());
+            }
+            result => result?.1,
+        };
         for font in &layout.missing_fonts {
             self.warn(
                 "font_metrics_missing",
@@ -4131,6 +4157,37 @@ fn is_toc_heading(tree: &XmlTree, styles: Option<&XmlTree>, p: NodeId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contents_numbers_are_left_to_word_past_the_layout_work_bound() {
+        let options = super::super::MarkdownOptions {
+            toc: Some(true),
+            ..Default::default()
+        };
+        let source = "# A\n\nx\n\n\\newpage\n\n# B\n";
+        crate::layout::TEST_LAYOUT_WORK.set(Some(10));
+        let converted = super::super::convert(source, None, &options);
+        crate::layout::TEST_LAYOUT_WORK.set(None);
+        let (doc, report) = converted.unwrap();
+        let codes: Vec<&str> = report.warnings.iter().map(|w| w.code).collect();
+        assert_eq!(codes, ["toc_page_numbers_skipped"]);
+        assert!(report.toc.is_none());
+        let txn = Txn::new(&doc);
+        let main = doc.package().main_part_name().to_string();
+        let tree = txn.tree(&main).unwrap();
+        let numbers: Vec<String> = tree
+            .descendants(tree.root())
+            .filter(|node| tree.is(*node, W, "instrText"))
+            .filter(|node| tree.text_content(*node).contains("PAGEREF"))
+            .map(|node| {
+                let run = tree.parent(node).unwrap();
+                let runs: Vec<NodeId> = tree.child_elements(tree.parent(run).unwrap()).collect();
+                let at = runs.iter().position(|r| *r == run).unwrap();
+                tree.text_content(runs[at + 2])
+            })
+            .collect();
+        assert_eq!(numbers, ["1", "1"]);
+    }
 
     #[test]
     fn the_output_section_shows_page_one_then_the_body_pages() {

@@ -94,9 +94,7 @@ impl Builder<'_> {
                     .and_then(|p| w_child(tree, p, "gridSpan"))
                     .and_then(|s| w_attr(tree, s, "val"))
                     .and_then(|v| v.parse::<usize>().ok())
-                    .filter(|span| *span <= MAX_GRID_COLUMNS)
-                    .unwrap_or(1)
-                    .max(1);
+                    .map_or(1, |span| span.clamp(1, MAX_GRID_COLUMNS));
                 let width: f64 = if grid.len() >= column + span {
                     grid[column..column + span].iter().sum()
                 } else {
@@ -156,8 +154,7 @@ pub(super) fn borders(tree: &XmlTree, node: Option<NodeId>) -> [Option<f64>; 3] 
                 Some("none" | "nil") | None => 0.0,
                 Some(_) => w_attr(tree, side, "sz")
                     .and_then(number)
-                    .and_then(|eighths| length(eighths / 8.0))
-                    .unwrap_or(0.25),
+                    .map_or(0.25, |eighths| length(eighths / 8.0)),
             });
         }
     }

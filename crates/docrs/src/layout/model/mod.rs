@@ -54,6 +54,56 @@ pub enum StoryId {
     Footer(u32),
 }
 
+/// Paragraph alignment (`w:jc`). Right-to-left paragraphs are not read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Align {
+    #[default]
+    Left,
+    Center,
+    Right,
+    Both,
+    Distribute,
+    LowKashida,
+    MediumKashida,
+    HighKashida,
+    ThaiDistribute,
+}
+
+impl Align {
+    fn read(value: Option<&str>) -> Align {
+        match value {
+            Some("center") => Align::Center,
+            Some("right" | "end") => Align::Right,
+            Some("both") => Align::Both,
+            Some("distribute") => Align::Distribute,
+            Some("lowKashida") => Align::LowKashida,
+            Some("mediumKashida") => Align::MediumKashida,
+            Some("highKashida") => Align::HighKashida,
+            Some("thaiDistribute") => Align::ThaiDistribute,
+            _ => Align::Left,
+        }
+    }
+
+    /// Word lets the spaces of a justified line shrink to fit it.
+    pub fn justified(self) -> bool {
+        !matches!(self, Align::Left | Align::Center | Align::Right)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Align::Left => "left",
+            Align::Center => "center",
+            Align::Right => "right",
+            Align::Both => "both",
+            Align::Distribute => "distribute",
+            Align::LowKashida => "lowKashida",
+            Align::MediumKashida => "mediumKashida",
+            Align::HighKashida => "highKashida",
+            Align::ThaiDistribute => "thaiDistribute",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum LineRule {
     /// `line` is 240ths of the single line height.
@@ -135,8 +185,7 @@ pub struct Para {
     pub page_break_before: bool,
     pub widow_control: bool,
     pub contextual: bool,
-    /// Justified: Word lets the spaces of a line shrink to fit it.
-    pub justified: bool,
+    pub align: Align,
     pub style: String,
     pub tabs: Vec<(f64, TabKind)>,
     pub label: Option<Label>,
@@ -257,7 +306,8 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     let mut sections = Vec::new();
     let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
     let rels = txn.resolved_relationships(main)?;
-    let mut stories: HashMap<(&'static str, String), u32> = HashMap::new();
+    let mut stories: HashMap<String, StoryId> = HashMap::new();
+    let (mut headers, mut footers) = (0, 0);
     for sect in &sects {
         let page = page_of(tree, Some(*sect));
         for reference in tree.child_elements(*sect) {
@@ -278,13 +328,15 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             let Ok(story) = txn.tree(name) else {
                 continue;
             };
-            let next = stories.keys().filter(|(k, _)| *k == kind).count() as u32 + 1;
-            let n = *stories.entry((kind, name.to_string())).or_insert(next);
-            builder.story = if kind == "header" {
-                StoryId::Header(n)
-            } else {
-                StoryId::Footer(n)
-            };
+            builder.story = *stories.entry(name.to_string()).or_insert_with(|| {
+                if kind == "header" {
+                    headers += 1;
+                    StoryId::Header(headers)
+                } else {
+                    footers += 1;
+                    StoryId::Footer(footers)
+                }
+            });
             let mut story_blocks = Vec::new();
             builder.blocks(story, story.root(), None, &mut story_blocks);
             let height = super::flow::stack_height(

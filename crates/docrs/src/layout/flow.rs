@@ -11,11 +11,12 @@
 
 use std::ops::Range;
 
-use super::model::{Block, LineSpacing, Metric, Model, Page, Para, Piece, Row, TabKind, Table};
+use super::model::{Align, Block, LineSpacing, Metric, Model, Para, Piece, Row, TabKind, Table};
 use crate::xml::NodeId;
 use crate::{Error, Result};
 
-/// A tab on a line: its piece, and the x it moves from and to.
+/// A tab on a line: its piece, and the x it moves from and to. A left tab
+/// that would pass the right margin ends its line with no width.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct TabPlace {
     pub piece: u32,
@@ -24,6 +25,11 @@ pub(super) struct TabPlace {
 }
 
 /// One laid-out line. x values are points from the column's left edge.
+///
+/// Left, centred and right-aligned lines start where their text is drawn.
+/// A justified line starts at the left, and the painter spreads `slack`
+/// over its `gaps`; a negative `slack` shrinks them, and can be left on a
+/// justified paragraph's last line too.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Line {
     pub height: f64,
@@ -38,10 +44,11 @@ pub(super) struct Line {
     pub start: f64,
     /// From `start` to the end of the last piece that is not a space.
     pub width: f64,
-    /// The width available less `start + width`; negative when a
-    /// justified line fits only by shrinking its spaces.
+    /// The width left over before alignment: the width available less
+    /// the content's extent.
     pub slack: f64,
-    /// Spaces between words after the last tab.
+    /// Spaces between words after the last tab: the spaces a justified
+    /// line may shrink.
     pub gaps: u32,
     pub tabs: Vec<TabPlace>,
     /// Ends the paragraph, or in a line or page break.
@@ -160,27 +167,31 @@ struct End {
     tabs: usize,
 }
 
-/// The lines of a paragraph so far and the one being filled.
-struct Breaker<'a> {
-    para: &'a Para,
-    /// The multiple less one of multiple line spacing.
-    extra: f64,
-    /// The paragraph mark's single line height, and with the extra.
-    mark_single: f64,
-    mark: f64,
-    mark_below: f64,
-    right_limit: f64,
-    out: Vec<Line>,
+#[derive(Clone, Copy, PartialEq)]
+enum Ending {
+    Wrap,
+    LineBreak,
+    PageBreak,
+    Paragraph,
+}
+
+struct Heights {
+    text: f64,
+    single: f64,
+    below: f64,
+}
+
+/// The line being filled.
+struct Open {
+    first_piece: usize,
     x: f64,
     text: Extent,
-    /// Width of the spaces between words on the line so far.
+    /// Width of the spaces between words since the last tab.
     spaces: f64,
     object: f64,
     has_content: bool,
-    /// Last break opportunity on this line (piece index to restart from).
+    /// Last break opportunity (piece index to restart from).
     last_break: Option<(usize, End)>,
-    line_start: usize,
-    first_line: bool,
     start: f64,
     content: f64,
     gaps: u32,
@@ -190,7 +201,25 @@ struct Breaker<'a> {
     tabs: Vec<TabPlace>,
 }
 
-impl Breaker<'_> {
+impl Open {
+    fn new(first_piece: usize, x: f64) -> Open {
+        Open {
+            first_piece,
+            x,
+            text: Extent::default(),
+            spaces: 0.0,
+            object: 0.0,
+            has_content: false,
+            last_break: None,
+            start: x,
+            content: x,
+            gaps: 0,
+            pending: 0,
+            words: false,
+            tabs: Vec::new(),
+        }
+    }
+
     fn end(&self) -> End {
         End {
             content: self.content,
@@ -199,8 +228,20 @@ impl Breaker<'_> {
         }
     }
 
-    fn word(&mut self, x: f64) {
-        self.content = x;
+    fn mark_break(&mut self, restart: usize) {
+        self.last_break = Some((restart, self.end()));
+    }
+
+    fn space(&mut self, width: f64) {
+        if self.words {
+            self.spaces += width;
+            self.pending += 1;
+        }
+    }
+
+    fn word(&mut self) {
+        self.has_content = true;
+        self.content = self.x;
         if self.words {
             self.gaps += self.pending;
         }
@@ -208,56 +249,177 @@ impl Breaker<'_> {
         self.words = true;
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn close(
-        &mut self,
-        text: f64,
-        single: f64,
-        below: f64,
-        page_break: bool,
-        end_piece: usize,
-        end: End,
-        last: bool,
-    ) {
-        let height = line_height(self.para, text, self.object);
-        let mut tabs = std::mem::take(&mut self.tabs);
-        tabs.truncate(end.tabs);
-        self.out.push(Line {
-            height,
-            fit: line_height(self.para, single, self.object),
-            page_break,
-            pieces: self.line_start as u32..end_piece as u32,
-            baseline: height - below,
-            start: self.start,
-            width: end.content - self.start,
-            slack: self.right_limit - end.content,
-            gaps: end.gaps,
-            tabs,
-            last,
+    fn tab(&mut self, piece: usize, to: f64) {
+        self.tabs.push(TabPlace {
+            piece: piece as u32,
+            from: self.x,
+            to,
         });
-    }
-
-    fn break_line(&mut self, page_break: bool, restart: usize, end: End, last: bool) {
-        let height = self.text.height(self.mark_single, self.extra);
-        let (text, single, below) = if height > 0.0 {
-            (height, self.text.single_height(), self.text.below)
-        } else {
-            (self.mark, self.mark_single, self.mark_below)
-        };
-        self.close(text, single, below, page_break, restart, end, last);
-        self.first_line = false;
-        self.x = self.para.left;
-        self.text = Extent::default();
+        self.x = to;
+        self.content = to;
+        self.has_content = true;
         self.spaces = 0.0;
-        self.object = 0.0;
-        self.has_content = false;
-        self.last_break = None;
-        self.line_start = restart;
-        self.start = self.x;
-        self.content = self.x;
         self.gaps = 0;
         self.pending = 0;
         self.words = false;
+        self.mark_break(piece + 1);
+    }
+}
+
+/// The lines of a paragraph so far and the one being filled.
+struct Breaker<'a> {
+    para: &'a Para,
+    metrics: &'a [Metric],
+    default_tab: f64,
+    /// The multiple less one of multiple line spacing.
+    extra: f64,
+    /// The paragraph mark's single line height, and with the extra.
+    mark_single: f64,
+    mark: f64,
+    mark_below: f64,
+    right_limit: f64,
+    first_line: bool,
+    out: Vec<Line>,
+    line: Open,
+}
+
+impl Breaker<'_> {
+    fn heights(&self, paragraph_end: bool) -> Heights {
+        let text = &self.line.text;
+        let height = text.height(self.mark_single, self.extra);
+        let below = if text.below > 0.0 {
+            text.below
+        } else {
+            self.mark_below
+        };
+        if height > 0.0 && (self.line.has_content || !paragraph_end) {
+            Heights {
+                text: height,
+                single: text.single_height(),
+                below,
+            }
+        } else if paragraph_end {
+            Heights {
+                text: height.max(self.mark),
+                single: text.single_height().max(self.mark_single),
+                below: text.below.max(self.mark_below),
+            }
+        } else {
+            Heights {
+                text: self.mark,
+                single: self.mark_single,
+                below: self.mark_below,
+            }
+        }
+    }
+
+    fn close(&mut self, ending: Ending, next_piece: usize, end: End) {
+        let heights = self.heights(ending == Ending::Paragraph);
+        let para = self.para;
+        let open = std::mem::replace(&mut self.line, Open::new(next_piece, para.left));
+        let height = line_height(para, heights.text, open.object);
+        let slack = self.right_limit - end.content;
+        let offset = match para.align {
+            Align::Center => slack.max(0.0) / 2.0,
+            Align::Right => slack.max(0.0),
+            _ => 0.0,
+        };
+        let mut tabs = open.tabs;
+        tabs.truncate(end.tabs);
+        for tab in &mut tabs {
+            tab.from += offset;
+            tab.to += offset;
+        }
+        self.out.push(Line {
+            height,
+            fit: line_height(para, heights.single, open.object),
+            page_break: ending == Ending::PageBreak,
+            pieces: open.first_piece as u32..next_piece as u32,
+            baseline: height - heights.below,
+            start: open.start + offset,
+            width: end.content - open.start,
+            slack,
+            gaps: end.gaps,
+            tabs,
+            last: ending != Ending::Wrap,
+        });
+        self.first_line = false;
+    }
+
+    /// The piece to go on with.
+    fn char(&mut self, index: usize, ch: char, width: f64, metric: u32) -> usize {
+        let is_space = ch == ' ' || ch == '\u{3000}';
+        let line = &self.line;
+        let shrink = if self.para.align.justified() {
+            JUSTIFIED_SHRINK * line.spaces
+        } else {
+            0.0
+        };
+        if !is_space && line.x + width > self.right_limit + EPSILON + shrink && line.has_content {
+            let (restart, end) = match line.last_break {
+                Some((at, end)) if at > line.first_piece => (at, end),
+                _ if index > line.first_piece => (index, line.end()),
+                _ => (
+                    index + 1,
+                    End {
+                        content: line.x + width,
+                        ..line.end()
+                    },
+                ),
+            };
+            self.close(Ending::Wrap, restart, end);
+            return restart;
+        }
+        let line = &mut self.line;
+        line.x += width;
+        line.text.add(self.metrics, metric, self.extra);
+        if is_space {
+            line.space(width);
+            line.mark_break(index + 1);
+        } else {
+            line.word();
+            if breaks_after(ch) {
+                line.mark_break(index + 1);
+            }
+        }
+        index + 1
+    }
+
+    fn object(&mut self, index: usize, width: f64, height: f64) {
+        if self.line.x + width > self.right_limit + EPSILON && self.line.has_content {
+            self.close(Ending::Wrap, index, self.line.end());
+        }
+        let line = &mut self.line;
+        line.x += width;
+        line.object = line.object.max(height);
+        line.word();
+        line.mark_break(index + 1);
+    }
+
+    fn tab(&mut self, index: usize, metric: u32) {
+        let x = self.line.x;
+        let (stop, kind) = tab_stop(self.para, x, self.first_line, self.default_tab);
+        let segment = segment_width(&self.para.pieces, index + 1);
+        let target = match kind {
+            TabKind::Right | TabKind::Decimal => (stop - segment).max(x),
+            TabKind::Center => (stop - segment / 2.0).max(x),
+            _ => stop,
+        };
+        self.line.text.add(self.metrics, metric, self.extra);
+        if target > self.right_limit + EPSILON && self.line.has_content && kind == TabKind::Left {
+            self.line.tabs.push(TabPlace {
+                piece: index as u32,
+                from: x,
+                to: x,
+            });
+            self.close(Ending::Wrap, index + 1, self.line.end());
+        } else {
+            self.line.tab(index, target);
+        }
+    }
+
+    fn manual_break(&mut self, index: usize, ending: Ending) {
+        self.close(ending, index + 1, self.line.end());
     }
 }
 
@@ -267,152 +429,59 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
         LineSpacing::Multiple(multiple) => multiple - 1.0,
         _ => 0.0,
     };
-    let mark_metric = metric(metrics, para.mark);
-    let mark_single = mark_metric.height;
-    let x = para.left + para.first;
+    let mark = metric(metrics, para.mark);
     let mut b = Breaker {
         para,
+        metrics,
+        default_tab,
         extra,
-        mark_single,
-        mark: mark_single * (1.0 + extra),
-        mark_below: mark_metric.height - mark_metric.ascent,
+        mark_single: mark.height,
+        mark: mark.height * (1.0 + extra),
+        mark_below: mark.height - mark.ascent,
         right_limit: width - para.right,
-        out: Vec::new(),
-        x,
-        text: Extent::default(),
-        spaces: 0.0,
-        object: 0.0,
-        has_content: false,
-        last_break: None,
-        line_start: 0,
         first_line: true,
-        start: x,
-        content: x,
-        gaps: 0,
-        pending: 0,
-        words: false,
-        tabs: Vec::new(),
+        out: Vec::new(),
+        line: Open::new(0, para.left + para.first),
     };
-    let pieces = &para.pieces;
-    let right_limit = b.right_limit;
     if let Some(label) = &para.label {
-        b.text.add_label(metrics, label.metric);
-        b.x += label.width + label.space;
+        let line = &mut b.line;
+        line.text.add_label(metrics, label.metric);
+        line.x += label.width + label.space;
         if label.tab {
-            b.x = tab_stop(para, b.x, true, default_tab).0;
+            line.x = tab_stop(para, line.x, true, default_tab).0;
         }
-        b.has_content = true;
-        b.start = b.x;
-        b.content = b.x;
+        line.has_content = true;
+        line.start = line.x;
+        line.content = line.x;
     }
+    let pieces = &para.pieces;
     let mut index = 0;
     while index < pieces.len() {
-        match &pieces[index] {
-            Piece::Char {
-                ch,
-                width: w,
-                metric,
-            } => {
-                let is_space = *ch == ' ' || *ch == '\u{3000}';
-                let shrink = if para.justified {
-                    JUSTIFIED_SHRINK * b.spaces
-                } else {
-                    0.0
-                };
-                if !is_space && b.x + w > right_limit + EPSILON + shrink && b.has_content {
-                    let (restart, end) = match b.last_break {
-                        Some((at, end)) if at > b.line_start => (at, end),
-                        _ if index > b.line_start => (index, b.end()),
-                        _ => (
-                            index + 1,
-                            End {
-                                content: b.x + w,
-                                ..b.end()
-                            },
-                        ),
-                    };
-                    b.break_line(false, restart, end, false);
-                    index = restart;
-                    continue;
-                }
-                b.x += w;
-                b.text.add(metrics, *metric, extra);
-                if is_space {
-                    if b.has_content {
-                        b.spaces += w;
-                    }
-                    if b.words {
-                        b.pending += 1;
-                    }
-                    b.last_break = Some((index + 1, b.end()));
-                } else {
-                    b.has_content = true;
-                    b.word(b.x);
-                    if breaks_after(*ch) {
-                        b.last_break = Some((index + 1, b.end()));
-                    }
-                }
-            }
-            Piece::Object { width: w, height } => {
-                if b.x + w > right_limit + EPSILON && b.has_content {
-                    b.break_line(false, index, b.end(), false);
-                }
-                b.x += w;
-                b.object = b.object.max(*height);
-                b.has_content = true;
-                b.word(b.x);
-                b.last_break = Some((index + 1, b.end()));
+        index = match pieces[index] {
+            Piece::Char { ch, width, metric } => b.char(index, ch, width, metric),
+            Piece::Object { width, height } => {
+                b.object(index, width, height);
+                index + 1
             }
             Piece::Tab { metric } => {
-                let (stop, kind) = tab_stop(para, b.x, b.first_line, default_tab);
-                let segment = segment_width(pieces, index + 1);
-                let target = match kind {
-                    TabKind::Right | TabKind::Decimal => (stop - segment).max(b.x),
-                    TabKind::Center => (stop - segment / 2.0).max(b.x),
-                    _ => stop,
-                };
-                b.text.add(metrics, *metric, extra);
-                if target > right_limit + EPSILON && b.has_content && kind == TabKind::Left {
-                    b.break_line(false, index + 1, b.end(), false);
-                } else {
-                    b.tabs.push(TabPlace {
-                        piece: index as u32,
-                        from: b.x,
-                        to: target,
-                    });
-                    b.x = target;
-                    b.spaces = 0.0;
-                    b.has_content = true;
-                    b.content = target;
-                    b.gaps = 0;
-                    b.pending = 0;
-                    b.words = false;
-                    b.last_break = Some((index + 1, b.end()));
-                }
+                b.tab(index, metric);
+                index + 1
             }
             Piece::LineBreak { metric } => {
-                b.text.add(metrics, *metric, extra);
-                b.break_line(false, index + 1, b.end(), true);
+                b.line.text.add(metrics, metric, extra);
+                b.manual_break(index, Ending::LineBreak);
+                index + 1
             }
-            Piece::PageBreak => b.break_line(true, index + 1, b.end(), true),
-        }
-        index += 1;
+            Piece::PageBreak => {
+                b.manual_break(index, Ending::PageBreak);
+                index + 1
+            }
+        };
     }
     // The last line carries the paragraph mark, unless the paragraph ends
     // with a page break (the mark then stays beside the break).
-    if b.has_content || !matches!(pieces.last(), Some(Piece::PageBreak)) {
-        let height = b.text.height(mark_single, extra);
-        let (text, single, below) = if b.has_content && height > 0.0 {
-            (height, b.text.single_height(), b.text.below)
-        } else {
-            (
-                height.max(b.mark),
-                b.text.single_height().max(mark_single),
-                b.text.below.max(b.mark_below),
-            )
-        };
-        let end = b.end();
-        b.close(text, single, below, false, pieces.len(), end, true);
+    if b.line.has_content || !matches!(pieces.last(), Some(Piece::PageBreak)) {
+        b.close(Ending::Paragraph, pieces.len(), b.line.end());
     }
     b.out
 }
@@ -616,6 +685,21 @@ fn cell_layout<'m>(
     out
 }
 
+/// The line of a cell its row splits before, widow control applied; none
+/// when the cell fits in `available`.
+fn cut(part: &CellPart<'_>, available: f64) -> Option<usize> {
+    let lines = &part.layout.lines;
+    let k = lines
+        .iter()
+        .position(|line| part.top + line.offset + line.height > available + EPSILON)?;
+    let line = &lines[k];
+    // No paragraph leaves one line behind or sends one line ahead.
+    let widow = line.widow_control
+        && line.count >= 2
+        && (line.index == 1 || (line.index >= 2 && line.count - line.index == 1));
+    Some(if widow { k - 1 } else { k })
+}
+
 /// A cell's layout and its content's offset from the row's top-left.
 struct CellPart<'m> {
     layout: CellLayout<'m>,
@@ -686,13 +770,8 @@ pub(super) struct Point {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code, reason = "the PDF painter reads them")]
 pub(super) struct PageStart {
     pub number: u32,
-    pub section: usize,
-    pub page: Page,
-    pub top: f64,
-    pub bottom: f64,
 }
 
 /// The part of a row on one page.
@@ -703,38 +782,66 @@ pub(super) struct RowSlice {
     pub last: bool,
 }
 
+impl RowSlice {
+    fn whole(height: f64) -> RowSlice {
+        RowSlice {
+            height,
+            first: true,
+            last: true,
+        }
+    }
+}
+
 /// Each call comes once its placement is final; an `Err` stops pagination.
 pub(super) trait Sink {
-    fn page(&mut self, page: &PageStart) -> Result<()>;
+    fn page(&mut self, _page: &PageStart) -> Result<()> {
+        Ok(())
+    }
+
     /// `at`: the column's left edge and the line's top.
-    fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()>;
+    fn line(&mut self, _at: Point, _para: &Para, _line: &Line) -> Result<()> {
+        Ok(())
+    }
+
     /// `origin`: the column's (a nested row's own) left edge and the slice's top.
-    fn row(&mut self, origin: Point, table: &Table, row: usize, slice: &RowSlice) -> Result<()>;
+    fn row(
+        &mut self,
+        _origin: Point,
+        _table: &Table,
+        _row: usize,
+        _slice: &RowSlice,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Body paragraphs and row ends only.
-    fn placed(&mut self, placed: Placed) -> Result<()>;
+    fn placed(&mut self, _placed: Placed) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Sink for Vec<Placed> {
-    fn page(&mut self, _: &PageStart) -> Result<()> {
-        Ok(())
-    }
-
-    fn line(&mut self, _: Point, _: &Para, _: &Line) -> Result<()> {
-        Ok(())
-    }
-
-    fn row(&mut self, _: Point, _: &Table, _: usize, _: &RowSlice) -> Result<()> {
-        Ok(())
-    }
-
     fn placed(&mut self, placed: Placed) -> Result<()> {
         self.push(placed);
         Ok(())
     }
 }
 
-/// Pieces, lines and rows laid out before pagination gives up.
-pub(super) const MAX_LAYOUT_WORK: u64 = 100_000_000;
+/// Pieces, lines, rows and sink calls before pagination gives up.
+pub(super) const MAX_LAYOUT_WORK: u64 = 20_000_000;
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_LAYOUT_WORK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+fn layout_work() -> u64 {
+    #[cfg(test)]
+    if let Some(budget) = TEST_LAYOUT_WORK.get() {
+        return budget;
+    }
+    MAX_LAYOUT_WORK
+}
 
 fn bounds(model: &Model, section: usize, first: bool) -> (f64, f64) {
     let s = &model.sections[section.min(model.sections.len() - 1)];
@@ -779,7 +886,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     fn charge(&mut self, work: u64) -> Result<()> {
         self.work = self.work.saturating_add(work);
         if self.work > self.budget {
-            return Err(Error::limit("max_layout_work", self.budget, self.work));
+            return Err(Error::work_bound("max_layout_work", self.budget, self.work));
         }
         Ok(())
     }
@@ -806,14 +913,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     fn open_page(&mut self) -> Result<()> {
-        let section = self.section();
-        self.sink.page(&PageStart {
-            number: self.page,
-            section,
-            page: self.model.sections[section].page,
-            top: self.top,
-            bottom: self.bottom,
-        })
+        self.sink.page(&PageStart { number: self.page })
     }
 
     fn new_page(&mut self) -> Result<()> {
@@ -860,21 +960,46 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         page.left + page.gutter
     }
 
-    fn draw(&mut self, x: f64, y: f64, item: &Item<'m>) -> Result<()> {
-        let at = Point { x, y };
-        match item {
-            Item::Line(para, line) => self.sink.line(at, para, line),
-            Item::Row(table, row, height) => self.sink.row(
-                at,
-                table,
-                *row,
-                &RowSlice {
-                    height: *height,
-                    first: true,
-                    last: true,
-                },
-            ),
+    fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
+        self.charge(1)?;
+        self.sink.line(at, para, line)
+    }
+
+    fn row(&mut self, origin: Point, table: &Table, row: usize, slice: &RowSlice) -> Result<()> {
+        self.charge(1)?;
+        self.sink.row(origin, table, row, slice)
+    }
+
+    /// Draw a slice of `table`'s row `row` with its top at `y`, and the
+    /// cell items `top` gives a top within the slice.
+    fn draw_slice(
+        &mut self,
+        (table, row): (&'m Table, usize),
+        layout: &RowLayout<'m>,
+        y: f64,
+        slice: RowSlice,
+        top: impl Fn(usize, &CellPart<'m>, &Drawn<'m>) -> Option<f64>,
+    ) -> Result<()> {
+        let left = self.column_left();
+        self.row(Point { x: left, y }, table, row, &slice)?;
+        for (cell, part) in layout.cells.iter().enumerate() {
+            for drawn in &part.layout.drawn {
+                let Some(top) = top(cell, part, drawn) else {
+                    continue;
+                };
+                let at = Point {
+                    x: left + part.x + drawn.x,
+                    y: y + top,
+                };
+                match &drawn.item {
+                    Item::Line(para, line) => self.line(at, para, line)?,
+                    Item::Row(table, row, height) => {
+                        self.row(at, table, *row, &RowSlice::whole(*height))?
+                    }
+                }
+            }
         }
+        Ok(())
     }
 
     fn draw_row(
@@ -884,23 +1009,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         layout: &RowLayout<'m>,
         y: f64,
     ) -> Result<()> {
-        let left = self.column_left();
-        let slice = RowSlice {
-            height: layout.height,
-            first: true,
-            last: true,
-        };
-        self.sink.row(Point { x: left, y }, table, row, &slice)?;
-        for part in &layout.cells {
-            for drawn in &part.layout.drawn {
-                self.draw(
-                    left + part.x + drawn.x,
-                    y + part.top + drawn.offset,
-                    &drawn.item,
-                )?;
-            }
-        }
-        Ok(())
+        let slice = RowSlice::whole(layout.height);
+        self.draw_slice((table, row), layout, y, slice, |_, part, drawn| {
+            Some(part.top + drawn.offset)
+        })
     }
 
     fn repeat_headers(
@@ -911,6 +1023,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     ) -> Result<()> {
         let mut y = self.y;
         for (row, layout) in headers.iter().enumerate() {
+            self.charge(layout.work)?;
             self.draw_row(table, row, layout, y)?;
             y += layout.height;
         }
@@ -1011,7 +1124,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             }
             let left = self.column_left();
             for line in &lines[index..index + fit] {
-                self.sink.line(Point { x: left, y: self.y }, para, line)?;
+                self.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }
             self.at_top = false;
@@ -1101,70 +1214,55 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     ) -> Result<bool> {
         let row = &table.rows[row_index];
         let available = self.bottom - self.y;
-        let mut any = false;
+        let cuts: Vec<Option<usize>> = layout
+            .cells
+            .iter()
+            .map(|part| cut(part, available))
+            .collect();
+        if cuts.iter().all(|cut| *cut == Some(0)) {
+            return Ok(false);
+        }
+        let cuts: Vec<Option<f64>> = cuts
+            .iter()
+            .zip(&layout.cells)
+            .map(|(cut, part)| cut.map(|k| part.layout.lines[k].offset))
+            .collect();
         let mut rest = 0.0f64;
         let mut moved: Vec<ParaOffset> = Vec::new();
         let mut kept: Vec<ParaOffset> = Vec::new();
-        let mut cuts: Vec<Option<f64>> = Vec::new();
-        for (cell, part) in row.cells.iter().zip(&layout.cells) {
-            let (cell_layout, top) = (&part.layout, part.top);
-            let lines = &cell_layout.lines;
-            let mut cut = lines
-                .iter()
-                .position(|line| top + line.offset + line.height > available + EPSILON);
-            // Widow control: no paragraph leaves one line behind or sends
-            // one line ahead.
-            if let Some(k) = cut {
-                let line = &lines[k];
-                if line.widow_control
-                    && line.count >= 2
-                    && (line.index == 1 || (line.index >= 2 && line.count - line.index == 1))
-                {
-                    cut = Some(k - 1);
+        for ((cell, part), cut) in row.cells.iter().zip(&layout.cells).zip(&cuts) {
+            let Some(cut) = *cut else {
+                kept.extend(part.layout.paras.iter().map(|para| para.shifted(part.top)));
+                continue;
+            };
+            rest = rest.max(part.layout.content - cut + cell.margins[0] + cell.margins[1]);
+            for para in &part.layout.paras {
+                if para.offset >= cut - EPSILON {
+                    moved.push(ParaOffset {
+                        offset: para.offset - cut + cell.margins[0],
+                        ..*para
+                    });
+                } else {
+                    kept.push(para.shifted(part.top));
                 }
             }
-            any |= cut != Some(0);
-            let cut = cut.map(|k| lines[k].offset);
-            cuts.push(cut);
-            match cut {
-                Some(cut) => {
-                    rest = rest.max(cell_layout.content - cut + cell.margins[0] + cell.margins[1]);
-                    for para in &cell_layout.paras {
-                        if para.offset >= cut - EPSILON {
-                            moved.push(ParaOffset {
-                                offset: para.offset - cut + cell.margins[0],
-                                ..*para
-                            });
-                        } else {
-                            kept.push(para.shifted(top));
-                        }
-                    }
-                }
-                None => kept.extend(cell_layout.paras.iter().map(|para| para.shifted(top))),
-            }
         }
-        if !any {
-            return Ok(false);
-        }
-        let left = self.column_left();
-        let slice = RowSlice {
+        let first = RowSlice {
             height: available,
             first: true,
             last: false,
         };
-        self.sink
-            .row(Point { x: left, y: self.y }, table, row_index, &slice)?;
-        for (part, cut) in layout.cells.iter().zip(&cuts) {
-            for drawn in &part.layout.drawn {
-                if cut.is_none_or(|cut| drawn.offset < cut - EPSILON) {
-                    self.draw(
-                        left + part.x + drawn.x,
-                        self.y + part.top + drawn.offset,
-                        &drawn.item,
-                    )?;
-                }
-            }
-        }
+        self.draw_slice(
+            (table, row_index),
+            layout,
+            self.y,
+            first,
+            |cell, part, drawn| {
+                cuts[cell]
+                    .is_none_or(|cut| drawn.offset < cut - EPSILON)
+                    .then_some(part.top + drawn.offset)
+            },
+        )?;
         for para in kept {
             self.place(para)?;
         }
@@ -1178,25 +1276,22 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         if let Some((layouts, height)) = headers {
             self.repeat_headers(table, layouts, height)?;
         }
-        let left = self.column_left();
-        let slice = RowSlice {
+        let second = RowSlice {
             height: rest,
             first: false,
             last: true,
         };
-        self.sink
-            .row(Point { x: left, y: self.y }, table, row_index, &slice)?;
-        for ((part, cut), cell) in layout.cells.iter().zip(&cuts).zip(&row.cells) {
-            let Some(cut) = *cut else {
-                continue;
-            };
-            for drawn in &part.layout.drawn {
-                if drawn.offset >= cut - EPSILON {
-                    let y = self.y + drawn.offset - cut + cell.margins[0];
-                    self.draw(left + part.x + drawn.x, y, &drawn.item)?;
-                }
-            }
-        }
+        self.draw_slice(
+            (table, row_index),
+            layout,
+            self.y,
+            second,
+            |cell, _, drawn| {
+                let cut = cuts[cell]?;
+                (drawn.offset >= cut - EPSILON)
+                    .then(|| drawn.offset - cut + row.cells[cell].margins[0])
+            },
+        )?;
         for para in moved {
             self.place(para)?;
         }
@@ -1247,7 +1342,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 
 /// Paginate the model into `sink`; the page count.
 pub(super) fn paginate<S: Sink>(model: &Model, sink: &mut S) -> Result<u32> {
-    paginate_within(model, sink, MAX_LAYOUT_WORK)
+    paginate_within(model, sink, layout_work())
 }
 
 fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<u32> {
@@ -1429,7 +1524,7 @@ mod tests {
             }
         }
         assert_eq!(lines(&p, &METRICS, 100.0, 36.0).len(), 2);
-        p.justified = true;
+        p.align = Align::Both;
         assert_eq!(lines(&p, &METRICS, 100.0, 36.0).len(), 1);
         assert_eq!(lines(&p, &METRICS, 98.0, 36.0).len(), 2);
     }
@@ -1530,7 +1625,7 @@ mod tests {
                 *width = 2.2;
             }
         }
-        p.justified = true;
+        p.align = Align::Both;
         let lines = lines(&p, &METRICS, 100.0, 36.0);
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].pieces, 0..30);
@@ -1624,10 +1719,6 @@ mod tests {
             Ok(())
         }
 
-        fn row(&mut self, _: Point, _: &Table, _: usize, _: &RowSlice) -> Result<()> {
-            Ok(())
-        }
-
         fn placed(&mut self, _: Placed) -> Result<()> {
             self.placed += 1;
             Ok(())
@@ -1654,12 +1745,114 @@ mod tests {
 
     #[test]
     fn layout_work_has_a_budget() {
-        // Ten paragraphs of 49 pieces and two lines: 510 units of work.
+        // Ten paragraphs of 49 pieces and two lines, each line drawn: 530.
         let blocks: Vec<Block> = (0..10).map(|_| Block::Para(para(10, 18.0))).collect();
         let model = model(blocks, 120.0);
-        let error = paginate_within(&model, &mut Vec::new(), 500).unwrap_err();
+        let error = paginate_within(&model, &mut Vec::new(), 529).unwrap_err();
         assert_eq!(error.reason(), "max_layout_work");
-        assert!(paginate_within(&model, &mut Vec::new(), 510).is_ok());
+        assert!(paginate_within(&model, &mut Vec::new(), 530).is_ok());
+    }
+
+    fn header_table(header_lines: usize, rows: usize) -> Table {
+        let cell = |lines: usize| super::super::model::Cell {
+            width: 100.0,
+            blocks: (0..lines).map(|_| Block::Para(para(1, 10.0))).collect(),
+            ..Default::default()
+        };
+        let mut table = Table {
+            rows: vec![Row {
+                cells: vec![cell(header_lines)],
+                header: true,
+                ..Row::default()
+            }],
+        };
+        table.rows.extend((0..rows).map(|_| Row {
+            cells: vec![cell(1)],
+            ..Row::default()
+        }));
+        table
+    }
+
+    #[test]
+    fn repeated_header_rows_count_as_work() {
+        // A 200-point header row on a 100-point body, then ten rows: each
+        // row takes a page of its own and repeats the header's 20 lines.
+        let small = model(vec![Block::Table(header_table(20, 10))], 120.0);
+        assert_eq!(run(&small).1, 11);
+        let error = paginate_within(&small, &mut Vec::new(), 1000).unwrap_err();
+        assert_eq!(error.reason(), "max_layout_work");
+        // A header of 3,000 lines over 3,000 rows: 9 million lines to draw.
+        let large = model(vec![Block::Table(header_table(3000, 3000))], 120.0);
+        let error = paginate(&large, &mut Vec::new()).unwrap_err();
+        assert_eq!(error.reason(), "max_layout_work");
+    }
+
+    #[test]
+    fn centred_and_right_aligned_lines_start_where_their_text_does() {
+        // Two 10-point words and a 2-point space in 100: 78 points spare.
+        let mut p = para(2, 10.0);
+        let starts: Vec<f64> = [Align::Left, Align::Center, Align::Right, Align::Both]
+            .into_iter()
+            .map(|align| {
+                p.align = align;
+                let line = lines(&p, &METRICS, 100.0, 36.0).remove(0);
+                assert_eq!((line.width, line.slack), (22.0, 78.0));
+                line.start
+            })
+            .collect();
+        assert_eq!(starts, [0.0, 39.0, 78.0, 0.0]);
+    }
+
+    #[test]
+    fn a_label_only_line_leaves_room_for_the_descent() {
+        let p = Para {
+            label: Some(Label {
+                width: 5.0,
+                space: 0.0,
+                tab: false,
+                metric: 0,
+            }),
+            ..Para::default()
+        };
+        let line = lines(&p, &METRICS, 100.0, 36.0).remove(0);
+        assert_eq!(line.baseline, line.height - 2.0);
+    }
+
+    #[test]
+    fn a_left_tab_past_the_margin_ends_its_line_with_no_width() {
+        // "aaaa" is 96 wide; the next default stop, 108, is past 100.
+        let p = Para {
+            pieces: text("aaaa\tb", 24.0),
+            ..Para::default()
+        };
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[0].tabs,
+            [TabPlace {
+                piece: 4,
+                from: 96.0,
+                to: 96.0
+            }]
+        );
+        assert_eq!((lines[0].pieces.clone(), lines[0].width), (0..5, 96.0));
+    }
+
+    #[test]
+    fn spaces_before_the_first_word_after_a_tab_do_not_shrink() {
+        // A tab to 36, two 10-point spaces, then a 45-point word: 101 in
+        // 100. Only spaces between words count as gaps, and only gaps may
+        // shrink, so the word goes to the next line.
+        let mut pieces = text("\t  ", 10.0);
+        pieces.extend(text("aaaaaaaaa", 5.0));
+        let p = Para {
+            pieces,
+            align: Align::Both,
+            ..Para::default()
+        };
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert_eq!(lines.len(), 2);
+        assert_eq!((lines[0].pieces.clone(), lines[0].gaps), (0..3, 0));
     }
 
     #[test]
@@ -1679,12 +1872,6 @@ mod tests {
                         y: at.y,
                     },
                 ));
-                Ok(())
-            }
-            fn row(&mut self, _: Point, _: &Table, _: usize, _: &RowSlice) -> Result<()> {
-                Ok(())
-            }
-            fn placed(&mut self, _: Placed) -> Result<()> {
                 Ok(())
             }
         }

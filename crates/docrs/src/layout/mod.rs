@@ -17,6 +17,8 @@ mod model;
 use std::collections::{HashMap, HashSet};
 
 pub use flow::Placed;
+#[cfg(test)]
+pub(crate) use flow::TEST_LAYOUT_WORK;
 pub use fonts::{Face, FontBook};
 
 use fonts::{FontError, Parsed};
@@ -516,6 +518,14 @@ pub struct LineRecord {
     pub baseline: f64,
     /// Where each tab moves from and to.
     pub tabs: Vec<(f64, f64)>,
+    /// The width left over before alignment; a justified line spreads it
+    /// over its `gaps`.
+    pub slack: f64,
+    pub gaps: u32,
+    /// Ends the paragraph, or in a line or page break.
+    pub last: bool,
+    /// `w:jc`'s value: `left`, `center`, `right`, `both`, `distribute`…
+    pub align: &'static str,
     pub text: String,
 }
 
@@ -571,22 +581,12 @@ impl flow::Sink for LineDump {
                 .iter()
                 .map(|tab| (at.x + tab.from, at.x + tab.to))
                 .collect(),
+            slack: line.slack,
+            gaps: line.gaps,
+            last: line.last,
+            align: para.align.name(),
             text,
         });
-        Ok(())
-    }
-
-    fn row(
-        &mut self,
-        _: flow::Point,
-        _: &model::Table,
-        _: usize,
-        _: &flow::RowSlice,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    fn placed(&mut self, _: Placed) -> Result<()> {
         Ok(())
     }
 }
@@ -607,5 +607,34 @@ fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model::{Block, Para, StoryId};
+    use super::*;
+
+    #[test]
+    fn bookmarks_are_keyed_by_story_and_node() {
+        // Node ids are per part: a header paragraph can share one with a
+        // body paragraph.
+        let node = Some(NodeId(3));
+        let para = |story, name: &str| {
+            Block::Para(Para {
+                story,
+                node,
+                bookmarks: vec![name.to_string()],
+                ..Para::default()
+            })
+        };
+        let blocks = [
+            para(StoryId::Header(1), "inHeader"),
+            para(StoryId::Body, "inBody"),
+        ];
+        let mut map = HashMap::new();
+        collect_bookmarks(&blocks, &mut map);
+        assert_eq!(map[&(StoryId::Body, NodeId(3))], ["inBody"]);
+        assert_eq!(map[&(StoryId::Header(1), NodeId(3))], ["inHeader"]);
     }
 }
