@@ -44,10 +44,9 @@ impl FaceRef {
 #[derive(Default)]
 pub(crate) struct FontResources {
     files: Vec<SourceFile>,
-    /// Each allocation passed to [`FontResources::add_face`] (kept, so its
-    /// address stays its own), by address and length, to its file.
+    /// Each file's own allocation (held by `files`, so its address stays
+    /// its own), by address and length.
     seen: HashMap<(usize, usize), usize>,
-    held: Vec<Arc<[u8]>>,
     infos: HashMap<(usize, u32), Arc<FaceInfo>>,
     refs: HashMap<InstanceKey, FaceRef>,
     faces: Vec<Resource>,
@@ -80,8 +79,10 @@ impl FontResources {
     /// Face `index` of a font file at the instance `style` selects. The face
     /// must read as layout reads fonts (`font_malformed`,
     /// `font_cmap_invalid`, `font_too_large`, …), and its licence must allow
-    /// embedding (`pdf_font_embedding_restricted`). A file is read once,
-    /// however often it is passed.
+    /// embedding (`pdf_font_embedding_restricted`). A file is read once. The
+    /// first allocation of each content is kept and recognised by address;
+    /// another copy is hashed on every call, so the painter should pass the
+    /// `FontSet`'s own `Arc`.
     pub(crate) fn add_face(
         &mut self,
         data: Arc<[u8]>,
@@ -124,19 +125,12 @@ impl FontResources {
             return *file;
         }
         let digest: [u8; 32] = Sha256::digest(&data).into();
-        let file = match self.files.iter().position(|file| file.digest == digest) {
-            Some(file) => file,
-            None => {
-                self.files.push(SourceFile {
-                    data: data.clone(),
-                    digest,
-                });
-                self.files.len() - 1
-            }
-        };
-        self.seen.insert(address, file);
-        self.held.push(data);
-        file
+        if let Some(file) = self.files.iter().position(|file| file.digest == digest) {
+            return file;
+        }
+        self.seen.insert(address, self.files.len());
+        self.files.push(SourceFile { data, digest });
+        self.files.len() - 1
     }
 
     fn info(&mut self, file: usize, index: u32) -> Result<Arc<FaceInfo>> {
@@ -408,3 +402,26 @@ const FIXED_PITCH: u32 = 1;
 const SERIF: u32 = 1 << 1;
 const SYMBOLIC: u32 = 1 << 2;
 const ITALIC: u32 = 1 << 6;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_first_allocation_of_a_file_is_held() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/fonts/liberation/LiberationSerif-Regular.ttf"
+        );
+        let first: Arc<[u8]> = std::fs::read(path).unwrap().into();
+        let mut fonts = FontResources::default();
+        let face = fonts.add_face(first.clone(), 0, Style::REGULAR).unwrap();
+        for _ in 0..3 {
+            let copy: Arc<[u8]> = first.to_vec().into();
+            assert_eq!(fonts.add_face(copy, 0, Style::REGULAR).unwrap(), face);
+        }
+        assert_eq!((fonts.files.len(), fonts.seen.len()), (1, 1));
+        assert!(Arc::ptr_eq(&fonts.files[0].data, &first));
+        assert_eq!(fonts.add_face(first, 0, Style::REGULAR).unwrap(), face);
+    }
+}

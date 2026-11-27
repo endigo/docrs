@@ -82,6 +82,15 @@ impl Fvar {
             .map(|axis| axis.min <= axis.default && axis.default <= axis.max)
             .collect();
         let start = axes_at + count * axis_size;
+        let records_fit = instances
+            .checked_mul(instance_size)
+            .and_then(|length| start.checked_add(length))
+            .is_some_and(|end| end <= fvar.len());
+        let instances = if instance_size < 4 + 4 * count || !records_fit {
+            0
+        } else {
+            instances
+        };
         let instances = (0..instances)
             .map_while(|index| {
                 let at = start + index * instance_size;
@@ -206,5 +215,30 @@ mod tests {
         assert_eq!(fvar.axes.len(), 1);
         assert_eq!(fvar.axes[0].tag, *b"slnt");
         assert!(fvar.variation(style(700, false)).is_empty());
+    }
+
+    #[test]
+    fn named_instances_must_fit_the_table() {
+        let axes: Vec<_> = (0..64)
+            .map(|n| ([b'a', b'x', b'0' + n / 10, b'0' + n % 10], 0, 0, 1))
+            .collect();
+        let mut table = fvar(&axes);
+        for (at, value) in [(12, 0xFFFF_u16), (14, 0)] {
+            table[at..at + 2].copy_from_slice(&value.to_be_bytes());
+        }
+        let read = Fvar::read(&table);
+        assert_eq!(read.axes.len(), 64);
+        assert!(read.instances.is_empty(), "zero-size records would repeat");
+        table[14..16].copy_from_slice(&(4 + 4 * 64_u16).to_be_bytes());
+        assert!(
+            Fvar::read(&table).instances.is_empty(),
+            "65,535 records overrun the table"
+        );
+        let record = [vec![0, 2, 0, 0], vec![0; 4 * 64]].concat();
+        table[12..14].copy_from_slice(&2_u16.to_be_bytes());
+        table.extend(record.repeat(2));
+        let read = Fvar::read(&table);
+        assert_eq!(read.instances.len(), 2);
+        assert_eq!(read.instances[0].coordinates.len(), 64);
     }
 }
