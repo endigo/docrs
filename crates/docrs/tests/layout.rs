@@ -264,26 +264,58 @@ fn embedded_fonts_share_one_budget_and_report_what_it_leaves_unread() {
 
 const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
+const SECT_PR: &str = "<w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"0\" w:footer=\"0\" w:gutter=\"0\"/>";
+
 /// A package with `body` and `styles` (inner XML of `w:styles`).
 fn styled_package(body: &str, styles: &str) -> Vec<u8> {
+    package_with(
+        &format!("{body}<w:sectPr>{SECT_PR}</w:sectPr>"),
+        styles,
+        None,
+    )
+}
+
+fn package_with(body: &str, styles: &str, settings: Option<&str>) -> Vec<u8> {
     let document = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"0\" w:footer=\"0\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body>{body}</w:body></w:document>"
     );
     let styles = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:styles xmlns:w=\"{W}\"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults>{styles}</w:styles>"
     );
-    let ct = CT_XML.replace(
-        "</Types>",
-        "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/></Types>",
+    let override_for = |part: &str, kind: &str| {
+        format!(
+            "<Override PartName=\"/word/{part}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml\"/>"
+        )
+    };
+    let rel = |id: &str, kind: &str| {
+        format!(
+            "<Relationship Id=\"{id}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/{kind}\" Target=\"{kind}.xml\"/>"
+        )
+    };
+    let mut overrides = override_for("styles", "styles");
+    let mut rels = rel("rId1", "styles");
+    let settings = settings.map(|inner| {
+        overrides += &override_for("settings", "settings");
+        rels += &rel("rId2", "settings");
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:settings xmlns:w=\"{W}\">{inner}</w:settings>"
+        )
+    });
+    let ct = CT_XML.replace("</Types>", &format!("{overrides}</Types>"));
+    let rels = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{rels}</Relationships>"
     );
-    let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/></Relationships>";
-    build_zip(&[
+    let mut members = vec![
         RawMember::new("[Content_Types].xml", ct.as_bytes()),
         RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
         RawMember::new("word/document.xml", document.as_bytes()),
         RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
         RawMember::new("word/styles.xml", styles.as_bytes()),
-    ])
+    ];
+    if let Some(settings) = &settings {
+        members.push(RawMember::new("word/settings.xml", settings.as_bytes()));
+    }
+    build_zip(&members)
 }
 
 fn estimate(body: &str, styles: &str) -> docrs::layout::Layout {
@@ -403,4 +435,223 @@ fn a_field_nested_in_field_code_measures_nothing_of_its_result() {
     let after = para("after", "");
     let y = |first: &str| estimate(&format!("{first}{after}"), "").placed[1].y;
     assert!((y(&nested) - y(&plain)).abs() < 0.01);
+}
+
+fn page_ref(bookmark: &str, switches: &str, result: &str) -> String {
+    format!(
+        "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGEREF {bookmark} {switches} </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>{result}<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>"
+    )
+}
+
+/// As Word writes an entry: a web-hidden PAGEREF result.
+fn word_entry(bookmark: &str, label: &str, shown: &str, switches: &str) -> String {
+    let field = page_ref(
+        bookmark,
+        switches,
+        &format!("<w:r><w:rPr><w:webHidden/></w:rPr><w:t>{shown}</w:t></w:r>"),
+    );
+    entry(bookmark, label, &field)
+}
+
+fn entry(bookmark: &str, label: &str, field: &str) -> String {
+    format!(
+        "<w:hyperlink w:anchor=\"{bookmark}\" w:history=\"1\"><w:r><w:t>{label}</w:t></w:r><w:r><w:tab/></w:r>{field}</w:hyperlink>"
+    )
+}
+
+fn word_toc(entries: &[String]) -> String {
+    let paragraphs: String = entries.iter().map(|e| format!("<w:p>{e}</w:p>")).collect();
+    format!(
+        "<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>\
+         <w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> TOC \\o \"1-3\" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r></w:p>\
+         {paragraphs}<w:p><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p></w:sdtContent></w:sdt>"
+    )
+}
+
+fn heading(bookmark: &str, text: &str, ppr: &str) -> String {
+    format!(
+        "<w:p><w:pPr><w:pageBreakBefore/>{ppr}</w:pPr><w:bookmarkStart w:id=\"0\" w:name=\"{bookmark}\"/><w:r><w:t>{text}</w:t></w:r><w:bookmarkEnd w:id=\"0\"/></w:p>"
+    )
+}
+
+fn entry_numbers(doc: &Document) -> Vec<String> {
+    let xml = document_xml(doc);
+    xml.split("<w:hyperlink ")
+        .skip(1)
+        .map(|chunk| {
+            let mut chunk = &chunk[..chunk.find("</w:hyperlink>").unwrap()];
+            let mut text = String::new();
+            while let Some(open) = chunk.find("<w:t>") {
+                chunk = &chunk[open + 5..];
+                text.push_str(&chunk[..chunk.find('<').unwrap()]);
+            }
+            text.trim_start_matches(char::is_alphabetic).to_string()
+        })
+        .collect()
+}
+
+fn refresh(doc: &mut Document) -> usize {
+    docrs::layout::refresh_toc_page_numbers(doc, false)
+        .unwrap()
+        .changed
+}
+
+fn open(bytes: &[u8]) -> Document {
+    Document::open_bytes(bytes, &Limits::default()).unwrap()
+}
+
+#[test]
+fn refresh_rewrites_the_page_numbers_of_a_contents_word_wrote() {
+    let toc = word_toc(&[
+        word_entry("_Toc1", "One", "7", "\\h"),
+        word_entry("_Toc2", "Two", "1", "\\h \\* MERGEFORMAT"),
+        word_entry("_Toc2", "Two", "1", "\\p"),
+        entry(
+            "_Toc2",
+            "Two",
+            "<w:fldSimple w:instr=\" PAGEREF _Toc2 \\h \"><w:r><w:t>8</w:t></w:r></w:fldSimple>",
+        ),
+    ]);
+    let outside = format!(
+        "<w:p>{}</w:p>",
+        page_ref("_Toc2", "\\h", "<w:r><w:t>9</w:t></w:r>")
+    );
+    let body = format!(
+        "{toc}{outside}{}{}",
+        heading("_Toc1", "One", ""),
+        heading("_Toc2", "Two", "")
+    );
+    let mut doc = open(&styled_package(&body, ""));
+    assert_eq!(refresh(&mut doc), 3);
+    assert_eq!(entry_numbers(&doc), ["2", "3", "1", "3"]);
+    assert!(document_xml(&doc).contains("<w:t>9</w:t>"));
+    assert_eq!(refresh(&mut doc), 0);
+}
+
+#[test]
+fn refresh_leaves_page_numbers_it_cannot_read_whole() {
+    let split = page_ref(
+        "_Toc1",
+        "\\h",
+        "<w:r><w:t>1</w:t></w:r><w:r><w:t>2</w:t></w:r>",
+    );
+    let deleted_begin = format!(
+        "<w:del w:id=\"1\" w:author=\"A\"><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r></w:del>{}",
+        &page_ref("_Toc1", "\\h", "<w:r><w:t>5</w:t></w:r>")
+            ["<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>".len()..]
+    );
+    let unclosed = "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGEREF _Toc1 \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>6</w:t></w:r>";
+    let toc = word_toc(&[
+        entry("_Toc1", "Split", &split),
+        entry("_Toc1", "Deleted", &deleted_begin),
+        word_entry("_Toc1", "Whole", "7", "\\h"),
+        entry("_Toc1", "Unclosed", unclosed),
+    ]);
+    let body = format!("{toc}{}", heading("_Toc1", "One", ""));
+    let mut doc = open(&styled_package(&body, ""));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["12", "5", "2", "6"]);
+}
+
+#[test]
+fn refresh_leaves_roman_and_restarted_page_numbers() {
+    let toc = word_toc(&[
+        word_entry("_Toc1", "One", "7", "\\h"),
+        word_entry("_Toc2", "Two", "9", "\\h"),
+    ]);
+    let roman = format!(
+        "{toc}{}{}<w:sectPr>{SECT_PR}<w:pgNumType w:fmt=\"lowerRoman\"/></w:sectPr>",
+        heading("_Toc1", "One", ""),
+        heading("_Toc2", "Two", "")
+    );
+    let mut doc = open(&package_with(&roman, "", None));
+    assert_eq!(refresh(&mut doc), 0);
+    assert_eq!(entry_numbers(&doc), ["7", "9"]);
+
+    let restarted = format!(
+        "{toc}{}{}<w:sectPr>{SECT_PR}<w:pgNumType w:start=\"1\"/></w:sectPr>",
+        heading("_Toc1", "One", &format!("<w:sectPr>{SECT_PR}</w:sectPr>")),
+        heading("_Toc2", "Two", "")
+    );
+    let mut doc = open(&package_with(&restarted, "", None));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["2", "9"]);
+
+    let break_in_sdt = format!(
+        "{toc}{}<w:sdt><w:sdtContent><w:p><w:pPr><w:sectPr>{SECT_PR}</w:sectPr></w:pPr></w:p></w:sdtContent></w:sdt>{}<w:sectPr>{SECT_PR}<w:pgNumType w:start=\"1\"/></w:sectPr>",
+        heading("_Toc1", "One", ""),
+        heading("_Toc2", "Two", "")
+    );
+    let mut doc = open(&package_with(&break_in_sdt, "", None));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["2", "9"]);
+}
+
+#[test]
+fn an_unclosed_entry_field_does_not_keep_the_contents_open() {
+    let unclosed = "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGEREF _Toc1 \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>6</w:t></w:r>";
+    let toc = word_toc(&[
+        entry("_Toc1", "Unclosed", unclosed),
+        word_entry("_Toc1", "Whole", "7", "\\h"),
+    ]);
+    let outside = format!(
+        "<w:p>{}</w:p>",
+        page_ref("_Toc1", "\\h", "<w:r><w:t>9</w:t></w:r>")
+    );
+    let body = format!("{toc}{outside}{}", heading("_Toc1", "One", ""));
+    let mut doc = open(&styled_package(&body, ""));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["6", "2"]);
+    assert!(document_xml(&doc).contains("<w:t>9</w:t>"));
+}
+
+fn stale_contents() -> String {
+    format!(
+        "{}{}<w:sectPr>{SECT_PR}</w:sectPr>",
+        word_toc(&[word_entry("_Toc1", "One", "7", "\\h")]),
+        heading("_Toc1", "One", "")
+    )
+}
+
+#[test]
+fn a_protected_document_is_refused_and_left_byte_for_byte() {
+    let settings = "<w:documentProtection w:edit=\"readOnly\" w:enforcement=\"1\"/>";
+    let mut doc = open(&package_with(&stale_contents(), "", Some(settings)));
+    let (before, _) = doc.patch_bytes().unwrap();
+    let err = docrs::layout::refresh_toc_page_numbers(&mut doc, false).unwrap_err();
+    assert_eq!(err.code(), "document_protected", "{err}");
+    let (after, _) = doc.patch_bytes().unwrap();
+    assert!(before == after);
+}
+
+#[test]
+fn tracked_changes_refresh_the_cached_result_untracked() {
+    let settings =
+        "<w:trackRevisions/><w:documentProtection w:edit=\"trackedChanges\" w:enforcement=\"1\"/>";
+    let mut doc = open(&package_with(&stale_contents(), "", Some(settings)));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["2"]);
+    let xml = document_xml(&doc);
+    assert!(
+        !xml.contains("<w:ins ") && !xml.contains("<w:del "),
+        "{xml}"
+    );
+}
+
+#[test]
+fn a_conversion_refreshes_its_own_contents_only() {
+    let mut doc = open(&package_with(&stale_contents(), "", None));
+    let options = docrs::markdown::MarkdownOptions {
+        placement: docrs::markdown::Placement::Append,
+        ..Default::default()
+    };
+    docrs::markdown::insert_markdown(&mut doc, "[TOC]\n\n# New\n\nDear {{Client}}.\n", &options)
+        .unwrap();
+    doc.replace_all("{{Client}}", "Jo", &Default::default())
+        .unwrap();
+    let own = docrs::layout::refresh_toc_page_numbers(&mut doc, true).unwrap();
+    assert_eq!(own.changed, 0);
+    assert_eq!(entry_numbers(&doc), ["7", "2"]);
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["2", "2"]);
 }

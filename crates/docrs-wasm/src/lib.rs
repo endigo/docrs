@@ -291,6 +291,16 @@ pub fn convert(
     let mut report = markdown::insert_source(&mut document, source, format, &markdown_options)?;
     drop(markdown_options);
     let fields = fill_fields(&mut document, &options.fields, input.fields)?;
+    let filled = fields
+        .as_ref()
+        .and_then(|fields| fields["filled"].as_u64())
+        .unwrap_or(0);
+    if let (true, Some(toc)) = (filled > 0, report.toc.as_mut()) {
+        let layout = docrs::layout::refresh_toc_page_numbers(&mut document, true)?.layout;
+        toc.pages = layout.pages;
+        toc.missing_fonts = layout.missing_fonts;
+        toc.embedded_fonts = layout.embedded_fonts;
+    }
     if options.redact {
         report.redact();
     }
@@ -1106,6 +1116,78 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plain.report["fields"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn contents_page_numbers_and_report_follow_the_fields_filled_in() {
+        let filler = "Filler text that takes a full line of the page body here.\n\n".repeat(56);
+        let source = format!("# Intro\n\nDear {{{{Client}}}},\n\n{filler}# Late\n\nEnd.\n");
+        let late_page = |fields: &[(&str, &str)]| -> (String, u64) {
+            let options = Options {
+                toc: Some(true),
+                fields: fields
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
+                ..Options::default()
+            };
+            let converted = convert(
+                &source,
+                InputFormat::Markdown,
+                options,
+                Timestamp::from_unix(0),
+            )
+            .unwrap();
+            let pages = converted.report["toc"]["pages"].as_u64().unwrap();
+            let document = reopen(&converted.docx);
+            let xml = String::from_utf8(docrs::xml::serialize(
+                document.package().xml("word/document.xml").unwrap(),
+            ))
+            .unwrap();
+            let rest = &xml[xml.find(" PAGEREF late ").unwrap()..];
+            let number = &rest[rest.find("<w:t>").unwrap() + 5..];
+            (number[..number.find('<').unwrap()].to_string(), pages)
+        };
+        let value = "Jo Smith of a long merge value ".repeat(12);
+        assert_eq!(late_page(&[]), ("3".to_string(), 3));
+        assert_eq!(late_page(&[("Client", &value)]), ("4".to_string(), 4));
+    }
+
+    #[test]
+    fn a_reference_s_own_contents_is_neither_refreshed_nor_counted() {
+        let markdown_options = docrs::markdown::MarkdownOptions {
+            toc: Some(true),
+            ..Default::default()
+        };
+        let (mut reference, _) =
+            docrs::markdown::convert("{{Pad}}\n\n# Old\n", None, &markdown_options).unwrap();
+        // Moves "Old" to a later page while its contents still says 2.
+        reference
+            .replace_all("{{Pad}}", &"word ".repeat(1200), &Default::default())
+            .unwrap();
+        let (reference, _) = reference.patch_bytes().unwrap();
+        let options = Options {
+            reference: Some(ByteBuf::from(reference)),
+            append: true,
+            fields: BTreeMap::from([("Client".to_string(), "Jo".to_string())]),
+            ..Options::default()
+        };
+        let converted = convert(
+            "[TOC]\n\n# New\n\nDear {{Client}}.\n",
+            InputFormat::Markdown,
+            options,
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        assert_eq!(converted.report["toc"]["entries"], 1);
+        let document = reopen(&converted.docx);
+        let xml = String::from_utf8(docrs::xml::serialize(
+            document.package().xml("word/document.xml").unwrap(),
+        ))
+        .unwrap();
+        let rest = &xml[xml.find(" PAGEREF old ").unwrap()..];
+        let number = &rest[rest.find("<w:t>").unwrap() + 5..];
+        assert_eq!(&number[..number.find('<').unwrap()], "2");
     }
 
     fn fill_fields_in(

@@ -32,6 +32,8 @@ pub struct Document {
     consumed: HashSet<u64>,
     /// In-memory protection override (never persisted).
     protection_acknowledged: bool,
+    /// The page number `w:t`s of the contents the last conversion wrote.
+    converted_toc: Vec<crate::xml::NodeId>,
 }
 
 impl Document {
@@ -66,6 +68,7 @@ impl Document {
             source_path: None,
             consumed: HashSet::new(),
             protection_acknowledged: false,
+            converted_toc: Vec::new(),
         };
         Ok((document, set_aside))
     }
@@ -129,6 +132,15 @@ impl Document {
 
     pub(crate) fn set_protection_acknowledged(&mut self, value: bool) {
         self.protection_acknowledged = value;
+    }
+
+    pub(crate) fn converted_toc(&self) -> &[crate::xml::NodeId] {
+        &self.converted_toc
+    }
+
+    #[cfg(feature = "markdown")]
+    pub(crate) fn set_converted_toc(&mut self, numbers: Vec<crate::xml::NodeId>) {
+        self.converted_toc = numbers;
     }
 
     /// Turn Restrict Editing on (see [`crate::protection::set_protection`]).

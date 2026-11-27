@@ -170,6 +170,20 @@ const documentXml = (docx) => {
   throw new Error("no word/document.xml");
 };
 
+test("contents page numbers and report.toc follow the fields filled in", () => {
+  const filler = "Filler text that takes a full line of the page body here.\n\n".repeat(56);
+  const source = `# Intro\n\nDear {{Client}},\n\n${filler}# Late\n\nEnd.\n`;
+  const latePage = (fields) => {
+    const { docx, report } = lib.fromMarkdown(source, { toc: true, fields });
+    const xml = documentXml(docx);
+    const rest = xml.slice(xml.indexOf(" PAGEREF late "));
+    const number = rest.slice(rest.indexOf("<w:t>") + 5);
+    return [number.slice(0, number.indexOf("<")), report.toc.pages, report.toc.entries];
+  };
+  assert.deepEqual(latePage({}), ["3", 3, 2]);
+  assert.deepEqual(latePage({ Client: "Jo Smith of a long merge value ".repeat(12) }), ["4", 4, 2]);
+});
+
 test("editor HTML maps colours, alignment, spans, widths, images and page breaks", () => {
   const { docx, report } = lib.fromHtml(EDITOR_HTML, { images: LOGO });
   assert.deepEqual(report.warnings, []);

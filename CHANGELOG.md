@@ -9,6 +9,10 @@
 - A kern pair listed twice in a font's `kern` table takes its first value, as Word does. Perpetua Titling MT Bold lists period then double quote at −78 and −51 units; estimates measured from the font file used −51, and Word for Mac sets −78.
 - Page estimates look font families up by name instead of scanning every face for each new family. A document naming 20,000 families took 0.64 s to lay out, and now takes 0.08 s, with the same result.
 
+### Node package
+
+- Contents page numbers are worked out again after `fields` are filled. A long value could push a heading onto the next page after its number was written, so the contents showed the page before. `report.toc` pages and fonts describe the filled document. Only the contents the conversion wrote is refreshed: a reference document's own contents, kept by `append` or a placeholder, is left as it is. Entries whose pages use Roman or other non-decimal numbers, or come after a numbering restart, also keep their numbers.
+
 ## 1.0.1 (2026-11-23)
 
 ### Library
