@@ -1153,6 +1153,30 @@ mod tests {
         assert_eq!(late_page(&[("Client", &value)]), ("4".to_string(), 4));
     }
 
+    #[test]
+    fn a_reference_s_own_contents_is_neither_refreshed_nor_counted() {
+        let markdown_options = docrs::markdown::MarkdownOptions {
+            toc: Some(true),
+            ..Default::default()
+        };
+        let (reference, _) = docrs::markdown::convert("# Old\n", None, &markdown_options).unwrap();
+        let (reference, _) = reference.patch_bytes().unwrap();
+        let options = Options {
+            reference: Some(ByteBuf::from(reference)),
+            append: true,
+            fields: BTreeMap::from([("Client".to_string(), "Jo".to_string())]),
+            ..Options::default()
+        };
+        let converted = convert(
+            "[TOC]\n\n# New\n\nDear {{Client}}.\n",
+            InputFormat::Markdown,
+            options,
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        assert_eq!(converted.report["toc"]["entries"], 1);
+    }
+
     fn fill_fields_in(
         source: &str,
         fields: &[(&str, &str)],
