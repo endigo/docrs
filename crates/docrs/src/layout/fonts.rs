@@ -493,17 +493,25 @@ fn cmap(table: &[u8], glyphs: u32, budget: &mut usize) -> Parsed<Vec<(u32, u16)>
         Ok(())
     };
     if format == 4 {
-        let segments = usize::from(field16(offset + 6)?) / 2;
-        let ends = offset + 14;
-        let starts = ends + 2 * segments + 2;
-        let deltas = starts + 2 * segments;
-        let ranges = deltas + 2 * segments;
+        let length = usize::from(field16(offset + 2)?);
+        let sub = table.get(offset..offset + length).ok_or(malformed)?;
+        let field = |at| be16(sub, at).ok_or(malformed);
+        let seg_x2 = usize::from(field(6)?);
+        if seg_x2 == 0 || seg_x2 % 2 != 0 || 16 + 4 * seg_x2 > length {
+            return Err(malformed);
+        }
+        let segments = seg_x2 / 2;
+        let (ends, starts) = (14, 16 + seg_x2);
+        let (deltas, ranges) = (starts + seg_x2, starts + 2 * seg_x2);
+        if field(ends + seg_x2 - 2)? != 0xFFFF {
+            return Err(malformed);
+        }
         let mut previous_end: Option<u16> = None;
         for s in 0..segments {
-            let end = field16(ends + 2 * s)?;
-            let start = field16(starts + 2 * s)?;
-            let delta = field16(deltas + 2 * s)?;
-            let range_offset = usize::from(field16(ranges + 2 * s)?);
+            let end = field(ends + 2 * s)?;
+            let start = field(starts + 2 * s)?;
+            let delta = field(deltas + 2 * s)?;
+            let range_offset = usize::from(field(ranges + 2 * s)?);
             if start > end {
                 return Err(FontError::CmapReversedRange);
             }
@@ -516,14 +524,12 @@ fn cmap(table: &[u8], glyphs: u32, budget: &mut usize) -> Parsed<Vec<(u32, u16)>
                 if c == 0xFFFF {
                     continue;
                 }
-                let glyph = if range_offset == 0 {
-                    c.wrapping_add(delta)
-                } else {
-                    let at = ranges + 2 * s + range_offset + 2 * usize::from(c - start);
-                    match be16(table, at) {
-                        Some(0) | None => 0,
-                        Some(g) => g.wrapping_add(delta),
-                    }
+                let glyph = match range_offset {
+                    0 => c.wrapping_add(delta),
+                    _ => match field(ranges + 2 * s + range_offset + 2 * usize::from(c - start))? {
+                        0 => 0,
+                        g => g.wrapping_add(delta),
+                    },
                 };
                 if glyph == 0 {
                     continue;
@@ -939,15 +945,21 @@ mod hostile {
     }
 
     fn format4(segments: &[(u16, u16, u16)]) -> Vec<u8> {
-        let n = segments.len() as u16;
-        let mut sub = be(&[4, 0, 0, 2 * n, 0, 0, 0]);
-        sub.extend(be(&segments.iter().map(|s| s.1).collect::<Vec<_>>()));
-        sub.extend(be(&[0]));
-        sub.extend(be(&segments.iter().map(|s| s.0).collect::<Vec<_>>()));
-        sub.extend(be(&segments.iter().map(|s| s.2).collect::<Vec<_>>()));
-        sub.extend(be(&vec![0; segments.len()]));
-        let mut out = be(&[0, 1, 3, 1, 0, 12]);
-        out.extend(sub);
+        let segments: Vec<_> = segments.iter().map(|&(s, e, d)| (s, e, d, 0)).collect();
+        format4_with(&segments, &[])
+    }
+
+    /// Segments are (start, end, delta, idRangeOffset).
+    fn format4_with(segments: &[(u16, u16, u16, u16)], glyph_ids: &[u16]) -> Vec<u8> {
+        let n = segments.len();
+        let length = (16 + 8 * n + 2 * glyph_ids.len()) as u16;
+        let mut out = be(&[0, 1, 3, 1, 0, 12, 4, length, 0, 2 * n as u16, 0, 0, 0]);
+        out.extend(segments.iter().flat_map(|s| s.1.to_be_bytes()));
+        out.extend(be(&[0]));
+        out.extend(segments.iter().flat_map(|s| s.0.to_be_bytes()));
+        out.extend(segments.iter().flat_map(|s| s.2.to_be_bytes()));
+        out.extend(segments.iter().flat_map(|s| s.3.to_be_bytes()));
+        out.extend(be(glyph_ids));
         out
     }
 
@@ -1090,16 +1102,63 @@ mod hostile {
 
     #[test]
     fn repeated_format_4_segments_are_refused_quickly() {
-        let segments = vec![(0, 0xFFFE, 0); 0x7FFF];
+        let mut segments = vec![(0, 0xFFFE, 0); 7999];
+        segments.push((0xFFFF, 0xFFFF, 1));
         let font = face_tables(0xFFFF, format4(&segments), None);
         assert_eq!(quickly(|| refusal(&font)), Some(FontError::CmapUnsorted));
         assert!(quickly(|| Face::parse_file(&font)).is_empty());
+        let too_long = face_tables(0xFFFF, format4(&vec![(0, 0xFFFE, 0); 0x7FFF]), None);
+        assert_eq!(
+            quickly(|| refusal(&too_long)),
+            Some(FontError::Malformed("cmap"))
+        );
+    }
+
+    #[test]
+    fn a_format_4_subtable_must_be_whole() {
+        let malformed = Some(FontError::Malformed("cmap"));
+        let patched = |at: usize, value: u16| {
+            let mut cmap = ab_cmap();
+            cmap[12 + at..14 + at].copy_from_slice(&value.to_be_bytes());
+            refusal(&face_tables(3, cmap, None))
+        };
+        let length = (ab_cmap().len() - 12) as u16;
+        assert_eq!(patched(2, length), None);
+        assert_eq!(patched(2, length + 2), malformed);
+        assert_eq!(patched(2, length - 2), malformed);
+        assert_eq!(patched(6, 3), malformed);
+        assert_eq!(patched(6, 0), malformed);
+        let to_a = 1u16.wrapping_sub(0x41);
+        assert_eq!(
+            refusal(&face_tables(3, format4(&[(0x41, 0x42, to_a)]), None)),
+            malformed
+        );
+    }
+
+    #[test]
+    fn a_format_4_glyph_index_must_stay_in_its_subtable() {
+        let segments = [(0x41, 0x42, 0, 4), (0xFFFF, 0xFFFF, 1, 0)];
+        let face = read(
+            &face_tables(3, format4_with(&segments, &[1, 2]), None),
+            &mut FILE_BUDGET.clone(),
+        )
+        .unwrap();
+        assert!((face.advance('B') - 0.7).abs() < 1e-9);
+        let mut short = format4_with(&segments, &[1]);
+        short.extend(be(&[2]));
+        assert_eq!(
+            refusal(&face_tables(3, short, None)),
+            Some(FontError::Malformed("cmap"))
+        );
     }
 
     #[test]
     fn inconsistent_format_4_segments_are_refused() {
-        let parse =
-            |segments: &[(u16, u16, u16)]| refusal(&face_tables(3, format4(segments), None));
+        let parse = |segments: &[(u16, u16, u16)]| {
+            let mut segments = segments.to_vec();
+            segments.push((0xFFFF, 0xFFFF, 1));
+            refusal(&face_tables(3, format4(&segments), None))
+        };
         let to_a = 1u16.wrapping_sub(0x41);
         assert_eq!(
             parse(&[(0x42, 0x41, to_a)]),
