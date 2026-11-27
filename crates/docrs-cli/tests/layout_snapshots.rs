@@ -194,7 +194,7 @@ fn stale_snapshots(snapshots: &Path, actual: &Snapshots) -> Vec<PathBuf> {
     stale
 }
 
-fn first_difference(recorded: &str, now: &str) -> String {
+fn difference_summary(recorded: &str, now: &str) -> String {
     let (recorded, now): (Vec<&str>, Vec<&str>) =
         (recorded.lines().collect(), now.lines().collect());
     let pairs = recorded.iter().zip(&now);
@@ -260,7 +260,7 @@ fn layout_matches_the_snapshots() {
         }
         let problem = match recorded {
             None => "no snapshot".to_string(),
-            Some(recorded) => first_difference(&recorded, now),
+            Some(recorded) => difference_summary(&recorded, now),
         };
         failures.push(format!("{}: {problem}", shown(path)));
     }

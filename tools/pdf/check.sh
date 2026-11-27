@@ -14,6 +14,10 @@ for arg; do
         *) echo "$usage" >&2; exit 2 ;;
     esac
 done
+if [ $update = yes ] && [ $word = no ]; then
+    echo "--update-fixtures needs --word" >&2
+    exit 2
+fi
 if [ -d "$out" ] && [ -n "$(ls -A "$out")" ]; then
     echo "$out is not empty; give a new directory" >&2
     exit 2
@@ -61,7 +65,11 @@ fi
 staging=$HOME/Library/Containers/com.microsoft.Word/Data/tmp/docrs-pdf
 mkdir -p "$staging"
 staged=
-trap 'if [ -n "$staged" ]; then rm -f "$staged" "${staged%.docx}.pdf"; fi' EXIT INT TERM
+unstage() {
+    if [ -n "$staged" ]; then rm -f "$staged" "${staged%.docx}.pdf"; fi
+}
+trap unstage EXIT
+trap 'exit 130' INT TERM
 for docx in "$out"/*.docx; do
     base=$(basename "$docx" .docx)
     staged=$staging/$base.docx
