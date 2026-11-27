@@ -11,11 +11,12 @@ mod writer;
 #[doc(hidden)]
 pub use meta::Info;
 
-use writer::{Dict, Object, Writer, name};
+use writer::{Dict, Object, Writer, count, name};
 
 use crate::{Error, Limits, Result};
 
-/// The largest page side Acrobat accepts: 200 inches (ISO 32000-1 Annex C).
+/// Page side limits in points (ISO 32000-1 Annex C).
+const MIN_PAGE_SIDE: f64 = 3.0;
 const MAX_PAGE_SIDE: f64 = 14_400.0;
 
 /// A file of empty pages, `(width, height)` in points.
@@ -49,7 +50,7 @@ pub(crate) fn blank_document(
         tree,
         Dict::new()
             .with("Type", name("Pages"))
-            .with("Count", pages.len())
+            .with("Count", count(pages.len())?)
             .with("Kids", kids)
             .with("Resources", Dict::new()),
     )?;
@@ -79,11 +80,11 @@ fn check_pages(pages: &[(f64, f64)]) -> Result<()> {
     }
     for &(width, height) in pages {
         for side in [width, height] {
-            if !(side > 0.0 && side <= MAX_PAGE_SIDE) {
+            if !(MIN_PAGE_SIDE..=MAX_PAGE_SIDE).contains(&side) {
                 return Err(Error::invalid_argument(
                     "pdf_page_size",
                     format!(
-                        "page {width} × {height} pt: each side must be above 0 and at most {MAX_PAGE_SIDE} pt"
+                        "page {width} × {height} pt: each side must be {MIN_PAGE_SIDE} to {MAX_PAGE_SIDE} pt"
                     ),
                 ));
             }

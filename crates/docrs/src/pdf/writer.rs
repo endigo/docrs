@@ -1,8 +1,9 @@
 //! A PDF 1.7 object serializer with a classic xref table, deterministic for a
 //! given build.
 //!
-//! Each object is appended whole or not at all: after an error (a budget
-//! exceeded, a bad value) the writer is unchanged and can go on.
+//! Each object is appended whole or not at all: after an error in an object
+//! write (a budget exceeded, a bad value) the writer is unchanged and can go
+//! on. [`Writer::finish`] consumes it.
 
 use std::io::Write;
 
@@ -14,6 +15,9 @@ use crate::{Error, Result};
 const HEADER: &[u8] = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
 const MAX_XREF_OFFSET: u64 = 9_999_999_999;
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
+/// A whole real is written as an integer, and readers take integers up to
+/// 2^31 − 1 (ISO 32000-1 Annex C).
+const MAX_REAL: f64 = 2_147_483_647.0;
 
 /// An indirect object number from [`Writer::alloc`]. There is one writer per
 /// export, so a `Ref` is only ever used with the writer that made it.
@@ -94,12 +98,6 @@ impl From<u32> for Object {
     }
 }
 
-impl From<usize> for Object {
-    fn from(value: usize) -> Self {
-        Object::Int(i64::try_from(value).expect("a count fits in i64"))
-    }
-}
-
 impl From<f64> for Object {
     fn from(value: f64) -> Self {
         Object::Real(value)
@@ -130,6 +128,15 @@ pub(crate) fn name(value: &str) -> Object {
 
 pub(crate) fn text(value: &str) -> Object {
     Object::Text(value.to_string())
+}
+
+pub(crate) fn count(value: usize) -> Result<Object> {
+    i64::try_from(value).map(Object::Int).map_err(|_| {
+        Error::internal(
+            "pdf_count_overflow",
+            format!("{value} does not fit a PDF integer"),
+        )
+    })
 }
 
 /// Writes objects in any order, then the xref table and trailer.
@@ -170,13 +177,16 @@ impl Writer {
     pub(crate) fn stream(&mut self, at: Ref, dict: Dict, data: &[u8]) -> Result<()> {
         let mut stream = self.begin_stream(at, dict)?;
         stream.write(data)?;
-        stream.finish()
+        stream.finish(self)
     }
 
-    /// A Flate stream written in pieces, compressed as they come within the
-    /// output budget.
-    pub(crate) fn begin_stream(&mut self, at: Ref, dict: Dict) -> Result<StreamWriter<'_>> {
+    /// A Flate stream written in pieces, compressed as they come. The writer
+    /// stays free for other objects until [`StreamWriter::finish`]; the data
+    /// is held to the budget left at this call, and the final write to the
+    /// limit itself.
+    pub(crate) fn begin_stream(&mut self, at: Ref, dict: Dict) -> Result<StreamWriter> {
         self.slot(at)?;
+        let dict = dict.reserve("Filter", name("FlateDecode"))?;
         let encoder = ZlibEncoder::new(
             Bounded {
                 out: Vec::new(),
@@ -185,14 +195,16 @@ impl Writer {
             Compression::new(6),
         );
         Ok(StreamWriter {
-            writer: self,
             at,
             dict,
             encoder,
+            max_bytes: self.max_bytes,
         })
     }
 
-    /// Writes `data` as it is, with `filter` naming its encoding if it has one.
+    /// Writes `data` as it is. `Some(filter)` names its encoding; with `None`,
+    /// a `/Filter` already in `dict` is kept, which is how to write a filter
+    /// array.
     #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn stream_raw(
         &mut self,
@@ -202,6 +214,7 @@ impl Writer {
         data: &[u8],
     ) -> Result<()> {
         let dict = match filter {
+            Some("") => return Err(Error::internal("pdf_empty_filter", "a filter needs a name")),
             Some(filter) => dict.reserve("Filter", name(filter))?,
             None => dict,
         };
@@ -215,15 +228,13 @@ impl Writer {
 
     /// Writes the xref table and `trailer` (which gets `/Size`), then returns the file.
     pub(crate) fn finish(mut self, trailer: Dict) -> Result<Vec<u8>> {
-        let trailer = trailer.reserve("Size", self.offsets.len() + 1)?;
+        let trailer = trailer.reserve("Size", count(self.offsets.len() + 1)?)?;
         let xref_at = self.out.len();
         let mut buf = Vec::new();
-        write!(
-            buf,
-            "xref\n0 {}\n0000000000 65535 f \n",
-            self.offsets.len() + 1
-        )
-        .expect("writing to a Vec");
+        emit(
+            &mut buf,
+            format_args!("xref\n0 {}\n0000000000 65535 f \n", self.offsets.len() + 1),
+        );
         for (index, offset) in self.offsets.iter().enumerate() {
             let offset = offset.ok_or_else(|| {
                 Error::internal(
@@ -231,27 +242,27 @@ impl Writer {
                     format!("object {} never written", index + 1),
                 )
             })?;
-            writeln!(buf, "{offset:010} 00000 n ").expect("writing to a Vec");
+            emit(&mut buf, format_args!("{offset:010} 00000 n \n"));
         }
         buf.extend_from_slice(b"trailer\n");
         write_object(&mut buf, &Object::Dict(trailer))?;
-        write!(buf, "\nstartxref\n{xref_at}\n%%EOF\n").expect("writing to a Vec");
+        emit(&mut buf, format_args!("\nstartxref\n{xref_at}\n%%EOF\n"));
         self.put(&[&buf])?;
         Ok(self.out)
     }
 
     fn object(&mut self, at: Ref, object: &Object) -> Result<()> {
         let mut buf = Vec::new();
-        writeln!(buf, "{} 0 obj", at.0).expect("writing to a Vec");
+        emit(&mut buf, format_args!("{} 0 obj\n", at.0));
         write_object(&mut buf, object)?;
         buf.extend_from_slice(b"\nendobj\n");
         self.put_object(at, &[&buf])
     }
 
     fn stream_object(&mut self, at: Ref, dict: Dict, data: &[u8]) -> Result<()> {
-        let dict = dict.reserve("Length", data.len())?;
+        let dict = dict.reserve("Length", count(data.len())?)?;
         let mut head = Vec::new();
-        writeln!(head, "{} 0 obj", at.0).expect("writing to a Vec");
+        emit(&mut head, format_args!("{} 0 obj\n", at.0));
         write_object(&mut head, &Object::Dict(dict))?;
         head.extend_from_slice(b"\nstream\n");
         self.put_object(at, &[&head, data, b"\nendstream\nendobj\n"])
@@ -310,33 +321,31 @@ impl Writer {
 }
 
 /// An open Flate stream from [`Writer::begin_stream`].
-pub(crate) struct StreamWriter<'a> {
-    writer: &'a mut Writer,
+pub(crate) struct StreamWriter {
     at: Ref,
     dict: Dict,
     encoder: ZlibEncoder<Bounded>,
+    max_bytes: u64,
 }
 
-impl StreamWriter<'_> {
+impl StreamWriter {
     pub(crate) fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        self.encoder
-            .write_all(bytes)
-            .map_err(|_| self.writer.over_limit(self.writer.remaining() + 1))
+        self.encoder.write_all(bytes).map_err(|_| self.over_limit())
     }
 
-    pub(crate) fn finish(self) -> Result<()> {
-        let StreamWriter {
-            writer,
-            at,
-            dict,
-            encoder,
-        } = self;
-        let data = encoder
-            .finish()
-            .map_err(|_| writer.over_limit(writer.remaining() + 1))?
-            .out;
-        let dict = dict.reserve("Filter", name("FlateDecode"))?;
-        writer.stream_object(at, dict, &data)
+    /// Writes the stream object into `writer`, the one that began it.
+    pub(crate) fn finish(self, writer: &mut Writer) -> Result<()> {
+        let over_limit = self.over_limit();
+        let data = self.encoder.finish().map_err(|_| over_limit)?.out;
+        writer.stream_object(self.at, self.dict, &data)
+    }
+
+    fn over_limit(&self) -> Error {
+        Error::limit(
+            "max_output_bytes",
+            self.max_bytes,
+            self.max_bytes.saturating_add(1),
+        )
     }
 }
 
@@ -362,8 +371,8 @@ impl Write for Bounded {
 
 fn write_object(out: &mut Vec<u8>, object: &Object) -> Result<()> {
     match object {
-        Object::Bool(value) => write!(out, "{value}").expect("writing to a Vec"),
-        Object::Int(value) => write!(out, "{value}").expect("writing to a Vec"),
+        Object::Bool(value) => emit(out, format_args!("{value}")),
+        Object::Int(value) => emit(out, format_args!("{value}")),
         Object::Real(value) => write_number(out, *value)?,
         Object::Name(value) => write_name(out, value)?,
         Object::Text(value) => write_text(out, value),
@@ -388,9 +397,14 @@ fn write_object(out: &mut Vec<u8>, object: &Object) -> Result<()> {
             }
             out.extend_from_slice(b" >>");
         }
-        Object::Ref(at) => write!(out, "{} 0 R", at.0).expect("writing to a Vec"),
+        Object::Ref(at) => emit(out, format_args!("{} 0 R", at.0)),
     }
     Ok(())
+}
+
+fn emit(out: &mut Vec<u8>, args: std::fmt::Arguments) {
+    // Writing to a Vec cannot fail.
+    let _ = out.write_fmt(args);
 }
 
 /// Fixed notation with at most three decimals; never `-0` or an exponent.
@@ -401,15 +415,14 @@ pub(crate) fn write_number(out: &mut Vec<u8>, value: f64) -> Result<()> {
             format!("cannot write {value} as a PDF number"),
         ));
     }
-    // Readers hold reals as 32-bit floats (ISO 32000-1 Annex C).
-    if value.abs() > f64::from(f32::MAX) {
+    if value.abs() > MAX_REAL {
         return Err(Error::internal(
             "pdf_number_out_of_range",
             format!("{value} is beyond a PDF real"),
         ));
     }
     let start = out.len();
-    write!(out, "{value:.3}").expect("writing to a Vec");
+    emit(out, format_args!("{value:.3}"));
     while out.last() == Some(&b'0') {
         out.pop();
     }
@@ -425,7 +438,7 @@ pub(crate) fn write_number(out: &mut Vec<u8>, value: f64) -> Result<()> {
 
 /// ISO 32000-1 7.3.5: bytes outside `!`..`~`, delimiters and `#` as `#xx`;
 /// NUL is not allowed at all.
-fn write_name(out: &mut Vec<u8>, value: &str) -> Result<()> {
+pub(crate) fn write_name(out: &mut Vec<u8>, value: &str) -> Result<()> {
     if value.as_bytes().contains(&0) {
         return Err(Error::internal(
             "pdf_name_nul",
@@ -469,7 +482,7 @@ fn write_text(out: &mut Vec<u8>, value: &str) {
     out.push(b')');
 }
 
-fn write_hex(out: &mut Vec<u8>, bytes: &[u8]) {
+pub(crate) fn write_hex(out: &mut Vec<u8>, bytes: &[u8]) {
     out.push(b'<');
     for &byte in bytes {
         out.extend_from_slice(&[HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 15)]]);
@@ -502,12 +515,10 @@ mod tests {
             .split(' ')
             .next()
             .unwrap();
+        let length: usize = length.parse().unwrap();
         let start = file.windows(8).position(|w| w == b"\nstream\n").unwrap() + 8;
-        let end = file
-            .windows(11)
-            .position(|w| w == b"\nendstream\n")
-            .unwrap();
-        (length.parse().unwrap(), &file[start..end])
+        assert!(file[start + length..].starts_with(b"\nendstream\n"));
+        (length, &file[start..start + length])
     }
 
     fn noise(len: usize) -> Vec<u8> {
@@ -542,7 +553,8 @@ mod tests {
             (0.1 + 0.2, "0.3"),
             (-12.5, "-12.5"),
             (1e-7, "0"),
-            (1e15, "1000000000000000"),
+            (2_147_483_647.0, "2147483647"),
+            (-2_147_483_646.999_6, "-2147483647"),
             (2.0004, "2"),
             (2.0015, "2.002"),
         ];
@@ -552,8 +564,12 @@ mod tests {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             assert_eq!(number(value).unwrap_err().reason(), "pdf_number_not_finite");
         }
-        assert!(number(f64::from(f32::MAX)).is_ok());
-        for value in [1e39, -1e300] {
+        for value in [
+            2_147_483_648.0,
+            -2_147_483_648.0,
+            9.3e18,
+            f64::from(f32::MAX),
+        ] {
             assert_eq!(
                 number(value).unwrap_err().reason(),
                 "pdf_number_out_of_range"
@@ -568,7 +584,7 @@ mod tests {
             false.into(),
             (-3_i32).into(),
             u32::MAX.into(),
-            7_usize.into(),
+            count(7).unwrap(),
         ]);
         assert_eq!(serialized(array).unwrap(), "[true false -3 4294967295 7]");
     }
@@ -607,8 +623,12 @@ mod tests {
         let mut writer = Writer::new(u64::MAX).unwrap();
         let at = writer.alloc().unwrap();
         let filtered = Dict::new().with("Filter", name("DCTDecode"));
-        let err = writer.stream(at, filtered.clone(), b"").unwrap_err();
+        let err = writer.begin_stream(at, filtered.clone()).err().unwrap();
         assert_eq!(err.reason(), "pdf_reserved_key");
+        let err = writer
+            .stream_raw(at, Dict::new(), Some(""), b"")
+            .unwrap_err();
+        assert_eq!(err.reason(), "pdf_empty_filter");
         let err = writer
             .stream_raw(at, filtered, Some("DCTDecode"), b"")
             .unwrap_err();
@@ -647,8 +667,59 @@ mod tests {
         for chunk in data.chunks(7) {
             stream.write(chunk).unwrap();
         }
-        stream.finish().unwrap();
+        stream.finish(&mut pieces).unwrap();
         assert_eq!(whole.body(), pieces.body());
+    }
+
+    #[test]
+    fn streams_stay_open_while_other_objects_are_written() {
+        let mut writer = Writer::new(u64::MAX).unwrap();
+        let page = writer.alloc().unwrap();
+        let mut content = writer.begin_stream(page, Dict::new()).unwrap();
+        content.write(b"q ").unwrap();
+        let image = writer.alloc().unwrap();
+        writer
+            .stream_raw(image, Dict::new(), Some("DCTDecode"), b"\xFF\xD8")
+            .unwrap();
+        let form = writer.alloc().unwrap();
+        let mut header = writer.begin_stream(form, Dict::new()).unwrap();
+        header.write(b"BT ET").unwrap();
+        content.write(b"/Im1 Do Q").unwrap();
+        header.finish(&mut writer).unwrap();
+        content.finish(&mut writer).unwrap();
+        let file = writer.finish(Dict::new()).unwrap();
+        let text = String::from_utf8_lossy(&file);
+        let order: Vec<usize> = ["2 0 obj", "3 0 obj", "1 0 obj"]
+            .iter()
+            .map(|header| text.find(header).unwrap())
+            .collect();
+        assert!(order.is_sorted());
+    }
+
+    #[test]
+    fn an_open_stream_is_held_to_the_limit_when_it_finishes() {
+        let mut writer = Writer::new(200).unwrap();
+        let content = writer.alloc().unwrap();
+        let filler = writer.alloc().unwrap();
+        let mut stream = writer.begin_stream(content, Dict::new()).unwrap();
+        stream.write(b"0 0 m 10 10 l S").unwrap();
+        writer.array(filler, vec![text(&"x".repeat(100))]).unwrap();
+        let before = writer.body().to_vec();
+        let err = stream.finish(&mut writer).unwrap_err();
+        assert_eq!(err.reason(), "max_output_bytes");
+        assert_eq!(writer.body(), before);
+    }
+
+    #[test]
+    fn content_stream_tokens() {
+        let mut out = Vec::new();
+        write_name(&mut out, "F1").unwrap();
+        out.push(b' ');
+        write_number(&mut out, 12.0).unwrap();
+        out.extend_from_slice(b" Tf ");
+        write_hex(&mut out, &[0x00, 0x41]);
+        out.extend_from_slice(b" Tj");
+        assert_eq!(out, b"/F1 12 Tf <0041> Tj");
     }
 
     #[test]
@@ -665,6 +736,11 @@ mod tests {
         assert!(text.contains("1 0 obj\n<< /Filter /DCTDecode /Length 6 >>\nstream\n"));
         assert!(body.windows(6).any(|w| w == b"\xFF\xD8jpeg"));
         assert!(text.contains("2 0 obj\n<< /Length 4 >>\nstream\n<x/>\nendstream\nendobj\n"));
+        let array = writer.alloc().unwrap();
+        let filters = Dict::new().with("Filter", vec![name("ASCIIHexDecode"), name("DCTDecode")]);
+        writer.stream_raw(array, filters, None, b"FFD8>").unwrap();
+        let text = String::from_utf8_lossy(writer.body());
+        assert!(text.contains("<< /Filter [/ASCIIHexDecode /DCTDecode] /Length 5 >>"));
     }
 
     #[test]
@@ -701,7 +777,8 @@ mod tests {
         assert_eq!(whole.reason(), "max_output_bytes");
         let mut stream = writer.begin_stream(at, Dict::new()).unwrap();
         stream.write(&small).unwrap();
-        assert_eq!(stream.finish().unwrap_err().reason(), "max_output_bytes");
+        let finished = stream.finish(&mut writer).unwrap_err();
+        assert_eq!(finished.reason(), "max_output_bytes");
         let mut stream = writer.begin_stream(at, Dict::new()).unwrap();
         let failed = (0..100).find_map(|_| stream.write(&noise(100_000)).err());
         assert_eq!(failed.unwrap().reason(), "max_output_bytes");
