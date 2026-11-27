@@ -4,20 +4,20 @@ use super::props::{PPr, RPr, read_ppr, read_rpr};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
-struct Level {
+pub(super) struct Level {
     format: String,
     text: String,
     start: i64,
-    ppr: PPr,
-    rpr: RPr,
-    suffix: String,
+    pub(super) ppr: PPr,
+    pub(super) rpr: RPr,
+    pub(super) suffix: String,
 }
 
 /// A `w:num`: its abstractNumId, level overrides and start overrides.
 type Num = (String, HashMap<u8, Level>, HashMap<u8, i64>);
 
 #[derive(Default)]
-struct Numbering {
+pub(super) struct Numbering {
     nums: HashMap<String, Num>,
     abstracts: HashMap<String, HashMap<u8, Level>>,
     counters: HashMap<String, [i64; 9]>,
@@ -36,7 +36,7 @@ fn read_level(tree: &XmlTree, lvl: NodeId) -> Level {
 }
 
 impl Numbering {
-    fn read(tree: Option<&XmlTree>) -> Numbering {
+    pub(super) fn read(tree: Option<&XmlTree>) -> Numbering {
         let mut out = Numbering::default();
         let Some(tree) = tree else {
             return out;
@@ -83,12 +83,12 @@ impl Numbering {
         out
     }
 
-    fn level(&self, num: &str, ilvl: u8) -> Option<&Level> {
+    pub(super) fn level(&self, num: &str, ilvl: u8) -> Option<&Level> {
         level_in(&self.nums, &self.abstracts, num, ilvl)
     }
 
     /// Advance the counters and return the label text.
-    fn label(&mut self, num: &str, ilvl: u8) -> Option<String> {
+    pub(super) fn label(&mut self, num: &str, ilvl: u8) -> Option<String> {
         let (abs, _, starts) = self.nums.get(num)?;
         let level = level_in(&self.nums, &self.abstracts, num, ilvl)?;
         let mut starts_by_level = [1i64; 9];

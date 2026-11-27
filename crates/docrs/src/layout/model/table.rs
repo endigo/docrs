@@ -4,13 +4,13 @@ use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
 #[derive(Clone)]
-struct TableCtx {
-    style: Option<String>,
-    first_row: bool,
+pub(super) struct TableCtx {
+    pub(super) style: Option<String>,
+    pub(super) first_row: bool,
 }
 
 impl Builder<'_> {
-    fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> Table {
+    pub(super) fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> Table {
         let tbl_pr = w_child(tree, tbl, "tblPr");
         let style = tbl_pr
             .and_then(|p| w_child(tree, p, "tblStyle"))

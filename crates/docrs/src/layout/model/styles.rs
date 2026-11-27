@@ -5,14 +5,14 @@ use super::props::{PPr, RPr, borders, margins, read_ppr, read_rpr};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::XmlTree;
 
-struct StyleDef {
+pub(super) struct StyleDef {
     based_on: Option<String>,
     ppr: PPr,
     rpr: RPr,
     /// Table styles: whole-table cell margins and borders, first-row look.
     cell_margins: [Option<f64>; 4],
     borders: [Option<f64>; 3],
-    first_row: Option<(PPr, RPr)>,
+    pub(super) first_row: Option<(PPr, RPr)>,
     /// Position in the styles part.
     order: usize,
     /// A table style with table properties of its own (`w:tblPr` content
@@ -20,17 +20,17 @@ struct StyleDef {
     table_props: bool,
 }
 
-struct Styles {
-    defs: HashMap<String, StyleDef>,
-    default_para: Option<String>,
-    default_table: Option<String>,
-    default_ppr: PPr,
-    default_rpr: RPr,
+pub(super) struct Styles {
+    pub(super) defs: HashMap<String, StyleDef>,
+    pub(super) default_para: Option<String>,
+    pub(super) default_table: Option<String>,
+    pub(super) default_ppr: PPr,
+    pub(super) default_rpr: RPr,
     chains: HashMap<String, Rc<(PPr, RPr)>>,
 }
 
 impl Styles {
-    fn read(tree: Option<&XmlTree>) -> Styles {
+    pub(super) fn read(tree: Option<&XmlTree>) -> Styles {
         let mut styles = Styles {
             defs: HashMap::new(),
             default_para: None,
@@ -94,7 +94,7 @@ impl Styles {
     }
 
     /// A style's properties with its `basedOn` chain (nearest wins).
-    fn chain(&mut self, id: &str) -> Rc<(PPr, RPr)> {
+    pub(super) fn chain(&mut self, id: &str) -> Rc<(PPr, RPr)> {
         if let Some(found) = self.chains.get(id) {
             return found.clone();
         }
@@ -121,7 +121,7 @@ impl Styles {
     }
 
     /// A table style's cell margins and borders with its `basedOn` chain.
-    fn table_look(&self, id: Option<&str>) -> ([Option<f64>; 4], [Option<f64>; 3]) {
+    pub(super) fn table_look(&self, id: Option<&str>) -> ([Option<f64>; 4], [Option<f64>; 3]) {
         let mut margins = [None; 4];
         let mut borders = [None; 3];
         let mut current = id.map(str::to_string);

@@ -29,7 +29,7 @@ impl Builder<'_> {
         index
     }
 
-    fn blocks(
+    pub(super) fn blocks(
         &mut self,
         tree: &XmlTree,
         parent: NodeId,

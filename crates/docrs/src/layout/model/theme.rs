@@ -4,12 +4,12 @@ use super::fonts::FontKind;
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::XmlTree;
 
-struct Theme {
-    major: Option<String>,
-    minor: Option<String>,
+pub(super) struct Theme {
+    pub(super) major: Option<String>,
+    pub(super) minor: Option<String>,
 }
 
-fn read_theme(tree: Option<&XmlTree>) -> Theme {
+pub(super) fn read_theme(tree: Option<&XmlTree>) -> Theme {
     const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
     let mut theme = Theme {
         major: None,
@@ -35,7 +35,7 @@ fn read_theme(tree: Option<&XmlTree>) -> Theme {
 }
 
 /// Font kinds named by the font table (`w:family`).
-fn read_font_kinds(tree: Option<&XmlTree>) -> HashMap<String, FontKind> {
+pub(super) fn read_font_kinds(tree: Option<&XmlTree>) -> HashMap<String, FontKind> {
     let mut out = HashMap::new();
     if let Some(tree) = tree {
         for font in w_children(tree, tree.root(), "font") {

@@ -7,28 +7,28 @@ use crate::xml::{NodeId, XmlTree};
 const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
 
 #[derive(Debug, Clone, Default)]
-struct PPr {
-    before: Option<f64>,
-    after: Option<f64>,
-    before_auto: Option<bool>,
-    after_auto: Option<bool>,
-    line: Option<(f64, LineRule)>,
-    left: Option<f64>,
-    right: Option<f64>,
-    first: Option<f64>,
-    keep_next: Option<bool>,
-    keep_lines: Option<bool>,
-    page_break_before: Option<bool>,
-    widow_control: Option<bool>,
-    contextual: Option<bool>,
-    justified: Option<bool>,
-    tabs: Vec<(f64, TabKind)>,
-    num: Option<(String, Option<u8>)>,
-    ilvl: Option<u8>,
+pub(super) struct PPr {
+    pub(super) before: Option<f64>,
+    pub(super) after: Option<f64>,
+    pub(super) before_auto: Option<bool>,
+    pub(super) after_auto: Option<bool>,
+    pub(super) line: Option<(f64, LineRule)>,
+    pub(super) left: Option<f64>,
+    pub(super) right: Option<f64>,
+    pub(super) first: Option<f64>,
+    pub(super) keep_next: Option<bool>,
+    pub(super) keep_lines: Option<bool>,
+    pub(super) page_break_before: Option<bool>,
+    pub(super) widow_control: Option<bool>,
+    pub(super) contextual: Option<bool>,
+    pub(super) justified: Option<bool>,
+    pub(super) tabs: Vec<(f64, TabKind)>,
+    pub(super) num: Option<(String, Option<u8>)>,
+    pub(super) ilvl: Option<u8>,
 }
 
 impl PPr {
-    fn merge(&mut self, other: &PPr) {
+    pub(super) fn merge(&mut self, other: &PPr) {
         macro_rules! take {
             ($($f:ident),*) => { $( if other.$f.is_some() { self.$f = other.$f.clone(); } )* };
         }
@@ -60,30 +60,30 @@ impl PPr {
 }
 
 #[derive(Debug, Clone)]
-enum FontRef {
+pub(super) enum FontRef {
     Name(String),
     Theme(bool),
 }
 
 #[derive(Debug, Clone, Default)]
-struct RPr {
-    ascii: Option<FontRef>,
-    hansi: Option<FontRef>,
-    size: Option<f64>,
-    bold: Option<bool>,
-    italic: Option<bool>,
-    caps: Option<bool>,
-    small_caps: Option<bool>,
-    vanish: Option<bool>,
-    spacing: Option<f64>,
-    scale: Option<f64>,
-    vert: Option<bool>,
+pub(super) struct RPr {
+    pub(super) ascii: Option<FontRef>,
+    pub(super) hansi: Option<FontRef>,
+    pub(super) size: Option<f64>,
+    pub(super) bold: Option<bool>,
+    pub(super) italic: Option<bool>,
+    pub(super) caps: Option<bool>,
+    pub(super) small_caps: Option<bool>,
+    pub(super) vanish: Option<bool>,
+    pub(super) spacing: Option<f64>,
+    pub(super) scale: Option<f64>,
+    pub(super) vert: Option<bool>,
     /// Kerning from this size (points) up; 0 is off.
-    kern: Option<f64>,
+    pub(super) kern: Option<f64>,
 }
 
 impl RPr {
-    fn merge(&mut self, other: &RPr) {
+    pub(super) fn merge(&mut self, other: &RPr) {
         macro_rules! take {
             ($($f:ident),*) => { $( if other.$f.is_some() { self.$f = other.$f.clone(); } )* };
         }
@@ -93,7 +93,7 @@ impl RPr {
     }
 
     /// Style layering: toggles XOR with `other`'s, the rest is replaced.
-    fn layer(&mut self, other: &RPr) {
+    pub(super) fn layer(&mut self, other: &RPr) {
         let toggles = [
             (self.bold, other.bold),
             (self.italic, other.italic),
@@ -112,20 +112,20 @@ impl RPr {
     }
 }
 
-fn on_off(tree: &XmlTree, node: NodeId) -> bool {
+pub(super) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
     !matches!(
         w_attr(tree, node, "val"),
         Some("0" | "false" | "off" | "none")
     )
 }
 
-fn twips(tree: &XmlTree, node: NodeId, name: &str) -> Option<f64> {
+pub(super) fn twips(tree: &XmlTree, node: NodeId, name: &str) -> Option<f64> {
     w_attr(tree, node, name)
         .and_then(|v| v.parse::<f64>().ok())
         .map(|v| v * TWIP)
 }
 
-fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
+pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
     let mut out = PPr::default();
     let Some(ppr) = ppr else {
         return out;
@@ -213,7 +213,7 @@ fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
     out
 }
 
-fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
+pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
     let mut out = RPr::default();
     let Some(rpr) = rpr else {
         return out;
@@ -266,7 +266,7 @@ fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
 
 /// Border widths in points from `w:tblBorders` or `w:tcBorders`: top,
 /// bottom and inside horizontal (`none` and `nil` are 0).
-fn borders(tree: &XmlTree, node: Option<NodeId>) -> [Option<f64>; 3] {
+pub(super) fn borders(tree: &XmlTree, node: Option<NodeId>) -> [Option<f64>; 3] {
     let mut out = [None; 3];
     if let Some(node) = node {
         for (slot, name) in out.iter_mut().zip(["top", "bottom", "insideH"]) {
@@ -284,7 +284,7 @@ fn borders(tree: &XmlTree, node: Option<NodeId>) -> [Option<f64>; 3] {
     out
 }
 
-fn margins(tree: &XmlTree, mar: Option<NodeId>) -> [Option<f64>; 4] {
+pub(super) fn margins(tree: &XmlTree, mar: Option<NodeId>) -> [Option<f64>; 4] {
     let mut out = [None; 4];
     if let Some(mar) = mar {
         for (index, names) in [
