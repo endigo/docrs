@@ -210,20 +210,23 @@ pub struct LineRecord {
 
 /// Every line of `main`'s body. Experimental.
 #[doc(hidden)]
-pub fn line_records(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Vec<LineRecord>> {
+pub fn line_records(
+    txn: &Txn<'_>,
+    main: &str,
+    extra: Vec<Face>,
+    each: impl FnMut(LineRecord) -> Result<()>,
+) -> Result<()> {
     let (model, ..) = model_of(txn, main, extra)?;
-    let mut dump = LineDump::default();
-    flow::paginate(&model, &mut dump)?;
-    Ok(dump.lines)
+    flow::paginate(&model, &mut LineDump { page: 0, each })?;
+    Ok(())
 }
 
-#[derive(Default)]
-struct LineDump {
+struct LineDump<F> {
     page: u32,
-    lines: Vec<LineRecord>,
+    each: F,
 }
 
-impl flow::Sink for LineDump {
+impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
     fn page(&mut self, page: &flow::PageStart) -> Result<()> {
         self.page = page.number;
         Ok(())
@@ -247,7 +250,7 @@ impl flow::Sink for LineDump {
             StoryId::Header(n) => format!("header{n}"),
             StoryId::Footer(n) => format!("footer{n}"),
         };
-        self.lines.push(LineRecord {
+        (self.each)(LineRecord {
             page: self.page,
             story,
             x: at.x + line.start,
@@ -265,8 +268,7 @@ impl flow::Sink for LineDump {
             last: line.last,
             align: para.align.name(),
             text,
-        });
-        Ok(())
+        })
     }
 }
 
