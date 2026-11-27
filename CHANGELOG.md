@@ -6,6 +6,7 @@
 
 - Experimental `pdf` feature (no public API yet).
 - A hostile font file, passed with `--font` or embedded in a document, no longer exhausts memory or time. A face is refused when its cmap ranges are out of order or out of range, its cmap subtable overruns its declared length (or, in format 4, lacks the final 0xFFFF segment), or its `hmtx` is missing or short. A collection skips that face, and the new `Face::try_parse` returns `invalid_argument` with reason `font_cmap_invalid`, `font_malformed` or `font_too_large`. The cmap entries and kern records read across one font file, or across one document's embedded fonts, share a budget of 4 × 1,114,112 that is charged before allocating. A font part embedded many times is read once.
+- A kern pair listed twice in a font's `kern` table takes its first value, as Word does. Perpetua Titling MT Bold lists period then double quote at −78 and −51 units; estimates measured from the font file used −51, and Word for Mac sets −78.
 
 ## 1.0.1 (2026-11-23)
 

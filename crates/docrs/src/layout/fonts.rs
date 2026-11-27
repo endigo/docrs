@@ -1276,6 +1276,15 @@ mod hostile {
     }
 
     #[test]
+    fn a_kern_pair_listed_twice_takes_its_first_value() {
+        let mut kern = be(&[0, 1, 0, 6 + 8 + 12, 1, 2, 0, 0, 0]);
+        kern.extend(be(&[1, 2, (-50i16) as u16, 1, 2, (-30i16) as u16]));
+        let mut budget = FILE_BUDGET;
+        let face = read(&face_tables(3, ab_cmap(), Some(kern)), &mut budget).unwrap();
+        assert!((face.kern('A', 'B') + 0.05).abs() < 1e-9);
+    }
+
+    #[test]
     fn overlapping_kern_subtables_are_read_quickly() {
         let mut kern = be(&[0, 0xFFFF]);
         for _ in 0..0xFFFF {
