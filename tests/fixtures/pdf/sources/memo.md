@@ -1,7 +1,7 @@
 # Office relocation
 
-**To:** All staff
-**From:** Operations
+**To:** All staff\
+**From:** Operations\
 **Date:** 2 November 2026
 
 The lease on our current office ends on 31 March next year, and after reviewing four buildings over the summer we have signed for the third floor of 120 Harbour Street. This memo explains what changes, when it happens, and what each team needs to do before the move.

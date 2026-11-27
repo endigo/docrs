@@ -4,8 +4,8 @@
   "pages": 2,
   "paragraphs": [
     {"heading":false,"page":1,"row_end":false,"text":"Contents","y":88.85},
-    {"heading":false,"page":1,"row_end":false,"text":" TOC \\o \"1-3\" \\h \\z \\u No headings to li","y":111.36},
-    {"heading":false,"page":1,"row_end":false,"text":"","y":130.08},
+    {"heading":false,"page":1,"row_end":false,"text":"No headings to list.","y":111.36},
+    {"heading":false,"page":1,"row_end":false,"text":"\n","y":130.08},
     {"heading":false,"page":2,"row_end":false,"text":"Control Point","y":71.85},
     {"heading":false,"page":2,"row_end":false,"text":"Passenger Traffic","y":71.85},
     {"heading":false,"page":2,"row_end":true,"text":null,"y":71.85},
