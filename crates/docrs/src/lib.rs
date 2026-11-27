@@ -11,6 +11,9 @@
 //! With the `markdown` feature, `markdown` converts Markdown or editor HTML
 //! into a document styled by a reference template; [`layout`] estimates
 //! Word for Mac's pagination for the table of contents' page numbers.
+//!
+//! The `pdf` feature is experimental and exempt from semantic versioning
+//! until the release that completes it.
 
 /// The README's examples, compiled as doctests.
 #[cfg(doctest)]
@@ -46,6 +49,8 @@ pub mod numbering;
 pub mod oxml;
 pub mod package;
 pub mod parts;
+#[cfg(feature = "pdf")]
+pub mod pdf;
 pub mod protection;
 pub mod replace;
 pub mod revision;

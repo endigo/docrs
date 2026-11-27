@@ -14,7 +14,7 @@ readme = "README.md"
 exclude = ["tests/"]
 
 [package.metadata.docs.rs]
-features = ["markdown"]
+features = ["markdown", "pdf"]
 
 [features]
 # Enables deterministic failure-injection points used by the test suite.
@@ -23,6 +23,8 @@ fault-injection = []
 test-support = ["fault-injection"]
 # Markdown → DOCX conversion (`docrs::markdown`).
 markdown = ["dep:pulldown-cmark"]
+# Experimental PDF export (`docrs::pdf`); no public API yet.
+pdf = []
 
 [dependencies]
 flate2.workspace = true
@@ -35,7 +37,7 @@ pulldown-cmark = { workspace = true, optional = true }
 [dev-dependencies]
 tempfile.workspace = true
 proptest.workspace = true
-docrs = { path = ".", features = ["test-support", "markdown"] }
+docrs = { path = ".", features = ["test-support", "markdown", "pdf"] }
 
 [lints]
 workspace = true
