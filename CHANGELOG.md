@@ -14,6 +14,7 @@
 - Page estimates have a fixed bound on layout work: 200 million units (pieces, lines, rows and lines drawn, headers and footers included), about 4 seconds. `layout::layout` and `docrs layout` fail with `resource_limit` `max_layout_work` past it. A header or footer shared by many sections is measured once per page width.
 - When the contents page numbers of a conversion would pass that bound, the conversion still succeeds: the numbers are not estimated, Word is asked to update fields when it opens the document, and a `toc_page_numbers_skipped` warning says so.
 - In justified paragraphs, spaces between a list label or tab and the first word after it no longer let the line shrink to fit; only spaces between words do.
+- A table's header rows that are taller than the page body are no longer repeated on the following pages, as in Word. They start on a page of their own and run off its bottom, and the next row starts a new page. A 70-line header over 40 rows was estimated at 43 pages; Word and the estimate now give 3.
 - Page estimates align decimal tabs on the decimal point: the text before the first `.` ends at the stop.
 
 ### Node package
