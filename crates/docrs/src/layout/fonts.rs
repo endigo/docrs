@@ -35,7 +35,7 @@ pub struct Face {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FontError {
+pub(crate) enum FontError {
     Malformed(&'static str),
     CmapUnsorted,
     CmapReversedRange,
@@ -71,7 +71,7 @@ impl FontError {
     }
 }
 
-type Parsed<T> = std::result::Result<T, FontError>;
+pub(crate) type Parsed<T> = std::result::Result<T, FontError>;
 
 type KernPair = ((u32, u32), i16);
 
@@ -161,9 +161,8 @@ impl Face {
         bold: bool,
         italic: bool,
         budget: &mut usize,
-    ) -> Option<Face> {
-        let ttf = Ttf::new(data).ok()?;
-        Face::from_ttf(&ttf, family, bold, italic, budget).ok()
+    ) -> Parsed<Face> {
+        Face::from_ttf(&Ttf::new(data)?, family, bold, italic, budget)
     }
 
     pub(crate) fn restyled(&self, family: &str, bold: bool, italic: bool) -> Face {
@@ -797,6 +796,14 @@ impl FontBook {
 /// Deobfuscate an embedded font (`.odttf`, ECMA-376 Part 1 §17.8.1): the
 /// first 32 bytes are XORed with the font key GUID's bytes, reversed.
 pub fn deobfuscate(data: &[u8], key: &str) -> Option<Vec<u8>> {
+    let key = font_key(key)?;
+    let mut out = data.to_vec();
+    xor_font_key(&mut out, &key);
+    Some(out)
+}
+
+/// The font key GUID's bytes, reversed, as they are XORed.
+pub(crate) fn font_key(key: &str) -> Option<[u8; 16]> {
     let hex: String = key.chars().filter(char::is_ascii_hexdigit).collect();
     if hex.len() != 32 {
         return None;
@@ -806,11 +813,14 @@ pub fn deobfuscate(data: &[u8], key: &str) -> Option<Vec<u8>> {
         *byte = u8::from_str_radix(&hex[2 * index..2 * index + 2], 16).ok()?;
     }
     guid.reverse();
-    let mut out = data.to_vec();
-    for (index, byte) in out.iter_mut().take(32).enumerate() {
-        *byte ^= guid[index % 16];
+    Some(guid)
+}
+
+/// XORs the first 32 bytes with `key`; applying it twice restores `data`.
+pub(crate) fn xor_font_key(data: &mut [u8], key: &[u8; 16]) {
+    for (index, byte) in data.iter_mut().take(32).enumerate() {
+        *byte ^= key[index % 16];
     }
-    Some(out)
 }
 
 #[cfg(test)]

@@ -170,16 +170,21 @@ fn full_unicode_font() -> Vec<u8> {
 }
 
 /// `fonts` font table entries, each embedding `font` from one of `parts`
-/// parts, without obfuscation.
-fn embedding_package(font: &[u8], fonts: usize, parts: usize) -> Vec<u8> {
+/// parts; with `keyed`, each under a different font key.
+fn embedding_package(font: &[u8], fonts: usize, parts: usize, keyed: bool) -> Vec<u8> {
     let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     let document = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body><w:p><w:r><w:t>Text</w:t></w:r></w:p></w:body></w:document>"
     );
     let entries: String = (0..fonts)
         .map(|i| {
+            let key = if keyed {
+                format!(" w:fontKey=\"{{{i:08X}-0000-0000-0000-000000000000}}\"")
+            } else {
+                String::new()
+            };
             format!(
-                "<w:font w:name=\"F{i}\"><w:embedRegular r:id=\"rId{}\"/></w:font>",
+                "<w:font w:name=\"F{i}\"><w:embedRegular r:id=\"rId{}\"{key}/></w:font>",
                 i % parts
             )
         })
@@ -222,26 +227,39 @@ fn embedding_package(font: &[u8], fonts: usize, parts: usize) -> Vec<u8> {
     build_zip(&members)
 }
 
-fn embedded(package: &[u8]) -> Vec<String> {
+fn layout_of(package: &[u8]) -> docrs::layout::Layout {
     let doc = Document::open_bytes(package, &Limits::default()).unwrap();
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
-    layout(&txn, &main, Vec::new()).unwrap().embedded_fonts
+    layout(&txn, &main, Vec::new()).unwrap()
 }
 
 #[test]
 fn one_font_embedded_a_thousand_times_is_read_once() {
-    let package = embedding_package(&full_unicode_font(), 1000, 1);
+    let package = embedding_package(&full_unicode_font(), 1000, 1, false);
     assert!(package.len() < 8 * 1024, "{}", package.len());
     let started = std::time::Instant::now();
-    assert_eq!(embedded(&package).len(), 1000);
+    assert_eq!(layout_of(&package).embedded_fonts.len(), 1000);
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }
 
 #[test]
-fn embedded_fonts_share_one_budget() {
-    let package = embedding_package(&full_unicode_font(), 8, 8);
-    assert_eq!(embedded(&package), ["F0", "F1", "F2", "F3"]);
+fn a_large_part_under_many_font_keys_is_copied_once() {
+    let package = embedding_package(&vec![0; 64 << 20], 2000, 1, true);
+    let started = std::time::Instant::now();
+    assert!(layout_of(&package).embedded_fonts.is_empty());
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn embedded_fonts_share_one_budget_and_report_what_it_leaves_unread() {
+    let estimate = layout_of(&embedding_package(&full_unicode_font(), 8, 8, false));
+    assert_eq!(estimate.embedded_fonts, ["F0", "F1", "F2", "F3"]);
+    assert_eq!(estimate.missing_fonts, ["F4", "F5", "F6", "F7"]);
 }
 
 const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";

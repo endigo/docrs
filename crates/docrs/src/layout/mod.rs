@@ -14,10 +14,12 @@ mod flow;
 pub mod fonts;
 mod model;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub use flow::Placed;
 pub use fonts::{Face, FontBook};
+
+use fonts::{FontError, Parsed};
 
 use crate::Result;
 use crate::package::rels::rt;
@@ -34,7 +36,9 @@ pub struct Layout {
     pub pages: u32,
     /// The number the first page shows (`w:pgNumType w:start`, else 1).
     pub first_page_number: i64,
-    /// Font families with no metrics, substituted.
+    /// Font families with no metrics, substituted, and families whose
+    /// embedded fonts went unread because the document's fonts exceeded
+    /// the parse budget.
     pub missing_fonts: Vec<String>,
     /// Families measured from fonts embedded in the document.
     pub embedded_fonts: Vec<String>,
@@ -55,16 +59,18 @@ impl Layout {
 }
 
 /// Embedded fonts of the document (`w:embedRegular` and friends in the
-/// font table), deobfuscated and measured within one budget.
-fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
-    let mut out = Vec::new();
+/// font table), deobfuscated and measured within one budget, and the
+/// families whose fonts the budget left unread.
+fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)> {
+    let (mut out, mut unread) = (Vec::new(), Vec::new());
     let Some(table) = txn.part_related_by(main, rt::FONT_TABLE)? else {
-        return Ok(out);
+        return Ok((out, unread));
     };
     let tree = txn.tree(&table)?;
     let rels = txn.resolved_relationships(&table)?;
     let mut budget = fonts::FILE_BUDGET;
-    let mut parsed: HashMap<(&str, Option<&str>), Option<Face>> = HashMap::new();
+    let mut copies: HashMap<&str, Vec<u8>> = HashMap::new();
+    let mut parsed: HashMap<(&str, Option<[u8; 16]>), Parsed<Face>> = HashMap::new();
     for font in w_children(tree, tree.root(), "font") {
         let Some(name) = w_attr(tree, font, "name") else {
             continue;
@@ -84,28 +90,42 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<Vec<Face>> {
             let Some((_, part)) = rels.iter().find(|(rel, _)| rel.id == id) else {
                 continue;
             };
-            let key = w_attr(tree, embed, "fontKey");
+            let key = match w_attr(tree, embed, "fontKey") {
+                Some(key) => match fonts::font_key(key) {
+                    Some(key) => Some(key),
+                    None => continue,
+                },
+                None => None,
+            };
             let face = parsed.entry((part.as_str(), key)).or_insert_with(|| {
-                let bytes = txn.binary(part)?;
-                let data = match key {
-                    Some(key) => fonts::deobfuscate(&bytes, key)?,
-                    None => bytes.to_vec(),
+                let unreadable = Err(FontError::Malformed("embedded font part"));
+                let Some(bytes) = txn.binary(part) else {
+                    return unreadable;
                 };
-                Face::parse_within(&data, name, bold, italic, &mut budget)
+                let Some(key) = key else {
+                    return Face::parse_within(&bytes, name, bold, italic, &mut budget);
+                };
+                let copy = copies.entry(part).or_insert_with(|| bytes.to_vec());
+                fonts::xor_font_key(copy, &key);
+                let face = Face::parse_within(copy, name, bold, italic, &mut budget);
+                fonts::xor_font_key(copy, &key);
+                face
             });
-            if let Some(face) = face {
-                out.push(face.restyled(name, bold, italic));
+            match face {
+                Ok(face) => out.push(face.restyled(name, bold, italic)),
+                Err(FontError::TooLarge) => unread.push(name.to_string()),
+                Err(_) => {}
             }
         }
     }
-    Ok(out)
+    Ok((out, unread))
 }
 
 /// Estimate the layout of `main`'s body. `fonts` are extra font files the
 /// caller has (measured locally, never shipped); the document's embedded
 /// fonts take precedence over them and over the bundled table.
 pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
-    let embedded = embedded_fonts(txn, main)?;
+    let (embedded, unread) = embedded_fonts(txn, main)?;
     let mut embedded_names: Vec<String> = embedded.iter().map(|f| f.family.clone()).collect();
     embedded_names.dedup();
     let mut own = embedded;
@@ -131,10 +151,21 @@ pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
             .first()
             .and_then(|s| s.page_start)
             .unwrap_or(1),
-        missing_fonts: book.missing.clone(),
+        missing_fonts: missing_fonts(&book.missing, unread),
         embedded_fonts: embedded_names,
         bookmarks,
     })
+}
+
+fn missing_fonts(substituted: &[String], unread: Vec<String>) -> Vec<String> {
+    let mut seen: HashSet<String> = substituted.iter().map(|m| m.to_lowercase()).collect();
+    let mut out = substituted.to_vec();
+    out.extend(
+        unread
+            .into_iter()
+            .filter(|family| seen.insert(family.to_lowercase())),
+    );
+    out
 }
 
 fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<NodeId, Vec<String>>) {
