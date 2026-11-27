@@ -576,6 +576,33 @@ fn refresh_leaves_roman_and_restarted_page_numbers() {
     let mut doc = open(&package_with(&restarted, "", None));
     assert_eq!(refresh(&mut doc), 1);
     assert_eq!(entry_numbers(&doc), ["2", "9"]);
+
+    let break_in_sdt = format!(
+        "{toc}{}<w:sdt><w:sdtContent><w:p><w:pPr><w:sectPr>{SECT_PR}</w:sectPr></w:pPr></w:p></w:sdtContent></w:sdt>{}<w:sectPr>{SECT_PR}<w:pgNumType w:start=\"1\"/></w:sectPr>",
+        heading("_Toc1", "One", ""),
+        heading("_Toc2", "Two", "")
+    );
+    let mut doc = open(&package_with(&break_in_sdt, "", None));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["2", "9"]);
+}
+
+#[test]
+fn an_unclosed_entry_field_does_not_keep_the_contents_open() {
+    let unclosed = "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGEREF _Toc1 \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>6</w:t></w:r>";
+    let toc = word_toc(&[
+        entry("_Toc1", "Unclosed", unclosed),
+        word_entry("_Toc1", "Whole", "7", "\\h"),
+    ]);
+    let outside = format!(
+        "<w:p>{}</w:p>",
+        page_ref("_Toc1", "\\h", "<w:r><w:t>9</w:t></w:r>")
+    );
+    let body = format!("{toc}{outside}{}", heading("_Toc1", "One", ""));
+    let mut doc = open(&styled_package(&body, ""));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["6", "2"]);
+    assert!(document_xml(&doc).contains("<w:t>9</w:t>"));
 }
 
 fn stale_contents() -> String {

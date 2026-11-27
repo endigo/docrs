@@ -3153,12 +3153,12 @@ impl<'p> Renderer<'_, '_, 'p> {
             crate::layout::write_page_numbers(self.txn, main, &self.toc.numbers, true)?;
         for font in &layout.missing_fonts {
             self.warn(
-                    "font_metrics_missing",
-                    format!(
-                        "no metrics for the font {font:?}; contents page numbers are estimated with a substitute"
-                    ),
-                    None,
-                );
+                "font_metrics_missing",
+                format!(
+                    "no metrics for the font {font:?}; contents page numbers are estimated with a substitute"
+                ),
+                None,
+            );
         }
         self.report.toc = Some(super::TocReport {
             entries: self.toc.numbers.len(),

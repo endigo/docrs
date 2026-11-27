@@ -268,45 +268,70 @@ pub fn refresh_toc_page_numbers(
 
 /// Bookmarks in decimal sections with no restart after the first section.
 fn decimal_bookmarks(tree: &XmlTree) -> HashSet<String> {
-    let mut out = HashSet::new();
-    let Some(body) = w_child(tree, tree.root(), "body") else {
-        return out;
+    let mut sections = Sections {
+        tree,
+        decimal: HashSet::new(),
+        pending: Vec::new(),
+        first: true,
+        restarted: false,
     };
-    let mut section = Vec::new();
-    let mut restarted = false;
-    let mut first = true;
-    let mut close = |sect_pr: Option<NodeId>, section: &mut Vec<String>| {
+    if let Some(body) = w_child(tree, tree.root(), "body") {
+        sections.visit(body);
+        sections.close(None);
+    }
+    sections.decimal
+}
+
+struct Sections<'t> {
+    tree: &'t XmlTree,
+    decimal: HashSet<String>,
+    pending: Vec<String>,
+    first: bool,
+    restarted: bool,
+}
+
+impl Sections<'_> {
+    /// Section breaks are found at any depth, as the layout model finds
+    /// them; a break paragraph's own bookmarks belong to the section it ends.
+    fn visit(&mut self, node: NodeId) {
+        let tree = self.tree;
+        for child in tree.child_elements(node) {
+            if tree.is(child, W, "bookmarkStart") {
+                self.pending
+                    .extend(w_attr(tree, child, "name").map(str::to_string));
+            } else if tree.is(child, W, "sectPr") {
+                if tree.is(node, W, "body") {
+                    self.close(Some(child));
+                }
+            } else {
+                self.visit(child);
+            }
+            let break_sect =
+                w_child(tree, child, "pPr").and_then(|ppr| w_child(tree, ppr, "sectPr"));
+            if tree.is(child, W, "p") && break_sect.is_some() {
+                self.close(break_sect);
+            }
+        }
+    }
+
+    fn close(&mut self, sect_pr: Option<NodeId>) {
+        if self.pending.is_empty() && sect_pr.is_none() {
+            return;
+        }
+        let tree = self.tree;
         let numbering = sect_pr.and_then(|s| w_child(tree, s, "pgNumType"));
-        restarted |= !first && numbering.is_some_and(|n| w_attr(tree, n, "start").is_some());
-        first = false;
+        self.restarted |=
+            !self.first && numbering.is_some_and(|n| w_attr(tree, n, "start").is_some());
+        self.first = false;
         let decimal = numbering.is_none_or(|n| {
             w_attr(tree, n, "fmt").is_none_or(|fmt| fmt == "decimal")
                 && w_attr(tree, n, "chapStyle").is_none()
         });
-        if decimal && !restarted {
-            out.extend(section.drain(..));
+        if decimal && !self.restarted {
+            self.decimal.extend(self.pending.drain(..));
         }
-        section.clear();
-    };
-    for child in tree.child_elements(body) {
-        if tree.is(child, W, "sectPr") {
-            close(Some(child), &mut section);
-            continue;
-        }
-        section.extend(
-            tree.descendants(child)
-                .filter(|n| tree.is(*n, W, "bookmarkStart"))
-                .filter_map(|n| w_attr(tree, n, "name").map(str::to_string)),
-        );
-        let sect_pr = w_child(tree, child, "pPr").and_then(|ppr| w_child(tree, ppr, "sectPr"));
-        if tree.is(child, W, "p") && sect_pr.is_some() {
-            close(sect_pr, &mut section);
-        }
+        self.pending.clear();
     }
-    if !section.is_empty() {
-        close(None, &mut section);
-    }
-    out
 }
 
 struct OpenField {
@@ -379,7 +404,7 @@ fn walk_fields(
                 let instruction = w_attr(tree, child, "instr").unwrap_or("").to_string();
                 open.push(OpenField::new(instruction, false, at));
                 walk_fields(tree, child, at, open, out);
-                close_field(tree, open, at, out);
+                close_field(tree, open, out);
             }
             "fldChar" => match w_attr(tree, child, "fldCharType") {
                 Some("begin") => open.push(OpenField::new(String::new(), true, at)),
@@ -390,10 +415,11 @@ fn walk_fields(
                     }
                 }
                 Some("end") => {
+                    drop_unclosed_page_refs(open, at);
                     if let Some(field) = open.last_mut() {
                         field.deleted |= deleted;
                     }
-                    close_field(tree, open, at, out);
+                    close_field(tree, open, out);
                 }
                 _ => {}
             },
@@ -413,22 +439,30 @@ fn walk_fields(
     }
 }
 
-/// A PAGEREF in a contents begins and ends in one paragraph; one that does
-/// not is a field left open, closed by the end of an outer field.
-fn close_field(tree: &XmlTree, open: &mut Vec<OpenField>, at: At, out: &mut Vec<(NodeId, String)>) {
+fn close_field(tree: &XmlTree, open: &mut Vec<OpenField>, out: &mut Vec<(NodeId, String)>) {
     let Some(field) = open.pop() else { return };
     let in_toc = open
         .iter()
         .any(|outer| !outer.in_code && !outer.deleted && is_command(&outer.instruction, "TOC"));
-    if let (true, false, true, [t], Some(bookmark)) = (
-        in_toc,
-        field.deleted,
-        field.paragraph == at.paragraph,
-        field.texts.as_slice(),
-        page_ref_bookmark(&field.instruction),
-    ) && tree.text_content(*t).chars().all(|c| c.is_ascii_digit())
-    {
+    let [t] = field.texts.as_slice() else { return };
+    let shows_digits = tree.text_content(*t).chars().all(|c| c.is_ascii_digit());
+    if !in_toc || field.deleted || !shows_digits {
+        return;
+    }
+    if let Some(bookmark) = page_ref_bookmark(&field.instruction) {
         out.push((*t, bookmark));
+    }
+}
+
+/// A PAGEREF begins and ends in one paragraph: one still open when an end
+/// comes in another paragraph was left unclosed, and that end is an outer
+/// field's.
+fn drop_unclosed_page_refs(open: &mut Vec<OpenField>, at: At) {
+    while open
+        .last()
+        .is_some_and(|f| f.paragraph != at.paragraph && is_command(&f.instruction, "PAGEREF"))
+    {
+        open.pop();
     }
 }
 

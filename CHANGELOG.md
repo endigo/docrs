@@ -11,7 +11,7 @@
 
 ### Node package
 
-- Contents page numbers are worked out again after `fields` are filled. A long value could push a heading onto the next page after its number was written, so the contents showed the page before. `report.toc` pages and fonts describe the filled document. Only the contents the conversion wrote is refreshed: a reference document's own contents, kept by `append` or a placeholder, is left as it is. Neither is an entry whose page is numbered other than in decimal or after a restart.
+- Contents page numbers are worked out again after `fields` are filled. A long value could push a heading onto the next page after its number was written, so the contents showed the page before. `report.toc` pages and fonts describe the filled document. Only the contents the conversion wrote is refreshed: a reference document's own contents, kept by `append` or a placeholder, is left as it is. Entries whose pages use Roman or other non-decimal numbers, or come after a numbering restart, also keep their numbers.
 
 ## 1.0.1 (2026-11-23)
 
