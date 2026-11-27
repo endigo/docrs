@@ -1,5 +1,6 @@
+use super::formatting::ParaFormat;
 use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign};
-use super::props::{FontRef, PPr, RPr, length, number, read_ppr, read_rpr};
+use super::props::{FontRef, RPr, length, number, read_rpr};
 use super::table::TableCtx;
 use super::{Block, Builder, Label, LineRule, LineSpacing, Metric, Para, Piece};
 use crate::fields::fieldcode;
@@ -190,38 +191,6 @@ impl Builder<'_> {
         }
     }
 
-    /// Effective paragraph and paragraph-mark run properties.
-    fn para_props(&mut self, style: &str, direct: &PPr, table: Option<&TableCtx>) -> (PPr, RPr) {
-        let mut ppr = self.styles.default_ppr.clone();
-        let mut rpr = self.styles.default_rpr.clone();
-        if let Some(table) = table
-            && let Some(id) = &table.style
-        {
-            let chain = self.styles.chain(id);
-            ppr.merge(&chain.0);
-            rpr.layer(&chain.1);
-            if table.first_row
-                && let Some((p, r)) = self.styles.defs.get(id).and_then(|d| d.first_row.as_ref())
-            {
-                ppr.merge(p);
-                rpr.layer(r);
-            }
-        }
-        let chain = self.styles.chain(style);
-        ppr.merge(&chain.0);
-        rpr.layer(&chain.1);
-        // Numbering's indents sit between the style and direct formatting.
-        let num = direct.num.clone().or_else(|| ppr.num.clone());
-        if let Some((id, ilvl)) = num {
-            let ilvl = direct.ilvl.or(ilvl).or(ppr.ilvl).unwrap_or(0);
-            if let Some(level) = self.numbering.level(&id, ilvl) {
-                ppr.merge(&level.ppr);
-            }
-        }
-        ppr.merge(direct);
-        (ppr, rpr)
-    }
-
     fn font_name(&self, font: &Option<FontRef>) -> String {
         match font {
             Some(FontRef::Name(name)) => name.clone(),
@@ -284,19 +253,17 @@ impl Builder<'_> {
 
     fn paragraph(&mut self, tree: &XmlTree, p: NodeId, table: Option<&TableCtx>) -> Para {
         let ppr_node = w_child(tree, p, "pPr");
-        let direct = read_ppr(tree, ppr_node, &self.theme.palette);
-        let style = ppr_node
-            .and_then(|pp| w_child(tree, pp, "pStyle"))
-            .and_then(|s| w_attr(tree, s, "val"))
-            .map(str::to_string)
-            .or_else(|| self.styles.default_para.clone())
-            .unwrap_or_default();
-        let (ppr, para_rpr) = self.para_props(&style, &direct, table);
+        let ParaFormat {
+            style,
+            direct,
+            ppr,
+            rpr: para_rpr,
+        } = self.fmt.paragraph(tree, p, table);
         let mut mark_rpr = para_rpr.clone();
         mark_rpr.merge(&read_rpr(
             tree,
             ppr_node.and_then(|pp| w_child(tree, pp, "rPr")),
-            &self.theme.palette,
+            &self.fmt.palette,
         ));
         let mark = self.measurer(&mark_rpr).metric;
         let mut para = Para {
@@ -334,8 +301,8 @@ impl Builder<'_> {
         let num = direct.num.clone().or_else(|| ppr.num.clone());
         if let Some((id, ilvl)) = num.filter(|(id, _)| id != "0") {
             let ilvl = direct.ilvl.or(ilvl).or(ppr.ilvl).unwrap_or(0);
-            if let Some(text) = self.numbering.label(&id, ilvl) {
-                let level = self.numbering.level(&id, ilvl);
+            if let Some(text) = self.fmt.numbering.label(&id, ilvl) {
+                let level = self.fmt.numbering.level(&id, ilvl);
                 let suffix = level.map_or("tab".to_string(), |l| l.suffix.clone());
                 let level_rpr = level.map(|l| l.rpr.clone()).unwrap_or_default();
                 let mut label_rpr = mark_rpr.clone();
@@ -438,17 +405,7 @@ impl Builder<'_> {
         para: &mut Para,
         fields: &mut Vec<Field>,
     ) {
-        let rpr_node = w_child(tree, r, "rPr");
-        let direct = read_rpr(tree, rpr_node, &self.theme.palette);
-        let mut rpr = para_rpr.clone();
-        if let Some(char_style) = rpr_node
-            .and_then(|n| w_child(tree, n, "rStyle"))
-            .and_then(|s| w_attr(tree, s, "val"))
-        {
-            let chain = self.styles.chain(char_style);
-            rpr.layer(&chain.1);
-        }
-        rpr.merge(&direct);
+        let rpr = self.fmt.run(tree, r, para_rpr);
         if rpr.vanish == Some(true) {
             return;
         }

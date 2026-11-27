@@ -289,7 +289,7 @@ impl Error {
         };
         for warning in self.details.iter().flat_map(|d| &d.warnings) {
             message.push_str(&format!(
-                "; {} \u{d7}{}: {}",
+                "; {} x{}: {}",
                 warning.code, warning.count, warning.description
             ));
         }

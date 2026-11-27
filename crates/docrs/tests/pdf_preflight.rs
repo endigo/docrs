@@ -40,6 +40,10 @@ fn xml_part(name: &'static str, kind: &'static str, root: &str, content: &str) -
             "settings" => {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
             }
+            "styles" => "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+            "numbering" => {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
+            }
             _ => "application/xml",
         },
         data: format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:{root} {NAMESPACES}>{content}</w:{root}>"#)
@@ -501,14 +505,32 @@ fn a_converted_document_is_only_not_yet_drawn() {
 #[test]
 fn redact_keeps_codes_and_counts_only() {
     let cases = cases();
-    for code in ["pdf_text_box_skipped", "pdf_link_scheme_skipped"] {
+    for code in [
+        "pdf_text_box_skipped",
+        "pdf_link_scheme_skipped",
+        "pdf_watermark_skipped",
+    ] {
         let case = cases.iter().find(|c| c.code == code).unwrap();
         let mut report = report(&case.document);
         let before = report.clone();
         report.redact();
         let json = report.to_json().to_string();
-        for secret in ["Boxed words", "javascript", "passwd"] {
+        for secret in ["Boxed words", "javascript", "passwd", "word/"] {
             assert!(!json.contains(secret), "{secret} in {json}");
+        }
+        let stories: Vec<&str> = report
+            .warnings
+            .iter()
+            .flat_map(|w| &w.locations)
+            .map(|l| l.story.as_str())
+            .collect();
+        assert!(!stories.is_empty());
+        assert!(
+            stories.iter().all(|s| *s == "body" || *s == "header"),
+            "{stories:?}"
+        );
+        if code == "pdf_watermark_skipped" {
+            assert!(stories.contains(&"header"), "{stories:?}");
         }
         assert_eq!(report.to_json()["schema_version"], 1);
         for (redacted, original) in report.warnings.iter().zip(&before.warnings) {
@@ -565,10 +587,7 @@ fn strict_refuses_any_warning_and_changes_nothing() {
         ]
     );
     let redacted = err.redacted_message();
-    assert!(
-        redacted.contains("pdf_columns_ignored \u{d7}1"),
-        "{redacted}"
-    );
+    assert!(redacted.contains("pdf_columns_ignored x1"), "{redacted}");
     assert!(redacted.contains("laid out in one column"), "{redacted}");
     assert_eq!(snapshot(&document), before);
     assert_eq!(preflight(&document).unwrap(), report);
@@ -579,4 +598,276 @@ fn errors_without_details_keep_their_json() {
     let err = docrs::Error::unsupported("x", "y");
     assert!(err.details().is_none());
     assert!(err.to_json()["error"].get("details").is_none());
+}
+
+/// The subjects of `code` in `report`, with their counts.
+fn subjects(report: &PdfReport, code: &str) -> Vec<(&'static str, usize)> {
+    report
+        .warnings
+        .iter()
+        .filter(|w| w.code == code)
+        .map(|w| (w.subject, w.count))
+        .collect()
+}
+
+fn styled(body: &str) -> Document {
+    let styles = concat!(
+        r#"<w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Base"><w:pPr><w:pBdr><w:top w:val="single" w:sz="4"/></w:pBdr></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Fancy"><w:basedOn w:val="Base"/><w:pPr><w:pageBreakBefore/><w:numPr><w:numId w:val="1"/></w:numPr><w:shd w:val="clear" w:fill="EEEEEE"/><w:framePr w:dropCap="drop" w:lines="3"/><w:bidi/></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Plain"><w:basedOn w:val="Base"/><w:pPr><w:pBdr><w:top w:val="none"/></w:pBdr></w:pPr></w:style>"#,
+        r#"<w:style w:type="character" w:styleId="Mark"><w:rPr><w:rtl/><w:highlight w:val="yellow"/></w:rPr></w:style>"#,
+        r#"<w:style w:type="table" w:styleId="Grid"><w:tblPr><w:tblpPr w:tblpY="100"/><w:tblBorders><w:top w:val="single" w:sz="4"/></w:tblBorders></w:tblPr></w:style>"#,
+        r#"<w:style w:type="table" w:styleId="Shaded"><w:basedOn w:val="Grid"/><w:tblStylePr w:type="firstRow"><w:tcPr><w:shd w:val="clear" w:fill="DDDDDD"/></w:tcPr></w:tblStylePr></w:style>"#,
+    );
+    let numbering = concat!(
+        r#"<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>"#,
+        r#"<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>"#,
+    );
+    docx(
+        body,
+        &[
+            xml_part("word/styles.xml", "styles", "styles", styles),
+            xml_part("word/numbering.xml", "numbering", "numbering", numbering),
+        ],
+        &[],
+    )
+}
+
+#[test]
+fn constructs_set_through_styles_are_reported() {
+    let styled_para = |style: &str, text: &str| {
+        para(&format!(
+            r#"<w:pPr><w:pStyle w:val="{style}"/></w:pPr>{}"#,
+            run(&format!("<w:t>{text}</w:t>"))
+        ))
+    };
+    let body = styled_para("Fancy", "Fancy")
+        + &styled_para("Plain", "No border: its style turns the base's off")
+        + &para(&run(
+            r#"<w:rPr><w:rStyle w:val="Mark"/></w:rPr><w:t>marked</w:t>"#,
+        ))
+        + r#"<w:tbl><w:tblPr><w:tblStyle w:val="Shaded"/></w:tblPr><w:tr><w:tc>"#
+        + &para(&run("<w:t>cell</w:t>"))
+        + "</w:tc></w:tr></w:tbl>";
+    let report = report(&styled(&body));
+    let not_drawn = subjects(&report, NOT_YET_DRAWN);
+    for expected in [
+        ("page break", 1),
+        ("list", 1),
+        ("border", 2),
+        ("shading", 3),
+        ("table", 1),
+    ] {
+        assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
+    }
+    assert_eq!(
+        subjects(&report, "pdf_layout_feature_ignored"),
+        [("drop caps", 1), ("floating tables", 1)]
+    );
+    assert_eq!(
+        subjects(&report, "pdf_text_unsupported"),
+        [("right-to-left text", 2)]
+    );
+}
+
+#[test]
+fn the_converters_own_styles_are_reported() {
+    let convert = |markdown: &str| {
+        let mut document = Document::new();
+        insert_markdown(&mut document, markdown, &MarkdownOptions::default()).unwrap();
+        report(&document)
+    };
+    let has = |report: &PdfReport, subject: &str| {
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == NOT_YET_DRAWN && w.subject == subject)
+    };
+    let code = convert("```\nlet x = 1;\n```\n");
+    assert!(
+        has(&code, "shading"),
+        "{:?}",
+        subjects(&code, NOT_YET_DRAWN)
+    );
+    let table = convert("| A | B |\n| - | - |\n| 1 | 2 |\n");
+    assert!(
+        has(&table, "border"),
+        "{:?}",
+        subjects(&table, NOT_YET_DRAWN)
+    );
+    let rule = convert("Above\n\n---\n\nBelow\n");
+    assert!(has(&rule, "border"), "{:?}", subjects(&rule, NOT_YET_DRAWN));
+    let quote = convert("> Quoted\n");
+    assert!(
+        quote.warnings.iter().all(|w| w.code == NOT_YET_DRAWN),
+        "{:?}",
+        quote.warnings
+    );
+}
+
+#[test]
+fn many_pictures_and_links_scan_in_linear_time() {
+    let pictures: String = (0..8_000)
+        .map(|_| para(&graphic(PICTURE_URI, &picture("rId1"))))
+        .collect();
+    let document = docx(
+        &pictures,
+        &[image_part("word/media/image1.png", "image/png")],
+        &[],
+    );
+    let started = std::time::Instant::now();
+    let found = report(&document);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(subjects(&found, NOT_YET_DRAWN), [("image", 8_000)]);
+
+    let ids: Vec<String> = (0..200_000).map(|i| format!("rIdL{i}")).collect();
+    let links: Vec<(&str, &str)> = ids
+        .iter()
+        .map(|id| (id.as_str(), "https://example.com/"))
+        .collect();
+    let body = para(
+        &ids.iter()
+            .map(|id| format!(r#"<w:hyperlink r:id="{id}"></w:hyperlink>"#))
+            .collect::<String>(),
+    );
+    let document = docx(&body, &[], &links);
+    let started = std::time::Instant::now();
+    let found = report(&document);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(subjects(&found, NOT_YET_DRAWN), [("link", 200_000)]);
+}
+
+#[test]
+fn constructs_word_draws_are_not_skipped_silently() {
+    let body = para(
+        &(run(r#"<w:ptab w:relativeTo="margin" w:alignment="right" w:leader="none"/>"#)
+            + &run("<w:br/>")
+            + &run("<w:cr/>")
+            + &run("<w:noBreakHyphen/>")),
+    ) + &para(&graphic(
+        "http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas",
+        "<lc/>",
+    )) + &para(&format!(
+        r#"<w:dir w:val="rtl">{}</w:dir>"#,
+        run("<w:t>a</w:t>")
+    )) + &para(&format!(
+        r#"<w:bdo w:val="rtl">{}</w:bdo>"#,
+        run("<w:t>b</w:t>")
+    )) + r#"<w:tbl><w:tblPr><w:bidiVisual/></w:tblPr><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#
+        + &para(r#"<w:pPr><w:textDirection w:val="tbRl"/></w:pPr>"#)
+        + r#"<w:altChunk r:id="rIdChunk"/>"#
+        + &section(r#"<w:textDirection w:val="tbRl"/>"#);
+    let report = report(&docx(&body, &[], &[]));
+    let not_drawn = subjects(&report, NOT_YET_DRAWN);
+    for expected in [("tab", 1), ("line break", 1), ("text", 3)] {
+        assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
+    }
+    assert_eq!(subjects(&report, "pdf_shape_skipped"), [("drawing", 1)]);
+    assert_eq!(
+        subjects(&report, "pdf_text_unsupported"),
+        [("right-to-left text", 3)]
+    );
+    assert_eq!(
+        subjects(&report, "pdf_layout_feature_ignored"),
+        [("rotated text", 2)]
+    );
+    assert_eq!(
+        subjects(&report, "pdf_object_skipped"),
+        [("imported document", 1)]
+    );
+}
+
+#[test]
+fn a_vml_rule_holding_a_text_box_or_picture_counts_as_them() {
+    let body = para(&run(
+        r#"<w:pict><v:rect o:hr="t" style="width:0;height:20pt"><v:textbox><w:txbxContent><w:p><w:r><w:t>Ruled words</w:t></w:r></w:p></w:txbxContent></v:textbox></v:rect></w:pict>"#,
+    )) + &para(&run(
+        r#"<w:pict><v:rect o:hr="t" style="width:0;height:20pt"><v:imagedata r:id="rId1"/></v:rect></w:pict>"#,
+    ));
+    let report = report(&docx(
+        &body,
+        &[image_part("word/media/image1.emf", "image/x-emf")],
+        &[],
+    ));
+    assert_eq!(subjects(&report, "pdf_text_box_skipped"), [("text box", 1)]);
+    assert_eq!(
+        subjects(&report, "pdf_image_unsupported"),
+        [("EMF image", 1)]
+    );
+    assert!(
+        !subjects(&report, NOT_YET_DRAWN)
+            .iter()
+            .any(|(s, _)| *s == "horizontal rule")
+    );
+}
+
+#[test]
+fn fields_and_drawing_links_are_classified() {
+    let complex = |instruction: &str| {
+        run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+            + &run(&format!("<w:instrText>{instruction}</w:instrText>"))
+            + &run(r#"<w:fldChar w:fldCharType="separate"/>"#)
+            + &run("<w:t>result</w:t>")
+            + &run(r#"<w:fldChar w:fldCharType="end"/>"#)
+    };
+    let body = para(&complex(r#"DATE\@ "d MMMM""#))
+        + &para(&complex(r#" HYPERLINK "javascript:alert(1)" "#))
+        + &para(&complex(r#" HYPERLINK \l "intro" "#))
+        + &para(
+            &(run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+                + &run("<w:instrText> TIME </w:instrText>")),
+        )
+        + &para(&run(
+            r#"<w:drawing><wp:inline><wp:extent cx="1" cy="1"/><wp:docPr id="1" name="P"><a:hlinkClick r:id="rIdL1"/></wp:docPr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic/></a:graphicData></a:graphic></wp:inline></w:drawing>"#,
+        ));
+    let report = report(&docx(&body, &[], &[("rIdL1", "file:///etc/passwd")]));
+    assert_eq!(
+        subjects(&report, "pdf_field_cached"),
+        [("DATE", 1), ("TIME", 1)]
+    );
+    assert_eq!(subjects(&report, "pdf_link_scheme_skipped"), [("link", 2)]);
+    let not_drawn = subjects(&report, NOT_YET_DRAWN);
+    assert!(not_drawn.contains(&("link", 1)), "{not_drawn:?}");
+    assert!(not_drawn.contains(&("field", 2)), "{not_drawn:?}");
+}
+
+#[test]
+fn scripts_that_need_shaping_are_flagged() {
+    let cases = [
+        ("\u{0418}\u{0483}", "combining marks"),
+        ("a\u{1CD0}", "combining marks"),
+        ("\u{1D165}", "combining marks"),
+        ("\u{ABC0}", "complex script"),
+        ("\u{1700}", "complex script"),
+        ("\u{A960}", "CJK text"),
+        ("\u{D7B0}", "CJK text"),
+        ("\u{1F468}\u{200D}\u{1F469}", "emoji sequence"),
+        ("\u{2764}\u{FE0F}", "emoji sequence"),
+        ("\u{1F44D}\u{1F3FD}", "emoji sequence"),
+    ];
+    for (text, subject) in cases {
+        let document = docx(&para(&run(&format!("<w:t>{text}</w:t>"))), &[], &[]);
+        assert_eq!(
+            subjects(&report(&document), "pdf_text_unsupported"),
+            [(subject, 1)],
+            "{text:?}"
+        );
+    }
+    let latin = docx(
+        &para(&run(
+            "<w:t>Caf\u{e9} \u{201c}na\u{ef}ve\u{201d} \u{2013} \u{20ac}5 \u{2610} \u{1F600}</w:t>",
+        )),
+        &[],
+        &[],
+    );
+    assert!(subjects(&report(&latin), "pdf_text_unsupported").is_empty());
 }

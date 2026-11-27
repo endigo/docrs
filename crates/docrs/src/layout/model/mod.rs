@@ -11,7 +11,10 @@
 
 mod build;
 mod colour;
+mod formatting;
 mod look;
+#[cfg(feature = "pdf")]
+mod marks;
 mod numbering;
 mod props;
 mod styles;
@@ -27,12 +30,19 @@ use crate::txn::Txn;
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
 pub use colour::{Colour, Rgb};
+pub(crate) use formatting::Formatting;
+#[cfg(feature = "pdf")]
+pub(crate) use formatting::ParaFormat;
 pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
 use look::{CellBorders, ParaBorders, VAlign};
-use numbering::Numbering;
+#[cfg(feature = "pdf")]
+pub(crate) use marks::any_border;
 pub(crate) use props::on_off;
 use props::twips;
-use styles::Styles;
+#[cfg(feature = "pdf")]
+pub(crate) use props::{Frame, RPr, horizontal, shaded};
+#[cfg(feature = "pdf")]
+pub(crate) use table::TableCtx;
 use theme::{Theme, read_font_kinds, read_theme};
 
 /// Page geometry in points.
@@ -298,8 +308,7 @@ pub struct Model {
 }
 
 pub(super) struct Builder<'a> {
-    styles: Styles,
-    numbering: Numbering,
+    fmt: Formatting,
     theme: Theme,
     kinds: HashMap<String, FontKind>,
     pub fonts: &'a mut FontBook,
@@ -327,8 +336,11 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     let tree = txn.tree(main)?;
     let theme = read_theme(part(txn, main, rt::THEME));
     let mut builder = Builder {
-        styles: Styles::read(part(txn, main, rt::STYLES), &theme.palette),
-        numbering: Numbering::read(part(txn, main, rt::NUMBERING), &theme.palette),
+        fmt: Formatting::read(
+            part(txn, main, rt::STYLES),
+            part(txn, main, rt::NUMBERING),
+            part(txn, main, rt::THEME),
+        ),
         theme,
         kinds: read_font_kinds(part(txn, main, rt::FONT_TABLE)),
         fonts,

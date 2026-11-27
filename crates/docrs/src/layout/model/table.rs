@@ -58,33 +58,17 @@ pub(super) fn read_cell_props(
 }
 
 #[derive(Clone)]
-pub(super) struct TableCtx {
-    pub(super) style: Option<String>,
-    pub(super) first_row: bool,
+pub(crate) struct TableCtx {
+    pub(crate) style: Option<String>,
+    pub(crate) first_row: bool,
 }
 
 impl Builder<'_> {
     pub(super) fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> Table {
         let tbl_pr = w_child(tree, tbl, "tblPr");
-        let style = tbl_pr
-            .and_then(|p| w_child(tree, p, "tblStyle"))
-            .and_then(|s| w_attr(tree, s, "val"))
-            .map(str::to_string)
-            .or_else(|| self.styles.default_table.clone());
-        let look_first_row = tbl_pr
-            .and_then(|p| w_child(tree, p, "tblLook"))
-            .map(|l| {
-                w_attr(tree, l, "firstRow")
-                    .map(|v| v == "1" || v == "true")
-                    .unwrap_or_else(|| {
-                        w_attr(tree, l, "val")
-                            .and_then(|v| u32::from_str_radix(v, 16).ok())
-                            .is_some_and(|v| v & 0x20 != 0)
-                    })
-            })
-            .unwrap_or(true);
-        let (mut table_margins, mut table_borders) = self.styles.table_look(style.as_deref());
-        let style_cell = self.styles.cell_props(style.as_deref());
+        let (style, look_first_row) = self.fmt.table(tree, tbl);
+        let (mut table_margins, mut table_borders) = self.fmt.styles.table_look(style.as_deref());
+        let style_cell = self.fmt.styles.cell_props(style.as_deref());
         let direct = margins(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblCellMar")));
         for (slot, value) in table_margins.iter_mut().zip(direct) {
             if value.is_some() {
@@ -169,7 +153,7 @@ impl Builder<'_> {
                     Some(_) => 2,
                 };
                 let (fill, valign, cell_borders) =
-                    read_cell_props(tree, tc_pr, &self.theme.palette).over(&style_cell);
+                    read_cell_props(tree, tc_pr, &self.fmt.palette).over(&style_cell);
                 let mut blocks = Vec::new();
                 self.blocks(tree, tc, Some(&ctx), &mut blocks);
                 cells.push(Cell {

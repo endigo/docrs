@@ -40,7 +40,7 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     ),
     (
         "pdf_object_skipped",
-        "an embedded (OLE) object is left out of the PDF",
+        "an embedded object (OLE object, ActiveX control, imported document) is left out of the PDF",
     ),
     ("pdf_shape_skipped", "a drawn shape is left out of the PDF"),
     (
@@ -69,11 +69,11 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     ),
     (
         "pdf_text_unsupported",
-        "text outside the Latin script (right-to-left, complex scripts, CJK, combining marks) may be drawn wrongly",
+        "text that needs more than Latin script (right-to-left, complex scripts, CJK, ruby, combining marks, emoji sequences) may be drawn wrongly",
     ),
     (
         "pdf_layout_feature_ignored",
-        "a layout feature (page borders, line numbers, frames, drop caps, floating tables, rotated cell text, vertical page alignment, automatic hyphenation) is ignored",
+        "a layout feature (page borders, line numbers, frames, drop caps, floating tables, rotated text, vertical page alignment, automatic hyphenation) is ignored",
     ),
     (
         "pdf_revisions_flattened",
@@ -111,6 +111,10 @@ pub struct PdfLocation {
     pub ordinal: usize,
     /// The page, once the document is laid out.
     pub page: Option<u32>,
+    /// `body`, `header`, `footer`, `footnotes` or `endnotes`: the story
+    /// once redacted.
+    #[serde(skip)]
+    kind: &'static str,
 }
 
 /// One kind of construct a PDF would not show faithfully.
@@ -142,11 +146,16 @@ pub struct PdfReport {
 }
 
 impl PdfReport {
-    /// Replace every message with its code's fixed description, so the
-    /// report holds nothing from the input.
+    /// Replace every message with its code's fixed description and every
+    /// location's part name with its story kind (`body`, `header`,
+    /// `footer`, `footnotes`, `endnotes`), so the report holds nothing from
+    /// the input.
     pub fn redact(&mut self) {
         for warning in &mut self.warnings {
             warning.message = description(warning.code).to_string();
+            for location in &mut warning.locations {
+                location.story = location.kind.to_string();
+            }
         }
     }
 

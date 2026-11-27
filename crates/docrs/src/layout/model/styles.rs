@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::colour::Palette;
+#[cfg(feature = "pdf")]
+use super::marks::TableMarks;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
 use super::table::{CellProps, borders, margins, read_cell_props};
 use crate::wml::{w_attr, w_child, w_children};
@@ -15,6 +17,8 @@ pub(super) struct StyleDef {
     cell_margins: [Option<f64>; 4],
     borders: [Option<f64>; 3],
     pub(super) first_row: Option<(PPr, RPr)>,
+    #[cfg(feature = "pdf")]
+    marks: TableMarks,
     /// Table styles: whole-table cell properties (`w:tcPr`).
     cell: CellProps,
     /// Position in the styles part.
@@ -88,6 +92,8 @@ impl Styles {
                     ),
                     borders: borders(tree, tbl_ppr.and_then(|t| w_child(tree, t, "tblBorders"))),
                     first_row,
+                    #[cfg(feature = "pdf")]
+                    marks: TableMarks::read(tree, style),
                     cell: read_cell_props(tree, w_child(tree, style, "tcPr"), palette),
                     order,
                     table_props: tbl_ppr.is_some_and(|t| tree.child_elements(t).next().is_some())
@@ -126,6 +132,16 @@ impl Styles {
             out.merge(&def.cell);
         }
         out
+    }
+
+    /// The marks of a table style and its `basedOn` chain.
+    #[cfg(feature = "pdf")]
+    pub(super) fn table_marks(&self, id: Option<&str>) -> TableMarks {
+        id.map_or_else(TableMarks::default, |id| {
+            self.lineage(id)
+                .into_iter()
+                .fold(TableMarks::default(), |marks, def| marks.or(def.marks))
+        })
     }
 
     /// The style and its bases, nearest first.
