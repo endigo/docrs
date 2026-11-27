@@ -23,9 +23,11 @@ averages between 6 and 17.
   decoder still to come. Each of those PRs should measure its own size; if
   they do not fit, the choice is between raising the budget, stripping the
   wasm `name` section, or deferring variable fonts.
-- **Made with `subsetter`:** the PR that embeds fonts (`pdf/font`) set the
-  release profile and the crate type; its measurements are in the last
-  section.
+- **Made with `subsetter`:** the PR that embeds fonts (`pdf/font`) made
+  `docrs-wasm` a `cdylib` only and added a `wasm` profile (release with fat
+  LTO and one codegen unit) that `crates/docrs-wasm/build.sh` builds with.
+  `[profile.release]` is unchanged, so CI's release builds of the CLI and
+  `docrs-compat` keep their speed. Its measurements are in the last section.
 - **Fonts:** `subsetter` with `variable-fonts` for all TrueType subsetting,
   static fonts included.
 - **PNG:** decoded in-house on the existing `flate2`. Dimensions must be
@@ -138,7 +140,7 @@ printable ASCII and `–—‘’“”…é`, 103 code points:
 - **Measuring:** `Face::parse` reads only a variable font's default
   instance. At 700 its advances are off by up to 282 units (Inter) and 244
   (Roboto Flex) per 2048. Measuring a variable font at a weight needs the
-  instanced advances.
+  instanced advances: wave 3 (the painter) closes this with one source of advances: layout's `FontBook` gives a face per (file, face, `Style`) whose advances are that instance's, chosen by the same Style-to-axis rule the PDF uses (`layout::variation::Fvar::variation`, which `FaceInfo::instance` calls), and a check that each CID's `/W` equals layout's advance for its glyph.
 
 ## With font embedding (`pdf/font`)
 
@@ -152,13 +154,16 @@ file without its `name` section.
 | --- | ---: | ---: | ---: | ---: |
 | `pdf/engine` before (today's profile, `cdylib + rlib`) | 3,360,100 | 1,315,573 | 2,811,690 | 1,257,787 |
 | this branch (fat LTO, 1 codegen unit, opt 3, `cdylib`) | 3,179,627 | 1,317,611 | 2,889,964 | 1,281,874 |
+| the same, `wasm` profile, on #48 (re-measured) | 3,184,234 | 1,319,191 | 2,893,578 | 1,283,214 |
 | this branch + `pdf` + `test-support`, nothing calling them | 3,181,209 | 1,318,086 | | |
 | this branch + a probe export that embeds a font | **3,982,595** | 1,575,260 | 3,598,408 | 1,527,545 |
 
 - **Shipped package:** `docrs-wasm` does not enable `pdf` yet, so the
-  published wasm is the second row, 180 KB smaller than before.
+  published wasm is the second row, 180 KB smaller than before. The third
+  row is the same build from the `wasm` profile after rebasing on #48
+  (FontSet); the 4.6 KB is #48's code.
 - **Budget:** once the PDF export reaches the npm package, the font path
-  costs about 801 KB raw (the probe against the third row: `subsetter`,
+  costs about 801 KB raw (the probe against the `pdf` + `test-support` row: `subsetter`,
   `skrifa`, `write-fonts`, the PDF writer and `pdf/font`), which puts the
   wasm at 3.98 MB, over the 3.9 MB budget before the painter and PNG
   decoder. Without the `name` section it is 3.60 MB. The probe export
