@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::props::{PPr, RPr, borders, margins, read_ppr, read_rpr};
+use super::props::{PPr, RPr, read_ppr, read_rpr};
+use super::table::{borders, margins};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::XmlTree;
 

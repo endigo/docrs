@@ -17,7 +17,7 @@ mod theme;
 
 use std::collections::HashMap;
 
-use super::fonts::{self, FontBook, FontKind};
+use super::fonts::{FontBook, FontKind};
 use crate::Result;
 use crate::package::rels::rt;
 use crate::txn::Txn;

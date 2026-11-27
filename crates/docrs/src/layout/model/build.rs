@@ -1,7 +1,7 @@
-use super::fonts::FontKind;
 use super::props::{FontRef, PPr, RPr, read_ppr, read_rpr};
 use super::table::TableCtx;
 use super::{Block, Builder, Label, LineRule, LineSpacing, Metric, Para, Piece};
+use crate::layout::fonts::FontKind;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
 use crate::wml::{W, w_attr, w_child};
 use crate::xml::{NodeData, NodeId, XmlTree};
@@ -464,8 +464,8 @@ fn vml_size(style: &str) -> (f64, f64) {
 
 /// Width of characters under one run's properties.
 pub(super) struct Measurer {
-    ascii: std::sync::Arc<super::fonts::Face>,
-    hansi: std::sync::Arc<super::fonts::Face>,
+    ascii: std::sync::Arc<crate::layout::fonts::Face>,
+    hansi: std::sync::Arc<crate::layout::fonts::Face>,
     size: f64,
     caps: bool,
     small_caps: bool,

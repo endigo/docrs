@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::fonts::FontKind;
+use crate::layout::fonts::FontKind;
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::XmlTree;
 
