@@ -587,9 +587,11 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             Ok(0)
         }
         Command::Pdf { input, .. } => {
-            let (document, _) = open_reference(Some(input), limits, false)?;
+            let (document, set_aside) = open_reference(Some(input), limits, false)?;
             let report = docrs::pdf::preflight(&document)?;
-            emit(json_mode, report.to_json(), || preflight_text(&report));
+            let mut value = report.to_json();
+            value["set_aside"] = json!(set_aside);
+            emit(json_mode, value, || preflight_text(&report, &set_aside));
             Ok(0)
         }
         Command::MarkdownInspect {
@@ -669,23 +671,24 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
     }
 }
 
+fn preflight_text(report: &docrs::pdf::PdfReport, set_aside: &[String]) -> String {
+    let mut lines: Vec<String> = report
+        .warnings
+        .iter()
+        .map(|warning| format!("{}: {}", warning.code, warning.message))
+        .collect();
+    if lines.is_empty() {
+        lines.push("nothing a PDF would leave out".to_string());
+    }
+    lines.extend(set_aside.iter().map(|item| format!("  package: {item}")));
+    lines.join("\n")
+}
+
 /// The refusal for a `replace --all` that replaced nothing: no match, or
 /// every match refused (the first refusal's kind and reason).
 /// The format `from-markdown` reads: what the hidden `--from` names, else
 /// HTML for an .html/.htm file and TipTap JSON for a .json file, as before
 /// `from-html` and `from-json` existed, else Markdown.
-fn preflight_text(report: &docrs::pdf::PdfReport) -> String {
-    if report.warnings.is_empty() {
-        return "nothing a PDF would leave out".to_string();
-    }
-    report
-        .warnings
-        .iter()
-        .map(|warning| format!("{}: {}", warning.code, warning.message))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn markdown_input_format(input: &Path, from: Option<&str>) -> Result<InputFormat> {
     let extension = input
         .extension()

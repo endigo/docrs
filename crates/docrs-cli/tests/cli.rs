@@ -904,6 +904,7 @@ fn pdf_preflight_prints_the_report_and_is_hidden() {
         .map(|w| w["code"].as_str().unwrap())
         .collect();
     assert!(codes.contains(&"pdf_text_box_skipped"), "{codes:?}");
+    assert_eq!(report["set_aside"], serde_json::json!([]));
     let help = bin().arg("--help").output().unwrap();
     assert!(!String::from_utf8(help.stdout).unwrap().contains("pdf"));
 }
