@@ -68,4 +68,4 @@ Accuracy on 84 documents (21 reference templates × 4 inputs, 1,344 TOC entries)
 
 The remaining misses are in the 54-entry demo, where a row or line overflows the page bottom by less than a point after rounding drift.
 
-That run's document list was not kept. `tools/pdf/corpus.tsv` is a manifest of the same shape (21 templates × 4 inputs, hashed) built from files in the repository, with a page baseline in `tools/pdf/baseline.tsv`; see `tools/pdf/README.md`.
+That run's document list was not kept. `tools/pdf/corpus.tsv` is a manifest of the same shape (21 templates × 4 inputs, hashed) built from files in the repository, whose layout is snapshotted under `tests/fixtures/layout/corpus`; see `tools/pdf/README.md`.

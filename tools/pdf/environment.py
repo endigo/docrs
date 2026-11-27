@@ -102,9 +102,18 @@ def macos():
     return {"version": sw_vers("-productVersion"), "build": sw_vers("-buildVersion")}
 
 
+def docrs():
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def git(*args):
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True).stdout.strip()
+    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain"))}
+
+
 def main():
     wanted = families(sys.argv[1])
     json.dump({
+        "docrs": docrs(),
         "word": word(),
         "macos": macos(),
         "families": sorted(wanted),
