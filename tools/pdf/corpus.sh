@@ -1,9 +1,5 @@
 #!/bin/sh
-# Convert every document of tools/pdf/corpus.tsv (with --toc), lay each out,
-# and write OUT_DIR/baseline.tsv: each document's page count and the page of
-# each heading (a paragraph that starts a bookmark).
-#   tools/pdf/corpus.sh OUT_DIR
-# Writes OUT_DIR/<case>.docx and OUT_DIR/<case>.layout.json too. Needs jq.
+# Lay out tools/pdf/corpus.tsv and write OUT_DIR/baseline.tsv (tools/pdf/README.md).
 set -e
 out=${1:?usage: tools/pdf/corpus.sh OUT_DIR}
 root=$(cd "$(dirname "$0")/../.." && pwd)

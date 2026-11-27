@@ -1,12 +1,4 @@
-"""Record what a Word oracle run depended on.
-
-Usage: python3 -I tools/pdf/environment.py DIR > DIR/environment.json
-
-The Word version and build, the macOS version and build, and every
-installed font file with a face of a family the DIR/*.docx files name
-(rFonts, the font table, theme fonts), with its SHA-256, in the folders
-Word for Mac reads (tools/layout/README.md).
-"""
+"""Usage: python3 -I tools/pdf/environment.py DIR > DIR/environment.json"""
 
 import glob
 import hashlib

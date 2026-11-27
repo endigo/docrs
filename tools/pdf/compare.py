@@ -1,15 +1,4 @@
-"""Compare Word's paragraph start pages with docrs layout's.
-
-Usage: python3 -I tools/pdf/compare.py DIR
-
-For every DIR/<case>.layout.json (`docrs --json layout`) with a
-DIR/<case>.word.lines.json (pdflines on Word's PDF), each paragraph's text is
-looked for in Word's text, in order, and the page Word starts it on is
-compared with ours. Letters and digits only are compared, so line breaks,
-spacing, list labels and quote styles don't matter; a paragraph with fewer
-than four of them, or not found ahead of the previous match, is not counted.
-Writes DIR/summary.tsv (one row per document) and DIR/summary.md.
-"""
+"""Usage: python3 -I tools/pdf/compare.py DIR (tools/pdf/README.md)."""
 
 import json
 import os
