@@ -235,15 +235,38 @@ pub(crate) fn write_page_numbers(
 /// switches are `\h` and `\* MERGEFORMAT`; one whose bookmark the layout
 /// does not place keeps its number.
 pub fn refresh_page_numbers(document: &mut Document) -> Result<usize> {
+    refresh_page_numbers_with_layout(document).map(|refreshed| refreshed.changed)
+}
+
+/// What [`refresh_page_numbers_with_layout`] did.
+#[derive(Debug, Clone)]
+pub struct PageNumberRefresh {
+    /// Page numbers that changed.
+    pub changed: usize,
+    /// Contents entries found and numbered.
+    pub entries: usize,
+    /// The layout the numbers were taken from; `None` without entries.
+    pub layout: Option<Layout>,
+}
+
+/// [`refresh_page_numbers`], also handing back the entries found and the
+/// layout of the refreshed document (its page count and fonts).
+pub fn refresh_page_numbers_with_layout(document: &mut Document) -> Result<PageNumberRefresh> {
     let main = document.package().main_part_name().to_string();
     let numbers = toc_page_refs(document.package().xml(&main)?);
+    let mut refreshed = PageNumberRefresh {
+        changed: 0,
+        entries: numbers.len(),
+        layout: None,
+    };
     if numbers.is_empty() {
-        return Ok(0);
+        return Ok(refreshed);
     }
     let mut txn = Txn::new(document);
-    let (changed, _) = write_page_numbers(&mut txn, &main, &numbers, false)?;
+    let (changed, layout) = write_page_numbers(&mut txn, &main, &numbers, false)?;
+    refreshed.layout = Some(layout);
     if changed == 0 {
-        return Ok(0);
+        return Ok(refreshed);
     }
     let staged = txn.finish()?;
     refuse_if_protected(
@@ -252,7 +275,8 @@ pub fn refresh_page_numbers(document: &mut Document) -> Result<usize> {
         OperationClass::BodyContent,
     )?;
     document.commit(staged)?;
-    Ok(changed)
+    refreshed.changed = changed;
+    Ok(refreshed)
 }
 
 struct OpenField {
