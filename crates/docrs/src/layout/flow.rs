@@ -146,13 +146,14 @@ fn tab_stop(para: &Para, x: f64, first_line: bool, default_tab: f64) -> (f64, Ta
     ((((x + EPSILON) / step).floor() + 1.0) * step, TabKind::Left)
 }
 
-/// Width of the pieces from `start` up to the next tab or break.
-fn segment_width(pieces: &[Piece], start: usize) -> f64 {
+/// Width of `pieces` up to the next tab or break, or up to the decimal
+/// point when `decimal` and there is one before them.
+fn segment_width(pieces: &[Piece], decimal: bool) -> f64 {
     let mut width = 0.0;
-    for piece in &pieces[start..] {
+    for piece in pieces {
         match piece {
-            Piece::Char { width: w, .. } => width += w,
-            Piece::Object { width: w, .. } => width += w,
+            Piece::Char { ch: '.', .. } if decimal => break,
+            Piece::Char { width: w, .. } | Piece::Object { width: w, .. } => width += w,
             _ => break,
         }
     }
@@ -399,10 +400,11 @@ impl Breaker<'_> {
     fn tab(&mut self, index: usize, metric: u32) {
         let x = self.line.x;
         let (stop, kind) = tab_stop(self.para, x, self.first_line, self.default_tab);
-        let segment = segment_width(&self.para.pieces, index + 1);
+        let pieces = &self.para.pieces[index + 1..];
         let target = match kind {
-            TabKind::Right | TabKind::Decimal => (stop - segment).max(x),
-            TabKind::Center => (stop - segment / 2.0).max(x),
+            TabKind::Right => (stop - segment_width(pieces, false)).max(x),
+            TabKind::Decimal => (stop - segment_width(pieces, true)).max(x),
+            TabKind::Center => (stop - segment_width(pieces, false) / 2.0).max(x),
             _ => stop,
         };
         self.line.text.add(self.metrics, metric, self.extra);
@@ -1660,6 +1662,21 @@ mod tests {
             (line.start, line.width, line.slack, line.gaps),
             (0.0, 90.0, 10.0, 1)
         );
+    }
+
+    #[test]
+    fn a_decimal_tab_ends_the_text_before_the_point_at_the_stop() {
+        // 5-point characters, a decimal tab at 60: "12" ends at 60, and a
+        // number without a point ends there whole.
+        for (number, to) in [("12.50", 50.0), ("1250", 40.0)] {
+            let p = Para {
+                pieces: text(&format!("a\t{number}"), 5.0),
+                tabs: vec![(60.0, TabKind::Decimal)],
+                ..Para::default()
+            };
+            let line = lines(&p, &METRICS, 100.0, 36.0).remove(0);
+            assert_eq!(line.tabs[0].to, to, "{number}");
+        }
     }
 
     #[test]
