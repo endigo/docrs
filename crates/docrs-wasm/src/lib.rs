@@ -1159,7 +1159,12 @@ mod tests {
             toc: Some(true),
             ..Default::default()
         };
-        let (reference, _) = docrs::markdown::convert("# Old\n", None, &markdown_options).unwrap();
+        let (mut reference, _) =
+            docrs::markdown::convert("{{Pad}}\n\n# Old\n", None, &markdown_options).unwrap();
+        // Moves "Old" to a later page while its contents still says 2.
+        reference
+            .replace_all("{{Pad}}", &"word ".repeat(1200), &Default::default())
+            .unwrap();
         let (reference, _) = reference.patch_bytes().unwrap();
         let options = Options {
             reference: Some(ByteBuf::from(reference)),
@@ -1175,6 +1180,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(converted.report["toc"]["entries"], 1);
+        let document = reopen(&converted.docx);
+        let xml = String::from_utf8(docrs::xml::serialize(
+            document.package().xml("word/document.xml").unwrap(),
+        ))
+        .unwrap();
+        let rest = &xml[xml.find(" PAGEREF old ").unwrap()..];
+        let number = &rest[rest.find("<w:t>").unwrap() + 5..];
+        assert_eq!(&number[..number.find('<').unwrap()], "2");
     }
 
     fn fill_fields_in(
