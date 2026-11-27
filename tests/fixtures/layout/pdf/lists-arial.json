@@ -1,0 +1,33 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":true,"page":1,"row_end":false,"text":"Onboarding checklist","y":96.0},
+    {"heading":false,"page":1,"row_end":false,"text":"The first list covers the first day.","y":114.51},
+    {"heading":false,"page":1,"row_end":false,"text":"Collect your laptop from the IT desk.","y":135.06},
+    {"heading":false,"page":1,"row_end":false,"text":"Set up your accounts:","y":149.61},
+    {"heading":false,"page":1,"row_end":false,"text":"Sign in to email and change the temporar","y":174.15},
+    {"heading":false,"page":1,"row_end":false,"text":"Turn on two-factor sign-in.","y":188.7},
+    {"heading":false,"page":1,"row_end":false,"text":"Join the team chat channels:","y":203.24},
+    {"heading":false,"page":1,"row_end":false,"text":"General","y":227.79},
+    {"heading":false,"page":1,"row_end":false,"text":"Announcements","y":243.08},
+    {"heading":false,"page":1,"row_end":false,"text":"Your own team's channel","y":258.37},
+    {"heading":false,"page":1,"row_end":false,"text":"Read the security policy and sign the ac","y":283.65},
+    {"heading":false,"page":1,"row_end":false,"text":"Meet your buddy for lunch.","y":298.2},
+    {"heading":false,"page":1,"row_end":false,"text":"Some things are worth knowing from the s","y":322.75},
+    {"heading":false,"page":1,"row_end":false,"text":"The office opens at eight and closes at ","y":343.29},
+    {"heading":false,"page":1,"row_end":false,"text":"Visitors sign in at reception.","y":358.58},
+    {"heading":false,"page":1,"row_end":false,"text":"Contractors also need a badge from facil","y":383.87},
+    {"heading":false,"page":1,"row_end":false,"text":"Delivery drivers wait in the lobby.","y":399.15},
+    {"heading":false,"page":1,"row_end":false,"text":"The kitchen is cleaned every afternoon a","y":424.44},
+    {"heading":false,"page":1,"row_end":false,"text":"The second list covers the first week. I","y":449.73},
+    {"heading":false,"page":1,"row_end":false,"text":"Book the induction sessions you have not","y":470.28},
+    {"heading":false,"page":1,"row_end":false,"text":"Agree your first goals with your manager","y":484.82},
+    {"heading":false,"page":1,"row_end":false,"text":"Keep them to three or fewer.","y":509.37},
+    {"heading":false,"page":1,"row_end":false,"text":"Write each one down with a date.","y":524.66},
+    {"heading":false,"page":1,"row_end":false,"text":"Review the handbook and ask about anythi","y":549.94}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

@@ -1,0 +1,18 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"","y":72.0},
+    {"heading":false,"page":2,"row_end":false,"text":"Annual review","y":72.0},
+    {"heading":false,"page":2,"row_end":false,"text":"Prepared for the board","y":109.74},
+    {"heading":false,"page":2,"row_end":false,"text":"Operations","y":136.18},
+    {"heading":false,"page":2,"row_end":false,"text":"November 2026","y":156.67},
+    {"heading":true,"page":2,"row_end":false,"text":"Summary","y":189.16},
+    {"heading":false,"page":2,"row_end":false,"text":"This year the company grew its customer ","y":216.24},
+    {"heading":true,"page":2,"row_end":false,"text":"Outlook","y":263.22},
+    {"heading":false,"page":2,"row_end":false,"text":"Next year we expect slower growth as the","y":290.3}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

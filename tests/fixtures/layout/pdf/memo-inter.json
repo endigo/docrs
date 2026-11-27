@@ -1,0 +1,26 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":true,"page":1,"row_end":false,"text":"Office relocation","y":96.0},
+    {"heading":false,"page":1,"row_end":false,"text":"To: All staff From: Operations Date: 2 N","y":115.48},
+    {"heading":false,"page":1,"row_end":false,"text":"The lease on our current office ends on ","y":136.79},
+    {"heading":true,"page":1,"row_end":false,"text":"Why we are moving","y":208.01},
+    {"heading":false,"page":1,"row_end":false,"text":"The current office was planned for forty","y":226.1},
+    {"heading":false,"page":1,"row_end":false,"text":"We also looked at staying and taking the","y":308.63},
+    {"heading":true,"page":1,"row_end":false,"text":"Timeline","y":379.85},
+    {"heading":false,"page":1,"row_end":false,"text":"The fit-out starts on 5 January and is d","y":397.94},
+    {"heading":false,"page":1,"row_end":false,"text":"If the fit-out runs late, the move moves","y":480.47},
+    {"heading":true,"page":1,"row_end":false,"text":"What each team needs to do","y":536.39},
+    {"heading":false,"page":1,"row_end":false,"text":"Every team lead will receive a floor pla","y":554.48},
+    {"heading":false,"page":1,"row_end":false,"text":"Personal items should go home before the","y":621.7},
+    {"heading":false,"page":1,"row_end":false,"text":"Laptops, monitors and docking stations w","y":673.62},
+    {"heading":true,"page":2,"row_end":false,"text":"Getting there","y":72.0},
+    {"heading":false,"page":2,"row_end":false,"text":"The new office is at 120 Harbour Street,","y":90.09},
+    {"heading":true,"page":2,"row_end":false,"text":"Questions","y":176.62},
+    {"heading":false,"page":2,"row_end":false,"text":"Operations will hold two open sessions i","y":194.71}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

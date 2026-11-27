@@ -1,0 +1,11 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Acme Wealth advice template","y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"House body font and spacing.","y":120.02}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

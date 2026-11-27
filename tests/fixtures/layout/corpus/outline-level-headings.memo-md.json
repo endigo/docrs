@@ -1,0 +1,31 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 2,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"Table of Contents","y":90.0},
+    {"heading":false,"page":1,"row_end":false,"text":" TOC \\o \"1-3\" \\h \\z \\u Summary PAGEREF s","y":117.08},
+    {"heading":false,"page":1,"row_end":false,"text":"Results PAGEREF results \\h 2","y":136.57},
+    {"heading":false,"page":1,"row_end":false,"text":"Next steps PAGEREF next_steps \\h 2","y":156.06},
+    {"heading":true,"page":2,"row_end":false,"text":"Summary","y":72.0},
+    {"heading":false,"page":2,"row_end":false,"text":"Revenue grew 18% in North America; see t","y":93.13},
+    {"heading":true,"page":2,"row_end":false,"text":"Results","y":119.62},
+    {"heading":false,"page":2,"row_end":false,"text":"Region","y":141.74},
+    {"heading":false,"page":2,"row_end":false,"text":"Q1","y":141.74},
+    {"heading":false,"page":2,"row_end":false,"text":"Q2","y":141.74},
+    {"heading":false,"page":2,"row_end":true,"text":null,"y":141.74},
+    {"heading":false,"page":2,"row_end":false,"text":"North America","y":155.67},
+    {"heading":false,"page":2,"row_end":false,"text":"1,200","y":155.67},
+    {"heading":false,"page":2,"row_end":false,"text":"1,420","y":155.67},
+    {"heading":false,"page":2,"row_end":true,"text":null,"y":155.67},
+    {"heading":false,"page":2,"row_end":false,"text":"Europe","y":169.6},
+    {"heading":false,"page":2,"row_end":false,"text":"980","y":169.6},
+    {"heading":false,"page":2,"row_end":false,"text":"1,010","y":169.6},
+    {"heading":false,"page":2,"row_end":true,"text":null,"y":169.6},
+    {"heading":true,"page":2,"row_end":false,"text":"Next steps","y":196.02},
+    {"heading":false,"page":2,"row_end":false,"text":"Confirm the Europe forecast.","y":217.15},
+    {"heading":false,"page":2,"row_end":false,"text":"Circulate the review by Friday.","y":239.64}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}

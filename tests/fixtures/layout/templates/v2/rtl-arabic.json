@@ -1,0 +1,29 @@
+{
+  "embedded_fonts": [],
+  "missing_fonts": [],
+  "pages": 1,
+  "paragraphs": [
+    {"heading":false,"page":1,"row_end":false,"text":"بيان المشورة","y":72.0},
+    {"heading":false,"page":1,"row_end":false,"text":"الملخص","y":119.9},
+    {"heading":false,"page":1,"row_end":false,"text":"هذا نص تجريبي.","y":145.75},
+    {"heading":false,"page":1,"row_end":false,"text":"Product","y":166.64},
+    {"heading":false,"page":1,"row_end":false,"text":"Current","y":166.64},
+    {"heading":false,"page":1,"row_end":false,"text":"Recommended","y":166.64},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":166.64},
+    {"heading":false,"page":1,"row_end":false,"text":"Superannuation","y":189.53},
+    {"heading":false,"page":1,"row_end":false,"text":"$412,000","y":189.53},
+    {"heading":false,"page":1,"row_end":false,"text":"$412,000","y":189.53},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":189.53},
+    {"heading":false,"page":1,"row_end":false,"text":"Account-based pension","y":212.43},
+    {"heading":false,"page":1,"row_end":false,"text":"Nil","y":212.43},
+    {"heading":false,"page":1,"row_end":false,"text":"$250,000","y":212.43},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":212.43},
+    {"heading":false,"page":1,"row_end":false,"text":"Cash buffer","y":235.32},
+    {"heading":false,"page":1,"row_end":false,"text":"$18,000","y":235.32},
+    {"heading":false,"page":1,"row_end":false,"text":"$60,000","y":235.32},
+    {"heading":false,"page":1,"row_end":true,"text":null,"y":235.32},
+    {"heading":false,"page":1,"row_end":false,"text":"","y":258.21}
+  ],
+  "schema": "docrs_layout",
+  "version": 1
+}
