@@ -445,7 +445,7 @@ pub fn insert_source(
 }
 
 /// [`insert_source`], estimating the contents page numbers with `fonts`
-/// where the document embeds no font of a family.
+/// in the families and styles the document embeds no font for.
 pub fn insert_source_with(
     document: &mut Document,
     source: &str,

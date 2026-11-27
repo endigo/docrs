@@ -56,9 +56,12 @@ enum FileSource {
 }
 
 impl FontFile {
-    /// The font file. An embedded font is read from `txn`'s part, and copied
-    /// only when it has to be deobfuscated.
-    pub fn read<'a>(&'a self, txn: &'a Txn<'_>) -> Option<Cow<'a, [u8]>> {
+    /// The font file. An embedded font is read from its part through `txn`,
+    /// which must be over the document the face was laid out from. A keyed
+    /// font is deobfuscated into a copy of the part on every call, so a
+    /// writer reads each (part, key) once.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the PDF writer reads it"))]
+    pub(crate) fn read<'a>(&'a self, txn: &'a Txn<'_>) -> Option<Cow<'a, [u8]>> {
         match &self.source {
             FileSource::Bytes(bytes) => Some(Cow::Borrowed(bytes)),
             FileSource::Part { name, key: None } => txn.binary(name),
@@ -225,8 +228,9 @@ impl Face {
     }
 
     /// [`Face::parse`], saying why a face could not be read
-    /// (`invalid_argument`: `font_malformed`, `font_cmap_invalid` or
-    /// `font_too_large`).
+    /// (`invalid_argument`: `font_malformed`, `font_cmap_invalid`,
+    /// `font_too_large`, or `font_format_unsupported` for a cmap without
+    /// format 4 or 12).
     pub fn try_parse(data: &[u8], family: &str, bold: bool, italic: bool) -> Result<Face> {
         let mut budget = FILE_BUDGET;
         Ttf::new(data)
@@ -417,9 +421,9 @@ fn kern_pairs(table: &[u8], mapping: &[(u32, u16)], budget: &mut usize) -> Parse
 
 impl Face {
     /// Every face of a font file (one, or each of the first 64 of a
-    /// collection), named and styled the way documents name fonts: the family, with a style other than regular,
-    /// bold, italic or bold italic appended. Faces that cannot be read are
-    /// skipped.
+    /// collection), named and styled the way documents name fonts: the
+    /// family, with a style other than regular, bold, italic or bold italic
+    /// appended. Faces that cannot be read are skipped.
     pub fn parse_file(data: &[u8]) -> Vec<Face> {
         let mut budget = FILE_BUDGET;
         read_faces(&Arc::from(data), &mut budget)
@@ -481,24 +485,26 @@ fn read_face(data: &Arc<[u8]>, index: usize, budget: &mut usize) -> Parsed<Named
     else {
         return Err(FontError::Unnamed);
     };
+    let cff = ttf.table(b"CFF ").is_some();
+    let unsupported = if ttf.table(b"CFF2").is_some() {
+        Some("CFF2 fonts are not supported")
+    } else if ttf.table(b"glyf").is_none() && !cff {
+        Some("bitmap-only fonts are not supported")
+    } else {
+        None
+    };
     let (family, bold, italic) = document_style(family, &subfamily);
-    let face = Face::from_ttf(&ttf, &family, bold, italic, budget)?;
+    let face = Face::from_ttf(&ttf, &family, bold, italic, budget)
+        .map_err(|error| unsupported.map_or(error, FontError::Unsupported))?;
     let (embeddable, subsettable) = licence(&ttf);
     let info = FontInfo {
         family,
         bold,
         italic,
         variable: ttf.table(b"fvar").is_some(),
-        cff: ttf.table(b"CFF ").is_some(),
+        cff,
         embeddable,
         subsettable,
-    };
-    let unsupported = if ttf.table(b"CFF2").is_some() {
-        Some("CFF2 fonts are not supported")
-    } else if ttf.table(b"glyf").is_none() && !info.cff {
-        Some("bitmap-only fonts are not supported")
-    } else {
-        None
     };
     Ok(Named {
         face: face.with_file(FontFile {
@@ -995,8 +1001,8 @@ impl FontSetBuilder {
     }
 
     /// Lays out `family` with `to`'s faces (from this set, else the bundled
-    /// table) unless the document embeds `family`. An alias to a family
-    /// found nowhere is ignored.
+    /// table) unless the document embeds `family`. Aliases are single-hop: `to`
+    /// is not itself aliased. An alias to a family found nowhere is ignored.
     pub fn alias(&mut self, family: &str, to: &str) -> &mut Self {
         self.aliases
             .insert(family.trim().to_lowercase(), to.trim().to_lowercase());
@@ -1938,10 +1944,16 @@ mod font_set {
         let mut bitmap = font("Regular", vec![]);
         let glyf = bitmap.windows(4).position(|w| w == b"glyf").unwrap();
         bitmap[glyf..glyf + 4].copy_from_slice(b"EBDT");
-        for file in [cff2, bitmap] {
+        for file in [cff2, bitmap.clone()] {
             assert_eq!(Face::parse_file(&file).len(), 1);
             assert_eq!(refusal(file).1, "font_format_unsupported");
         }
+        let head = bitmap.windows(4).position(|w| w == b"head").unwrap();
+        bitmap[head..head + 4].copy_from_slice(b"bhed");
+        assert!(Face::parse_file(&bitmap).is_empty());
+        let error = FontSet::builder().add(bitmap).unwrap_err();
+        assert_eq!(error.reason(), "font_format_unsupported");
+        assert!(error.message().contains("bitmap-only"), "{error}");
     }
 
     #[test]
