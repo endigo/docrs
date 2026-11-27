@@ -33,6 +33,7 @@
 - `layout --lines` prints every line of the estimated layout as it is laid out, one JSON object a line: `page`, `story`, `x`, `y`, `width`, `height`, `baseline`, `tabs`, `slack`, `gaps`, `last`, `align` and `text` (experimental).
 - `from-markdown`, `from-html`, `from-json` and `layout` take `--font FILE` and `--font-dir DIR` (both repeatable). The contents page numbers and the layout are measured with those fonts where the document embeds none of the family and style. A bad `--font` file fails the command. `--font-dir` reads the `.ttf`, `.otf`, `.ttc` and `.otc` files of the directory. Files it cannot read, files over 64 MiB (`font_file_too_large`), and files that are not supported fonts are skipped and listed in `fonts_skipped` with their reason.
 - `docrs fonts FILE… | --font-dir DIR` lists the families and styles font files provide, as a document must name them. It also shows whether each face has CFF outlines, is variable, or forbids embedding or subsetting (`--json` for the `docrs_fonts` report).
+- `layout --lines` first prints the document's `looks` and `links`: each run's size, rise, colour (theme colours resolved with their tint and shade), bold, italic, underline style and colour, strike, highlight, shading, caps, spacing, scale and link, and each link's URI or bookmark. Each line then has `runs`, its text split by look (experimental).
 
 ## 1.0.1 (2026-11-23)
 
