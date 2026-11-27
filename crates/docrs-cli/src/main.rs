@@ -263,6 +263,11 @@ enum Command {
         /// table lacks; it is read locally and never stored.
         #[arg(long = "font", value_name = "FILE")]
         fonts: Vec<std::path::PathBuf>,
+        /// Print every line instead, one JSON object a line: page, story,
+        /// x, y, width, height, baseline, tabs (points from the page's top-left
+        /// corner) and text. Experimental.
+        #[arg(long)]
+        lines: bool,
     },
     /// What a conversion will take from a reference document: role styles,
     /// lifted branding, the section kept, headers and footers, cover page,

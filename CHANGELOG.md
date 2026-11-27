@@ -16,6 +16,7 @@
 ### Command line
 
 - `docrs layout` shows each paragraph's text as Word displays it (field results, tabs, line breaks, non-breaking hyphens and symbols, not field codes), and marks the paragraphs of a table of contents with `toc`.
+- `layout --lines` prints every line of the estimated layout as one JSON object a line: page, story, position, width, baseline and text (experimental).
 
 ## 1.0.1 (2026-11-23)
 
