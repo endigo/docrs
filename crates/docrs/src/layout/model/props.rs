@@ -3,7 +3,6 @@ use crate::units::TWIPS_PER_PT;
 use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
-/// Points per twip.
 const TWIP: f64 = 1.0 / TWIPS_PER_PT as f64;
 
 #[derive(Debug, Clone, Default)]

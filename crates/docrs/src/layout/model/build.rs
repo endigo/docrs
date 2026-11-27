@@ -101,7 +101,6 @@ impl Builder<'_> {
         }
     }
 
-    /// (advance in points for `ch`, metric index) under `rpr`.
     fn measurer(&mut self, rpr: &RPr) -> Measurer {
         let size = rpr.size.unwrap_or(10.0);
         let small = if rpr.vert == Some(true) {
@@ -296,7 +295,6 @@ impl Builder<'_> {
             return;
         }
         let mut measurer: Option<Measurer> = None;
-        // The run's previous character, for kerning.
         let mut previous: Option<char> = None;
         for child in tree.child_elements(r) {
             if tree.ns_uri(child) != Some(W) {
@@ -462,7 +460,6 @@ fn vml_size(style: &str) -> (f64, f64) {
     (width, height)
 }
 
-/// Width of characters under one run's properties.
 pub(super) struct Measurer {
     ascii: std::sync::Arc<crate::layout::fonts::Face>,
     hansi: std::sync::Arc<crate::layout::fonts::Face>,

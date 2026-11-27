@@ -56,9 +56,7 @@ pub enum LineRule {
 pub enum LineSpacing {
     /// A multiple of the single line height.
     Multiple(f64),
-    /// Exactly this many points.
     Exact(f64),
-    /// At least this many points.
     AtLeast(f64),
 }
 
@@ -169,7 +167,6 @@ pub enum Block {
     Table(Table),
 }
 
-/// A section's page setup and header/footer heights.
 #[derive(Debug, Clone)]
 pub struct Section {
     pub page: Page,
@@ -185,7 +182,6 @@ pub struct Section {
     pub continuous: bool,
 }
 
-/// One document's layout input.
 pub struct Model {
     pub sections: Vec<Section>,
     pub blocks: Vec<Block>,
@@ -209,7 +205,6 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
     txn.tree(&name).ok()
 }
 
-/// Build the layout model of `main`'s body.
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
     let mut builder = Builder {
