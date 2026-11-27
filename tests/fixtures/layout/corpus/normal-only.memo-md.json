@@ -4,9 +4,9 @@
   "pages": 2,
   "paragraphs": [
     {"heading":false,"page":1,"row_end":false,"text":"Table of Contents","y":96.0},
-    {"heading":false,"page":1,"row_end":false,"text":" TOC \\o \"1-3\" \\h \\z \\u Summary PAGEREF s","y":117.16},
-    {"heading":false,"page":1,"row_end":false,"text":"Results PAGEREF results \\h 2","y":136.04},
-    {"heading":false,"page":1,"row_end":false,"text":"Next steps PAGEREF next_steps \\h 2","y":154.93},
+    {"heading":false,"page":1,"row_end":false,"text":"Summary\t2","y":117.16},
+    {"heading":false,"page":1,"row_end":false,"text":"Results\t2","y":136.04},
+    {"heading":false,"page":1,"row_end":false,"text":"Next steps\t2","y":154.93},
     {"heading":true,"page":2,"row_end":false,"text":"Summary","y":72.0},
     {"heading":false,"page":2,"row_end":false,"text":"Revenue grew 18% in North America; see t","y":90.51},
     {"heading":true,"page":2,"row_end":false,"text":"Results","y":114.4},
