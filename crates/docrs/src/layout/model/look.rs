@@ -1,0 +1,406 @@
+//! What text and paragraphs look like, as read: layout measures none of it
+//! beyond what `Metric` and the pieces' widths already hold.
+
+use std::hash::{Hash, Hasher};
+
+use super::colour::{Colour, Palette, Rgb};
+use super::props::number;
+use crate::wml::w_attr;
+use crate::xml::{NodeId, XmlTree};
+
+/// A run's appearance, shared by index (`look` on pieces). Experimental.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct Appearance {
+    pub metric: u32,
+    /// The drawn size in points: 2/3 of the font size for super- and
+    /// subscript.
+    pub size: f64,
+    /// Points the baseline is raised (negative: lowered).
+    pub rise: f64,
+    pub colour: Colour,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: Option<Underline>,
+    pub strike: Strike,
+    pub highlight: Option<Rgb>,
+    pub shade: Option<Rgb>,
+    /// The pieces keep their source characters; the painter applies caps.
+    pub caps: Caps,
+    /// Extra advance after each character, in points.
+    pub spacing: f64,
+    /// Horizontal scale, 1 for 100 %.
+    pub scale: f64,
+    /// Index into `Model.links`.
+    pub link: Option<u32>,
+}
+
+impl Eq for Appearance {}
+
+impl Hash for Appearance {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        [self.size, self.rise, self.spacing, self.scale]
+            .map(f64::to_bits)
+            .hash(state);
+        (
+            self.metric,
+            self.colour,
+            self.bold,
+            self.italic,
+            self.underline,
+        )
+            .hash(state);
+        (
+            self.strike,
+            self.highlight,
+            self.shade,
+            self.caps,
+            self.link,
+        )
+            .hash(state);
+    }
+}
+
+/// Experimental.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Underline {
+    pub style: UnderlineStyle,
+    /// `Auto`: the text's colour.
+    pub colour: Colour,
+}
+
+/// `w:u` values other than `none`. Experimental.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UnderlineStyle {
+    Single,
+    /// Under words only, not the spaces between them.
+    Words,
+    Double,
+    Thick,
+    Dotted,
+    DottedHeavy,
+    Dash,
+    DashedHeavy,
+    DashLong,
+    DashLongHeavy,
+    DotDash,
+    DashDotHeavy,
+    DotDotDash,
+    DashDotDotHeavy,
+    Wave,
+    WavyHeavy,
+    WavyDouble,
+}
+
+impl UnderlineStyle {
+    const NAMES: [(&str, UnderlineStyle); 17] = [
+        ("single", UnderlineStyle::Single),
+        ("words", UnderlineStyle::Words),
+        ("double", UnderlineStyle::Double),
+        ("thick", UnderlineStyle::Thick),
+        ("dotted", UnderlineStyle::Dotted),
+        ("dottedHeavy", UnderlineStyle::DottedHeavy),
+        ("dash", UnderlineStyle::Dash),
+        ("dashedHeavy", UnderlineStyle::DashedHeavy),
+        ("dashLong", UnderlineStyle::DashLong),
+        ("dashLongHeavy", UnderlineStyle::DashLongHeavy),
+        ("dotDash", UnderlineStyle::DotDash),
+        ("dashDotHeavy", UnderlineStyle::DashDotHeavy),
+        ("dotDotDash", UnderlineStyle::DotDotDash),
+        ("dashDotDotHeavy", UnderlineStyle::DashDotDotHeavy),
+        ("wave", UnderlineStyle::Wave),
+        ("wavyHeavy", UnderlineStyle::WavyHeavy),
+        ("wavyDouble", UnderlineStyle::WavyDouble),
+    ];
+
+    /// The `w:u` value.
+    pub fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, style)| *style == self)
+            .map_or("single", |(name, _)| name)
+    }
+}
+
+/// Experimental.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum Strike {
+    #[default]
+    None,
+    Single,
+    Double,
+}
+
+impl Strike {
+    pub fn name(self) -> &'static str {
+        match self {
+            Strike::None => "none",
+            Strike::Single => "single",
+            Strike::Double => "double",
+        }
+    }
+}
+
+/// Experimental.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum Caps {
+    #[default]
+    None,
+    All,
+    /// Lower case drawn as capitals at 80 % of the size.
+    Small,
+}
+
+impl Caps {
+    pub fn name(self) -> &'static str {
+        match self {
+            Caps::None => "none",
+            Caps::All => "all",
+            Caps::Small => "small",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VertAlign {
+    #[default]
+    Baseline,
+    Superscript,
+    Subscript,
+}
+
+/// A hyperlink's target. Experimental.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Link {
+    Uri(String),
+    /// A bookmark in this document.
+    Anchor(String),
+}
+
+/// A paragraph or cell border line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Border {
+    pub style: BorderStyle,
+    /// Points.
+    pub width: f64,
+    /// Points between the border and the text.
+    pub space: f64,
+    pub colour: Colour,
+}
+
+/// `ST_Border` line styles; the picture borders are `Art`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorderStyle {
+    Single,
+    Thick,
+    Double,
+    Dotted,
+    Dashed,
+    DotDash,
+    DotDotDash,
+    Triple,
+    ThinThickSmallGap,
+    ThickThinSmallGap,
+    ThinThickThinSmallGap,
+    ThinThickMediumGap,
+    ThickThinMediumGap,
+    ThinThickThinMediumGap,
+    ThinThickLargeGap,
+    ThickThinLargeGap,
+    ThinThickThinLargeGap,
+    Wave,
+    DoubleWave,
+    DashSmallGap,
+    DashDotStroked,
+    ThreeDEmboss,
+    ThreeDEngrave,
+    Outset,
+    Inset,
+    Art,
+}
+
+impl BorderStyle {
+    const NAMES: [(&str, BorderStyle); 25] = [
+        ("single", BorderStyle::Single),
+        ("thick", BorderStyle::Thick),
+        ("double", BorderStyle::Double),
+        ("dotted", BorderStyle::Dotted),
+        ("dashed", BorderStyle::Dashed),
+        ("dotDash", BorderStyle::DotDash),
+        ("dotDotDash", BorderStyle::DotDotDash),
+        ("triple", BorderStyle::Triple),
+        ("thinThickSmallGap", BorderStyle::ThinThickSmallGap),
+        ("thickThinSmallGap", BorderStyle::ThickThinSmallGap),
+        ("thinThickThinSmallGap", BorderStyle::ThinThickThinSmallGap),
+        ("thinThickMediumGap", BorderStyle::ThinThickMediumGap),
+        ("thickThinMediumGap", BorderStyle::ThickThinMediumGap),
+        (
+            "thinThickThinMediumGap",
+            BorderStyle::ThinThickThinMediumGap,
+        ),
+        ("thinThickLargeGap", BorderStyle::ThinThickLargeGap),
+        ("thickThinLargeGap", BorderStyle::ThickThinLargeGap),
+        ("thinThickThinLargeGap", BorderStyle::ThinThickThinLargeGap),
+        ("wave", BorderStyle::Wave),
+        ("doubleWave", BorderStyle::DoubleWave),
+        ("dashSmallGap", BorderStyle::DashSmallGap),
+        ("dashDotStroked", BorderStyle::DashDotStroked),
+        ("threeDEmboss", BorderStyle::ThreeDEmboss),
+        ("threeDEngrave", BorderStyle::ThreeDEngrave),
+        ("outset", BorderStyle::Outset),
+        ("inset", BorderStyle::Inset),
+    ];
+}
+
+/// Paragraph borders (`w:pBdr`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ParaBorders {
+    pub top: Option<Border>,
+    pub left: Option<Border>,
+    pub bottom: Option<Border>,
+    pub right: Option<Border>,
+    /// Between paragraphs with the same borders.
+    pub between: Option<Border>,
+}
+
+impl ParaBorders {
+    pub(super) const SIDES: [[&str; 2]; 5] = [
+        ["top", "top"],
+        ["left", "start"],
+        ["bottom", "bottom"],
+        ["right", "end"],
+        ["between", "between"],
+    ];
+
+    pub(super) fn from_sides(sides: [Option<Border>; 5]) -> Option<Box<Self>> {
+        let [top, left, bottom, right, between] = sides;
+        sides.iter().any(Option::is_some).then(|| {
+            Box::new(ParaBorders {
+                top,
+                left,
+                bottom,
+                right,
+                between,
+            })
+        })
+    }
+}
+
+/// Where a cell's border was read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorderSource {
+    /// The cell's own `w:tcBorders`.
+    Direct,
+    /// The table style's.
+    Style,
+}
+
+/// A cell border side as read: `None` is `nil` or `none`, which clears the
+/// side, unlike a side nobody set.
+pub type CellBorder = (Option<Border>, BorderSource);
+
+/// Cell borders (`w:tcBorders`) as read, before table and adjacent-cell
+/// borders are weighed against them. `None` sides are not set.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CellBorders {
+    pub top: Option<CellBorder>,
+    pub left: Option<CellBorder>,
+    pub bottom: Option<CellBorder>,
+    pub right: Option<CellBorder>,
+    pub inside_h: Option<CellBorder>,
+    pub inside_v: Option<CellBorder>,
+}
+
+impl CellBorders {
+    pub(super) const SIDES: [[&str; 2]; 6] = [
+        ["top", "top"],
+        ["left", "start"],
+        ["bottom", "bottom"],
+        ["right", "end"],
+        ["insideH", "insideH"],
+        ["insideV", "insideV"],
+    ];
+
+    pub(super) fn from_sides(
+        [top, left, bottom, right, inside_h, inside_v]: [Option<CellBorder>; 6],
+    ) -> Self {
+        CellBorders {
+            top,
+            left,
+            bottom,
+            right,
+            inside_h,
+            inside_v,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VAlign {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
+
+impl VAlign {
+    pub(super) fn read(value: Option<&str>) -> Option<VAlign> {
+        match value? {
+            "top" => Some(VAlign::Top),
+            "center" => Some(VAlign::Center),
+            "bottom" => Some(VAlign::Bottom),
+            _ => None,
+        }
+    }
+}
+
+/// `w:u`; `None` is `none`.
+pub(super) fn read_underline(tree: &XmlTree, u: NodeId, palette: &Palette) -> Option<Underline> {
+    let style = match w_attr(tree, u, "val") {
+        Some("none") => return None,
+        Some(name) => UnderlineStyle::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map_or(UnderlineStyle::Single, |(_, style)| *style),
+        None => UnderlineStyle::Single,
+    };
+    let colour = palette
+        .colour(tree, u, ["color", "themeColor", "themeTint", "themeShade"])
+        .unwrap_or_default();
+    Some(Underline { style, colour })
+}
+
+/// One side of a border element: `None` is `none` or `nil`.
+pub(super) fn read_border(tree: &XmlTree, side: NodeId, palette: &Palette) -> Option<Border> {
+    let name = w_attr(tree, side, "val")?;
+    let style = BorderStyle::NAMES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, style)| *style)
+        .or_else(|| (!matches!(name, "none" | "nil")).then_some(BorderStyle::Art))?;
+    let sz = w_attr(tree, side, "sz").and_then(number);
+    // Line widths are eighths of a point (¼–12 pt); picture borders' are points.
+    let width = match style {
+        BorderStyle::Art => sz.map_or(1.0, |pt| pt.clamp(1.0, 31.0)),
+        _ => sz.map_or(0.25, |eighths| eighths.clamp(2.0, 96.0) / 8.0),
+    };
+    Some(Border {
+        style,
+        width,
+        space: w_attr(tree, side, "space")
+            .and_then(number)
+            .map_or(0.0, |pt| pt.clamp(0.0, 31.0)),
+        colour: palette
+            .colour(
+                tree,
+                side,
+                ["color", "themeColor", "themeTint", "themeShade"],
+            )
+            .unwrap_or_default(),
+    })
+}

@@ -716,10 +716,13 @@ fn layout_lines_prints_one_json_object_a_line() {
         .unwrap();
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let lines: Vec<serde_json::Value> = stdout
+    let mut records = stdout
         .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap());
+    let table = records.next().unwrap();
+    let looks = table["looks"].as_array().unwrap();
+    assert!(table["links"].is_array());
+    let lines: Vec<serde_json::Value> = records.collect();
     assert!(!lines.is_empty());
     for line in &lines {
         assert_eq!(line["page"], 1);
@@ -728,6 +731,13 @@ fn layout_lines_prints_one_json_object_a_line() {
             assert!(line[key].is_number(), "{key}: {line}");
         }
         assert!(line["baseline"].as_f64() > line["y"].as_f64());
+        let runs = line["runs"].as_array().unwrap();
+        let text: String = runs.iter().map(|r| r["text"].as_str().unwrap()).collect();
+        assert_eq!(text, line["text"].as_str().unwrap());
+        for run in runs {
+            let look = &looks[run["look"].as_u64().unwrap() as usize];
+            assert!(look["size"].as_f64().unwrap() > 0.0, "{look}");
+        }
     }
     assert!(
         lines

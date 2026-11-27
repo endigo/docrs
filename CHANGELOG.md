@@ -20,6 +20,8 @@
 - `layout::layout_with` lays out with a `FontSet`: each family and style is measured from the document's embedded fonts, then the set, then the bundled table, then a substitute. A style the document does not embed is taken from the set. `layout::layout` keeps its signature and gives the same result.
 - `markdown::insert_source_with` numbers the contents with a `FontSet`. `insert_source` and the other conversions behave as before.
 - A face read from a font file keeps its glyph for each character and the file it came from (`Face::glyph`, `Face::file`), for the PDF writer to subset later. A face embedded in a document refers to its part, and `FontFile::read` reads it back from the document. Font names are also read from Unicode-platform name records, so Lucida Grande's collection reads all four faces.
+- Page estimates treat strike and hidden as toggle properties, like bold, italic, caps and small caps: they XOR across the table, paragraph and character styles. Within one style's `basedOn` chain the nearest value wins, as Word does: a style based on a bold style with bold off is regular. No layout snapshot changed.
+- The layout model carries each run's look for the PDF painter: size and rise, colour (theme colours resolved with their tint and shade), bold, italic, underline style and colour, strike, highlight, shading, caps, spacing, scale and hyperlink target, with paragraph shading and borders and cell fill, vertical alignment and borders as read. Lines and pages are unchanged.
 
 ### Node package
 
@@ -31,6 +33,7 @@
 - `layout --lines` prints every line of the estimated layout as it is laid out, one JSON object a line: `page`, `story`, `x`, `y`, `width`, `height`, `baseline`, `tabs`, `slack`, `gaps`, `last`, `align` and `text` (experimental).
 - `from-markdown`, `from-html`, `from-json` and `layout` take `--font FILE` and `--font-dir DIR` (both repeatable). The contents page numbers and the layout are measured with those fonts where the document embeds none of the family and style. A bad `--font` file fails the command. `--font-dir` reads the `.ttf`, `.otf`, `.ttc` and `.otc` files of the directory. Files it cannot read, files over 64 MiB (`font_file_too_large`), and files that are not supported fonts are skipped and listed in `fonts_skipped` with their reason.
 - `docrs fonts FILE… | --font-dir DIR` lists the families and styles font files provide, as a document must name them. It also shows whether each face has CFF outlines, is variable, or forbids embedding or subsetting (`--json` for the `docrs_fonts` report).
+- `layout --lines` first prints the document's `looks` and `links`: each run's size, rise, colour (theme colours resolved with their tint and shade), bold, italic, underline style and colour, strike, highlight, shading, caps, spacing, scale and link, and each link's URI or bookmark. Each line then has `runs`, its text split by look (experimental).
 
 ## 1.0.1 (2026-11-23)
 

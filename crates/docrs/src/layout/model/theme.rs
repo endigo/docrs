@@ -1,22 +1,29 @@
 use std::collections::HashMap;
 
+use super::colour::{Palette, Rgb, SCHEME_SLOTS};
 use crate::layout::fonts::FontKind;
 use crate::wml::{w_attr, w_child, w_children};
-use crate::xml::XmlTree;
+use crate::xml::{NodeId, XmlTree};
+
+const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 
 pub(super) struct Theme {
     pub(super) major: Option<String>,
     pub(super) minor: Option<String>,
+    pub(super) palette: Palette,
 }
 
 pub(super) fn read_theme(tree: Option<&XmlTree>) -> Theme {
-    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
     let mut theme = Theme {
         major: None,
         minor: None,
+        palette: Palette::default(),
     };
     if let Some(tree) = tree {
         for node in tree.descendants(tree.root()) {
+            if tree.is(node, A, "clrScheme") {
+                read_scheme(tree, node, &mut theme.palette);
+            }
             for (local, slot) in [
                 ("majorFont", &mut theme.major),
                 ("minorFont", &mut theme.minor),
@@ -32,6 +39,25 @@ pub(super) fn read_theme(tree: Option<&XmlTree>) -> Theme {
         }
     }
     theme
+}
+
+/// The first colour scheme's slots: `a:srgbClr`, or `a:sysClr`'s cached
+/// `lastClr`.
+fn read_scheme(tree: &XmlTree, scheme: NodeId, palette: &mut Palette) {
+    for (slot, name) in palette.0.iter_mut().zip(SCHEME_SLOTS) {
+        if slot.is_some() {
+            continue;
+        }
+        let colour = tree.first_child_named(scheme, A, name).and_then(|c| {
+            tree.child_elements(c)
+                .find_map(|value| match tree.local_name(value) {
+                    Some("srgbClr") => tree.attr(value, None, "val"),
+                    Some("sysClr") => tree.attr(value, None, "lastClr"),
+                    _ => None,
+                })
+        });
+        *slot = colour.and_then(Rgb::hex);
+    }
 }
 
 /// Font kinds named by the font table (`w:family`).

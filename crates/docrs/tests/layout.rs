@@ -854,10 +854,16 @@ fn header_table_lines(header: usize, rows: usize) -> (u32, Vec<docrs::layout::Li
     let main = doc.package().main_part_name().to_string();
     let pages = layout(&txn, &main, Vec::new()).unwrap().pages;
     let mut lines = Vec::new();
-    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
-        lines.push(line);
-        Ok(())
-    })
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            lines.push(line);
+            Ok(())
+        },
+    )
     .unwrap();
     (pages, lines)
 }
@@ -903,10 +909,16 @@ fn a_body_row_taller_than_the_page_keeps_all_its_lines() {
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
     let mut drawn = 0;
-    docrs::layout::line_records(&txn, &main, Vec::new(), |line| {
-        drawn += usize::from(line.text.starts_with("Line"));
-        Ok(())
-    })
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            drawn += usize::from(line.text.starts_with("Line"));
+            Ok(())
+        },
+    )
     .unwrap();
     assert_eq!(drawn, 150);
 }
@@ -988,4 +1000,99 @@ fn a_supplied_font_numbers_the_contents() {
         docrs::layout::refresh_toc_page_numbers_with(&mut measured, true, &fonts).unwrap();
     assert_eq!(refreshed.changed, 0);
     assert!(refreshed.layout.missing_fonts.is_empty());
+}
+
+fn line_widths(body: &str, styles: &str) -> Vec<f64> {
+    let doc = Document::open_bytes(&styled_package(body, styles), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut widths = Vec::new();
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            widths.push(line.width);
+            Ok(())
+        },
+    )
+    .unwrap();
+    widths
+}
+
+fn style(kind: &str, id: &str, based_on: &str, rpr: &str) -> String {
+    let based_on = if based_on.is_empty() {
+        String::new()
+    } else {
+        format!("<w:basedOn w:val=\"{based_on}\"/>")
+    };
+    format!(
+        "<w:style w:type=\"{kind}\" w:styleId=\"{id}\">{based_on}<w:rPr>{rpr}</w:rPr></w:style>"
+    )
+}
+
+/// In Times New Roman, whose italic is narrower than its roman.
+fn styled_run(pstyle: &str, rpr: &str) -> String {
+    format!(
+        "<w:p><w:pPr><w:pStyle w:val=\"{pstyle}\"/></w:pPr><w:r><w:rPr>{rpr}<w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/></w:rPr><w:t>Toggle</w:t></w:r></w:p>"
+    )
+}
+
+#[test]
+fn toggles_take_the_nearest_style_in_a_chain_and_xor_across_levels() {
+    let styles = [
+        style("paragraph", "Plain", "", ""),
+        style("paragraph", "Bold", "", "<w:b/>"),
+        style("paragraph", "Again", "Bold", "<w:b/>"),
+        style("paragraph", "Off", "Bold", "<w:b w:val=\"0\"/>"),
+        style("paragraph", "Italic", "", "<w:i/>"),
+        style("character", "ItalicChar", "", "<w:i/>"),
+        style("character", "BoldChar", "", "<w:b/>"),
+        style("character", "BoldCharOff", "BoldChar", "<w:b w:val=\"0\"/>"),
+        style("paragraph", "Hidden", "", "<w:vanish/>"),
+        style(
+            "paragraph",
+            "HiddenOff",
+            "Hidden",
+            "<w:vanish w:val=\"0\"/>",
+        ),
+    ]
+    .concat();
+    let body = [
+        styled_run("Plain", ""),
+        styled_run("Plain", "<w:b/>"),
+        styled_run("Again", ""),
+        styled_run("Off", ""),
+        styled_run("Bold", "<w:b w:val=\"0\"/>"),
+        styled_run("Plain", "<w:i/>"),
+        styled_run("Italic", "<w:rStyle w:val=\"ItalicChar\"/>"),
+        styled_run("Plain", "<w:rStyle w:val=\"BoldCharOff\"/>"),
+        styled_run("HiddenOff", ""),
+    ]
+    .concat();
+    let widths = line_widths(&body, &styles);
+    let [
+        plain,
+        bold,
+        again,
+        off,
+        direct_off,
+        italic,
+        italic_xor,
+        char_off,
+        shown,
+    ] = widths[..]
+    else {
+        panic!("{widths:?}");
+    };
+    assert!(bold > plain, "{widths:?}");
+    // MS-OI29500 §2.1.258: a style's own value resets the toggle.
+    assert_eq!(again, bold, "bold based on bold is bold");
+    assert_eq!(off, plain, "bold off based on bold is regular");
+    assert_eq!(direct_off, plain, "direct formatting is absolute");
+    assert_ne!(italic, plain);
+    assert_eq!(italic_xor, plain, "paragraph and character italic cancel");
+    assert_eq!(char_off, plain);
+    assert_eq!(shown, plain, "hidden off based on hidden is shown");
 }

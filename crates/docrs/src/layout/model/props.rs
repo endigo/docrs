@@ -1,3 +1,5 @@
+use super::colour::{Colour, Palette, Rgb, highlight};
+use super::look::{Border, ParaBorders, Underline, VertAlign, read_border, read_underline};
 use super::{Align, LineRule, TabKind};
 use crate::units::TWIPS_PER_PT;
 use crate::wml::{W, w_attr, w_child, w_children};
@@ -31,6 +33,10 @@ pub(super) struct PPr {
     pub(super) tabs: Vec<(f64, TabKind)>,
     pub(super) num: Option<(String, Option<u8>)>,
     pub(super) ilvl: Option<u8>,
+    /// `Some(None)`: no fill.
+    pub(super) shd: Option<Option<Rgb>>,
+    /// `ParaBorders::SIDES`; `Some(None)`: `none` or `nil`.
+    pub(super) borders: [Option<Option<Border>>; 5],
 }
 
 impl PPr {
@@ -54,8 +60,10 @@ impl PPr {
             contextual,
             align,
             num,
-            ilvl
+            ilvl,
+            shd
         );
+        merge_sides(&mut self.borders, &other.borders);
         for (pos, kind) in &other.tabs {
             self.tabs.retain(|(p, _)| (p - pos).abs() > 0.01);
             if *kind != TabKind::Clear {
@@ -83,9 +91,20 @@ pub(super) struct RPr {
     pub(super) vanish: Option<bool>,
     pub(super) spacing: Option<f64>,
     pub(super) scale: Option<f64>,
-    pub(super) vert: Option<bool>,
+    pub(super) vert: Option<VertAlign>,
     /// Kerning from this size (points) up; 0 is off.
     pub(super) kern: Option<f64>,
+    pub(super) colour: Option<Colour>,
+    /// `Some(None)`: `none`.
+    pub(super) underline: Option<Option<Underline>>,
+    pub(super) strike: Option<bool>,
+    pub(super) dstrike: Option<bool>,
+    /// `Some(None)`: `none`.
+    pub(super) highlight: Option<Option<Rgb>>,
+    /// `Some(None)`: no fill.
+    pub(super) shd: Option<Option<Rgb>>,
+    /// Points raised (`w:position`).
+    pub(super) position: Option<f64>,
 }
 
 impl RPr {
@@ -94,28 +113,53 @@ impl RPr {
             ($($f:ident),*) => { $( if other.$f.is_some() { self.$f = other.$f.clone(); } )* };
         }
         take!(
-            ascii, hansi, size, bold, italic, caps, small_caps, vanish, spacing, scale, vert, kern
+            ascii, hansi, size, bold, italic, caps, small_caps, vanish, spacing, scale, vert, kern,
+            colour, underline, strike, dstrike, highlight, shd, position
         );
     }
 
-    /// Style layering: toggles XOR with `other`'s, the rest is replaced.
+    /// Style layering: toggles XOR with `other`'s (a `false` changes
+    /// nothing), the rest is replaced.
     pub(super) fn layer(&mut self, other: &RPr) {
-        let toggles = [
-            (self.bold, other.bold),
-            (self.italic, other.italic),
-            (self.caps, other.caps),
-            (self.small_caps, other.small_caps),
-        ];
-        self.merge(other);
-        let xor = |(mine, theirs): (Option<bool>, Option<bool>)| match (mine, theirs) {
+        let xor = |mine: Option<bool>, theirs: Option<bool>| match (mine, theirs) {
             (Some(a), Some(b)) => Some(a ^ b),
             (a, b) => b.or(a),
         };
-        self.bold = xor(toggles[0]);
-        self.italic = xor(toggles[1]);
-        self.caps = xor(toggles[2]);
-        self.small_caps = xor(toggles[3]);
+        let toggles = [
+            xor(self.bold, other.bold),
+            xor(self.italic, other.italic),
+            xor(self.caps, other.caps),
+            xor(self.small_caps, other.small_caps),
+            xor(self.vanish, other.vanish),
+            xor(self.strike, other.strike),
+        ];
+        self.merge(other);
+        [
+            self.bold,
+            self.italic,
+            self.caps,
+            self.small_caps,
+            self.vanish,
+            self.strike,
+        ] = toggles;
     }
+}
+
+/// Each side `other` sets replaces `mine`'s.
+pub(super) fn merge_sides<const N: usize>(
+    mine: &mut [Option<Option<Border>>; N],
+    other: &[Option<Option<Border>>; N],
+) {
+    for (slot, side) in mine.iter_mut().zip(other) {
+        if side.is_some() {
+            *slot = *side;
+        }
+    }
+}
+
+/// A border element's side by its name, or its logical name.
+pub(super) fn side(tree: &XmlTree, borders: NodeId, [name, logical]: [&str; 2]) -> Option<NodeId> {
+    w_child(tree, borders, name).or_else(|| w_child(tree, borders, logical))
 }
 
 pub(super) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
@@ -145,7 +189,7 @@ fn half_points(tree: &XmlTree, node: NodeId, min: f64) -> Option<f64> {
         .map(|half| (half / 2.0).clamp(min, FONT_SIZES.1))
 }
 
-pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
+pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -> PPr {
     let mut out = PPr::default();
     let Some(ppr) = ppr else {
         return out;
@@ -217,13 +261,19 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>) -> PPr {
                 }
                 out.ilvl = ilvl;
             }
+            "shd" => out.shd = Some(palette.shading(tree, child)),
+            "pBdr" => {
+                for (slot, names) in out.borders.iter_mut().zip(ParaBorders::SIDES) {
+                    *slot = side(tree, child, names).map(|s| read_border(tree, s, palette));
+                }
+            }
             _ => {}
         }
     }
     out
 }
 
-pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
+pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>, palette: &Palette) -> RPr {
     let mut out = RPr::default();
     let Some(rpr) = rpr else {
         return out;
@@ -256,10 +306,28 @@ pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>) -> RPr {
                     .map(|scale| scale.clamp(1.0, 600.0))
             }
             "vertAlign" => {
-                out.vert = Some(matches!(
-                    w_attr(tree, child, "val"),
-                    Some("superscript" | "subscript")
-                ))
+                out.vert = Some(match w_attr(tree, child, "val") {
+                    Some("superscript") => VertAlign::Superscript,
+                    Some("subscript") => VertAlign::Subscript,
+                    _ => VertAlign::Baseline,
+                })
+            }
+            "color" => {
+                out.colour = palette.colour(
+                    tree,
+                    child,
+                    ["val", "themeColor", "themeTint", "themeShade"],
+                )
+            }
+            "u" => out.underline = Some(read_underline(tree, child, palette)),
+            "strike" => out.strike = Some(on_off(tree, child)),
+            "dstrike" => out.dstrike = Some(on_off(tree, child)),
+            "highlight" => out.highlight = w_attr(tree, child, "val").map(highlight),
+            "shd" => out.shd = Some(palette.shading(tree, child)),
+            "position" => {
+                out.position = w_attr(tree, child, "val")
+                    .and_then(number)
+                    .map(|half| (half / 2.0).clamp(-FONT_SIZES.1, FONT_SIZES.1))
             }
             _ => {}
         }

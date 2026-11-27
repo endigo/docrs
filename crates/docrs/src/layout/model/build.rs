@@ -1,9 +1,11 @@
+use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign};
 use super::props::{FontRef, PPr, RPr, length, number, read_ppr, read_rpr};
 use super::table::TableCtx;
 use super::{Block, Builder, Label, LineRule, LineSpacing, Metric, Para, Piece};
+use crate::fields::fieldcode;
 use crate::layout::fonts::FontKind;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
-use crate::wml::{W, w_attr, w_child};
+use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeData, NodeId, XmlTree};
 
 const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
@@ -20,6 +22,24 @@ enum FieldPart {
     Result,
 }
 
+struct Field {
+    part: FieldPart,
+    code: String,
+    /// A HYPERLINK field's target, for its result.
+    link: Option<u32>,
+}
+
+/// Superscript and subscript baseline shifts, as fractions of the font size.
+const SUPERSCRIPT_RISE: f64 = 1.0 / 3.0;
+const SUBSCRIPT_DROP: f64 = 0.08;
+
+/// A run's measurer and its look for the link it is in.
+struct Pen {
+    measurer: Measurer,
+    link: Option<u32>,
+    look: u32,
+}
+
 impl Builder<'_> {
     fn metric(&mut self, height: f64, ascent: f64) -> u32 {
         let key = (height.to_bits(), ascent.to_bits());
@@ -30,6 +50,88 @@ impl Builder<'_> {
         self.metrics.push(Metric { height, ascent });
         self.metric_index.insert(key, index);
         index
+    }
+
+    fn look(&mut self, rpr: &RPr, measurer: &Measurer, link: Option<u32>) -> u32 {
+        let font_size = rpr.size.unwrap_or(10.0);
+        let shift = match rpr.vert.unwrap_or_default() {
+            VertAlign::Baseline => 0.0,
+            VertAlign::Superscript => font_size * SUPERSCRIPT_RISE,
+            VertAlign::Subscript => -font_size * SUBSCRIPT_DROP,
+        };
+        let on = |toggle: Option<bool>| toggle.unwrap_or(false);
+        let look = Appearance {
+            metric: measurer.metric,
+            size: measurer.size,
+            rise: rpr.position.unwrap_or(0.0) + shift,
+            colour: rpr.colour.unwrap_or_default(),
+            bold: on(rpr.bold),
+            italic: on(rpr.italic),
+            underline: rpr.underline.flatten(),
+            strike: if on(rpr.dstrike) {
+                Strike::Double
+            } else if on(rpr.strike) {
+                Strike::Single
+            } else {
+                Strike::None
+            },
+            highlight: rpr.highlight.flatten(),
+            shade: rpr.shd.flatten(),
+            caps: if measurer.caps {
+                Caps::All
+            } else if measurer.small_caps {
+                Caps::Small
+            } else {
+                Caps::None
+            },
+            spacing: measurer.spacing,
+            scale: measurer.scale,
+            link,
+        };
+        let next = self.looks.len() as u32;
+        *self.looks.entry(look).or_insert(next)
+    }
+
+    fn link(&mut self, link: Link) -> u32 {
+        if let Some(index) = self.link_index.get(&link) {
+            return *index;
+        }
+        let index = self.links.len() as u32;
+        self.links.push(link.clone());
+        self.link_index.insert(link, index);
+        index
+    }
+
+    /// `w:hyperlink`'s target: its relationship's, with its bookmark as the
+    /// fragment, else the bookmark.
+    fn hyperlink_target(&self, tree: &XmlTree, hyperlink: NodeId) -> Option<Link> {
+        let uri = tree
+            .attr(hyperlink, Some(R), "id")
+            .and_then(|id| self.hyperlinks.get(id));
+        let anchor = w_attr(tree, hyperlink, "anchor");
+        match (uri, anchor) {
+            (Some(uri), Some(anchor)) => Some(Link::Uri(format!("{uri}#{anchor}"))),
+            (Some(uri), None) => Some(Link::Uri(uri.clone())),
+            (None, anchor) => anchor.map(|a| Link::Anchor(a.to_string())),
+        }
+    }
+
+    /// The pen for `rpr`, made on first use and given the look for `link`.
+    fn pen<'p>(&mut self, pen: &'p mut Option<Pen>, rpr: &RPr, link: Option<u32>) -> &'p Pen {
+        let stale = pen.as_ref().is_none_or(|p| p.link != link);
+        if stale {
+            let measurer = match pen.take() {
+                Some(old) => old.measurer,
+                None => self.measurer(rpr),
+            };
+            let look = self.look(rpr, &measurer, link);
+            *pen = Some(Pen {
+                measurer,
+                link,
+                look,
+            });
+        }
+        pen.as_ref().expect("made above")
     }
 
     pub(super) fn blocks(
@@ -137,7 +239,10 @@ impl Builder<'_> {
 
     fn measurer(&mut self, rpr: &RPr) -> Measurer {
         let size = rpr.size.unwrap_or(10.0);
-        let small = if rpr.vert == Some(true) {
+        let small = if matches!(
+            rpr.vert,
+            Some(VertAlign::Superscript | VertAlign::Subscript)
+        ) {
             size * 2.0 / 3.0
         } else {
             size
@@ -179,7 +284,7 @@ impl Builder<'_> {
 
     fn paragraph(&mut self, tree: &XmlTree, p: NodeId, table: Option<&TableCtx>) -> Para {
         let ppr_node = w_child(tree, p, "pPr");
-        let direct = read_ppr(tree, ppr_node);
+        let direct = read_ppr(tree, ppr_node, &self.theme.palette);
         let style = ppr_node
             .and_then(|pp| w_child(tree, pp, "pStyle"))
             .and_then(|s| w_attr(tree, s, "val"))
@@ -191,6 +296,7 @@ impl Builder<'_> {
         mark_rpr.merge(&read_rpr(
             tree,
             ppr_node.and_then(|pp| w_child(tree, pp, "rPr")),
+            &self.theme.palette,
         ));
         let mark = self.measurer(&mark_rpr).metric;
         let mut para = Para {
@@ -220,6 +326,8 @@ impl Builder<'_> {
             tabs: ppr.tabs.clone(),
             mark,
             section_break: None,
+            shade: ppr.shd.flatten(),
+            borders: ParaBorders::from_sides(ppr.borders.map(Option::flatten)),
             ..Para::default()
         };
         para.tabs.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -242,12 +350,13 @@ impl Builder<'_> {
                 para.label = Some(Label {
                     width,
                     metric: measurer.metric,
+                    look: self.look(&label_rpr, &measurer, None),
                     tab: suffix == "tab",
                     space,
                 });
             }
         }
-        let mut fields: Vec<FieldPart> = Vec::new();
+        let mut fields = Vec::new();
         self.inline(tree, p, &para_rpr, &mut para, &mut fields);
         if table.is_none()
             && ppr_node
@@ -266,7 +375,7 @@ impl Builder<'_> {
         parent: NodeId,
         para_rpr: &RPr,
         para: &mut Para,
-        fields: &mut Vec<FieldPart>,
+        fields: &mut Vec<Field>,
     ) {
         for child in tree.child_elements(parent) {
             if tree.ns_uri(child) != Some(W) {
@@ -274,8 +383,20 @@ impl Builder<'_> {
             }
             match tree.local_name(child).unwrap_or("") {
                 "r" => self.run(tree, child, para_rpr, para, fields),
-                "hyperlink" | "smartTag" | "customXml" | "ins" | "moveTo" | "fldSimple" | "dir"
-                | "bdo" => self.inline(tree, child, para_rpr, para, fields),
+                name @ ("hyperlink" | "fldSimple") => {
+                    let target = if name == "hyperlink" {
+                        self.hyperlink_target(tree, child)
+                    } else {
+                        w_attr(tree, child, "instr").and_then(field_link)
+                    };
+                    let outer = self.link;
+                    self.link = target.map(|t| self.link(t)).or(outer);
+                    self.inline(tree, child, para_rpr, para, fields);
+                    self.link = outer;
+                }
+                "smartTag" | "customXml" | "ins" | "moveTo" | "dir" | "bdo" => {
+                    self.inline(tree, child, para_rpr, para, fields)
+                }
                 "sdt" => {
                     if let Some(content) = w_child(tree, child, "sdtContent") {
                         self.inline(tree, content, para_rpr, para, fields);
@@ -296,11 +417,13 @@ impl Builder<'_> {
             {
                 let text = tree.text_content(child);
                 let measurer = self.measurer(para_rpr);
+                let look = self.look(para_rpr, &measurer, self.link);
                 for ch in text.chars() {
                     para.pieces.push(Piece::Char {
                         ch,
                         width: measurer.width(ch),
                         metric: measurer.metric,
+                        look,
                     });
                 }
             }
@@ -313,10 +436,10 @@ impl Builder<'_> {
         r: NodeId,
         para_rpr: &RPr,
         para: &mut Para,
-        fields: &mut Vec<FieldPart>,
+        fields: &mut Vec<Field>,
     ) {
         let rpr_node = w_child(tree, r, "rPr");
-        let direct = read_rpr(tree, rpr_node);
+        let direct = read_rpr(tree, rpr_node, &self.theme.palette);
         let mut rpr = para_rpr.clone();
         if let Some(char_style) = rpr_node
             .and_then(|n| w_child(tree, n, "rStyle"))
@@ -329,7 +452,7 @@ impl Builder<'_> {
         if rpr.vanish == Some(true) {
             return;
         }
-        let mut measurer: Option<Measurer> = None;
+        let mut pen: Option<Pen> = None;
         let mut previous: Option<char> = None;
         for child in tree.child_elements(r) {
             if tree.ns_uri(child) != Some(W) {
@@ -339,16 +462,23 @@ impl Builder<'_> {
                 }
                 continue;
             }
-            let in_instruction = fields.contains(&FieldPart::Code);
+            let in_instruction = fields.iter().any(|f| f.part == FieldPart::Code);
+            let link = fields.iter().rev().find_map(|f| f.link).or(self.link);
             if tree.local_name(child) != Some("t") {
                 previous = None;
             }
             match tree.local_name(child).unwrap_or("") {
                 "fldChar" => match w_attr(tree, child, "fldCharType") {
-                    Some("begin") => fields.push(FieldPart::Code),
+                    Some("begin") => fields.push(Field {
+                        part: FieldPart::Code,
+                        code: String::new(),
+                        link: None,
+                    }),
                     Some("separate") => {
                         if let Some(last) = fields.last_mut() {
-                            *last = FieldPart::Result;
+                            last.part = FieldPart::Result;
+                            let target = field_link(&last.code);
+                            last.link = target.map(|t| self.link(t));
                         }
                     }
                     Some("end") => {
@@ -356,9 +486,15 @@ impl Builder<'_> {
                     }
                     _ => {}
                 },
+                "instrText" => {
+                    if let Some(field) = fields.last_mut().filter(|f| f.part == FieldPart::Code) {
+                        field.code.push_str(&tree.text_content(child));
+                    }
+                }
                 _ if in_instruction => {}
                 "t" => {
-                    let m = measurer.get_or_insert_with(|| self.measurer(&rpr));
+                    let pen = self.pen(&mut pen, &rpr, link);
+                    let m = &pen.measurer;
                     for node in tree.children(child) {
                         if let NodeData::Text(text) = tree.data(*node) {
                             for ch in text.chars() {
@@ -375,28 +511,39 @@ impl Builder<'_> {
                                     ch,
                                     width: m.width(ch),
                                     metric: m.metric,
+                                    look: pen.look,
                                 });
                             }
                         }
                     }
                 }
                 "tab" | "ptab" => {
-                    let m = measurer.get_or_insert_with(|| self.measurer(&rpr));
-                    para.pieces.push(Piece::Tab { metric: m.metric });
+                    let pen = self.pen(&mut pen, &rpr, link);
+                    para.pieces.push(Piece::Tab {
+                        metric: pen.measurer.metric,
+                        look: pen.look,
+                    });
                 }
                 "br" => match w_attr(tree, child, "type") {
                     Some("page" | "column") => para.pieces.push(Piece::PageBreak),
                     _ => {
-                        let m = measurer.get_or_insert_with(|| self.measurer(&rpr));
-                        para.pieces.push(Piece::LineBreak { metric: m.metric });
+                        let pen = self.pen(&mut pen, &rpr, link);
+                        para.pieces.push(Piece::LineBreak {
+                            metric: pen.measurer.metric,
+                            look: pen.look,
+                        });
                     }
                 },
                 "cr" => {
-                    let m = measurer.get_or_insert_with(|| self.measurer(&rpr));
-                    para.pieces.push(Piece::LineBreak { metric: m.metric });
+                    let pen = self.pen(&mut pen, &rpr, link);
+                    para.pieces.push(Piece::LineBreak {
+                        metric: pen.measurer.metric,
+                        look: pen.look,
+                    });
                 }
                 "noBreakHyphen" | "sym" | "footnoteReference" | "endnoteReference" => {
-                    let m = measurer.get_or_insert_with(|| self.measurer(&rpr));
+                    let pen = self.pen(&mut pen, &rpr, link);
+                    let m = &pen.measurer;
                     let ch = if tree.local_name(child) == Some("sym") {
                         '0'
                     } else {
@@ -411,6 +558,7 @@ impl Builder<'_> {
                         ch,
                         width,
                         metric: m.metric,
+                        look: pen.look,
                     });
                 }
                 "drawing" => {
@@ -458,6 +606,36 @@ impl Builder<'_> {
                 _ => {}
             }
         }
+    }
+}
+
+/// A HYPERLINK field's target: its URI (with `\l`'s bookmark as the
+/// fragment), else the bookmark.
+fn field_link(code: &str) -> Option<Link> {
+    let tokens = fieldcode::tokens(code).ok()?;
+    let (command, rest) = tokens.split_first()?;
+    if command.quoted || !command.value.eq_ignore_ascii_case("HYPERLINK") {
+        return None;
+    }
+    let (mut uri, mut anchor) = (None, None);
+    let mut rest = rest.iter();
+    while let Some(token) = rest.next() {
+        if token.quoted || !token.value.starts_with('\\') {
+            uri = uri.or(Some(token.value.clone()));
+            continue;
+        }
+        match token.value.to_ascii_lowercase().as_str() {
+            "\\l" => anchor = rest.next().map(|t| t.value.clone()),
+            "\\o" | "\\t" => {
+                rest.next();
+            }
+            _ => {}
+        }
+    }
+    match (uri, anchor) {
+        (Some(uri), Some(anchor)) => Some(Link::Uri(format!("{uri}#{anchor}"))),
+        (Some(uri), None) => Some(Link::Uri(uri)),
+        (None, anchor) => anchor.map(Link::Anchor),
     }
 }
 

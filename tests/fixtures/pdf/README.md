@@ -10,6 +10,8 @@ Small English documents for the PDF engine. `cases.tsv` gives each case's source
 | `sources/cover.md` | the `v2/cover-page-sections.docx` cover page (`--cover-page`) with a title block |
 | `sources/toc.md` | a table of contents with 15 headings over five pages |
 
+`appearance.docx` has a run for each appearance property (theme colours with tint and shade, toggles through styles, every underline, every highlight, caps, spacing, scale, super- and subscript, raised and lowered text, shading and hyperlinks), each named for what it shows. `crates/docrs/tests/appearance.rs` builds it and checks it against the committed file.
+
 The references set one family for headings and body:
 
 - `references/arial.docx`, `times-new-roman.docx`, `aptos.docx` and `inter.docx` are written by `tools/pdf/make_references.py` from `docrs markdown-reference`. They set the theme's major and minor Latin fonts.

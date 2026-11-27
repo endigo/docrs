@@ -1,10 +1,61 @@
-use super::props::{length, number, on_off, twips};
+use super::colour::{Palette, Rgb};
+use super::look::{Border, BorderSource, CellBorders, VAlign, read_border};
+use super::props::{length, merge_sides, number, on_off, side, twips};
 use super::{Builder, Cell, Row, Table};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
 /// Word's table grid holds at most 63 columns.
 const MAX_GRID_COLUMNS: usize = 63;
+
+/// A `w:tcPr`'s look; `Some(None)` is no fill, or a `none` border.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct CellProps {
+    fill: Option<Option<Rgb>>,
+    valign: Option<VAlign>,
+    borders: [Option<Option<Border>>; 6],
+}
+
+impl CellProps {
+    pub(super) fn merge(&mut self, other: &CellProps) {
+        self.fill = other.fill.or(self.fill);
+        self.valign = other.valign.or(self.valign);
+        merge_sides(&mut self.borders, &other.borders);
+    }
+
+    /// The cell's own properties over its table style's.
+    fn over(&self, style: &CellProps) -> (Option<Rgb>, VAlign, CellBorders) {
+        let sourced = |direct: Option<Option<Border>>, style: Option<Option<Border>>| match direct {
+            Some(own) => Some((own, BorderSource::Direct)),
+            None => style.map(|b| (b, BorderSource::Style)),
+        };
+        let sides = std::array::from_fn(|i| sourced(self.borders[i], style.borders[i]));
+        (
+            self.fill.or(style.fill).flatten(),
+            self.valign.or(style.valign).unwrap_or_default(),
+            CellBorders::from_sides(sides),
+        )
+    }
+}
+
+pub(super) fn read_cell_props(
+    tree: &XmlTree,
+    tc_pr: Option<NodeId>,
+    palette: &Palette,
+) -> CellProps {
+    let mut out = CellProps::default();
+    let Some(tc_pr) = tc_pr else {
+        return out;
+    };
+    out.fill = w_child(tree, tc_pr, "shd").map(|shd| palette.shading(tree, shd));
+    out.valign = w_child(tree, tc_pr, "vAlign").and_then(|v| VAlign::read(w_attr(tree, v, "val")));
+    if let Some(borders) = w_child(tree, tc_pr, "tcBorders") {
+        for (slot, names) in out.borders.iter_mut().zip(CellBorders::SIDES) {
+            *slot = side(tree, borders, names).map(|s| read_border(tree, s, palette));
+        }
+    }
+    out
+}
 
 #[derive(Clone)]
 pub(super) struct TableCtx {
@@ -33,6 +84,7 @@ impl Builder<'_> {
             })
             .unwrap_or(true);
         let (mut table_margins, mut table_borders) = self.styles.table_look(style.as_deref());
+        let style_cell = self.styles.cell_props(style.as_deref());
         let direct = margins(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblCellMar")));
         for (slot, value) in table_margins.iter_mut().zip(direct) {
             if value.is_some() {
@@ -116,6 +168,8 @@ impl Builder<'_> {
                     Some(v) if w_attr(tree, v, "val") == Some("restart") => 1,
                     Some(_) => 2,
                 };
+                let (fill, valign, cell_borders) =
+                    read_cell_props(tree, tc_pr, &self.theme.palette).over(&style_cell);
                 let mut blocks = Vec::new();
                 self.blocks(tree, tc, Some(&ctx), &mut blocks);
                 cells.push(Cell {
@@ -128,6 +182,9 @@ impl Builder<'_> {
                     ],
                     blocks,
                     vmerge,
+                    fill,
+                    valign,
+                    borders: cell_borders,
                 });
             }
             rows.push(Row {

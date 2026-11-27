@@ -487,13 +487,30 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                 for (path, err) in &fonts.skipped {
                     eprintln!("docrs: font skipped: {}: {}", path.display(), err.message());
                 }
-                let mut out = std::io::stdout().lock();
-                let mut closed = false;
-                let result = docrs::layout::line_records_with(&txn, &main, &fonts.set, |line| {
-                    let written = writeln!(
-                        out,
-                        "{}",
-                        json!({
+                let closed = std::cell::Cell::new(false);
+                let out = std::cell::RefCell::new(std::io::stdout().lock());
+                let write = |value: serde_json::Value| {
+                    writeln!(out.borrow_mut(), "{value}").map_err(|err| {
+                        closed.set(err.kind() == std::io::ErrorKind::BrokenPipe);
+                        Error::io("write_failed", format!("writing a line: {err}"), err)
+                    })
+                };
+                let result = docrs::layout::line_records_with(
+                    &txn,
+                    &main,
+                    &fonts.set,
+                    |looks, links| {
+                        let looks: Vec<_> = looks.iter().map(|l| look_json(l, round)).collect();
+                        let links: Vec<_> = links.iter().map(link_json).collect();
+                        write(json!({"looks": looks, "links": links}))
+                    },
+                    |line| {
+                        let runs: Vec<_> = line
+                            .runs
+                            .iter()
+                            .map(|run| json!({"text": run.text, "look": run.look}))
+                            .collect();
+                        write(json!({
                             "page": line.page,
                             "story": line.story,
                             "x": round(line.x),
@@ -507,15 +524,12 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                             "last": line.last,
                             "align": line.align,
                             "text": line.text,
-                        })
-                    );
-                    written.map_err(|err| {
-                        closed = err.kind() == std::io::ErrorKind::BrokenPipe;
-                        Error::io("write_failed", format!("writing a line: {err}"), err)
-                    })
-                });
+                            "runs": runs,
+                        }))
+                    },
+                );
                 return match result {
-                    Err(_) if closed => Ok(0),
+                    Err(_) if closed.get() => Ok(0),
                     result => result.map(|()| 0),
                 };
             }
@@ -902,5 +916,33 @@ fn open_reference(
     match path {
         Some(path) => Document::open_path_with(path, limits, tolerance),
         None => Ok((Document::new(), Vec::new())),
+    }
+}
+
+fn look_json(look: &docrs::layout::Appearance, round: impl Fn(f64) -> f64) -> serde_json::Value {
+    let hex = |rgb: Option<docrs::layout::Rgb>| rgb.map(|rgb| rgb.to_string());
+    json!({
+        "metric": look.metric,
+        "size": round(look.size),
+        "rise": round(look.rise),
+        "colour": look.colour.to_string(),
+        "bold": look.bold,
+        "italic": look.italic,
+        "underline": look.underline.map(|u| json!({"style": u.style.name(), "colour": u.colour.to_string()})),
+        "strike": look.strike.name(),
+        "highlight": hex(look.highlight),
+        "shade": hex(look.shade),
+        "caps": look.caps.name(),
+        "spacing": round(look.spacing),
+        "scale": round(look.scale),
+        "link": look.link,
+    })
+}
+
+fn link_json(link: &docrs::layout::Link) -> serde_json::Value {
+    match link {
+        docrs::layout::Link::Uri(uri) => json!({"uri": uri}),
+        docrs::layout::Link::Anchor(anchor) => json!({"anchor": anchor}),
+        _ => serde_json::Value::Null,
     }
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::colour::Palette;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
@@ -23,20 +24,20 @@ pub(super) struct Numbering {
     counters: HashMap<String, [i64; 9]>,
 }
 
-fn read_level(tree: &XmlTree, lvl: NodeId) -> Level {
+fn read_level(tree: &XmlTree, lvl: NodeId, palette: &Palette) -> Level {
     let val = |name: &str| w_child(tree, lvl, name).and_then(|n| w_attr(tree, n, "val"));
     Level {
         format: val("numFmt").unwrap_or("decimal").to_string(),
         text: val("lvlText").unwrap_or("").to_string(),
         start: val("start").and_then(|v| v.parse().ok()).unwrap_or(1),
-        ppr: read_ppr(tree, w_child(tree, lvl, "pPr")),
-        rpr: read_rpr(tree, w_child(tree, lvl, "rPr")),
+        ppr: read_ppr(tree, w_child(tree, lvl, "pPr"), palette),
+        rpr: read_rpr(tree, w_child(tree, lvl, "rPr"), palette),
         suffix: val("suff").unwrap_or("tab").to_string(),
     }
 }
 
 impl Numbering {
-    pub(super) fn read(tree: Option<&XmlTree>) -> Numbering {
+    pub(super) fn read(tree: Option<&XmlTree>, palette: &Palette) -> Numbering {
         let mut out = Numbering::default();
         let Some(tree) = tree else {
             return out;
@@ -49,7 +50,7 @@ impl Numbering {
             let mut levels = HashMap::new();
             for lvl in w_children(tree, abs, "lvl") {
                 if let Some(ilvl) = w_attr(tree, lvl, "ilvl").and_then(|v| v.parse().ok()) {
-                    levels.insert(ilvl, read_level(tree, lvl));
+                    levels.insert(ilvl, read_level(tree, lvl, palette));
                 }
             }
             out.abstracts.insert(id.to_string(), levels);
@@ -75,7 +76,7 @@ impl Numbering {
                     starts.insert(ilvl, start);
                 }
                 if let Some(lvl) = w_child(tree, o, "lvl") {
-                    levels.insert(ilvl, read_level(tree, lvl));
+                    levels.insert(ilvl, read_level(tree, lvl, palette));
                 }
             }
             out.nums.insert(id.to_string(), (abs, levels, starts));

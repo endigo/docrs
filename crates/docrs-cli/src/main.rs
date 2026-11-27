@@ -264,7 +264,8 @@ enum Command {
         fonts: FontArgs,
         /// Print every line instead, one JSON object a line: page, story,
         /// x, y, width, height, baseline, tabs (points from the page's top-left
-        /// corner), slack, gaps, last, align and text. Experimental.
+        /// corner), slack, gaps, last, align, text and runs (text by look),
+        /// after one object with the looks and links. Experimental.
         #[arg(long)]
         lines: bool,
     },

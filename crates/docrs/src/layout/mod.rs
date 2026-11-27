@@ -28,6 +28,8 @@ pub fn set_test_layout_work(budget: Option<u64>) {
     flow::TEST_LAYOUT_WORK.set(budget);
 }
 pub use fonts::{Face, FontBook, FontFile, FontInfo, FontSet, FontSetBuilder};
+#[doc(hidden)]
+pub use model::{Appearance, Caps, Colour, Link, Rgb, Strike, Underline, UnderlineStyle};
 
 use fonts::{FontError, Parsed};
 
@@ -551,17 +553,31 @@ pub struct LineRecord {
     /// `w:jc`'s value: `left`, `center`, `right`, `both`, `distribute`…
     pub align: &'static str,
     pub text: String,
+    /// The line's text by look.
+    pub runs: Vec<RunRecord>,
 }
 
-/// Every line of `main`'s body. Experimental.
+/// Text of a line in one look. Experimental.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct RunRecord {
+    pub text: String,
+    /// Index into the looks `line_records` gives first.
+    pub look: u32,
+}
+
+/// The looks and links of `main`, then every line of its body.
+/// Experimental.
 #[doc(hidden)]
 pub fn line_records(
     txn: &Txn<'_>,
     main: &str,
     extra: Vec<Face>,
+    looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
     each: impl FnMut(LineRecord) -> Result<()>,
 ) -> Result<()> {
-    line_records_with(txn, main, &FontSet::from_faces(extra), each)
+    line_records_with(txn, main, &FontSet::from_faces(extra), looks, each)
 }
 
 /// [`line_records`], measuring with `fonts`. Experimental.
@@ -570,9 +586,11 @@ pub fn line_records_with(
     txn: &Txn<'_>,
     main: &str,
     fonts: &FontSet,
+    looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
     each: impl FnMut(LineRecord) -> Result<()>,
 ) -> Result<()> {
     let (model, ..) = model_of(txn, main, fonts)?;
+    looks(&model.looks, &model.links)?;
     flow::paginate(&model, &mut LineDump { page: 0, each })?;
     Ok(())
 }
@@ -593,14 +611,22 @@ impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
             .pieces
             .get(line.pieces.start as usize..line.pieces.end as usize)
             .unwrap_or_default();
-        let text = pieces
-            .iter()
-            .filter_map(|piece| match piece {
-                model::Piece::Char { ch, .. } => Some(*ch),
-                model::Piece::Tab { .. } => Some('\t'),
-                _ => None,
-            })
-            .collect();
+        let mut runs: Vec<RunRecord> = Vec::new();
+        for piece in pieces {
+            let (ch, look) = match piece {
+                model::Piece::Char { ch, look, .. } => (*ch, *look),
+                model::Piece::Tab { look, .. } => ('\t', *look),
+                _ => continue,
+            };
+            match runs.last_mut() {
+                Some(run) if run.look == look => run.text.push(ch),
+                _ => runs.push(RunRecord {
+                    text: ch.to_string(),
+                    look,
+                }),
+            }
+        }
+        let text = runs.iter().map(|run| run.text.as_str()).collect();
         let story = match para.story {
             StoryId::Body => "body".to_string(),
             StoryId::Header(n) => format!("header{n}"),
@@ -624,6 +650,7 @@ impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
             last: line.last,
             align: para.align.name(),
             text,
+            runs,
         })
     }
 }
