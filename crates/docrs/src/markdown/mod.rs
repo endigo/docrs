@@ -355,6 +355,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "a table of contents marker inside a footnote was dropped",
     ),
     (
+        "toc_page_numbers_skipped",
+        "the document is too long or complex to estimate its pages; contents page numbers are left for Word to fill in",
+    ),
+    (
         "undefined_footnote",
         "a footnote reference has no definition and is kept as text",
     ),

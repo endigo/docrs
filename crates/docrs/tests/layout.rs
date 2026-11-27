@@ -445,7 +445,7 @@ fn placed_paragraphs_are_the_body_s_only() {
 }
 
 #[test]
-fn tables_nested_past_32_levels_are_measured_as_empty() {
+fn tables_nested_past_32_levels_keep_their_paragraphs() {
     // Sixty tables, each in the one cell of the one before; each cell's
     // paragraph is bookmarked with its table's level.
     let mut body = String::new();
@@ -455,28 +455,81 @@ fn tables_nested_past_32_levels_are_measured_as_empty() {
         );
     }
     let estimate = estimate(&format!("{body}{}", para("after", "")), "");
-    assert_eq!(estimate.bookmark_page("level32"), Some(1));
-    assert_eq!(estimate.bookmark_page("level33"), None);
-    assert_eq!(estimate.bookmark_page("level60"), None);
+    for level in [32, 33, 60] {
+        assert_eq!(estimate.bookmark_page(&format!("level{level}")), Some(1));
+    }
+}
+
+/// `first` (a paragraph) and a paragraph after it: the second one's top.
+fn after(first: &str) -> f64 {
+    estimate(&format!("{first}{}", para("after", "")), "").placed[1].y
 }
 
 #[test]
-fn absurd_numbers_count_as_absent() {
+fn non_finite_numbers_count_as_absent() {
     let long = "word ".repeat(40);
-    let plain = estimate(&format!("{}{}", para(&long, ""), para("after", "")), "");
+    let plain = after(&para(&long, ""));
     for (ppr, rpr) in [
-        ("<w:ind w:left=\"1e300\" w:right=\"NaN\"/>", ""),
-        ("<w:spacing w:after=\"inf\" w:line=\"1e12\"/>", ""),
-        ("<w:ind w:firstLine=\"-40000\"/>", ""),
-        ("", "<w:sz w:val=\"NaN\"/>"),
-        ("", "<w:sz w:val=\"1e400\"/>"),
-        ("", "<w:sz w:val=\"4000\"/><w:spacing w:val=\"inf\"/>"),
-        ("", "<w:sz w:val=\"0\"/><w:w w:val=\"1e9\"/>"),
+        ("<w:ind w:left=\"NaN\" w:right=\"inf\"/>", ""),
+        ("<w:spacing w:after=\"inf\" w:line=\"NaN\"/>", ""),
+        ("", "<w:sz w:val=\"NaN\"/><w:spacing w:val=\"inf\"/>"),
+        ("", "<w:sz w:val=\"1e400\"/><w:w w:val=\"-inf\"/>"),
     ] {
         let first = format!(
             "<w:p><w:pPr>{ppr}</w:pPr><w:r><w:rPr>{rpr}</w:rPr><w:t xml:space=\"preserve\">{long}</w:t></w:r></w:p>"
         );
-        let odd = estimate(&format!("{first}{}", para("after", "")), "");
-        assert_eq!(odd.placed[1].y, plain.placed[1].y, "{ppr}{rpr}");
+        assert_eq!(after(&first), plain, "{ppr}{rpr}");
     }
+}
+
+#[test]
+fn out_of_range_numbers_are_clamped_to_word_s_bounds() {
+    // Each pair lays out alike: the value past Word's bound, and the bound.
+    let long = "word ".repeat(40);
+    let run = |ppr: &str, rpr: &str| {
+        after(&format!(
+            "<w:p><w:pPr>{ppr}</w:pPr><w:r><w:rPr>{rpr}</w:rPr><w:t xml:space=\"preserve\">{long}</w:t></w:r></w:p>"
+        ))
+    };
+    for (beyond, bound) in [
+        ("<w:sz w:val=\"4000\"/>", "<w:sz w:val=\"3276\"/>"),
+        ("<w:sz w:val=\"1\"/>", "<w:sz w:val=\"2\"/>"),
+    ] {
+        assert_eq!(run("", beyond), run("", bound), "{beyond}");
+    }
+    for (beyond, bound) in [
+        (
+            "<w:ind w:firstLine=\"-40000\"/>",
+            "<w:ind w:firstLine=\"-31680\"/>",
+        ),
+        (
+            "<w:spacing w:before=\"40000\"/>",
+            "<w:spacing w:before=\"31680\"/>",
+        ),
+        (
+            "<w:spacing w:line=\"40000\" w:lineRule=\"exact\"/>",
+            "<w:spacing w:line=\"31680\" w:lineRule=\"exact\"/>",
+        ),
+    ] {
+        assert_eq!(run(beyond, ""), run(bound, ""), "{beyond}");
+    }
+}
+
+#[test]
+fn a_page_past_22_inches_keeps_its_size() {
+    // A 30-inch page is laid out as Word's largest, 22 inches: 80 lines
+    // fit on one page, as on a 30-inch one.
+    let body: String = (0..80).map(|i| para(&format!("line {i}"), "")).collect();
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"43200\" w:h=\"43200\"/></w:sectPr></w:body></w:document>"
+    );
+    let bytes = build_zip(&[
+        RawMember::new("[Content_Types].xml", CT_XML.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+    ]);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    assert_eq!(layout(&txn, &main, Vec::new()).unwrap().pages, 1);
 }
