@@ -5,6 +5,7 @@
 ### Library
 
 - Experimental `pdf` feature (no public API yet).
+- A hostile font file no longer exhausts memory or time: a cmap with unsorted, overlapping or out-of-range ranges is refused with a `FontError` (`Face::try_parse`), such a face is skipped in a collection, and the mappings, kerning and table directory a font declares are bounded before they are allocated.
 
 ## 1.0.1 (2026-11-23)
 
