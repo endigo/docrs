@@ -142,6 +142,21 @@ func lines(_ page: PDFPage) -> [Line] {
     }
 }
 
+/// The line's baseline: the commonest text origin in the lower half of its
+/// box, the lowest on a tie. Also every distinct origin in the box, since
+/// PDFKit can merge several lines into one.
+func baselines(in b: CGRect, origins: [CGPoint]) -> (CGFloat?, [CGFloat]) {
+    let near = origins
+        .filter { $0.x >= b.minX - b.height && $0.x <= b.maxX && $0.y >= b.minY - 2 && $0.y <= b.maxY }
+        .map { ($0.y * 100).rounded() / 100 }
+    var counts: [CGFloat: Int] = [:]
+    for y in near where y <= b.minY + b.height / 2 {
+        counts[y, default: 0] += 1
+    }
+    let main = counts.max { x, y in x.value != y.value ? x.value < y.value : x.key > y.key }?.key
+    return (main, Array(Set(near)).sorted())
+}
+
 let args = CommandLine.arguments
 guard args.count == 2, let document = PDFDocument(url: URL(fileURLWithPath: args[1])) else {
     FileHandle.standardError.write("usage: pdflines FILE.pdf\n".data(using: .utf8)!)
@@ -157,19 +172,16 @@ for index in 0..<document.pageCount {
     output += "    {\"page\": \(index + 1), \"width\": \(number(box.width)), \"height\": \(number(box.height)), \"lines\": ["
     for (n, line) in lines(page).enumerated() {
         let b = line.bounds
-        let slack = b.height / 2 + 0.5
-        var counts: [CGFloat: Int] = [:]
-        for origin in origins
-        where origin.x >= b.minX - 2 * slack && origin.x <= b.maxX
-            && origin.y >= b.minY - slack && origin.y <= b.maxY {
-            counts[(origin.y * 100).rounded() / 100, default: 0] += 1
-        }
-        let baseline = counts.max { x, y in x.value != y.value ? x.value < y.value : x.key < y.key }?.key
+        let (baseline, all) = baselines(in: b, origins: origins)
         output += n == 0 ? "\n" : ",\n"
         output += "      {\"page\": \(index + 1), \"text\": \(quoted(line.text)), "
         output += "\"x\": \(number(b.minX - box.minX)), \"top\": \(number(box.maxY - b.maxY)), "
         output += "\"width\": \(number(b.width)), \"height\": \(number(b.height)), "
-        output += "\"baseline\": \(baseline.map { number(box.maxY - $0) } ?? "null")}"
+        output += "\"baseline\": \(baseline.map { number(box.maxY - $0) } ?? "null")"
+        if all.count > 1 {
+            output += ", \"baselines\": [\(all.reversed().map { number(box.maxY - $0) }.joined(separator: ", "))]"
+        }
+        output += "}"
     }
     output += "\n    ]}"
 }
