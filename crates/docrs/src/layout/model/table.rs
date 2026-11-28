@@ -181,7 +181,10 @@ impl Builder<'_> {
                 node: Some(tr),
             });
         }
-        Table { rows }
+        Table {
+            story: self.story,
+            rows,
+        }
     }
 }
 

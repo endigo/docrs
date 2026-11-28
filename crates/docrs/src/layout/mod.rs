@@ -6,16 +6,22 @@
 //! labels and line spacing), paragraph spacing with contextual spacing,
 //! page breaks, keep-with-next, keep-lines, widow/orphan control, tables
 //! (rows as tall as their tallest cell, split between lines, repeated
-//! header rows), inline pictures, and the header and footer heights that
-//! push the body down. Floating objects, footnotes, columns and multiple
-//! sections with different page setups are not modelled.
+//! header rows), inline pictures, and each page's header and footer (first,
+//! even or default), which push the body down when taller than the margin.
+//! Page numbers, page counts, page references and document properties are
+//! computed; other fields show their stored result. Floating objects,
+//! footnotes, columns and multiple sections with different page setups are
+//! not modelled.
 
-mod flow;
+mod fields;
+pub(crate) mod flow;
 pub mod fonts;
+mod furniture;
 pub(crate) mod model;
 pub(crate) mod variation;
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub use flow::Placed;
 #[cfg(test)]
@@ -40,7 +46,8 @@ use crate::protection::{OperationClass, refuse_if_protected};
 use crate::txn::Txn;
 use crate::wml::{R, W, set_leading_text, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
-use crate::{Document, Result};
+use crate::{Document, Error, Result};
+use fields::{Context, LayoutWarning, Values};
 use model::StoryId;
 
 /// The estimated layout of a document's body.
@@ -158,32 +165,178 @@ pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
 /// Estimate the layout of `main`'s body. Each family and style is measured
 /// from the document's embedded fonts, else `fonts`, else the bundled
 /// table, else a substitute of its kind (reported in `missing_fonts`).
+/// Headers and footers show their page's number; other page fields show
+/// their stored result.
 pub fn layout_with(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Layout> {
-    let (model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
+    let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
+    let values = Values::default();
+    show_body(&mut model, &values);
+    let mut placed = Vec::new();
+    let pages = flow::paginate(&model, &values, &mut placed)?;
+    Ok(Layout {
+        bookmarks: bookmark_pages(&model, &placed),
+        placed,
+        pages: pages.count,
+        first_page_number: first_page_number(&model),
+        missing_fonts: missing_fonts(&book.missing, unread),
+        embedded_fonts: embedded_names,
+    })
+}
+
+fn first_page_number(model: &model::Model) -> i64 {
+    model
+        .sections
+        .first()
+        .and_then(|s| s.page_start)
+        .unwrap_or(1)
+}
+
+fn show_body(model: &mut model::Model, values: &Values) {
+    let context = Context { values, page: None };
+    fields::show(&mut model.blocks, &context);
+}
+
+/// The physical page of each body bookmark: its paragraph's first.
+fn bookmark_pages(model: &model::Model, placed: &[Placed]) -> HashMap<String, u32> {
     let mut by_node: HashMap<(StoryId, NodeId), Vec<String>> = HashMap::new();
     collect_bookmarks(&model.blocks, &mut by_node);
-    let mut placed = Vec::new();
-    let pages = flow::paginate(&model, &mut placed)?;
     let mut bookmarks = HashMap::new();
-    for entry in &placed {
+    for entry in placed {
         if let Some(names) = entry.node.and_then(|n| by_node.get(&(StoryId::Body, n))) {
             for name in names {
                 bookmarks.entry(name.clone()).or_insert(entry.page);
             }
         }
     }
-    Ok(Layout {
-        placed,
-        pages,
-        first_page_number: model
-            .sections
-            .first()
-            .and_then(|s| s.page_start)
-            .unwrap_or(1),
-        missing_fonts: missing_fonts(&book.missing, unread),
-        embedded_fonts: embedded_names,
-        bookmarks,
-    })
+    bookmarks
+}
+
+/// Layout passes before [`settle`] refuses.
+const MAX_PASSES: usize = 8;
+
+/// Field values that change the layout that gives them.
+pub(crate) const NOT_CONVERGED: &str = "pdf_layout_not_converged";
+
+/// A layout whose computed fields show the values it gives them.
+pub(crate) struct Settled {
+    model: model::Model,
+    values: Values,
+    pub layout: Layout,
+    #[allow(dead_code, reason = "the PDF painter reports them")]
+    pub passes: usize,
+    #[allow(dead_code, reason = "the PDF painter reports them")]
+    pub warnings: Vec<LayoutWarning>,
+}
+
+impl Settled {
+    /// The settled layout again, into `sink`.
+    pub(crate) fn paginate<S: flow::Sink>(&self, sink: &mut S) -> Result<()> {
+        flow::paginate(&self.model, &self.values, sink).map(|_| ())
+    }
+
+    /// The model laid out: body fields show their settled values.
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub(crate) fn model(&self) -> &model::Model {
+        &self.model
+    }
+
+    /// The page number a reference to `bookmark` shows, as its section
+    /// writes it.
+    fn bookmark_number(&self, bookmark: &str) -> Option<String> {
+        self.values
+            .bookmarks
+            .get(bookmark)
+            .map(|number| number.write(fields::NumberFormat::Section))
+    }
+}
+
+/// Lay `main` out until every page number, page count and page reference,
+/// in the body and in each page's header and footer, shows what the layout
+/// it is shown in gives it, and every page breaks where the pass before
+/// broke it. Refuses with `pdf_layout_not_converged` when the values
+/// repeat an earlier pass's or after 8 passes.
+pub(crate) fn settle(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Settled> {
+    let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
+    let feeds_back = fields::feeds_back(&model);
+    let page_fields = fields::page_field_nodes(&model.blocks);
+    let mut values = Values::default();
+    let mut seen: Vec<u64> = Vec::new();
+    for passes in 1..=MAX_PASSES {
+        show_body(&mut model, &values);
+        let mut record = Record::default();
+        let pages = flow::paginate(&model, &values, &mut record)?;
+        let bookmarks = bookmark_pages(&model, &record.placed);
+        let next = Values::of(&pages, &bookmarks, &record.placed, &page_fields);
+        let signature = signature(&next, record.breaks.finish());
+        if !feeds_back || seen.last() == Some(&signature) {
+            let layout = Layout {
+                bookmarks,
+                placed: record.placed,
+                pages: pages.count,
+                first_page_number: first_page_number(&model),
+                missing_fonts: missing_fonts(&book.missing, unread),
+                embedded_fonts: embedded_names,
+            };
+            return Ok(Settled {
+                model,
+                values,
+                layout,
+                passes,
+                warnings: pages.warnings,
+            });
+        }
+        if seen.contains(&signature) {
+            return Err(Error::unsupported(
+                NOT_CONVERGED,
+                format!("page numbers repeat an earlier layout's after {passes} passes"),
+            ));
+        }
+        seen.push(signature);
+        values = next;
+    }
+    Err(Error::unsupported(
+        NOT_CONVERGED,
+        format!("page numbers still change after {MAX_PASSES} passes"),
+    ))
+}
+
+fn signature(values: &Values, breaks: u64) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    values.pages.hash(&mut hasher);
+    values.section_pages.hash(&mut hasher);
+    let mut paragraphs: Vec<_> = values.paragraphs.iter().collect();
+    paragraphs.sort_by_key(|(node, _)| node.0);
+    paragraphs.hash(&mut hasher);
+    let mut bookmarks: Vec<_> = values.bookmarks.iter().collect();
+    bookmarks.sort_by_key(|(name, _)| *name);
+    bookmarks.hash(&mut hasher);
+    breaks.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Where each body paragraph landed and where every line broke.
+#[derive(Default)]
+struct Record {
+    placed: Vec<Placed>,
+    breaks: DefaultHasher,
+    page: u32,
+}
+
+impl flow::Sink for Record {
+    fn page(&mut self, page: &flow::PageStart) -> Result<()> {
+        self.page = page.number;
+        Ok(())
+    }
+
+    fn line(&mut self, _: flow::Point, para: &model::Para, line: &flow::Line) -> Result<()> {
+        (self.page, para.story, para.node, line.pieces.start).hash(&mut self.breaks);
+        Ok(())
+    }
+
+    fn placed(&mut self, placed: Placed) -> Result<()> {
+        self.placed.push(placed);
+        Ok(())
+    }
 }
 
 fn missing_fonts(substituted: &[String], unread: Vec<String>) -> Vec<String> {
@@ -197,10 +350,9 @@ fn missing_fonts(substituted: &[String], unread: Vec<String>) -> Vec<String> {
     out
 }
 
-/// A number written can change the contents' length and so later pages.
-const PAGE_NUMBER_PASSES: usize = 3;
-
-/// Returns how many numbers changed and the last layout. With
+/// Settle the layout (contents page numbers included) and write each of
+/// `numbers`' bookmark page numbers as the settled layout shows them, in
+/// their section's format. Returns how many changed and the layout. With
 /// `blank_unplaced`, a bookmark the layout does not place gets no number.
 pub(crate) fn write_page_numbers(
     txn: &mut Txn<'_>,
@@ -209,45 +361,21 @@ pub(crate) fn write_page_numbers(
     blank_unplaced: bool,
     fonts: &FontSet,
 ) -> Result<(usize, Layout)> {
-    let before: Vec<String> = {
-        let tree = txn.tree(main)?;
-        numbers.iter().map(|(t, _)| tree.text_content(*t)).collect()
-    };
-    let mut pass = 0;
-    let estimate = loop {
-        let estimate = layout_with(txn, main, fonts)?;
-        pass += 1;
-        let updates: Vec<(NodeId, String)> = {
-            let tree = txn.tree(main)?;
-            numbers
-                .iter()
-                .filter_map(|(t, bookmark)| {
-                    let shown = match estimate.bookmark_page(bookmark) {
-                        Some(page) => estimate.page_number(page).to_string(),
-                        None if blank_unplaced => String::new(),
-                        None => return None,
-                    };
-                    (tree.text_content(*t) != shown).then_some((*t, shown))
-                })
-                .collect()
+    let settled = settle(txn, main, fonts)?;
+    let tree = txn.tree_mut(main)?;
+    let mut changed = 0;
+    for (t, bookmark) in numbers {
+        let shown = match settled.bookmark_number(bookmark) {
+            Some(shown) => shown,
+            None if blank_unplaced => String::new(),
+            None => continue,
         };
-        if !updates.is_empty() {
-            let tree = txn.tree_mut(main)?;
-            for (t, shown) in &updates {
-                set_leading_text(tree, *t, shown)?;
-            }
+        if tree.text_content(*t) != shown {
+            set_leading_text(tree, *t, &shown)?;
+            changed += 1;
         }
-        if updates.is_empty() || pass == PAGE_NUMBER_PASSES {
-            break estimate;
-        }
-    };
-    let tree = txn.tree(main)?;
-    let changed = numbers
-        .iter()
-        .zip(&before)
-        .filter(|((t, _), old)| tree.text_content(*t) != **old)
-        .count();
-    Ok((changed, estimate))
+    }
+    Ok((changed, settled.layout))
 }
 
 /// Internal to docrs-wasm.
@@ -303,6 +431,27 @@ pub fn refresh_toc_page_numbers_with(
         document.commit(staged)?;
     }
     Ok(TocRefresh { changed, layout })
+}
+
+/// [`refresh_toc_page_numbers`], except that page numbers which do not
+/// settle (`pdf_layout_not_converged`) keep their stored values, Word is
+/// asked to update fields when it opens the document, and `None` is
+/// returned. Internal to docrs-wasm, not covered by semver.
+#[doc(hidden)]
+pub fn refresh_toc_page_numbers_if_settled(
+    document: &mut Document,
+    converted_only: bool,
+) -> Result<Option<TocRefresh>> {
+    match refresh_toc_page_numbers(document, converted_only) {
+        Err(error) if error.reason() == NOT_CONVERGED => {
+            let mut txn = Txn::new(document);
+            crate::fields::set_update_fields_on_open(&mut txn)?;
+            let staged = txn.finish()?;
+            document.commit(staged)?;
+            Ok(None)
+        }
+        result => result.map(Some),
+    }
 }
 
 /// Bookmarks in decimal sections with no restart after the first section.
@@ -568,7 +717,8 @@ pub struct RunRecord {
     pub look: u32,
 }
 
-/// The looks and links of `main`, then every line of its body.
+/// The looks and links of `main`, then every line of each page: its
+/// header's, its footer's, then its body's, with fields settled.
 /// Experimental.
 #[doc(hidden)]
 pub fn line_records(
@@ -590,10 +740,9 @@ pub fn line_records_with(
     looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
     each: impl FnMut(LineRecord) -> Result<()>,
 ) -> Result<()> {
-    let (model, ..) = model_of(txn, main, fonts)?;
-    looks(&model.looks, &model.links)?;
-    flow::paginate(&model, &mut LineDump { page: 0, each })?;
-    Ok(())
+    let settled = settle(txn, main, fonts)?;
+    looks(&settled.model.looks, &settled.model.links)?;
+    settled.paginate(&mut LineDump { page: 0, each })
 }
 
 struct LineDump<F> {
@@ -674,6 +823,9 @@ fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId
         }
     }
 }
+
+#[cfg(test)]
+mod story_tests;
 
 #[cfg(test)]
 mod tests {

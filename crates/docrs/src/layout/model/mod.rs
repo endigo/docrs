@@ -23,12 +23,14 @@ mod theme;
 
 use std::collections::HashMap;
 
+use super::fields::{Context, FieldSpan, LayoutWarning, NumberFormat, Properties, Values};
 use super::fonts::{FontBook, FontKind};
 use crate::Result;
 use crate::package::rels::{Relationship, rt};
 use crate::txn::Txn;
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
+pub(crate) use build::Measurer;
 #[cfg(feature = "pdf")]
 pub(crate) use build::field_link;
 pub use colour::{Colour, Rgb};
@@ -229,6 +231,8 @@ pub struct Para {
     /// The paragraph mark's metric (empty paragraphs, the last line).
     pub mark: u32,
     pub bookmarks: Vec<String>,
+    /// Fields layout computes, in order, none inside another.
+    pub fields: Vec<FieldSpan>,
     /// Ends a section (`w:sectPr` in its properties): the next section's
     /// index.
     pub section_break: Option<usize>,
@@ -270,7 +274,16 @@ pub struct Row {
 
 #[derive(Debug, Clone, Default)]
 pub struct Table {
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub story: StoryId,
     pub rows: Vec<Row>,
+}
+
+/// What writes a field's value: its result's font and look.
+#[derive(Debug, Clone)]
+pub struct FieldPen {
+    pub measurer: Measurer,
+    pub look: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -283,17 +296,39 @@ pub enum Block {
     Table(Table),
 }
 
+/// `w:pgNumType w:start` is kept within 0 and the largest 32-bit integer,
+/// so page numbers stay small to write.
+const MAX_PAGE_START: i64 = i32::MAX as i64;
+
+/// A section's headers or footers: indices into `Model.stories`, each
+/// inherited from the previous section when the section names none.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Slots {
+    pub default: Option<usize>,
+    pub first: Option<usize>,
+    pub even: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Story {
+    pub id: StoryId,
+    pub blocks: Vec<Block>,
+    /// Holds a field whose value depends on the page, so it is laid out
+    /// for each page; its property fields are shown already.
+    pub fields: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Section {
     pub page: Page,
-    /// Default header and footer content heights.
-    pub header_height: f64,
-    pub footer_height: f64,
-    /// First-page ones, when the section has a distinct first page.
-    pub first_header_height: Option<f64>,
-    pub first_footer_height: Option<f64>,
+    pub headers: Slots,
+    pub footers: Slots,
+    /// A distinct first page (`w:titlePg`).
+    pub title_page: bool,
     /// `w:pgNumType w:start`.
     pub page_start: Option<i64>,
+    /// `w:pgNumType w:fmt`.
+    pub number_format: NumberFormat,
     /// Starts on the same page (`continuous`).
     pub continuous: bool,
 }
@@ -301,12 +336,16 @@ pub struct Section {
 pub struct Model {
     pub sections: Vec<Section>,
     pub blocks: Vec<Block>,
+    /// Headers and footers, each once however many sections show it.
+    pub stories: Vec<Story>,
+    /// Even pages show the even headers and footers
+    /// (`w:evenAndOddHeaders`).
+    pub even_and_odd: bool,
     pub metrics: Vec<Metric>,
     pub looks: Vec<Appearance>,
     pub links: Vec<Link>,
     pub default_tab: f64,
-    /// Layout work already done measuring headers and footers.
-    pub work: u64,
+    pub warnings: Vec<LayoutWarning>,
 }
 
 pub(super) struct Builder<'a> {
@@ -326,6 +365,8 @@ pub(super) struct Builder<'a> {
     sections_seen: usize,
     story: StoryId,
     depth: usize,
+    properties: Properties,
+    warnings: Vec<LayoutWarning>,
 }
 
 fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
@@ -353,21 +394,23 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         sections_seen: 0,
         story: StoryId::Body,
         depth: 0,
+        properties: super::fields::properties(txn),
+        warnings: Vec::new(),
     };
-    let default_tab = part(txn, main, rt::SETTINGS)
+    let settings = part(txn, main, rt::SETTINGS);
+    let default_tab = settings
         .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))
         .unwrap_or(36.0);
+    let even_and_odd = settings
+        .is_some_and(|s| w_child(s, s.root(), "evenAndOddHeaders").is_some_and(|e| on_off(s, e)));
     let body = w_child(tree, tree.root(), "body");
     let sects = body.map_or_else(Vec::new, |body| section_properties(tree, body));
-    let mut sections = Vec::new();
-    let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
     let rels = txn.resolved_relationships(main)?;
-    let mut stories: HashMap<String, Vec<Block>> = HashMap::new();
-    let mut heights: HashMap<(String, u64), f64> = HashMap::new();
-    let (mut headers, mut footers) = (0, 0);
-    let mut work = 0;
+    let mut sections = Vec::new();
+    let mut stories: Vec<Story> = Vec::new();
+    let mut by_part: HashMap<&str, usize> = HashMap::new();
+    let (mut headers, mut footers) = (Slots::default(), Slots::default());
     for sect in &sects {
-        let page = page_of(tree, Some(*sect));
         for StoryRef {
             kind,
             which,
@@ -377,45 +420,54 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             let Ok(story) = txn.tree(name) else {
                 continue;
             };
-            let blocks = stories.entry(name.to_string()).or_insert_with(|| {
-                builder.hyperlinks = hyperlinks(txn, name);
+            let index = *by_part.entry(name).or_insert_with(|| {
+                let count = stories
+                    .iter()
+                    .filter(|s| s.is_header() == (kind == "header"));
+                let n = count.count() as u32 + 1;
                 builder.story = if kind == "header" {
-                    headers += 1;
-                    StoryId::Header(headers)
+                    StoryId::Header(n)
                 } else {
-                    footers += 1;
-                    StoryId::Footer(footers)
+                    StoryId::Footer(n)
                 };
+                builder.hyperlinks = hyperlinks(txn, name);
                 let mut blocks = Vec::new();
                 builder.blocks(story, story.root(), None, &mut blocks);
-                blocks
-            });
-            let key = (name.to_string(), page.text_width.to_bits());
-            let height = *heights.entry(key).or_insert_with(|| {
-                let (height, cost) = super::flow::stack_height(
+                let values = Values::default();
+                let properties = Context {
+                    values: &values,
+                    page: None,
+                };
+                super::fields::show(&mut blocks, &properties);
+                stories.push(Story {
+                    id: builder.story,
+                    fields: super::fields::per_page(&blocks),
                     blocks,
-                    &builder.metrics,
-                    page.text_width,
-                    default_tab,
-                );
-                work += cost;
-                height
+                });
+                stories.len() - 1
             });
-            super::flow::within(work, super::flow::layout_work())?;
-            inherited.insert((kind, which), height);
+            let slots = if kind == "header" {
+                &mut headers
+            } else {
+                &mut footers
+            };
+            match which.as_str() {
+                "first" => slots.first = Some(index),
+                "even" => slots.even = Some(index),
+                _ => slots.default = Some(index),
+            }
         }
-        let get =
-            |kind: &'static str, which: &str| inherited.get(&(kind, which.to_string())).copied();
-        let first_page = w_child(tree, *sect, "titlePg").is_some_and(|t| on_off(tree, t));
+        let numbering = w_child(tree, *sect, "pgNumType");
         sections.push(Section {
-            page,
-            header_height: get("header", "default").unwrap_or(0.0),
-            footer_height: get("footer", "default").unwrap_or(0.0),
-            first_header_height: first_page.then(|| get("header", "first").unwrap_or(0.0)),
-            first_footer_height: first_page.then(|| get("footer", "first").unwrap_or(0.0)),
-            page_start: w_child(tree, *sect, "pgNumType")
+            page: page_of(tree, Some(*sect)),
+            headers,
+            footers,
+            title_page: w_child(tree, *sect, "titlePg").is_some_and(|t| on_off(tree, t)),
+            page_start: numbering
                 .and_then(|n| w_attr(tree, n, "start"))
-                .and_then(|v| v.parse().ok()),
+                .and_then(|v| v.parse::<i64>().ok())
+                .map(|start| start.clamp(0, MAX_PAGE_START)),
+            number_format: NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt"))),
             continuous: w_child(tree, *sect, "type").and_then(|t| w_attr(tree, t, "val"))
                 == Some("continuous"),
         });
@@ -423,11 +475,11 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     if sections.is_empty() {
         sections.push(Section {
             page: page_of(tree, None),
-            header_height: 0.0,
-            footer_height: 0.0,
-            first_header_height: None,
-            first_footer_height: None,
+            headers,
+            footers,
+            title_page: false,
             page_start: None,
+            number_format: NumberFormat::Arabic,
             continuous: false,
         });
     }
@@ -440,12 +492,20 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     Ok(Model {
         sections,
         blocks,
+        stories,
+        even_and_odd,
         metrics: builder.metrics,
         looks: in_order(builder.looks),
         links: builder.links,
         default_tab,
-        work,
+        warnings: builder.warnings,
     })
+}
+
+impl Story {
+    fn is_header(&self) -> bool {
+        matches!(self.id, StoryId::Header(_))
+    }
 }
 
 fn in_order<T>(indexed: HashMap<T, u32>) -> Vec<T> {

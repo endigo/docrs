@@ -296,10 +296,14 @@ pub fn convert(
         .and_then(|fields| fields["filled"].as_u64())
         .unwrap_or(0);
     if let (true, Some(toc)) = (filled > 0, report.toc.as_mut()) {
-        let layout = docrs::layout::refresh_toc_page_numbers(&mut document, true)?.layout;
-        toc.pages = layout.pages;
-        toc.missing_fonts = layout.missing_fonts;
-        toc.embedded_fonts = layout.embedded_fonts;
+        match docrs::layout::refresh_toc_page_numbers_if_settled(&mut document, true)? {
+            Some(refresh) => {
+                toc.pages = refresh.layout.pages;
+                toc.missing_fonts = refresh.layout.missing_fonts;
+                toc.embedded_fonts = refresh.layout.embedded_fonts;
+            }
+            None => report.warnings.push(toc_page_numbers_skipped()),
+        }
     }
     if options.redact {
         report.redact();
@@ -315,6 +319,21 @@ pub fn convert(
         report,
         reference_set_aside,
     })
+}
+
+/// The contents' page numbers did not settle after `fields` were filled:
+/// they keep the conversion's, and Word updates them.
+fn toc_page_numbers_skipped() -> markdown::MarkdownWarning {
+    let code = "toc_page_numbers_skipped";
+    let (_, message) = markdown::WARNING_CODES
+        .iter()
+        .find(|(known, _)| *known == code)
+        .expect("a markdown warning code");
+    markdown::MarkdownWarning {
+        code,
+        message: message.to_string(),
+        line: None,
+    }
 }
 
 /// Refuse a field value that would not fill as text within a paragraph,

@@ -264,7 +264,7 @@ pub struct TocReport {
     pub embedded_fonts: Vec<String>,
 }
 
-const TOC_PAGE_NUMBERS_SKIPPED: &str = "the document is too long or complex to estimate its pages; Word is asked to update the contents page numbers when it opens the document";
+const TOC_PAGE_NUMBERS_SKIPPED: &str = "the document is too long or complex to estimate its pages, or its page numbers do not settle; Word is asked to update the contents page numbers when it opens the document";
 
 /// Every warning code, with a fixed description that quotes nothing from
 /// the input ([`MarkdownReport::redact`]).
