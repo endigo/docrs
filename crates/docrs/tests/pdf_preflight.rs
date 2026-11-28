@@ -607,10 +607,10 @@ fn a_converted_document_is_only_not_yet_drawn() {
         "{codes:?}"
     );
     let subjects: Vec<_> = report.warnings.iter().map(|w| w.subject).collect();
-    for subject in ["table", "link", "footnote"] {
+    for subject in ["table", "footnote"] {
         assert!(subjects.contains(&subject), "{subject}: {subjects:?}");
     }
-    for drawn in ["text", "list"] {
+    for drawn in ["text", "list", "link"] {
         assert!(!subjects.contains(&drawn), "{drawn}: {subjects:?}");
     }
     let table = report
@@ -895,41 +895,47 @@ fn many_pictures_and_links_scan_in_linear_time() {
         assert!(
             large_work <= 8 * small_work,
             "{}: {small_work} then {large_work} units of work",
-            small.0
+            small.1
         );
     }
 }
 
-/// A document of `count` objects, with the subject it reports them under.
-type Objects = (&'static str, usize, Document);
+/// A document of `count` objects, with the code and subject it reports
+/// them under.
+type Objects = (&'static str, &'static str, usize, Document);
 
 fn pictures(count: usize) -> Objects {
     let body: String = (0..count)
         .map(|_| para(&graphic(PICTURE_URI, &picture("rId1"))))
         .collect();
     let parts = [image_part("word/media/image1.png", "image/png")];
-    ("image", count, docx(&body, &parts, &[]))
+    (NOT_YET_DRAWN, "image", count, docx(&body, &parts, &[]))
 }
 
 fn links(count: usize) -> Objects {
     let ids: Vec<String> = (0..count).map(|i| format!("rIdL{i}")).collect();
     let links: Vec<(&str, &str)> = ids
         .iter()
-        .map(|id| (id.as_str(), "https://example.com/"))
+        .map(|id| (id.as_str(), "ftp://example.com/"))
         .collect();
     let body = para(
         &ids.iter()
             .map(|id| format!(r#"<w:hyperlink r:id="{id}"></w:hyperlink>"#))
             .collect::<String>(),
     );
-    ("link", count, docx(&body, &[], &links))
+    (
+        "pdf_link_scheme_skipped",
+        "link",
+        count,
+        docx(&body, &[], &links),
+    )
 }
 
 /// The children listed and relationships read to scan `objects`, checking
 /// the scan reports them all.
-fn work((subject, count, document): &Objects) -> u64 {
+fn work((code, subject, count, document): &Objects) -> u64 {
     let (found, work) = preflight_work_for_tests(document).unwrap();
-    assert_eq!(subjects(&found, NOT_YET_DRAWN), [(*subject, *count)]);
+    assert_eq!(subjects(&found, code), [(*subject, *count)]);
     work
 }
 
@@ -1061,9 +1067,43 @@ fn fields_and_drawing_links_are_classified() {
         [("DATE", 1), ("TIME", 1)]
     );
     assert_eq!(subjects(&report, "pdf_link_scheme_skipped"), [("link", 2)]);
+    assert_eq!(subjects(&report, "pdf_link_target_missing"), [("link", 1)]);
+    assert_eq!(subjects(&report, NOT_YET_DRAWN), [("image", 1)]);
+}
+
+#[test]
+fn text_links_are_drawn_and_picture_links_are_not_yet() {
+    let picture = |link: &str| {
+        para(&run(&format!(
+            r#"<w:drawing><wp:inline><wp:extent cx="1" cy="1"/><wp:docPr id="1" name="P"><a:hlinkClick r:id="{link}"/></wp:docPr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic/></a:graphicData></a:graphic></wp:inline></w:drawing>"#
+        )))
+    };
+    let body = para(
+        &(r#"<w:bookmarkStart w:id="0" w:name="here"/><w:hyperlink r:id="rIdL1">"#.to_string()
+            + &run("<w:t>web</w:t>")
+            + r#"</w:hyperlink><w:hyperlink r:id="rIdL2">"#
+            + &run("<w:t>here</w:t>")
+            + r#"</w:hyperlink><w:hyperlink r:id="rIdL3">"#
+            + &run("<w:t>gone</w:t>")
+            + "</w:hyperlink>"),
+    ) + &picture("rIdL1")
+        + &picture("rIdL2");
+    let report = report(&docx(
+        &body,
+        &[],
+        &[
+            ("rIdL1", "https://example.com/"),
+            ("rIdL2", "#here"),
+            ("rIdL3", "#gone"),
+        ],
+    ));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    assert!(not_drawn.contains(&("link", 1)), "{not_drawn:?}");
-    assert!(not_drawn.contains(&("field", 2)), "{not_drawn:?}");
+    assert!(not_drawn.contains(&("picture link", 2)), "{not_drawn:?}");
+    assert!(
+        !not_drawn.iter().any(|(s, _)| *s == "link"),
+        "{not_drawn:?}"
+    );
+    assert_eq!(subjects(&report, "pdf_link_target_missing"), [("link", 1)]);
 }
 
 #[test]

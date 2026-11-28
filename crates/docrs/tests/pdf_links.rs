@@ -3,13 +3,25 @@
 #[allow(dead_code)]
 #[path = "support/pdf.rs"]
 mod reader;
+mod support;
+#[allow(dead_code)]
+#[path = "support/glyphs.rs"]
+mod text;
 
+use std::path::PathBuf;
 use std::process::Command;
 
-use docrs::layout::Link;
-use docrs::pdf::{Info, LinkId, Navigation, PdfWarning, Rect, linked_document_for_tests};
-use docrs::{ErrorKind, Limits};
+use docrs::clock::Timestamp;
+use docrs::layout::{FontSet, Link};
+use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
+use docrs::pdf::{
+    Info, LinkId, Navigation, PdfOptions, PdfWarning, Rect, linked_document_for_tests,
+    paint_for_tests, render,
+};
+use docrs::{Document, ErrorKind, Limits, Tolerance};
 use reader::{Dict, Pdf, Value, decode_text};
+use support::{RawMember, build_zip};
+use text::{Glyph, glyphs};
 
 const A4: (f64, f64) = (595.2756, 841.8898);
 
@@ -41,7 +53,7 @@ fn anchor(name: &str) -> Link {
     Link::Anchor(name.into())
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Goes {
     Uri(String),
     /// `[page /XYZ null top null]`.
@@ -715,4 +727,450 @@ fn qpdf_check(name: &str, bytes: &[u8]) {
 #[test]
 fn qpdf_accepts_links_and_the_outline() {
     qpdf_check("links.pdf", &write(3, sample()).0);
+}
+
+// Links, bookmarks and headings as the painter places them.
+
+fn fixtures() -> PathBuf {
+    support::repo_root().join("tests/fixtures")
+}
+
+fn font(path: &str) -> Vec<u8> {
+    std::fs::read(fixtures().join("fonts").join(path)).unwrap()
+}
+
+const LIBERATION: &str = "liberation/LiberationSerif-Regular.ttf";
+
+fn fonts() -> FontSet {
+    let mut builder = FontSet::builder();
+    for path in ["inter/Inter[opsz,wght].ttf", LIBERATION] {
+        builder.add(font(path)).unwrap();
+    }
+    builder.build()
+}
+
+fn options() -> PdfOptions {
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    options
+}
+
+/// `source` converted into `reference`, at a fixed time.
+fn markdown(source: &str, reference: &std::path::Path) -> Document {
+    let mut document = Document::open_path_with(reference, &Limits::default(), Tolerance::word())
+        .unwrap()
+        .0;
+    let options = MarkdownOptions {
+        now: Some(Timestamp::from_utc(2026, 11, 28, 9, 0, 0).unwrap()),
+        ..MarkdownOptions::default()
+    };
+    insert_source_with(
+        &mut document,
+        source,
+        InputFormat::Markdown,
+        &options,
+        &fonts(),
+    )
+    .unwrap();
+    document
+}
+
+fn inter(source: &str) -> Document {
+    markdown(source, &fixtures().join("pdf/references/inter.docx"))
+}
+
+/// A Letter document of `body`, with hyperlink relationships `rLink` to
+/// `https://example.com/raw` and `rTop` to `#_top`.
+fn raw(body: &str) -> Document {
+    const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let section = r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#;
+    let document = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{W}" xmlns:r="{R}"><w:body>{body}{section}</w:body></w:document>"#
+    );
+    let types = r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
+    let rels = format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="{R}/hyperlink" Target="https://example.com/raw" TargetMode="External"/><Relationship Id="rTop" Type="{R}/hyperlink" Target="#_top" TargetMode="External"/></Relationships>"##
+    );
+    support::open_bytes(&build_zip(&[
+        RawMember::new("[Content_Types].xml", types.as_bytes()),
+        RawMember::new("_rels/.rels", support::ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+    ]))
+}
+
+/// A run of `text` in 11 pt Liberation Serif.
+fn run(text: &str) -> String {
+    format!(
+        r#"<w:r><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">{text}</w:t></w:r>"#
+    )
+}
+
+fn para(ppr: &str, content: &str) -> String {
+    format!("<w:p><w:pPr>{ppr}</w:pPr>{content}</w:p>")
+}
+
+const PAGE_BREAK: &str = r#"<w:r><w:br w:type="page"/></w:r>"#;
+
+fn pdf_of(document: &Document) -> Vec<u8> {
+    render(document, &options()).unwrap().0
+}
+
+/// The text of the glyphs whose origin is inside `rect` on `page`, in
+/// drawing order, with runs of spaces as one.
+fn text_in(drawn: &[Vec<Glyph>], heights: &[f64], page: usize, rect: [f64; 4]) -> String {
+    let [left, bottom, right, top] = rect;
+    let text: String = drawn[page]
+        .iter()
+        .filter(|g| {
+            let y = heights[page] - g.y;
+            g.x >= left - 0.001 && g.x < right - 0.001 && y > bottom && y < top
+        })
+        .map(|g| g.text.as_str())
+        .collect();
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The text of the line just below `top` (points from the page's bottom),
+/// and where it starts.
+fn line_below(drawn: &[Vec<Glyph>], heights: &[f64], page: usize, top: f64) -> (String, f64) {
+    let baseline = drawn[page]
+        .iter()
+        .map(|g| heights[page] - g.y)
+        .filter(|y| *y < top && *y > top - 30.0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let line = [0.0, baseline - 0.01, f64::INFINITY, baseline + 0.01];
+    let start = drawn[page]
+        .iter()
+        .filter(|g| (heights[page] - g.y - baseline).abs() < 0.01)
+        .map(|g| g.x)
+        .fold(f64::INFINITY, f64::min);
+    (text_in(drawn, heights, page, line), start)
+}
+
+/// Each link's text and where it goes, the parts of a wrapped link joined.
+fn linked_texts(pdf: &Pdf) -> Vec<(String, Goes, usize)> {
+    let drawn = glyphs(pdf);
+    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
+    let mut out: Vec<(String, Goes, usize)> = Vec::new();
+    let mut previous_bottom = f64::NAN;
+    for annot in annots(pdf) {
+        let text = text_in(&drawn, &heights, annot.page, annot.rect);
+        assert!(!text.is_empty(), "{annot:?} covers no text");
+        let continues = out.last().is_some_and(|(_, goes, _)| *goes == annot.goes)
+            && (annot.rect[3] - previous_bottom).abs() < 0.01;
+        previous_bottom = annot.rect[1];
+        match out.last_mut() {
+            Some((joined, _, parts)) if continues => {
+                joined.push(' ');
+                joined.push_str(&text);
+                *parts += 1;
+            }
+            _ => out.push((text, annot.goes, 1)),
+        }
+    }
+    out
+}
+
+fn showcase() -> Document {
+    let source =
+        std::fs::read_to_string(support::repo_root().join("examples/markdown/showcase.md"))
+            .unwrap();
+    markdown(
+        &source,
+        &support::repo_root().join("examples/markdown/reference.docx"),
+    )
+}
+
+/// The headings of a Markdown source outside code blocks: level and text.
+fn markdown_headings(source: &str) -> Vec<(usize, String)> {
+    let mut fenced = false;
+    let mut out = Vec::new();
+    for line in source.lines() {
+        if line.starts_with("```") || line.starts_with("~~~") {
+            fenced = !fenced;
+        }
+        let hashes = line.chars().take_while(|c| *c == '#').count();
+        if fenced || hashes == 0 || !line[hashes..].starts_with(' ') {
+            continue;
+        }
+        let text = line[hashes..].split(" {#").next().unwrap().trim();
+        out.push((hashes, text.to_string()));
+    }
+    out
+}
+
+#[test]
+fn every_showcase_link_lands_on_its_text_and_resolves() {
+    let bytes = paint_for_tests(&showcase(), &fonts(), &font(LIBERATION)).unwrap();
+    qpdf_check("showcase.pdf", &bytes);
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let drawn = glyphs(&pdf);
+    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
+    let links = linked_texts(&pdf);
+    let uri = |uri: &str| Goes::Uri(uri.into());
+    let body: Vec<(&str, &Goes)> = links
+        .iter()
+        .filter(|(_, goes, _)| matches!(goes, Goes::Uri(_)))
+        .map(|(text, goes, _)| (text.as_str(), goes))
+        .collect();
+    assert_eq!(
+        body,
+        [
+            ("example.com", &uri("https://example.com")),
+            (
+                "https://www.rust-lang.org",
+                &uri("https://www.rust-lang.org")
+            ),
+            ("team@example.com", &uri("mailto:team@example.com")),
+            ("links", &uri("https://example.com")),
+        ]
+    );
+    let headings = markdown_headings(
+        &std::fs::read_to_string(support::repo_root().join("examples/markdown/showcase.md"))
+            .unwrap(),
+    );
+    let internal: Vec<(&str, &Goes)> = links
+        .iter()
+        .filter(|(_, goes, _)| matches!(goes, Goes::At(..)))
+        .map(|(text, goes, _)| (text.as_str(), goes))
+        .collect();
+    // The contents entries, one per heading, then the two internal links.
+    assert_eq!(internal.len(), headings.len() + 2, "{internal:?}");
+    let (toc, jumps) = internal.split_at(headings.len());
+    for ((text, goes), (_, heading)) in toc.iter().zip(&headings) {
+        assert!(
+            text.starts_with(heading.as_str()),
+            "{text:?} for {heading:?}"
+        );
+        let Goes::At(page, _, top) = goes else {
+            unreachable!()
+        };
+        assert_eq!(&line_below(&drawn, &heights, *page, *top).0, heading);
+        let number: String = text
+            .chars()
+            .rev()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        let number: String = number.chars().rev().collect();
+        assert_eq!(number, (page + 1).to_string(), "{text:?} shows its page");
+    }
+    assert_eq!(jumps[0].0, "the results section");
+    assert_eq!(jumps[1].0, "a custom anchor");
+    for ((_, goes), heading) in jumps.iter().zip(["Tables", "Overview"]) {
+        let Goes::At(page, left, top) = goes else {
+            unreachable!()
+        };
+        let (text, start) = line_below(&drawn, &heights, *page, *top);
+        assert_eq!(text, heading);
+        assert!((left - (start - 2.16)).abs() < 0.001, "{left} for {start}");
+    }
+}
+
+#[test]
+fn the_showcase_outline_is_its_heading_tree() {
+    let bytes = paint_for_tests(&showcase(), &fonts(), &font(LIBERATION)).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let drawn = glyphs(&pdf);
+    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
+    let items = outline(&pdf);
+    let tree: Vec<(usize, String)> = items
+        .iter()
+        .map(|item| (item.depth + 1, item.title.clone()))
+        .collect();
+    let source =
+        std::fs::read_to_string(support::repo_root().join("examples/markdown/showcase.md"))
+            .unwrap();
+    assert_eq!(tree, markdown_headings(&source));
+    for item in &items {
+        let Goes::Page(page, top) = item.goes else {
+            panic!("{item:?}");
+        };
+        assert_eq!(line_below(&drawn, &heights, page, top).0, item.title);
+    }
+    assert_eq!(
+        pdf.get(pdf.catalog().unwrap(), "PageMode"),
+        &Value::Name("UseOutlines".into())
+    );
+}
+
+#[test]
+fn a_wrapped_link_has_an_annotation_per_line_over_its_whole_text() {
+    let words = "this link has so many words that it cannot possibly fit on the one line \
+                 it starts on, so it wraps onto the next";
+    let source = format!("Before the link [{words}](https://example.com/wrapped) and after it.\n");
+    let bytes = pdf_of(&inter(&source));
+    qpdf_check("wrapped.pdf", &bytes);
+    let pdf = Pdf::parse(&bytes).unwrap();
+    assert_eq!(annots(&pdf).len(), 2);
+    assert_eq!(
+        linked_texts(&pdf),
+        [(
+            words.to_string(),
+            Goes::Uri("https://example.com/wrapped".into()),
+            2
+        )]
+    );
+}
+
+#[test]
+fn a_link_on_a_justified_line_covers_its_widened_spaces() {
+    let filler = "Justified text spreads its spaces so the line meets the right margin, ";
+    let link = r#"<w:hyperlink r:id="rLink">"#.to_string()
+        + &run("a link of several words")
+        + "</w:hyperlink>";
+    let width = |ppr: &str| {
+        let body = para(ppr, &(run(filler) + &link + &run(&filler.repeat(3))));
+        let pdf = Pdf::parse(&pdf_of(&raw(&body))).unwrap();
+        assert_eq!(
+            linked_texts(&pdf),
+            [(
+                "a link of several words".to_string(),
+                Goes::Uri("https://example.com/raw".into()),
+                1
+            )]
+        );
+        let [left, _, right, _] = annots(&pdf)[0].rect;
+        right - left
+    };
+    let (justified, left) = (width(r#"<w:jc w:val="both"/>"#), width(""));
+    assert!(justified > left + 1.0, "{justified} against {left}");
+}
+
+#[test]
+fn contents_fields_jump_to_their_toc_bookmarks() {
+    let field = |name: &str, text: &str| {
+        format!(
+            r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> HYPERLINK \l "{name}" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{}<w:r><w:fldChar w:fldCharType="end"/></w:r>"#,
+            run(text)
+        )
+    };
+    let heading = |name: &str, level: u8, text: &str| {
+        para(
+            &format!(r#"<w:outlineLvl w:val="{level}"/>"#),
+            &format!(
+                r#"<w:bookmarkStart w:id="0" w:name="{name}"/>{}<w:bookmarkEnd w:id="0"/>"#,
+                run(text)
+            ),
+        )
+    };
+    let body = [
+        para("", &field("_Toc101", "Start")),
+        para(
+            "",
+            &format!(
+                r#"<w:hyperlink w:anchor="_Toc102">{}</w:hyperlink>"#,
+                run("Later")
+            ),
+        ),
+        para("", PAGE_BREAK),
+        heading("_Toc101", 0, "Start"),
+        para("", PAGE_BREAK),
+        heading("_Toc102", 1, "Later"),
+    ]
+    .concat();
+    let bytes = pdf_of(&raw(&body));
+    qpdf_check("contents.pdf", &bytes);
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let goes: Vec<(String, Goes)> = linked_texts(&pdf)
+        .into_iter()
+        .map(|(text, goes, _)| (text, goes))
+        .collect();
+    assert_eq!(
+        goes,
+        [
+            ("Start".to_string(), Goes::At(1, 69.84, 720.0)),
+            ("Later".to_string(), Goes::At(2, 69.84, 720.0)),
+        ]
+    );
+    let tree: Vec<(usize, String, Goes)> = outline(&pdf)
+        .into_iter()
+        .map(|item| (item.depth, item.title, item.goes))
+        .collect();
+    assert_eq!(
+        tree,
+        [
+            (0, "Start".to_string(), Goes::Page(1, 720.0)),
+            (1, "Later".to_string(), Goes::Page(2, 720.0)),
+        ]
+    );
+}
+
+#[test]
+fn top_goes_to_page_one_and_a_missing_bookmark_warns_with_no_link() {
+    let link = |anchor: &str, text: &str| {
+        format!(
+            r#"<w:hyperlink w:anchor="{anchor}">{}</w:hyperlink>"#,
+            run(text)
+        )
+    };
+    let body = [
+        para("", PAGE_BREAK),
+        para(
+            "",
+            &(link("_top", "Back to the top") + &link("nowhere", " and away")),
+        ),
+        para("", &run("Between them.")),
+        para(
+            "",
+            &format!(
+                r#"<w:hyperlink r:id="rTop">{}</w:hyperlink>"#,
+                run("Top again")
+            ),
+        ),
+    ]
+    .concat();
+    let (bytes, report) = render(&raw(&body), &options()).unwrap();
+    qpdf_check("top.pdf", &bytes);
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let goes: Vec<(String, Goes)> = linked_texts(&pdf)
+        .into_iter()
+        .map(|(text, goes, _)| (text, goes))
+        .collect();
+    let top = Goes::At(0, 69.84, 720.0);
+    assert_eq!(
+        goes,
+        [
+            ("Back to the top".to_string(), top.clone()),
+            ("Top again".to_string(), top),
+        ]
+    );
+    let missing: Vec<(&str, usize)> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "pdf_link_target_missing")
+        .map(|w| (w.code, w.count))
+        .collect();
+    assert_eq!(missing, [("pdf_link_target_missing", 1)]);
+}
+
+#[test]
+fn links_and_the_outline_can_be_left_out() {
+    let source = "# Heading\n\nA [link](https://example.com) and [a jump](#heading).\n";
+    let document = inter(source);
+    let catalog = |options: &PdfOptions| {
+        let bytes = render(&document, options).unwrap().0;
+        let pdf = Pdf::parse(&bytes).unwrap();
+        let mut keys: Vec<String> = pdf.catalog().unwrap().keys().cloned().collect();
+        keys.retain(|key| ["Names", "Outlines", "PageMode"].contains(&key.as_str()));
+        (keys, annots(&pdf).len())
+    };
+    let mut options = options();
+    assert_eq!(
+        catalog(&options),
+        (
+            vec!["Names".into(), "Outlines".into(), "PageMode".into()],
+            2
+        )
+    );
+    options.links = false;
+    assert_eq!(
+        catalog(&options),
+        (vec!["Outlines".into(), "PageMode".into()], 0)
+    );
+    options.outline = false;
+    assert_eq!(catalog(&options), (vec![], 0));
+    options.links = true;
+    assert_eq!(catalog(&options), (vec!["Names".into()], 2));
 }

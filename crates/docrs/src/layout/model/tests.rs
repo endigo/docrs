@@ -677,3 +677,49 @@ fn cells_past_the_grid_s_last_column_follow_the_cell_before() {
     let expected: Vec<f64> = (0..70).map(|i| f64::from(i) * 10.0).collect();
     assert_eq!(lefts, expected);
 }
+
+#[test]
+fn outline_levels_follow_the_style_chain_and_built_in_heading_names() {
+    let styles = concat!(
+        r#"<w:style w:type="paragraph" w:styleId="H1"><w:name w:val="heading 1"/></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Chapter"><w:name w:val="Chapter"/><w:basedOn w:val="H1"/></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Toc"><w:name w:val="TOC Heading"/><w:basedOn w:val="H1"/><w:pPr><w:outlineLvl w:val="9"/></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Deep"><w:name w:val="Heading 9"/><w:pPr><w:outlineLvl w:val="2"/></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Odd"><w:name w:val="heading 10"/></w:style>"#,
+    );
+    let para = |style: &str, direct: &str| {
+        format!(r#"<w:p><w:pPr><w:pStyle w:val="{style}"/>{direct}</w:pPr></w:p>"#)
+    };
+    let body = [
+        para("H1", ""),
+        para("Chapter", ""),
+        para("Toc", ""),
+        para("Deep", ""),
+        para("Odd", ""),
+        para("Odd", r#"<w:outlineLvl w:val="4"/>"#),
+        para("H1", r#"<w:outlineLvl w:val="9"/>"#),
+    ]
+    .concat();
+    let model = model(&body, styles);
+    let levels: Vec<Option<u8>> = paras(&model.blocks).iter().map(|p| p.outline).collect();
+    assert_eq!(
+        levels,
+        [Some(0), Some(0), None, Some(2), None, Some(4), None]
+    );
+}
+
+#[test]
+fn bookmarks_keep_the_piece_they_stand_before() {
+    let body = concat!(
+        r#"<w:p><w:bookmarkStart w:id="0" w:name="start"/><w:r><w:t>ab</w:t></w:r>"#,
+        r#"<w:bookmarkStart w:id="1" w:name="middle"/><w:r><w:t>c</w:t></w:r>"#,
+        r#"<w:bookmarkStart w:id="2" w:name="end"/></w:p>"#,
+    );
+    let model = model(body, "");
+    let marks: Vec<(&str, u32)> = paras(&model.blocks)[0]
+        .bookmarks
+        .iter()
+        .map(|b| (b.name.as_str(), b.piece))
+        .collect();
+    assert_eq!(marks, [("start", 0), ("middle", 2), ("end", 3)]);
+}

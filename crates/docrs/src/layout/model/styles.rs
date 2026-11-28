@@ -121,7 +121,7 @@ impl Styles {
             }
             let tbl_ppr = w_child(tree, style, "tblPr");
             let mut whole = PartLook {
-                ppr: read_ppr(tree, w_child(tree, style, "pPr"), palette),
+                ppr: style_ppr(tree, style, palette),
                 rpr: read_rpr(tree, w_child(tree, style, "rPr"), palette),
                 cell: read_cell_props(tree, w_child(tree, style, "tcPr"), palette),
             };
@@ -314,4 +314,26 @@ impl Styles {
         }
         (margins, borders)
     }
+}
+
+/// A style's own paragraph properties. Word gives its built-in headings
+/// their outline level even when the style does not state it.
+fn style_ppr(tree: &XmlTree, style: NodeId, palette: &Palette) -> PPr {
+    let mut ppr = read_ppr(tree, w_child(tree, style, "pPr"), palette);
+    if ppr.outline.is_none() {
+        ppr.outline = w_child(tree, style, "name")
+            .and_then(|name| w_attr(tree, name, "val"))
+            .and_then(heading_level);
+    }
+    ppr
+}
+
+/// The outline level of built-in style `heading 1` to `heading 9`.
+fn heading_level(name: &str) -> Option<u8> {
+    let level: u8 = name
+        .to_ascii_lowercase()
+        .strip_prefix("heading ")?
+        .parse()
+        .ok()?;
+    (1..=9).contains(&level).then(|| level - 1)
 }

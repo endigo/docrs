@@ -19,6 +19,7 @@ mod limits;
 mod meta;
 mod nav;
 mod paint;
+mod places;
 mod preflight;
 mod symbols;
 mod writer;
@@ -335,7 +336,7 @@ pub struct UsedFont {
 }
 
 /// How to export.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PdfOptions {
     /// Font programs for the families the document does not embed.
@@ -346,6 +347,24 @@ pub struct PdfOptions {
     /// layout measured it (`pdf_font_not_embedded`), instead of refusing.
     pub allow_unembedded: bool,
     pub limits: PdfLimits,
+    /// Bookmarks of the headings (on by default).
+    pub outline: bool,
+    /// Hyperlinks, and the destinations of the document's bookmarks (on by
+    /// default).
+    pub links: bool,
+}
+
+impl Default for PdfOptions {
+    fn default() -> Self {
+        PdfOptions {
+            fonts: FontSet::default(),
+            strict: false,
+            allow_unembedded: false,
+            limits: PdfLimits::default(),
+            outline: true,
+            links: true,
+        }
+    }
 }
 
 const PRODUCER: &str = concat!("docrs ", env!("CARGO_PKG_VERSION"));
@@ -391,7 +410,8 @@ fn paint(
     report.fonts = fonts;
     report.check(options.strict)?;
     let limits = &options.limits;
-    let mut painter = paint::Painter::new(model, &txn, &mut chain, limits, stand_in)?;
+    let places = places::Places::new(options.links, options.outline);
+    let mut painter = paint::Painter::new(model, &txn, &mut chain, limits, places, stand_in)?;
     settled.paginate(&mut painter)?;
     painter.close_page()?;
     let pages = painter.pages.len() as u32;
@@ -411,7 +431,7 @@ fn paint(
         writer,
         &sizes,
         Dict::new().with("Font", fonts),
-        nav::Navigation::default(),
+        painter.places.navigation,
         &info,
         PRODUCER,
     )?;

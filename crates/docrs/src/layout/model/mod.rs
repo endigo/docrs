@@ -339,7 +339,14 @@ pub struct Para {
     pub label: Option<Label>,
     /// The paragraph mark's metric (empty paragraphs, the last line).
     pub mark: u32,
-    pub bookmarks: Vec<String>,
+    pub bookmarks: Vec<Bookmark>,
+    /// `w:outlineLvl` through the style chain, 0 the top; body text is
+    /// `None`.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub outline: Option<u8>,
     /// Fields layout computes, in order, none inside another.
     pub fields: Vec<FieldSpan>,
     pub equations: Vec<Equation>,
@@ -349,6 +356,17 @@ pub struct Para {
     pub shade: Option<Rgb>,
     /// `None` when it has none.
     pub borders: Option<Box<ParaBorders>>,
+}
+
+/// A `w:bookmarkStart` in a paragraph, before its piece `piece`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bookmark {
+    pub name: String,
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub piece: u32,
 }
 
 #[derive(Debug, Clone, Default)]

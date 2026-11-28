@@ -53,7 +53,12 @@ pub(crate) struct PPr {
     pub(crate) rotated: Option<bool>,
     /// `w:mirrorIndents`, read for the PDF preflight only.
     pub(crate) mirror: Option<bool>,
+    /// `w:outlineLvl`: 0 to 8, or [`BODY_TEXT`].
+    pub(super) outline: Option<u8>,
 }
+
+/// The outline level of body text.
+pub(super) const BODY_TEXT: u8 = 9;
 
 impl PPr {
     pub(super) fn merge(&mut self, other: &PPr) {
@@ -82,7 +87,8 @@ impl PPr {
             frame,
             bidi,
             rotated,
-            mirror
+            mirror,
+            outline
         );
         merge_sides(&mut self.borders, &other.borders);
         for tab in &other.tabs {
@@ -298,6 +304,11 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -
                 }
             }
             "keepNext" => out.keep_next = Some(on_off(tree, child)),
+            "outlineLvl" => {
+                out.outline = w_attr(tree, child, "val")
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .map(|level| level.min(BODY_TEXT));
+            }
             "keepLines" => out.keep_lines = Some(on_off(tree, child)),
             "pageBreakBefore" => out.page_break_before = Some(on_off(tree, child)),
             "widowControl" => out.widow_control = Some(on_off(tree, child)),
