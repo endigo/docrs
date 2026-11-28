@@ -8,7 +8,7 @@ use super::decorate::{self, Span};
 use super::font::{Cid, FaceRef, FontResources};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
-use crate::layout::flow::{Line, PageStart, Point, Sink};
+use crate::layout::flow::{Line, PageStart, ParaBox, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
 use crate::layout::mark_characters;
 use crate::layout::model::{Appearance, Block, Model, NoteId, Para, Piece, Rgb, TabKind};
@@ -39,6 +39,8 @@ pub(super) struct Painter<'m, 't> {
     programs: HashMap<usize, Arc<[u8]>>,
     pub pages: Vec<Page>,
     page: Option<(f64, f64)>,
+    /// Drawn first, behind the page's text.
+    fills: Vec<u8>,
     content: Vec<u8>,
     state: TextState,
     max_pages: u32,
@@ -115,6 +117,7 @@ impl<'m, 't> Painter<'m, 't> {
             programs: HashMap::new(),
             pages: Vec::new(),
             page: None,
+            fills: Vec::new(),
             content: Vec::new(),
             state: PAGE_START,
             max_pages: limits.max_pages,
@@ -130,9 +133,10 @@ impl<'m, 't> Painter<'m, 't> {
         let Some(size) = self.page.take() else {
             return Ok(());
         };
-        let contents = super::page_content(&mut self.writer, &self.content)?;
-        self.drawn += self.content.len() as u64;
-        self.content.clear();
+        let mut stream = std::mem::take(&mut self.fills);
+        stream.append(&mut self.content);
+        let contents = super::page_content(&mut self.writer, &stream)?;
+        self.drawn += stream.len() as u64;
         self.pages.push(Page { size, contents });
         Ok(())
     }
@@ -272,6 +276,14 @@ impl<'m, 't> Painter<'m, 't> {
                 out.push(b' ');
             }
             out.extend_from_slice(b"S Q\n");
+        }
+        Ok(())
+    }
+
+    fn check_drawn(&self) -> Result<()> {
+        let drawn = self.drawn + (self.fills.len() + self.content.len()) as u64;
+        if drawn > self.max_drawn {
+            return Err(Error::limit("max_pdf_content_bytes", self.max_drawn, drawn));
         }
         Ok(())
     }
@@ -501,11 +513,14 @@ impl Sink for Painter<'_, '_> {
         }
         decorate::decorations(&mut self.content, &spans, height - baseline, para.shade)?;
         self.bars(at, para, line)?;
-        let drawn = self.drawn + self.content.len() as u64;
-        if drawn > self.max_drawn {
-            return Err(Error::limit("max_pdf_content_bytes", self.max_drawn, drawn));
-        }
-        Ok(())
+        self.check_drawn()
+    }
+
+    fn para_box(&mut self, boxed: &ParaBox) -> Result<()> {
+        let height = self.page_height()?;
+        super::boxes::fill(&mut self.fills, boxed, height)?;
+        super::boxes::lines(&mut self.content, boxed, height)?;
+        self.check_drawn()
     }
 }
 

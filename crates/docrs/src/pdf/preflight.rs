@@ -50,6 +50,7 @@ const FIELD: &str = "pdf_field_cached";
 const LINK: &str = "pdf_link_scheme_skipped";
 const LINK_TARGET: &str = "pdf_link_target_missing";
 const JUSTIFY: &str = "pdf_justification_unsupported";
+const APPROXIMATED: &str = "pdf_decoration_approximated";
 
 const RTL: &str = "right-to-left text";
 
@@ -488,11 +489,11 @@ impl<'s, 'd> Scan<'s, 'd> {
         if ppr.num.as_ref().is_some_and(|(id, _)| id != "0") {
             self.note(NOT_YET_DRAWN, "list");
         }
-        if ppr.bordered() {
+        if ppr.barred() {
             self.note(NOT_YET_DRAWN, "border");
         }
-        if ppr.shaded == Some(true) {
-            self.note(NOT_YET_DRAWN, "shading");
+        if ppr.border_approximated() {
+            self.note(APPROXIMATED, "paragraph border");
         }
         match ppr.frame {
             Some(Frame::DropCap) => self.note(LAYOUT, "drop caps"),

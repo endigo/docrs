@@ -10,6 +10,7 @@
 
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
 
+mod boxes;
 mod decorate;
 mod font;
 mod image;
@@ -115,6 +116,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_field_cached",
         "a date or time field shows the value saved in the document, not the current one",
+    ),
+    (
+        "pdf_decoration_approximated",
+        "a border style the PDF does not draw is drawn as a single line",
     ),
     (
         "pdf_justification_unsupported",

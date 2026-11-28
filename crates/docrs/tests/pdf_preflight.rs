@@ -208,6 +208,23 @@ fn cases() -> Vec<Case> {
             ),
         ),
         case(
+            "pdf_decoration_approximated",
+            "paragraph border",
+            2,
+            docx(
+                &["wave", "threeDEmboss", "single"]
+                    .map(|style| {
+                        para(&format!(
+                            r#"<w:pPr><w:pBdr><w:left w:val="{style}" w:sz="4"/></w:pBdr></w:pPr>{}"#,
+                            run("<w:t>boxed</w:t>")
+                        ))
+                    })
+                    .concat(),
+                &[],
+                &[],
+            ),
+        ),
+        case(
             "pdf_chart_skipped",
             "chart",
             1,
@@ -767,7 +784,7 @@ fn subjects(report: &PdfReport, code: &str) -> Vec<(&'static str, usize)> {
 fn styled(body: &str) -> Document {
     let styles = concat!(
         r#"<w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>"#,
-        r#"<w:style w:type="paragraph" w:styleId="Base"><w:pPr><w:pBdr><w:top w:val="single" w:sz="4"/></w:pBdr></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Base"><w:pPr><w:pBdr><w:top w:val="wave" w:sz="4"/></w:pBdr></w:pPr></w:style>"#,
         r#"<w:style w:type="paragraph" w:styleId="Fancy"><w:basedOn w:val="Base"/><w:pPr><w:pageBreakBefore/><w:numPr><w:numId w:val="1"/></w:numPr><w:shd w:val="clear" w:fill="EEEEEE"/><w:framePr w:dropCap="drop" w:lines="3"/><w:bidi/></w:pPr></w:style>"#,
         r#"<w:style w:type="paragraph" w:styleId="Plain"><w:basedOn w:val="Base"/><w:pPr><w:pBdr><w:top w:val="none"/></w:pBdr></w:pPr></w:style>"#,
         r#"<w:style w:type="character" w:styleId="Mark"><w:rPr><w:rtl/><w:highlight w:val="yellow"/></w:rPr></w:style>"#,
@@ -806,9 +823,13 @@ fn constructs_set_through_styles_are_reported() {
         + "</w:tc></w:tr></w:tbl>";
     let report = report(&styled(&body));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    for expected in [("border", 2), ("shading", 2), ("table", 1)] {
+    for expected in [("border", 1), ("shading", 1), ("table", 1)] {
         assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
     }
+    assert_eq!(
+        subjects(&report, "pdf_decoration_approximated"),
+        [("paragraph border", 1)]
+    );
     assert_eq!(
         subjects(&report, "pdf_layout_feature_ignored"),
         [("drop caps", 1), ("floating tables", 1)]
@@ -832,26 +853,24 @@ fn the_converters_own_styles_are_reported() {
             .iter()
             .any(|w| w.code == NOT_YET_DRAWN && w.subject == subject)
     };
-    let code = convert("```\nlet x = 1;\n```\n");
-    assert!(
-        has(&code, "shading"),
-        "{:?}",
-        subjects(&code, NOT_YET_DRAWN)
-    );
     let table = convert("| A | B |\n| - | - |\n| 1 | 2 |\n");
     assert!(
         has(&table, "border"),
         "{:?}",
         subjects(&table, NOT_YET_DRAWN)
     );
-    let rule = convert("Above\n\n---\n\nBelow\n");
-    assert!(has(&rule, "border"), "{:?}", subjects(&rule, NOT_YET_DRAWN));
-    let quote = convert("> Quoted\n");
-    assert!(
-        quote.warnings.iter().all(|w| w.code == NOT_YET_DRAWN),
-        "{:?}",
-        quote.warnings
-    );
+    for drawn in [
+        "```\nlet x = 1;\n```\n",
+        "Above\n\n---\n\nBelow\n",
+        "> Quoted\n",
+    ] {
+        let report = convert(drawn);
+        assert!(
+            report.warnings.is_empty(),
+            "{drawn:?}: {:?}",
+            report.warnings
+        );
+    }
 }
 
 #[test]
@@ -1076,7 +1095,7 @@ fn scripts_that_need_shaping_are_flagged() {
 #[test]
 fn a_style_border_survives_another_edge_cleared() {
     let styles = concat!(
-        r#"<w:style w:type="paragraph" w:styleId="Ruled"><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4"/></w:pBdr></w:pPr></w:style>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Ruled"><w:pPr><w:pBdr><w:bottom w:val="wave" w:sz="4"/></w:pBdr></w:pPr></w:style>"#,
         r#"<w:style w:type="paragraph" w:styleId="RuledChild"><w:basedOn w:val="Ruled"/><w:pPr><w:pBdr><w:top w:val="nil"/></w:pBdr></w:pPr></w:style>"#,
         r#"<w:style w:type="paragraph" w:styleId="Unruled"><w:basedOn w:val="Ruled"/><w:pPr><w:pBdr><w:bottom w:val="nil"/></w:pBdr></w:pPr></w:style>"#,
     );
@@ -1091,10 +1110,9 @@ fn a_style_border_survives_another_edge_cleared() {
         &[],
     );
     let found = report(&document);
-    assert!(
-        subjects(&found, NOT_YET_DRAWN).contains(&("border", 3)),
-        "{:?}",
-        subjects(&found, NOT_YET_DRAWN)
+    assert_eq!(
+        subjects(&found, "pdf_decoration_approximated"),
+        [("paragraph border", 3)]
     );
 }
 
@@ -1145,7 +1163,7 @@ fn row_shading_vml_links_and_computed_hyperlinks_are_checked() {
 }
 
 #[test]
-fn between_and_bar_borders_are_reported() {
+fn a_bar_border_is_reported_and_between_is_drawn() {
     let bordered = |edge: &str| {
         para(&format!(
             r#"<w:pPr><w:pBdr><w:{edge} w:val="single" w:sz="4"/></w:pBdr></w:pPr>{}"#,
@@ -1154,7 +1172,7 @@ fn between_and_bar_borders_are_reported() {
     };
     let found = report(&docx(&(bordered("between") + &bordered("bar")), &[], &[]));
     assert!(
-        subjects(&found, NOT_YET_DRAWN).contains(&("border", 2)),
+        subjects(&found, NOT_YET_DRAWN).contains(&("border", 1)),
         "{:?}",
         subjects(&found, NOT_YET_DRAWN)
     );
