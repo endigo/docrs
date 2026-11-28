@@ -325,6 +325,10 @@ enum Command {
         /// Refuse when the PDF would not show the document faithfully.
         #[arg(long)]
         strict: bool,
+        /// Reference a font with no program to embed by name instead of
+        /// refusing; viewers without it substitute another.
+        #[arg(long)]
+        allow_unembedded: bool,
         #[command(flatten)]
         fonts: FontArgs,
     },
@@ -351,6 +355,15 @@ struct FontArgs {
     /// skipped and listed in `fonts_skipped`.
     #[arg(long = "font-dir", value_name = "DIR")]
     font_dirs: Vec<std::path::PathBuf>,
+    /// Lay out and draw a family of KIND (serif, sans or mono) that no font
+    /// provides in FAMILY, one of the fonts given, and draw in it what a
+    /// font lacks (repeatable). A PDF reports it.
+    #[arg(long = "fallback", value_name = "KIND=FAMILY")]
+    fallbacks: Vec<String>,
+    /// Lay out Arial, Times New Roman and Courier New in the Liberation
+    /// fonts given, whose advances equal theirs.
+    #[arg(long)]
+    metric_aliases: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -391,6 +404,10 @@ struct ConvertArgs {
     /// with --format pdf, drawn) faithfully.
     #[arg(long)]
     strict: bool,
+    /// With --format pdf, reference a font with no program to embed by
+    /// name instead of refusing.
+    #[arg(long)]
+    allow_unembedded: bool,
     /// Directory relative image paths resolve against (default: the source file's).
     #[arg(long)]
     resource_path: Option<std::path::PathBuf>,

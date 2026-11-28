@@ -107,6 +107,8 @@
 - `layout --lines` also prints each part of a table row on a page, as an object with `row` (its index in its table), `page`, `story`, `x`, `y`, `width`, `height`, `first` and `last` (the row starts and ends on this page), `repeat` (a header row repeated on a later page) and `cells` (each one's `x`, `width`, and the content offsets `from` and `to` shown on this page) (experimental).
 - `layout --lines` gives each line and row part its page's size, `page_width` and `page_height` in points: a landscape section's pages read 792 by 612 on Letter paper.
 - `layout --lines` row parts give each cell's `fill` and the row's `edges`: each border line after conflicts, above, below and beside its cells, with its `from` and `to` points, `style`, `width` and `colour`. Where a page break cuts a row, the page before draws the table's bottom border at the cut and the page after its top border, across a vertical merge too, as Word does.
+- `docrs pdf`, and the convert commands with `--format pdf`, take `--allow-unembedded`. `--fallback KIND=FAMILY` (`serif`, `sans` or `mono`; repeatable) and `--metric-aliases` join `--font` and `--font-dir`; a bad `--fallback` exits 2 (`fallback_invalid`).
+- `docrs fonts` shows the name Word for Mac gives a variable font (`word_family` in JSON).
 
 ## 1.0.1 (2026-11-23)
 

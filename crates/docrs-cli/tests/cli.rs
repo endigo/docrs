@@ -1008,7 +1008,7 @@ fn fonts_lists_faces_and_the_directory_files_it_skips() {
     assert_eq!(files.len(), 1);
     assert_eq!(
         files[0]["faces"],
-        serde_json::json!([{"family": "Inter", "bold": false, "italic": false, "style": "regular", "variable": true, "cff": false, "embeddable": true, "subsettable": true}])
+        serde_json::json!([{"family": "Inter", "bold": false, "italic": false, "style": "regular", "variable": true, "word_family": null, "cff": false, "embeddable": true, "subsettable": true}])
     );
     assert_eq!(
         skipped(&report, "skipped"),
@@ -1153,6 +1153,54 @@ fn pdf_writes_the_document_with_the_fonts_given() {
 
     let output = bin().arg("pdf").arg(&docx).output().unwrap();
     assert_eq!(output.status.code(), Some(2), "--out or --preflight");
+}
+
+#[test]
+fn pdf_falls_back_and_references_fonts_by_name_when_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let docx = inter_memo(dir.path());
+    let pdf = dir.path().join("memo.pdf");
+    let run = |args: &[&str]| {
+        bin()
+            .args(["--json", "pdf"])
+            .arg(&docx)
+            .arg("--out")
+            .arg(&pdf)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let serif = repo("tests/fixtures/fonts/liberation/LiberationSerif-Regular.ttf");
+    let serif = serif.to_str().unwrap();
+    let output = run(&["--font", serif, "--fallback", "serif=Liberation Serif"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let report = json_of(&output);
+    assert_eq!(report["pdf"]["warnings"][0]["code"], "pdf_font_substituted");
+    let fonts = report["pdf"]["fonts"].as_array().unwrap();
+    assert!(
+        fonts.iter().any(|f| f["requested_family"] == "Inter"
+            && f["selected_family"] == "Liberation Serif"
+            && f["source"] == "fallback"),
+        "{report}"
+    );
+    let output = run(&[
+        "--font",
+        serif,
+        "--fallback",
+        "serif=Liberation Serif",
+        "--strict",
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(json_of(&output)["error"]["reason"], "pdf_not_faithful");
+    let output = run(&["--allow-unembedded"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        json_of(&output)["pdf"]["warnings"][0]["code"],
+        "pdf_font_not_embedded"
+    );
+    let output = run(&["--fallback", "cursive=Inter"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(json_of(&output)["error"]["reason"], "fallback_invalid");
 }
 
 #[test]
