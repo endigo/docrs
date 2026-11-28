@@ -239,6 +239,23 @@ pub struct Border {
     pub colour: Colour,
 }
 
+impl Border {
+    /// The lines and the gaps between them: Word sets each `width` wide.
+    pub(crate) fn thickness(&self) -> f64 {
+        let lines = match self.style {
+            BorderStyle::Double => 3.0,
+            BorderStyle::Triple => 5.0,
+            _ => 1.0,
+        };
+        self.width * lines
+    }
+
+    /// The room the border takes beside the text: its thickness and space.
+    pub(crate) fn extent(&self) -> f64 {
+        self.thickness() + self.space
+    }
+}
+
 /// `ST_Border` line styles; the picture borders are `Art`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderStyle {
@@ -271,6 +288,23 @@ pub enum BorderStyle {
 }
 
 impl BorderStyle {
+    /// Drawn as the style says; the PDF draws any other as a single line.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn drawn(self) -> bool {
+        matches!(
+            self,
+            BorderStyle::Single
+                | BorderStyle::Thick
+                | BorderStyle::Double
+                | BorderStyle::Triple
+                | BorderStyle::Dotted
+                | BorderStyle::Dashed
+                | BorderStyle::DashSmallGap
+                | BorderStyle::DotDash
+                | BorderStyle::DotDotDash
+        )
+    }
+
     const NAMES: [(&str, BorderStyle); 25] = [
         ("single", BorderStyle::Single),
         ("thick", BorderStyle::Thick),

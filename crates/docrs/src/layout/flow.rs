@@ -7,12 +7,17 @@
 //! object. Pages fill top to bottom with the
 //! paragraph spacing, page breaks, keep-with-next, keep-lines and
 //! widow/orphan control; table rows are as tall as their tallest cell and
-//! split across pages between lines.
+//! split across pages between lines. Paragraph borders take room above and
+//! below the text (see [`boxes`]).
 
+mod boxes;
 mod notes;
 mod split;
 
 use std::ops::Range;
+
+use boxes::Joins;
+pub(crate) use boxes::ParaBox;
 
 use super::fields::Values;
 use super::furniture::{Furniture, PageAt, Pages};
@@ -724,8 +729,7 @@ impl Para {
 }
 
 /// The gap between `previous` and `para`: Word takes the larger of the
-/// previous paragraph's space after and this one's space before, after
-/// contextual spacing removed either between paragraphs of one style.
+/// previous paragraph's space after and this one's space before.
 fn gap(previous: Option<&Para>, para: &Para) -> f64 {
     previous.map_or(para.before_spacing(), |previous| {
         let (after, before) = spacing(previous, para);
@@ -743,7 +747,8 @@ fn space_after_break(previous: Option<&Para>, para: &Para) -> f64 {
     })
 }
 
-/// The space after `previous` and before `para` where they meet.
+/// `previous`'s space after and `para`'s space before, after contextual
+/// spacing removed either between paragraphs of one style.
 fn spacing(previous: &Para, para: &Para) -> (f64, f64) {
     let same = previous.style == para.style;
     // Automatic (HTML) spacing is not added between list items.
@@ -850,15 +855,16 @@ fn cell_layout<'m>(
     };
     let mut y = 0.0;
     let mut previous: Option<&Para> = None;
-    let mut first = true;
-    for block in blocks {
+    for (index, block) in blocks.iter().enumerate() {
         match block {
             Block::Para(para) => {
-                y += if first && cell && para.before_auto {
+                y += if index == 0 && cell && para.before_auto {
                     0.0
                 } else {
                     gap(previous, para)
                 };
+                let (lead, tail) = Joins::of(blocks, index).extents(para);
+                y += lead;
                 out.paras.push(ParaOffset {
                     node: para.node,
                     offset: y,
@@ -887,6 +893,7 @@ fn cell_layout<'m>(
                     });
                     y += height;
                 }
+                y += tail;
                 previous = Some(para);
             }
             Block::Table(table) => {
@@ -944,7 +951,6 @@ fn cell_layout<'m>(
                 previous = None;
             }
         }
-        first = false;
     }
     if let Some(last) = previous {
         // A cell's last paragraph keeps no automatic spacing, nor any
@@ -1133,6 +1139,12 @@ pub(crate) trait Sink {
     fn note_unplaced(&mut self, _note: NoteId) -> Result<()> {
         Ok(())
     }
+
+    /// A body paragraph's borders and shading on the current page, after
+    /// its lines.
+    fn para_box(&mut self, _boxed: &ParaBox) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Sink for Vec<Placed> {
@@ -1186,6 +1198,7 @@ enum HeldItem<'m> {
     Line(Point, &'m Para, Line),
     Row(Point, &'m Table, usize, RowSlice),
     Placed(Placed),
+    Box(ParaBox),
 }
 
 struct Flow<'m, 's, S: Sink> {
@@ -1211,6 +1224,9 @@ struct Flow<'m, 's, S: Sink> {
     held: Option<Held<'m>>,
     previous: Option<&'m Para>,
     last: Option<(u32, f64)>,
+    /// The last paragraph's box, until what follows it shows how far its
+    /// lines and fill reach; and whether the next paragraph joins it.
+    open_box: Option<(ParaBox, bool)>,
     work: u64,
     budget: u64,
     notes: notes::Notes<'m>,
@@ -1302,9 +1318,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
     }
 
-    /// The page's body, moved down when centred or bottom-aligned, then its
-    /// notes, which do not move.
+    /// The page's last box, its body, moved down when centred or
+    /// bottom-aligned, then its notes, which do not move.
     fn close_page(&mut self) -> Result<()> {
+        self.close_box(0.0, 0.0, None)?;
         self.release_held()?;
         self.finish_notes()
     }
@@ -1337,9 +1354,27 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     y: placed.y + shift,
                     ..placed
                 })?,
+                HeldItem::Box(boxed) => self.sink.para_box(&boxed.moved_down(shift))?,
             }
         }
         Ok(())
+    }
+
+    /// Emit the open box; `next` follows it on this page `gap` below, of
+    /// which `after` is the boxed paragraph's space after.
+    fn close_box(&mut self, after: f64, gap: f64, next: Option<&Para>) -> Result<()> {
+        let Some((mut boxed, joined)) = self.open_box.take() else {
+            return Ok(());
+        };
+        boxed.reach_down(after, gap, next.filter(|_| joined));
+        if !self.notes.area.is_empty() {
+            // Above the footnote area, which the body's bottom now ends at.
+            boxed.end_by(self.bottom);
+        }
+        if self.hold(|| HeldItem::Box(boxed)) {
+            return Ok(());
+        }
+        self.sink.para_box(&boxed)
     }
 
     fn body_height(&self) -> f64 {
@@ -1515,18 +1550,28 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
     }
 
-    fn place_para(&mut self, para: &'m Para) -> Result<()> {
+    fn place_para(&mut self, para: &'m Para, joins: Joins) -> Result<()> {
         let lines = self.lines(para)?;
-        if para.page_break_before && !self.at_top {
+        let gap = if para.page_break_before && !self.at_top {
             let previous = self.previous;
             self.new_page()?;
             if self.model.page_break_keeps_space {
-                self.y += space_after_break(previous, para);
+                space_after_break(previous, para)
+            } else {
+                0.0
             }
         } else {
-            self.y += self.space_above(para);
-        }
-        let total: f64 = lines.iter().map(|l| l.height).sum::<f64>()
+            self.space_above(para)
+        };
+        let after = self
+            .previous
+            .map_or(0.0, |previous| spacing(previous, para).0)
+            .min(gap);
+        // The previous paragraph's share of the gap, and the gap.
+        let mut above = (after, gap);
+        self.y += gap;
+        let (lead, tail) = joins.extents(para);
+        let total: f64 = lead + lines.iter().map(|l| l.height).sum::<f64>()
             - lines.last().map_or(0.0, |l| l.height - l.fit);
         if para.keep_lines
             && !self.at_top
@@ -1535,12 +1580,14 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             && !lines.iter().any(|l| l.page_break)
         {
             self.new_page()?;
+            above = (0.0, 0.0);
         }
         let mut first = true;
         let mut index = 0;
         while index < lines.len() {
+            let lead = if first { lead } else { 0.0 };
             let mut fit = 0;
-            let mut y = self.y;
+            let mut y = self.y + lead;
             let mut area = self.notes.area.clone();
             for line in &lines[index..] {
                 if !self.admit_line(&mut area, para, line, y + line.fit)? {
@@ -1567,9 +1614,13 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     fit = 1;
                 } else {
                     self.new_page()?;
+                    above = (0.0, 0.0);
                     continue;
                 }
             }
+            let top = self.y;
+            self.y += lead;
+            let opening = first;
             if first {
                 // Word reports an empty section-break paragraph where the
                 // paragraph before it starts.
@@ -1583,6 +1634,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     y,
                     row_end: false,
                 })?;
+                self.close_box(above.0, above.1, Some(para))?;
                 first = false;
             }
             let left = self.column_left();
@@ -1591,6 +1643,11 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 self.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }
+            let closing = index + fit == lines.len();
+            if closing {
+                self.y += tail;
+            }
+            self.open_box(para, joins, (top, opening, closing), above);
             self.placed_something();
             index += fit;
             if index < lines.len() || lines[index - 1].page_break {
@@ -1611,17 +1668,37 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.at_start = false;
         if let Some(next) = para.section_break {
             let mark = lines.last().filter(|_| para.pieces.is_empty());
-            self.next_section(next, mark.map(|line| self.y - line.height))?;
+            self.next_section(next, mark.map(|line| self.y - tail - line.height))?;
         }
         Ok(())
     }
 
+    /// The box of `para`'s lines on this page, from `top` to here; open
+    /// until the next paragraph or page. `above`: as `close_box` takes it.
+    fn open_box(
+        &mut self,
+        para: &Para,
+        joins: Joins,
+        (top, opening, closing): (f64, bool, bool),
+        (after, gap): (f64, f64),
+    ) {
+        let column = (self.column_left(), self.text_width());
+        let ends = (opening, closing);
+        self.open_box = ParaBox::new(para, column, (top, self.y), joins, ends).map(|mut boxed| {
+            if opening {
+                boxed.reach_up(gap - after, joins.previous);
+            }
+            (boxed, joins.next)
+        });
+    }
+
     fn place_table(&mut self, table: &'m Table) -> Result<()> {
-        if !self.at_top
-            && let Some(previous) = self.previous
-        {
-            self.y += previous.after_spacing();
-        }
+        let after = match self.previous {
+            Some(previous) if !self.at_top => previous.after_spacing(),
+            _ => 0.0,
+        };
+        self.close_box(after, after, None)?;
+        self.y += after;
         let headers = table.rows.iter().take_while(|r| r.header).count();
         let header_layouts = table.rows[..headers]
             .iter()
@@ -1690,7 +1767,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                                 .take_while(|b| matches!(b, Block::Para(p) if p.keep_next))
                                 .count();
                     }
-                    self.place_para(para)?;
+                    self.place_para(para, Joins::of(blocks, index))?;
                 }
                 Block::Table(table) => self.place_table(table)?,
             }
@@ -1707,7 +1784,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         let mut index = start;
         while let Some(Block::Para(para)) = blocks.get(index) {
             let lines = self.lines(para)?;
-            let space = if at_top { 0.0 } else { gap(previous, para) };
+            let (lead, tail) = Joins::of(blocks, index).extents(para);
+            let space = lead + if at_top { 0.0 } else { gap(previous, para) };
             if !para.keep_next {
                 let count = if para.widow_control {
                     2.min(lines.len())
@@ -1720,7 +1798,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     - taken.last().map_or(0.0, |l| l.height - l.fit);
                 break;
             }
-            need += space + lines.iter().map(|l| l.height).sum::<f64>();
+            need += space + lines.iter().map(|l| l.height).sum::<f64>() + tail;
             previous = Some(para);
             at_top = false;
             index += 1;
@@ -1766,6 +1844,7 @@ fn paginate_within<S: Sink>(
         held: None,
         previous: None,
         last: None,
+        open_box: None,
         work: 0,
         budget,
         notes: notes::Notes::new(model),
@@ -1814,7 +1893,7 @@ mod tests {
         }
     }
 
-    const METRICS: [Metric; 1] = [Metric {
+    pub(super) const METRICS: [Metric; 1] = [Metric {
         height: 10.0,
         ascent: 8.0,
     }];
@@ -1892,7 +1971,7 @@ mod tests {
 
     /// A paragraph of `words` words, each `width` points wide plus a
     /// 2-point space.
-    fn para(words: usize, width: f64) -> Para {
+    pub(super) fn para(words: usize, width: f64) -> Para {
         let mut pieces = Vec::new();
         for index in 0..words {
             if index > 0 {
@@ -1919,7 +1998,7 @@ mod tests {
         }
     }
 
-    fn model(blocks: Vec<Block>, height: f64) -> Model {
+    pub(super) fn model(blocks: Vec<Block>, height: f64) -> Model {
         Model {
             sections: vec![Section {
                 page: Page {

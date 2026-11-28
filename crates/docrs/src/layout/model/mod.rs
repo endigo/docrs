@@ -43,9 +43,12 @@ pub use colour::{Colour, Rgb};
 pub(crate) use formatting::Formatting;
 #[cfg(feature = "pdf")]
 pub(crate) use formatting::ParaFormat;
+#[cfg(any(test, feature = "pdf"))]
+pub(crate) use look::BorderStyle;
+use look::CellBorders;
 pub(crate) use look::VAlign;
 pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
-use look::{CellBorders, ParaBorders};
+pub(crate) use look::{Border, ParaBorders};
 #[cfg(feature = "pdf")]
 pub(crate) use marks::any_border;
 pub(crate) use math::MathScripts;
@@ -341,13 +344,8 @@ pub struct Para {
     /// Ends a section (`w:sectPr` in its properties): the next section's
     /// index.
     pub section_break: Option<usize>,
-    #[cfg_attr(
-        not(feature = "pdf"),
-        allow(dead_code, reason = "the PDF painter reads it")
-    )]
     pub shade: Option<Rgb>,
-    /// Read only: layout gives them no height yet. `None` when it has none.
-    #[allow(dead_code, reason = "the PDF painter reads them")]
+    /// `None` when it has none.
     pub borders: Option<Box<ParaBorders>>,
 }
 

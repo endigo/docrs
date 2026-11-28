@@ -702,3 +702,82 @@ fn below_mode_15_a_separator_s_spacing_counts_only_above_a_note_going_on() {
         assert!(close(note - separator, 24.65), "{separator} {note}");
     }
 }
+
+/// Each paragraph box with its page.
+#[derive(Default)]
+struct Boxes {
+    page: u32,
+    boxes: Vec<(u32, super::flow::ParaBox)>,
+}
+
+impl Sink for Boxes {
+    fn page(&mut self, page: &super::flow::PageStart) -> Result<()> {
+        self.page = page.number;
+        Ok(())
+    }
+
+    fn para_box(&mut self, boxed: &super::flow::ParaBox) -> Result<()> {
+        self.boxes.push((self.page, *boxed));
+        Ok(())
+    }
+}
+
+/// A shaded paragraph with a bottom border taking 3 + 12 points below it.
+fn boxed_cited(text: &str, ids: &[u32]) -> String {
+    cited(text, ids).replacen(
+        "<w:p>",
+        r#"<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="24" w:space="12" w:color="000000"/></w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="DDDDDD"/></w:pPr>"#,
+        1,
+    )
+}
+
+#[test]
+fn a_paragraph_box_ends_above_the_footnote_area() {
+    // The cited line fits above its note; its bottom border would reach
+    // into the note area.
+    let doc = document(Parts {
+        body: &(filler(8) + &boxed_cited("Boxed", &[1])),
+        footnotes: &footnote(1, &["Note one."]),
+        ..NONE
+    });
+    let records = records(&doc);
+    let line = find(&records, "Boxed1");
+    let notes = of_story(&records, "footnotes");
+    let separator = notes[0];
+    assert_eq!((line.page, separator.page), (1, 1));
+    let mut sink = Boxes::default();
+    paginate_into(&doc, &mut sink).unwrap();
+    let [(1, boxed)] = sink.boxes[..] else {
+        panic!("{:#?}", sink.boxes)
+    };
+    assert!(close(boxed.top, line.y), "{boxed:?} {line:?}");
+    let fill = boxed.fill.unwrap();
+    for bottom in [boxed.bottom, boxed.sides.1, fill.bottom] {
+        assert!(bottom <= separator.y + 0.01, "{boxed:?} {separator:?}");
+    }
+}
+
+#[test]
+fn a_bottom_aligned_page_moves_its_paragraph_boxes_down_with_their_lines() {
+    let bottom = SECT
+        .replace("{footer}", "")
+        .replace("</w:sectPr>", r#"<w:vAlign w:val="bottom"/></w:sectPr>"#);
+    let body = boxed_cited("Boxed", &[]) + &format!("<w:p><w:pPr>{bottom}</w:pPr></w:p>");
+    let doc = document(Parts {
+        body: &body,
+        ..NONE
+    });
+    let records = records(&doc);
+    let line = find(&records, "Boxed");
+    assert!(line.y > 100.0, "moved down: {line:?}");
+    let mut sink = Boxes::default();
+    paginate_into(&doc, &mut sink).unwrap();
+    let [(1, boxed)] = sink.boxes[..] else {
+        panic!("{:#?}", sink.boxes)
+    };
+    assert!(close(boxed.top, line.y), "{boxed:?} {line:?}");
+    assert!(
+        close(boxed.bottom, line.y + line.height + 15.0),
+        "{boxed:?} {line:?}"
+    );
+}
