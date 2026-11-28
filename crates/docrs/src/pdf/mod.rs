@@ -835,7 +835,7 @@ mod tests {
     fn navigation_adds_only_what_the_preflight_counted_fewer_of() {
         let mut report = PdfReport {
             warnings: vec![warning(TARGET_MISSING, 2), warning(SCHEME_SKIPPED, 1)],
-            pages: None,
+            ..PdfReport::default()
         };
         report.add_navigation(vec![
             warning(TARGET_MISSING, 1),
