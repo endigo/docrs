@@ -15,7 +15,7 @@ use docrs::clock::Timestamp;
 use docrs::layout::{FontSet, Link};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{
-    Info, LinkId, Navigation, PdfOptions, PdfWarning, Rect, linked_document_for_tests,
+    Info, LinkId, Navigation, PdfOptions, PdfReport, PdfWarning, Rect, linked_document_for_tests,
     paint_for_tests, preflight, render,
 };
 use docrs::{Document, ErrorKind, Limits, Tolerance};
@@ -1192,14 +1192,11 @@ fn links_and_the_outline_can_be_left_out() {
     assert_eq!(catalog(&options), (vec!["Names".into()], 2));
 }
 
-/// Word for Mac's PDF of `word-links.docx` (Arial 11 pt, 6 pt space after):
-/// its link rectangles reach 2.16 pt past the text and down through the
-/// space after. Drawn here in Liberation Sans, which has Arial's metrics;
-/// Word's right edges are on a 0.24 pt grid.
-#[test]
-fn link_rects_are_word_s() {
+/// The link rectangles of `name` drawn in Liberation Sans, which has
+/// Arial's metrics, with the report.
+fn arial_rects(name: &str) -> (Vec<[f64; 4]>, PdfReport) {
     let document = Document::open_path_with(
-        fixtures().join("pdf/word-links.docx"),
+        fixtures().join("pdf").join(name),
         &Limits::default(),
         Tolerance::word(),
     )
@@ -1213,6 +1210,32 @@ fn link_rects_are_word_s() {
     let mut options = PdfOptions::default();
     options.fonts = builder.build();
     let (bytes, report) = render(&document, &options).unwrap();
+    let rects = annots(&Pdf::parse(&bytes).unwrap())
+        .into_iter()
+        .map(|annot| annot.rect)
+        .collect();
+    (rects, report)
+}
+
+/// Word's right edges are on a 0.24 pt grid.
+fn assert_word_rects(ours: &[[f64; 4]], word: &[[f64; 4]]) {
+    assert_eq!(ours.len(), word.len(), "{ours:?}");
+    for (ours, word) in ours.iter().zip(word) {
+        for (side, (a, b)) in ours.iter().zip(word).enumerate() {
+            assert!(
+                (a - b).abs() < 0.25,
+                "side {side}: {ours:?} against {word:?}"
+            );
+        }
+    }
+}
+
+/// Word for Mac's PDF of `word-links.docx` (Arial 11 pt, 6 pt space after):
+/// its link rectangles reach 2.16 pt past the text and down through the
+/// space after.
+#[test]
+fn link_rects_are_word_s() {
+    let (ours, report) = arial_rects("word-links.docx");
     let missing: Vec<usize> = report
         .warnings
         .iter()
@@ -1226,45 +1249,43 @@ fn link_rects_are_word_s() {
         [69.84, 626.64, 225.84, 645.36],
         [69.84, 589.44, 290.64, 608.16],
     ];
-    let ours: Vec<[f64; 4]> = annots(&Pdf::parse(&bytes).unwrap())
-        .into_iter()
-        .map(|annot| annot.rect)
-        .collect();
-    assert_eq!(ours.len(), word.len(), "{ours:?}");
-    for (ours, word) in ours.iter().zip(word) {
-        for (side, (a, b)) in ours.iter().zip(word).enumerate() {
-            assert!(
-                (a - b).abs() < 0.25,
-                "side {side}: {ours:?} against {word:?}"
-            );
-        }
-    }
+    assert_word_rects(&ours, &word);
+}
+
+/// Word for Mac 16.115's PDF of `word-links-wrapped.docx` (A4, text to
+/// 523.2): a link going on onto the next line reaches the right margin
+/// plus 2.16, past its last glyph (515.52); a mid-line link on a non-last
+/// line has the line's height only; the paragraph's last line runs
+/// through its space after.
+#[test]
+fn a_link_going_on_to_the_next_line_reaches_the_margin_as_in_word() {
+    let (ours, _) = arial_rects("word-links-wrapped.docx");
+    let word = [
+        [205.44, 713.76, 525.60, 726.00],
+        [69.84, 701.28, 170.40, 713.76],
+        [181.44, 644.40, 238.80, 656.64],
+        [69.84, 525.12, 178.80, 543.60],
+    ];
+    assert_word_rects(&ours, &word);
 }
 
 #[test]
-fn a_wrapped_link_s_first_line_stops_at_its_last_word_inside_the_margin() {
+fn a_wrapped_link_s_lines_before_its_last_reach_the_margin() {
     let words = "word ".repeat(40);
-    for ppr in ["", r#"<w:jc w:val="both"/>"#] {
+    for ppr in ["", r#"<w:jc w:val="both"/>"#, r#"<w:ind w:right="720"/>"#] {
+        let margin = if ppr.contains("right") { 504.0 } else { 540.0 };
         let link = format!(r#"<w:hyperlink r:id="rLink">{}</w:hyperlink>"#, run(&words));
         let pdf = Pdf::parse(&pdf_of(&raw(&para(ppr, &link)))).unwrap();
-        let drawn = glyphs(&pdf);
         let rects: Vec<[f64; 4]> = annots(&pdf).into_iter().map(|a| a.rect).collect();
-        assert!(rects.len() >= 2, "{rects:?}");
-        let first = rects[0];
-        let last_glyph = drawn[0]
-            .iter()
-            .filter(|g| g.text != " " && 792.0 - g.y < first[3] && 792.0 - g.y > first[1])
-            .map(|g| g.x)
-            .fold(f64::NEG_INFINITY, f64::max);
-        let d_width = 11.0 * 0.5;
-        assert!(
-            first[2] - LINK_MARGIN <= 540.0 + 0.001,
-            "{ppr}: {first:?} passes the margin"
-        );
-        assert!(
-            (first[2] - LINK_MARGIN - last_glyph) < d_width + 0.01,
-            "{ppr}: {first:?} runs past its last word at {last_glyph}"
-        );
+        assert!(rects.len() >= 3, "{rects:?}");
+        let (last, continued) = rects.split_last().unwrap();
+        for rect in continued {
+            assert!(
+                (rect[2] - (margin + LINK_MARGIN)).abs() < 0.001,
+                "{ppr}: {rect:?}"
+            );
+        }
+        assert!(last[2] < margin, "{ppr}: {last:?}");
     }
 }
 

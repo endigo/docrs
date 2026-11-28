@@ -43,3 +43,5 @@ The numbered files have no `settings.xml`; `-fe` adds `w:useFELayout`, `-nofe` l
 `images/` holds images from real encoders (`images/PROVENANCE.md`).
 
 `word-links.docx` is the links test document of PR #54 as Word for Mac saved it (Arial 11 pt, 6 pt space after): links to a bookmark in two cases, to a missing bookmark and to `_top`, over three pages. Word's PDF of it (`pr-proof` branch, `pr54/word-links.pdf`) gives the link rectangles `crates/docrs/tests/pdf_links.rs` holds ours to.
+
+`word-links-wrapped.docx` is the Word check of PR #74 (`pr-proof` branch, `pr74/word/`): `links.md` in `templates/v2/numbered-headings.docx`, A4 in Arial. Word for Mac 16.115.2's PDF of it gives the rectangles of a link that wraps from mid-line, a mid-line link on a non-last line and a link on its paragraph's last line, which `pdf_links.rs` holds ours to.

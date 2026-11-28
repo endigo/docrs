@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use super::nav::{LinkId, Navigation, Rect};
 use crate::layout::flow::{Line, Point};
-use crate::layout::model::{Model, Para, Piece, StoryId};
+use crate::layout::model::{Align, Model, Para, Piece, StoryId};
 
 /// Word's link rectangles reach this far, in points, past the text's ends
 /// (measured in Word for Mac's PDFs).
@@ -73,9 +73,10 @@ impl Places {
 
     /// One rectangle per hyperlink on the line, from its first piece to
     /// the end of its last drawn one, the spaces between its words and
-    /// their justified gaps included and the spaces the line breaks at
-    /// left out. As Word's, it reaches [`LINK_MARGIN`] past each end and
-    /// on the paragraph's last line down through its space after.
+    /// their justified gaps included. As Word's, it reaches
+    /// [`LINK_MARGIN`] past each end, to the right edge of the text when
+    /// the link goes on onto the next line, and on the paragraph's last
+    /// line down through its space after.
     fn links(&mut self, model: &Model, painted: &Painted) {
         let Painted { para, line, .. } = *painted;
         let (origins, _) = line.origins(para);
@@ -104,13 +105,20 @@ impl Places {
                 _ => parts.push((id, link, origins[at], end)),
             }
         }
+        let continued = continued_link(model, para, line);
         let top = painted.height - painted.at.y;
         let after = if line.pieces.end as usize >= para.pieces.len() {
             para.after_spacing()
         } else {
             0.0
         };
-        for (id, link, from, to) in parts {
+        let count = parts.len();
+        for (index, (id, link, from, to)) in parts.into_iter().enumerate() {
+            let to = if index + 1 == count && continued == Some(link) {
+                text_right(para, line)
+            } else {
+                to
+            };
             let rect = Rect {
                 left: painted.at.x + from - LINK_MARGIN,
                 bottom: top - line.height - after,
@@ -182,6 +190,25 @@ impl Places {
         self.navigation
             .heading(level + 1, &title(para), painted.page, top);
     }
+}
+
+/// The link that runs from the end of `line` onto the next line.
+fn continued_link(model: &Model, para: &Para, line: &Line) -> Option<u32> {
+    let end = line.pieces.end as usize;
+    let last = link_of(model, para.pieces.get(end.checked_sub(1)?)?)?;
+    let next = link_of(model, para.pieces.get(end)?)?;
+    (last == next).then_some(last)
+}
+
+/// The x, from the column's left, where `line`'s text area ends: past its
+/// content by the slack its alignment did not put before it.
+fn text_right(para: &Para, line: &Line) -> f64 {
+    let before = match para.align {
+        Align::Center => line.slack / 2.0,
+        Align::Right => line.slack,
+        _ => 0.0,
+    };
+    line.start + line.width + line.slack - before
 }
 
 /// The link of a piece that can be part of one.
