@@ -10,6 +10,7 @@ use std::sync::Arc;
 use super::font::{Shape, win_ansi};
 use super::symbols::meaning;
 use super::{PdfFontUse, PdfWarning};
+use crate::layout::NumberFormat;
 use crate::layout::fonts::{Face, FaceSource, FontBook, metric_alias_differs, symbol_font};
 use crate::layout::model::{Appearance, Block, Model, NoteId, NoteKind, Para, Piece, RunFace};
 use crate::layout::variation::Style;
@@ -76,13 +77,21 @@ impl<'b> Chain<'b> {
         }
     }
 
-    /// Decides every character of the body and the notes, marks included,
+    /// Decides every character of the body, the headers and footers some
+    /// page shows and the notes, marks and page field values included,
     /// counting what the report states; refuses a family and style without
     /// a program, naming every one (`pdf_font_program_missing`), and a
     /// character nothing draws (`pdf_glyph_missing`).
     pub(super) fn check(&mut self, model: &Model) -> Result<()> {
-        let mut visit = |para: &Para| self.count_para(model, para);
+        let formats: Vec<NumberFormat> = model.sections.iter().map(|s| s.number_format).collect();
+        let mut visit = |para: &Para| {
+            self.count_para(model, para);
+            self.decide_fields(model, para, &formats);
+        };
         each_para(&model.blocks, &mut visit);
+        for story in model.stories.iter().filter(|s| model.shows(s.id)) {
+            each_para(&story.blocks, &mut visit);
+        }
         for story in [&model.notes.footnotes, &model.notes.endnotes] {
             for note in &story.notes {
                 each_para(&note.blocks, &mut visit);
@@ -111,6 +120,18 @@ impl<'b> Chain<'b> {
                 }
                 Piece::NoteRef { note, look, .. } => self.count_mark(model, *note, *look),
                 _ => {}
+            }
+        }
+    }
+
+    /// Decides every character `para`'s live fields can show, in the face
+    /// the layout writes it in, since pagination writes their values.
+    fn decide_fields(&mut self, model: &Model, para: &Para, formats: &[NumberFormat]) {
+        for field in &para.fields {
+            for ch in field.value_chars(formats) {
+                if let Piece::Char { look, .. } = field.pen.piece(ch) {
+                    self.drawn(model, &model.looks[look as usize], ch, false);
+                }
             }
         }
     }

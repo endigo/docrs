@@ -12,9 +12,10 @@ mod text;
 use std::path::{Path, PathBuf};
 
 use docrs::clock::Timestamp;
-use docrs::layout::FontSet;
+use docrs::layout::fonts::FontKind;
+use docrs::layout::{FontBook, FontSet};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
-use docrs::pdf::{PdfOptions, paint_for_tests, render};
+use docrs::pdf::{PdfOptions, layout_for_tests, paint_for_tests, render};
 use docrs::txn::Txn;
 use docrs::{Document, Limits, Tolerance};
 use reader::{Pdf, Value, tokenize_content};
@@ -105,6 +106,35 @@ fn extracted_text_is_the_documents_per_page() {
     assert!(lists[0].contains("1.Move in.2.Unpack."), "{lists:?}");
 }
 
+/// Each case of `pdf/cases.tsv`, converted at a fixed time.
+fn cases() -> Vec<(String, Document)> {
+    let cases = std::fs::read_to_string(fixtures().join("pdf/cases.tsv")).unwrap();
+    cases
+        .lines()
+        .skip(1)
+        .map(|row| {
+            let [case, source, reference, ..] = row.split('\t').collect::<Vec<_>>()[..] else {
+                panic!("{row}");
+            };
+            let source = std::fs::read_to_string(fixtures().join("../..").join(source)).unwrap();
+            let mut document = open(&fixtures().join("../..").join(reference));
+            let options = MarkdownOptions {
+                now: Some(Timestamp::from_utc(2026, 11, 28, 9, 0, 0).unwrap()),
+                ..MarkdownOptions::default()
+            };
+            insert_source_with(
+                &mut document,
+                &source,
+                InputFormat::Markdown,
+                &options,
+                &fonts(),
+            )
+            .unwrap();
+            (case.to_string(), document)
+        })
+        .collect()
+}
+
 #[test]
 fn every_glyph_is_where_layout_placed_it() {
     let mut documents: Vec<(String, Document)> = Vec::new();
@@ -126,27 +156,7 @@ fn every_glyph_is_where_layout_placed_it() {
     for name in ["appearance.docx", "decorations.docx"] {
         documents.push((name.to_string(), open(&fixtures().join("pdf").join(name))));
     }
-    let cases = std::fs::read_to_string(fixtures().join("pdf/cases.tsv")).unwrap();
-    for row in cases.lines().skip(1) {
-        let [case, source, reference, ..] = row.split('\t').collect::<Vec<_>>()[..] else {
-            panic!("{row}");
-        };
-        let source = std::fs::read_to_string(fixtures().join("../..").join(source)).unwrap();
-        let mut document = open(&fixtures().join("../..").join(reference));
-        let options = MarkdownOptions {
-            now: Some(Timestamp::from_utc(2026, 11, 28, 9, 0, 0).unwrap()),
-            ..MarkdownOptions::default()
-        };
-        insert_source_with(
-            &mut document,
-            &source,
-            InputFormat::Markdown,
-            &options,
-            &fonts(),
-        )
-        .unwrap();
-        documents.push((case.to_string(), document));
-    }
+    documents.extend(cases());
     let stand_in = font(LIBERATION);
     let fonts = fonts();
     for (name, document) in &documents {
@@ -377,13 +387,29 @@ fn a_synthesized_bold_is_measured_wider() {
 }
 
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/// Letter paper, 1-inch margins, headers and footers half an inch from
+/// the edge.
+const LETTER: &str = r#"<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>"#;
 
 /// A package whose body is `body`, with `numbering` and `settings` parts
-/// when they are not empty, on a Letter page with 1-inch margins.
+/// when they are not empty, on a [`LETTER`] page.
 fn raw(body: &str, numbering: &str, settings: &str) -> Document {
+    let section = format!("<w:sectPr>{LETTER}</w:sectPr>");
+    let parts = [
+        ("numbering", "numbering", "numbering", numbering),
+        ("settings", "settings", "settings", settings),
+    ];
+    package(&(body.to_string() + &section), &parts)
+}
+
+/// A package whose body is `body`, with each of `parts` (name, kind, root
+/// element, content) that is not empty, related as `r<name>`.
+fn package(body: &str, parts: &[(&str, &str, &str, &str)]) -> Document {
     let part = |root: &str, content: &str| {
         format!(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:{root} xmlns:w="{W_NS}">{content}</w:{root}>"#
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:{root} xmlns:w="{W_NS}" xmlns:r="{R_NS}">{content}</w:{root}>"#
         )
     };
     let mut types = String::from(
@@ -392,21 +418,14 @@ fn raw(body: &str, numbering: &str, settings: &str) -> Document {
     let mut rels = String::from(
         r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
     );
-    let section = r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#;
     let mut members = vec![
         RawMember::new("_rels/.rels", support::ROOT_RELS.as_bytes()),
         RawMember::new(
             "word/document.xml",
-            part("document", &format!("<w:body>{body}{section}</w:body>")).as_bytes(),
+            part("document", &format!("<w:body>{body}</w:body>")).as_bytes(),
         ),
     ];
-    for (name, kind, root, content) in [
-        ("numbering", "numbering", "numbering", numbering),
-        ("settings", "settings", "settings", settings),
-    ] {
-        if content.is_empty() {
-            continue;
-        }
+    for (name, kind, root, content) in parts.iter().filter(|part| !part.3.is_empty()) {
         types.push_str(&format!(
             r#"<Override PartName="/word/{name}.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"/>"#
         ));
@@ -1045,4 +1064,585 @@ fn a_note_whose_table_goes_on_is_refused() {
     assert_eq!(err.reason(), docrs::pdf::FOOTNOTE_LAYOUT_UNSUPPORTED);
     let fits = convert("Cited.[^t]\n\n[^t]: A note.\n", InputFormat::Markdown, None);
     paint_for_tests(&fits, &fonts(), &font(LIBERATION)).unwrap();
+}
+
+/// Each page's lines from top to bottom, a line being the glyphs on one
+/// baseline.
+fn page_lines(bytes: &[u8]) -> Vec<Vec<String>> {
+    glyphs(&Pdf::parse(bytes).unwrap())
+        .iter()
+        .map(|page| {
+            let mut lines: Vec<(f64, String)> = Vec::new();
+            for glyph in page {
+                match lines.iter_mut().find(|(y, _)| (y - glyph.y).abs() < 0.01) {
+                    Some((_, text)) => text.push_str(&glyph.text),
+                    None => lines.push((glyph.y, glyph.text.clone())),
+                }
+            }
+            lines.sort_by(|a, b| a.0.total_cmp(&b.0));
+            lines.into_iter().map(|(_, text)| text).collect()
+        })
+        .collect()
+}
+
+#[test]
+fn each_page_draws_its_header_and_page_x_of_y_footer_as_word_does() {
+    let (_, document) = cases()
+        .into_iter()
+        .find(|(case, _)| case == "stories-arial")
+        .unwrap();
+    let bytes = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap();
+    let word = std::fs::read_to_string(fixtures().join("pdf/stories-arial/word.lines.json"));
+    let word: serde_json::Value = serde_json::from_str(&word.unwrap()).unwrap();
+    let word: Vec<Vec<String>> = word["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|page| {
+            let lines = page["lines"].as_array().unwrap();
+            lines
+                .iter()
+                .map(|l| l["text"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .collect();
+    let ends = |lines: &[String]| {
+        let last = lines.last().unwrap();
+        (lines[0].trim().to_string(), last.trim().to_string())
+    };
+    let drawn: Vec<_> = page_lines(&bytes).iter().map(|page| ends(page)).collect();
+    let word: Vec<_> = word.iter().map(|page| ends(page)).collect();
+    assert_eq!(drawn, word);
+    assert_eq!(
+        drawn[1],
+        ("Even page header".to_string(), "Page 2 of 3".to_string())
+    );
+}
+
+/// A run in Arial 10 pt.
+fn arial(content: &str) -> String {
+    format!(
+        r#"<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr>{content}</w:r>"#
+    )
+}
+
+fn arial_text(text: &str) -> String {
+    arial(&format!(r#"<w:t xml:space="preserve">{text}</w:t>"#))
+}
+
+/// A complex field showing `cached`, in Arial 10 pt.
+fn arial_field(code: &str, cached: &str) -> String {
+    let char = |kind: &str| arial(&format!(r#"<w:fldChar w:fldCharType="{kind}"/>"#));
+    [
+        char("begin"),
+        arial(&format!(
+            r#"<w:instrText xml:space="preserve"> {code} </w:instrText>"#
+        )),
+        char("separate"),
+        arial_text(cached),
+        char("end"),
+    ]
+    .concat()
+}
+
+/// A paragraph on single exact 12 pt lines with no spacing.
+fn exact(ppr: &str, content: &str) -> String {
+    format!(
+        r#"<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="exact"/>{ppr}</w:pPr>{content}</w:p>"#
+    )
+}
+
+/// `body` closed by a [`LETTER`] section with `refs` and `extra`.
+fn sectioned(body: String, refs: &str, extra: &str) -> String {
+    body + &format!("<w:sectPr>{refs}{LETTER}{extra}</w:sectPr>")
+}
+
+#[test]
+fn a_footer_that_wraps_at_ten_pages_is_drawn_on_all_ten() {
+    let face = FontBook::new(Vec::new()).face("Arial", false, false, FontKind::Sans);
+    let width = |text: &str| text.chars().map(|c| face.advance(c) * 10.0).sum::<f64>();
+    let room = (width("Page 9 of 9") + width("Page 1 of 10")) / 2.0;
+    let indent = format!(r#"<w:ind w:right="{}"/>"#, ((468.0 - room) * 20.0).round());
+    let footer = exact(
+        &indent,
+        &[
+            arial_text("Page "),
+            arial_field("PAGE", "1"),
+            arial_text(" of "),
+            arial_field("NUMPAGES", "1"),
+        ]
+        .concat(),
+    );
+    // With the footer half an inch from the edge in place of the bottom
+    // margin, one footer line leaves 56 body lines a page: one line more
+    // than nine pages of them makes ten pages, whose two-line footers
+    // leave 55.
+    let body: String = (1..=9 * 56 + 1)
+        .map(|n| exact("", &arial_text(&format!("Line {n}"))))
+        .collect();
+    let body = sectioned(
+        body,
+        r#"<w:footerReference w:type="default" r:id="rfooter1"/>"#,
+        "",
+    )
+    .replace(r#"w:bottom="1440""#, r#"w:bottom="720""#);
+    let document = package(&body, &[("footer1", "footer", "ftr", &footer)]);
+    let bytes = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap();
+    let pages = page_lines(&bytes);
+    assert_eq!(pages.len(), 10);
+    for (at, lines) in pages.iter().enumerate() {
+        let footer = &lines[lines.len() - 2..];
+        assert_eq!(footer[1].trim(), "10", "page {}: {footer:?}", at + 1);
+        let shown = footer.concat().replace(' ', "");
+        assert_eq!(shown, format!("Page{}of10", at + 1));
+    }
+}
+
+/// The page number each contents line draws: the glyphs of the line
+/// layout records for it from its last tab's end.
+fn drawn_contents_numbers(bytes: &[u8], document: &Document, fonts: &FontSet) -> Vec<String> {
+    let pages = glyphs(&Pdf::parse(bytes).unwrap());
+    let (lines, _) = records(document, fonts);
+    lines
+        .iter()
+        .filter(|line| line.story == "body")
+        .filter_map(|line| {
+            let &(_, to) = line.tabs.last()?;
+            let number = pages[line.page as usize - 1]
+                .iter()
+                .filter(|g| (g.y - line.baseline).abs() < 0.01 && g.x > to - 0.01)
+                .map(|g| g.text.as_str())
+                .collect::<String>();
+            Some(number.trim().to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn the_contents_numbers_drawn_are_the_pdf_s_pages_on_every_contents_fixture() {
+    let tsv = |path: &str| {
+        let text = std::fs::read_to_string(fixtures().join("../..").join(path)).unwrap();
+        text.lines()
+            .skip(1)
+            .map(|l| l.split('\t').map(str::to_string).collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    };
+    // Reference, source, font.
+    let mut cases: Vec<(String, String, Option<String>)> = tsv("tools/pdf/corpus.tsv")
+        .into_iter()
+        .map(|row| (row[1].clone(), row[3].clone(), None))
+        .collect();
+    cases.extend(
+        tsv("tests/fixtures/pdf/cases.tsv")
+            .into_iter()
+            .filter(|row| row[1].ends_with("toc.md"))
+            .map(|row| (row[2].clone(), row[1].clone(), Some(row[3].clone())))
+            .map(|(reference, source, font)| (reference, source, font.filter(|f| f != "-"))),
+    );
+    let stand_in = font(LIBERATION);
+    let mut checked = 0;
+    for (reference, input, font) in &cases {
+        let mut builder = FontSet::builder();
+        if let Some(font) = font {
+            builder
+                .add(std::fs::read(fixtures().join("../..").join(font)).unwrap())
+                .unwrap();
+        }
+        let fonts = builder.build();
+        let format = match input.rsplit('.').next() {
+            Some("html") => InputFormat::Html,
+            Some("json") => InputFormat::Tiptap,
+            _ => InputFormat::Markdown,
+        };
+        let source = std::fs::read_to_string(fixtures().join("../..").join(input)).unwrap();
+        let mut document = open(&fixtures().join("../..").join(reference));
+        let options = MarkdownOptions {
+            toc: Some(true),
+            ..MarkdownOptions::default()
+        };
+        insert_source_with(&mut document, &source, format, &options, &fonts).unwrap();
+        let entries = support::toc_entries(&document);
+        if entries.is_empty() {
+            let xml = support::document_xml(&document);
+            assert!(!xml.contains("PAGEREF"), "{reference} {input}");
+            continue;
+        }
+        stale_contents(&mut document);
+        let stale = support::toc_entries(&document);
+        assert!(stale.iter().all(|(_, shown)| shown == "99"), "{stale:?}");
+        let bytes = paint_for_tests(&document, &fonts, &stand_in).unwrap();
+        let drawn = drawn_contents_numbers(&bytes, &document, &fonts);
+        let layout = layout_for_tests(&document, &fonts).unwrap();
+        let settled: Vec<String> = entries
+            .iter()
+            .map(|(bookmark, _)| {
+                let page = layout.bookmark_page(bookmark).unwrap();
+                layout.page_number(page).to_string()
+            })
+            .collect();
+        // The conversion saved the settled numbers; the PDF draws them
+        // again over the stale 99s.
+        let saved: Vec<String> = entries.into_iter().map(|(_, shown)| shown).collect();
+        assert_eq!(saved, settled, "{reference} {input}");
+        assert_eq!(drawn[..saved.len()], settled, "{reference} {input}");
+        checked += saved.len();
+    }
+    assert!(checked >= 300, "{checked}");
+}
+
+/// `document` with each contents entry's saved page number replaced by
+/// 99, so only a number computed from the PDF's pages can be right.
+fn stale_contents(document: &mut Document) {
+    const LINK: &str = "<w:hyperlink w:anchor=\"";
+    let xml = support::document_xml(document);
+    let mut chunks: Vec<String> = xml.split(LINK).map(str::to_string).collect();
+    for chunk in chunks.iter_mut().skip(1) {
+        let Some(end) = chunk.find("</w:hyperlink>") else {
+            continue;
+        };
+        if !chunk[..end].contains("PAGEREF") {
+            continue;
+        }
+        let at = chunk[..end].rfind("<w:t>").unwrap() + "<w:t>".len();
+        let close = at + chunk[at..].find('<').unwrap();
+        chunk.replace_range(at..close, "99");
+    }
+    let tree = docrs::xml::parse_str(&chunks.join(LINK)).unwrap();
+    document
+        .package_mut_for_tests()
+        .commit_tree("word/document.xml", tree)
+        .unwrap();
+}
+
+/// A footer of `content` over a one-page body, in Liberation Serif.
+fn footed(content: &str) -> Document {
+    let body = sectioned(
+        tabbed("", "Body"),
+        r#"<w:footerReference w:type="default" r:id="rfooter1"/>"#,
+        "",
+    );
+    let footer = format!("<w:p>{content}</w:p>");
+    package(&body, &[("footer1", "footer", "ftr", &footer)])
+}
+
+fn serif_field(code: &str, cached: &str) -> String {
+    field_of(code, Some(cached))
+}
+
+/// A complex field in Liberation Serif; `None` writes no `separate` and
+/// no result.
+fn field_of(code: &str, cached: Option<&str>) -> String {
+    let char = |kind: &str| serif(&format!(r#"<w:fldChar w:fldCharType="{kind}"/>"#));
+    let mut out = char("begin")
+        + &serif(&format!(
+            r#"<w:instrText xml:space="preserve"> {code} </w:instrText>"#
+        ));
+    if let Some(cached) = cached {
+        out += &(char("separate") + &text(cached));
+    }
+    out + &char("end")
+}
+
+#[test]
+fn strict_accepts_page_fields_and_refuses_a_date() {
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    options.strict = true;
+    let fields = [
+        text("Page "),
+        serif_field("PAGE", "7"),
+        text(" of "),
+        serif_field("NUMPAGES", "7"),
+        text(", section "),
+        serif_field("SECTIONPAGES", "7"),
+    ]
+    .concat();
+    let body = sectioned(
+        tabbed("", "Body")
+            + r#"<w:p><w:bookmarkStart w:id="0" w:name="here"/>"#
+            + &serif_field("PAGEREF here", "9")
+            + r#"<w:bookmarkEnd w:id="0"/></w:p>"#,
+        r#"<w:footerReference w:type="default" r:id="rfooter1"/>"#,
+        "",
+    );
+    let document = package(
+        &body,
+        &[("footer1", "footer", "ftr", &format!("<w:p>{fields}</w:p>"))],
+    );
+    let (bytes, report) = render(&document, &options).unwrap();
+    assert_eq!(report.warnings, []);
+    let lines = &page_lines(&bytes)[0];
+    assert_eq!(lines[1..], ["1", "Page 1 of 1, section 1"]);
+
+    let date = footed(&[text("Printed "), serif_field("DATE", "1 May 2026")].concat());
+    let refused = render(&date, &options).map(|_| ()).unwrap_err();
+    assert_eq!(refused.reason(), "pdf_not_faithful");
+    options.strict = false;
+    let (bytes, report) = render(&date, &options).unwrap();
+    let cached = report
+        .warnings
+        .iter()
+        .find(|w| w.code == "pdf_field_cached")
+        .unwrap();
+    assert_eq!(
+        (cached.subject, cached.locations[0].story.as_str()),
+        ("DATE", "word/footer1.xml")
+    );
+    assert_eq!(page_lines(&bytes)[0][1], "Printed 1 May 2026");
+}
+
+#[test]
+fn what_layout_changes_in_a_story_is_reported_with_its_page() {
+    let header: String = (1..=40)
+        .map(|n| tabbed("", &format!("Letterhead {n}")))
+        .collect();
+    let body = sectioned(
+        tabbed("", "Body"),
+        r#"<w:headerReference w:type="default" r:id="rheader1"/><w:footerReference w:type="default" r:id="rfooter1"/>"#,
+        "",
+    );
+    let footer = format!("<w:p>{}</w:p>", serif_field("PAGE \\* Ordinal", "1st"));
+    let document = package(
+        &body,
+        &[
+            ("header1", "header", "hdr", &header),
+            ("footer1", "footer", "ftr", &footer),
+        ],
+    );
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    let (_, report) = render(&document, &options).unwrap();
+    let found: Vec<_> = report
+        .warnings
+        .iter()
+        .map(|w| {
+            let at = &w.locations[0];
+            (w.code, w.subject, at.story.as_str(), at.page)
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (
+                "pdf_field_format_approximated",
+                "page field",
+                "word/footer1.xml",
+                None
+            ),
+            ("pdf_story_overflow", "header", "word/header1.xml", Some(1)),
+        ]
+    );
+    options.strict = true;
+    let refused = render(&document, &options).map(|_| ()).unwrap_err();
+    assert_eq!(refused.reason(), "pdf_not_faithful");
+}
+
+/// What a PDF must do with a probe: draw a line, or, under `strict`,
+/// refuse it and otherwise draw a line with a warning of code and subject.
+enum Expect {
+    Drawn(&'static str),
+    Warned(&'static str, &'static str, &'static str),
+}
+
+/// A one-page body of `body` under a footer of `footer` (none when empty),
+/// in a section with `extra`.
+fn probe(body: &str, footer: &str, extra: &str) -> Document {
+    let refs = if footer.is_empty() {
+        ""
+    } else {
+        r#"<w:footerReference w:type="default" r:id="rfooter1"/>"#
+    };
+    let body = sectioned(tabbed("", "Body") + body, refs, extra);
+    let footer = format!("<w:p>{footer}</w:p>");
+    let styles = r#"<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/></w:rPr></w:rPrDefault></w:docDefaults>"#;
+    let mut parts = vec![("styles", "styles", "styles", styles)];
+    if !refs.is_empty() {
+        parts.push(("footer1", "footer", "ftr", &footer));
+    }
+    package(&body, &parts)
+}
+
+/// The fields the PR 73 review probed: drawn as computed, or refused by
+/// `strict`, never drawn otherwise in silence.
+#[test]
+fn strict_never_accepts_a_field_drawn_other_than_as_computed() {
+    use Expect::*;
+    let page = |code: &str, cached: &str| text("Page ") + &serif_field(code, cached);
+    let footed = |content: String, extra: &str| probe("", &content, extra);
+    let see = |code: &str| {
+        let body = format!("<w:p>{}{}</w:p>", text("See page "), serif_field(code, "9"));
+        probe(&body, "", "")
+    };
+    let format = |fmt: &str| {
+        footed(
+            serif_field("PAGE", "x"),
+            &format!(r#"<w:pgNumType w:fmt="{fmt}"/>"#),
+        )
+    };
+    let cases: Vec<(&str, Document, Expect)> = vec![
+        ("saved 7", footed(page("PAGE", "7"), ""), Drawn("Page 1")),
+        (
+            "no separate",
+            footed(text("Page ") + &field_of("PAGE", None), ""),
+            Drawn("Page 1"),
+        ),
+        (
+            "empty fldSimple",
+            footed(text("Page ") + r#"<w:fldSimple w:instr=" PAGE "/>"#, ""),
+            Drawn("Page 1"),
+        ),
+        (
+            "no space before a switch",
+            footed(page("PAGE\\* roman", "vii"), ""),
+            Drawn("Page i"),
+        ),
+        (
+            "case over roman",
+            footed(serif_field("PAGE \\* roman \\* Upper", "i"), ""),
+            Drawn("I"),
+        ),
+        ("numberInDash", format("numberInDash"), Drawn("- 1 -")),
+        ("decimalZero", format("decimalZero"), Drawn("01")),
+        ("upperRoman", format("upperRoman"), Drawn("I")),
+        (
+            "body page fields",
+            probe(
+                &format!(
+                    "<w:p>{}{}{}{}</w:p>",
+                    text("Page "),
+                    serif_field("PAGE", "7"),
+                    text(" of "),
+                    serif_field("NUMPAGES", "7")
+                ),
+                "",
+                "",
+            ),
+            Drawn("Page 1 of 1"),
+        ),
+        (
+            "missing bookmark",
+            see("PAGEREF nowhere \\h"),
+            Warned("See page 9", "pdf_field_cached", "PAGEREF"),
+        ),
+        (
+            "bare PAGEREF",
+            see("PAGEREF"),
+            Warned("See page 9", "pdf_field_cached", "PAGEREF"),
+        ),
+        (
+            "PAGE with an operand",
+            footed(page("PAGE extra", "7"), ""),
+            Warned("Page 7", "pdf_field_cached", "PAGE"),
+        ),
+        (
+            "cardinalText",
+            format("cardinalText"),
+            Warned("1", "pdf_field_format_approximated", "page number"),
+        ),
+        (
+            "ordinal",
+            format("ordinal"),
+            Warned("1", "pdf_field_format_approximated", "page number"),
+        ),
+        (
+            "chapter numbers",
+            footed(
+                serif_field("PAGE", "1-1"),
+                r#"<w:pgNumType w:chapStyle="1" w:chapSep="hyphen"/>"#,
+            ),
+            Warned("1", "pdf_field_format_approximated", "page number"),
+        ),
+    ];
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    for (name, document, expect) in cases {
+        options.strict = true;
+        let strict = render(&document, &options);
+        options.strict = false;
+        let (bytes, report) = render(&document, &options).unwrap();
+        let lines = &page_lines(&bytes)[0];
+        let line = match expect {
+            Drawn(line) => {
+                assert!(strict.is_ok(), "{name}: {:?}", strict.err());
+                assert_eq!(report.warnings, [], "{name}");
+                line
+            }
+            Warned(line, code, subject) => {
+                let refused = strict.map(|_| ()).unwrap_err();
+                assert_eq!(refused.reason(), "pdf_not_faithful", "{name}");
+                let found: Vec<_> = report
+                    .warnings
+                    .iter()
+                    .map(|w| (w.code, w.subject))
+                    .collect();
+                assert_eq!(found, [(code, subject)], "{name}");
+                line
+            }
+        };
+        assert!(lines.iter().any(|l| l == line), "{name}: {lines:?}");
+    }
+}
+
+#[test]
+fn a_header_no_page_shows_is_not_checked() {
+    let unshown = format!(
+        "<w:p>{}{}</w:p>",
+        r#"<w:r><w:rPr><w:rFonts w:ascii="Nowhere Sans" w:hAnsi="Nowhere Sans"/></w:rPr><w:t>Even header</w:t></w:r>"#,
+        serif_field("PAGE \\* Ordinal", "1st")
+    );
+    let body = sectioned(
+        tabbed("", "Body"),
+        r#"<w:headerReference w:type="default" r:id="rheader1"/><w:headerReference w:type="even" r:id="rheader2"/>"#,
+        "",
+    );
+    let document = package(
+        &body,
+        &[
+            ("header1", "header", "hdr", &tabbed("", "Default header")),
+            ("header2", "header", "hdr", &unshown),
+        ],
+    );
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    options.strict = true;
+    let (bytes, report) = render(&document, &options).unwrap();
+    assert_eq!(report.warnings, []);
+    assert_eq!(page_lines(&bytes)[0], ["Default header", "Body"]);
+}
+
+#[test]
+fn a_shown_footer_and_a_page_field_s_value_refuse_a_family_without_a_program() {
+    let nowhere = |inner: &str| {
+        format!(
+            r#"<w:r><w:rPr><w:rFonts w:ascii="Nowhere Sans" w:hAnsi="Nowhere Sans"/></w:rPr>{inner}</w:r>"#
+        )
+    };
+    // The text, then a PAGE field with no result: only its value is drawn.
+    let text_footer = format!("<w:p>{}</w:p>", nowhere("<w:t>Footer</w:t>"));
+    let field_footer = format!(
+        "<w:p>{}{}{}</w:p>",
+        nowhere(r#"<w:fldChar w:fldCharType="begin"/>"#),
+        nowhere(r#"<w:instrText xml:space="preserve"> PAGE \* roman </w:instrText>"#),
+        nowhere(r#"<w:fldChar w:fldCharType="end"/>"#),
+    );
+    for footer in [text_footer, field_footer] {
+        let body = sectioned(
+            tabbed("", "Body"),
+            r#"<w:footerReference w:type="default" r:id="rfooter1"/>"#,
+            "",
+        );
+        let document = package(&body, &[("footer1", "footer", "ftr", &footer)]);
+        let mut options = PdfOptions::default();
+        options.fonts = fonts();
+        let err = render(&document, &options).unwrap_err();
+        assert_eq!(err.reason(), "pdf_font_program_missing", "{footer}");
+        let families: Vec<&str> = err
+            .details()
+            .unwrap()
+            .missing_fonts
+            .iter()
+            .map(|font| font.family.as_str())
+            .collect();
+        assert_eq!(families, ["Nowhere Sans"], "{footer}");
+    }
 }

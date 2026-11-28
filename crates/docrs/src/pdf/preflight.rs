@@ -12,6 +12,7 @@ use crate::layout::model::{
     RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize, on_off,
     section_properties, shaded, story_references,
 };
+use crate::layout::{FieldShown, field_shown};
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
 use crate::wml::{A, M, PIC, R, W, WP, first_choice_children, paragraph_text, w_attr, w_child};
@@ -558,9 +559,6 @@ impl<'s, 'd> Scan<'s, 'd> {
     fn text(&mut self, text: &str) {
         if !text.is_empty() {
             self.note_once(NOT_YET_DRAWN, "text");
-            if matches!(self.kind, "header" | "footer") {
-                self.note_once(NOT_YET_DRAWN, self.kind);
-            }
         }
         self.scripts(text);
     }
@@ -659,12 +657,8 @@ impl<'s, 'd> Scan<'s, 'd> {
             .unwrap_or("")
             .to_ascii_uppercase();
         match command.as_str() {
-            "DATE" => self.note(FIELD, "DATE"),
-            "TIME" => self.note(FIELD, "TIME"),
-            "PRINTDATE" => self.note(FIELD, "PRINTDATE"),
-            // Drawn as saved until the PDF computes its own page numbers.
-            "TOC" => self.note(FIELD, "TOC"),
-            "PAGEREF" => self.note(FIELD, "PAGEREF"),
+            // A contents is drawn as its entries.
+            "TOC" => {}
             "HYPERLINK" => {
                 match field_link(instruction) {
                     Some(Link::Uri(target)) => self.link(&target, TEXT_LINK),
@@ -673,7 +667,11 @@ impl<'s, 'd> Scan<'s, 'd> {
                     _ => self.note_with(LINK, "link", "computed".to_string()),
                 }
             }
-            _ => self.note(NOT_YET_DRAWN, "field"),
+            _ => match field_shown(instruction) {
+                FieldShown::Computed => {}
+                FieldShown::Cached(subject) => self.note(FIELD, subject),
+                FieldShown::Other => self.note(NOT_YET_DRAWN, "field"),
+            },
         }
     }
 

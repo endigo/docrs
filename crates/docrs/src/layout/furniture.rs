@@ -242,6 +242,7 @@ impl<'m> Furniture<'m> {
         if clipped {
             self.warnings.push(LayoutWarning {
                 code: STORY_OVERFLOW,
+                subject: story.id.kind(),
                 story: story.id,
                 page: Some(at.page),
             });

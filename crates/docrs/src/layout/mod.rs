@@ -56,7 +56,15 @@ use crate::txn::Txn;
 use crate::wml::{R, W, set_leading_text, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, Result};
-use fields::{Context, LayoutWarning, Values};
+pub(crate) use fields::LayoutWarning;
+use fields::{Context, Values};
+#[cfg(feature = "pdf")]
+pub(crate) use fields::{
+    FIELD_CACHED, FIELD_FORMAT_APPROXIMATED, FIELD_SWITCH_IGNORED, NumberFormat,
+    Shown as FieldShown, shown as field_shown,
+};
+#[cfg(feature = "pdf")]
+pub(crate) use furniture::STORY_OVERFLOW;
 use model::StoryId;
 
 /// The estimated layout of a document's body.
@@ -243,9 +251,12 @@ pub(crate) struct Settled {
     model: model::Model,
     values: Values,
     pub layout: Layout,
-    #[allow(dead_code, reason = "the PDF painter reports them")]
+    #[allow(dead_code, reason = "the PDF report will give them")]
     pub passes: usize,
-    #[allow(dead_code, reason = "the PDF painter reports them")]
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF report gives them")
+    )]
     pub warnings: Vec<LayoutWarning>,
 }
 
@@ -259,6 +270,16 @@ impl Settled {
     #[allow(dead_code, reason = "the PDF painter reads it")]
     pub(crate) fn model(&self) -> &model::Model {
         &self.model
+    }
+
+    /// The part of a header or footer; `None` for the body.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn story_part(&self, story: StoryId) -> Option<&str> {
+        self.model
+            .stories
+            .iter()
+            .find(|s| s.id == story)
+            .map(|s| s.part.as_str())
     }
 }
 
@@ -287,6 +308,11 @@ pub(crate) fn settle(
         let next = Values::of(&pages, &bookmarks, &record.placed, &page_fields);
         let signature = signature(&next, record.breaks.finish());
         if !feeds_back || seen.last() == Some(&signature) {
+            let mut warnings = pages.warnings;
+            let stories = model.stories.iter().filter(|s| model.shows(s.id));
+            let stories = stories.map(|s| (s.id, s.blocks.as_slice()));
+            let body = std::iter::once((StoryId::Body, model.blocks.as_slice()));
+            warnings.extend(fields::unplaced_references(body.chain(stories), &values));
             let layout = Layout {
                 bookmarks,
                 placed: record.placed,
@@ -301,7 +327,7 @@ pub(crate) fn settle(
                 values,
                 layout,
                 passes,
-                warnings: pages.warnings,
+                warnings,
             };
             return Ok((settled, book));
         }

@@ -95,6 +95,19 @@ pub enum StoryId {
     Endnotes,
 }
 
+impl StoryId {
+    /// `body`, `header`, `footer`, `footnotes` or `endnotes`.
+    pub(crate) fn kind(self) -> &'static str {
+        match self {
+            StoryId::Body => "body",
+            StoryId::Header(_) => "header",
+            StoryId::Footer(_) => "footer",
+            StoryId::Footnotes => "footnotes",
+            StoryId::Endnotes => "endnotes",
+        }
+    }
+}
+
 /// Paragraph alignment (`w:jc`). Right-to-left paragraphs are not read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Align {
@@ -498,6 +511,12 @@ pub struct Slots {
 #[derive(Debug, Clone)]
 pub struct Story {
     pub id: StoryId,
+    /// Its part (`word/header1.xml`, …).
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF report names it")
+    )]
+    pub part: String,
     pub blocks: Vec<Block>,
     /// Holds a field whose value depends on the page, so it is laid out
     /// for each page; its property fields are shown already.
@@ -520,6 +539,9 @@ pub struct Section {
     pub start: SectionStart,
     /// `w:vAlign`: where the body sits between the margins; `both` is top.
     pub valign: VAlign,
+    /// Page numbers are written otherwise than Word writes them: a
+    /// format layout does not write, or chapter numbers (`w:chapStyle`).
+    pub number_approximated: bool,
 }
 
 /// A face a run asks for, and the face that measures it.
@@ -700,6 +722,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 super::fields::show(&mut blocks, &properties);
                 stories.push(Story {
                     id: builder.story,
+                    part: name.to_string(),
                     fields: super::fields::per_page(&blocks),
                     blocks,
                 });
@@ -717,6 +740,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             }
         }
         let numbering = w_child(tree, *sect, "pgNumType");
+        let format = NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt")));
         sections.push(Section {
             page: page_of(tree, Some(*sect)),
             headers,
@@ -726,8 +750,9 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 .and_then(|n| w_attr(tree, n, "start"))
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|start| start.clamp(0, MAX_PAGE_START)),
-            number_format: NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt")))
-                .unwrap_or(NumberFormat::Arabic),
+            number_format: format.unwrap_or(NumberFormat::Arabic),
+            number_approximated: format.is_none()
+                || numbering.is_some_and(|n| w_attr(tree, n, "chapStyle").is_some()),
             start: section_start(tree, *sect),
             notes: notes.clone(),
             valign: w_child(tree, *sect, "vAlign")
@@ -746,6 +771,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             start: SectionStart::NewPage,
             notes: section_notes[0].clone(),
             valign: VAlign::Top,
+            number_approximated: false,
         });
     }
     builder.story = StoryId::Body;
@@ -756,6 +782,20 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         builder.blocks(tree, body, None, &mut blocks);
     }
     let notes = builder.note_stories();
+    let mut warnings = builder.warnings;
+    if sections.iter().any(|s| s.number_approximated) {
+        let stories = stories.iter().map(|s| (s.id, s.blocks.as_slice()));
+        for (story, blocks) in std::iter::once((StoryId::Body, blocks.as_slice())).chain(stories) {
+            if super::fields::takes_section_format(blocks) {
+                warnings.push(LayoutWarning {
+                    code: super::fields::FIELD_FORMAT_APPROXIMATED,
+                    subject: "page number",
+                    story,
+                    page: None,
+                });
+            }
+        }
+    }
     Ok(Model {
         sections,
         blocks,
@@ -766,12 +806,34 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         faces: builder.faces,
         links: builder.links,
         default_tab,
-        warnings: builder.warnings,
+        warnings,
         page_break_keeps_space: settings
             .and_then(crate::wml::compatibility_mode)
             .is_none_or(|mode| mode < 15),
         notes,
     })
+}
+
+impl Model {
+    /// Whether some page shows `story`: the body, and each section's
+    /// default header and footer, its first-page ones with `w:titlePg` and
+    /// its even-page ones with `w:evenAndOddHeaders`.
+    pub(crate) fn shows(&self, story: StoryId) -> bool {
+        let Some(index) = self.stories.iter().position(|s| s.id == story) else {
+            // The body and the notes it references are not section stories.
+            return matches!(
+                story,
+                StoryId::Body | StoryId::Footnotes | StoryId::Endnotes
+            );
+        };
+        self.sections.iter().any(|section| {
+            [section.headers, section.footers].iter().any(|slots| {
+                slots.default == Some(index)
+                    || (section.title_page && slots.first == Some(index))
+                    || (self.even_and_odd && slots.even == Some(index))
+            })
+        })
+    }
 }
 
 impl Story {

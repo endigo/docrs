@@ -350,6 +350,7 @@ fn a_story_past_half_the_page_is_clipped_and_warned() {
         warnings[0],
         LayoutWarning {
             code: furniture::STORY_OVERFLOW,
+            subject: "header",
             story: StoryId::Header(1),
             page: Some(1),
         }
@@ -444,6 +445,7 @@ fn a_date_keeps_its_stored_value_and_warns() {
         doc.settle().unwrap().warnings,
         [LayoutWarning {
             code: fields::FIELD_CACHED,
+            subject: "DATE",
             story: StoryId::Footer(1),
             page: None,
         }]
@@ -649,6 +651,7 @@ fn number_formats_layout_does_not_write_show_arabic_and_warn() {
         doc.settle().unwrap().warnings,
         [LayoutWarning {
             code: fields::FIELD_FORMAT_APPROXIMATED,
+            subject: "page field",
             story: StoryId::Footer(1),
             page: None,
         }]
