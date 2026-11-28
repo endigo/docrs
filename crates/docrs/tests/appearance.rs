@@ -577,13 +577,13 @@ fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
 }
 
 #[test]
-fn super_and_subscript_are_smaller_and_shifted() {
+fn super_and_subscript_are_two_thirds_the_size_and_shifted() {
     let runs = runs(&fixture());
     let plain = look(&runs, "E=mc");
     let sup = &runs[runs.iter().position(|r| r.0 == "E=mc").unwrap() + 1].1;
     let sub = &runs[runs.iter().position(|r| r.0 == " H").unwrap() + 1].1;
     assert_eq!((plain.size, plain.rise), (11.0, 0.0));
-    assert_eq!(sup.size, 11.0 * 0.64);
+    assert_eq!(sup.size, 11.0 * 2.0 / 3.0);
     assert!(sup.rise > 0.0 && sub.rise < 0.0, "{sup:?} {sub:?}");
     assert_eq!(sup.metric, plain.metric, "line height is the full size's");
     assert_eq!(look(&runs, "raised").rise, 3.0);
