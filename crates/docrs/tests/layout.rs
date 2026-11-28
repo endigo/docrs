@@ -1816,3 +1816,82 @@ fn converted_math_is_laid_out_as_its_linear_text() {
         layout.missing_fonts
     );
 }
+
+/// Each page of `template` with `memo.md` appended to its sections: its
+/// label, its body's right edge, and its header and footer text.
+fn appended_pages(template: &str) -> Vec<(String, f64, String)> {
+    use docrs::markdown::{InputFormat, MarkdownOptions, Placement, insert_source_with};
+    let root = repo_root();
+    let mut doc = Document::open_path(root.join(template), &Limits::default()).unwrap();
+    let source = std::fs::read_to_string(root.join("examples/markdown/memo.md")).unwrap();
+    let options = MarkdownOptions {
+        placement: Placement::Append,
+        toc: Some(true),
+        ..MarkdownOptions::default()
+    };
+    let fonts = docrs::layout::FontSet::default();
+    insert_source_with(&mut doc, &source, InputFormat::Markdown, &options, &fonts).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let layout = docrs::layout::layout_with(&txn, &main, &fonts).unwrap();
+    let mut pages: Vec<(String, f64, String)> = (1..=layout.pages)
+        .map(|page| (layout.page_label(page).unwrap(), 0.0, String::new()))
+        .collect();
+    docrs::layout::records_with(
+        &txn,
+        &main,
+        &fonts,
+        |_, _| Ok(()),
+        |record| {
+            let Record::Line(line) = record else {
+                return Ok(());
+            };
+            let page = &mut pages[line.page as usize - 1];
+            if line.story == "body" {
+                page.1 = page.1.max(line.x + line.width);
+            } else if line.story.starts_with("header") || line.story.starts_with("footer") {
+                page.2 += &line.text;
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    pages
+}
+
+#[test]
+fn conversions_appended_to_a_template_keep_its_sections() {
+    let landscape = appended_pages(
+        "tests/fixtures/markdown/templates/v2/multi-section-portrait-then-landscape.docx",
+    );
+    assert_eq!(landscape.len(), 3);
+    // A4 with 72 pt margins: the text ends at 523.3 pt portrait, 769.9 landscape.
+    assert!(landscape[0].1 <= 523.3, "{landscape:?}");
+    assert!(
+        landscape[1..].iter().all(|p| p.1 > 523.3 && p.1 < 770.0),
+        "{landscape:?}"
+    );
+
+    let cover = appended_pages("tests/fixtures/markdown/templates/v2/cover-page-sections.docx");
+    let shown: Vec<_> = cover.iter().map(|p| (p.0.as_str(), p.2.as_str())).collect();
+    assert_eq!(
+        shown,
+        [
+            ("1", ""),
+            ("1", "Statement of Advice1"),
+            ("2", "Statement of Advice2")
+        ]
+    );
+
+    let title =
+        appended_pages("tests/fixtures/markdown/templates/title-page-only-in-last-section.docx");
+    let stories: Vec<_> = title.iter().map(|p| p.2.as_str()).collect();
+    assert_eq!(
+        stories,
+        [
+            "PAGE 1 BANNERBody footer",
+            "Section 2 first footer",
+            "PAGE 1 BANNERBody footer"
+        ]
+    );
+}

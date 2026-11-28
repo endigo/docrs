@@ -1285,3 +1285,50 @@ fn strict_refuses_a_linearized_equation() {
         .collect();
     assert_eq!(counts, [("pdf_equation_linearized", 1)]);
 }
+
+#[test]
+fn conversions_that_keep_a_template_s_sections_report_only_its_content() {
+    use docrs::markdown::Placement;
+    let root = support::repo_root().join("tests/fixtures/markdown/templates/v2");
+    let open = |name: &str| Document::open_path(root.join(name), &Limits::default()).unwrap();
+    let mut placeholder = open("multi-section-portrait-then-landscape.docx");
+    let xml = support::document_xml(&placeholder).replace(
+        "The first section is portrait A4 with 2.54 cm margins.",
+        "{{content}}",
+    );
+    placeholder
+        .package_mut_for_tests()
+        .commit_tree("word/document.xml", docrs::xml::parse_str(&xml).unwrap())
+        .unwrap();
+    let cases = [
+        (
+            open("multi-section-portrait-then-landscape.docx"),
+            Placement::Append,
+        ),
+        (open("cover-page-sections.docx"), Placement::Append),
+        (placeholder, Placement::Placeholder("{{content}}".into())),
+    ];
+    let found = |document: &Document| -> Vec<(&str, &str)> {
+        let report = report(document);
+        report
+            .warnings
+            .iter()
+            .map(|w| (w.code, w.subject))
+            .collect()
+    };
+    for (mut document, placement) in cases {
+        let template = found(&document);
+        let options = MarkdownOptions {
+            placement,
+            ..MarkdownOptions::default()
+        };
+        insert_markdown(&mut document, "# Heading\n\nText.\n", &options).unwrap();
+        let converted = found(&document);
+        assert!(
+            converted
+                .iter()
+                .all(|w| template.contains(w) || *w == (NOT_YET_DRAWN, "text")),
+            "{converted:?} against {template:?}"
+        );
+    }
+}
