@@ -459,18 +459,18 @@ pub(crate) mod tests {
         assert!(to_pdf(docx, roomy).unwrap().pdf.report["pages"].as_u64() > Some(1));
     }
 
-    /// The `docrs` command `cargo test --workspace` builds next to this
-    /// test.
+    /// The `docrs` command `cargo test --workspace` builds in this test's
+    /// profile directory: the nearest directory above the test binary that
+    /// holds it (`target/debug/deps/..` before Cargo's build-dir layout,
+    /// `target/debug/build/docrs-wasm/<hash>/../../..` since).
     fn cli() -> PathBuf {
         let exe = std::env::current_exe().unwrap();
-        let dir = exe.parent().and_then(Path::parent).unwrap();
-        let cli = dir.join(format!("docrs{}", std::env::consts::EXE_SUFFIX));
-        assert!(
-            cli.exists(),
-            "{} is missing: build docrs-cli first",
-            cli.display()
-        );
-        cli
+        let name = format!("docrs{}", std::env::consts::EXE_SUFFIX);
+        exe.ancestors()
+            .skip(1)
+            .map(|dir| dir.join(&name))
+            .find(|cli| cli.is_file())
+            .unwrap_or_else(|| panic!("no {name} above {}: build docrs-cli first", exe.display()))
     }
 
     #[test]
