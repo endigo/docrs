@@ -63,15 +63,16 @@ pub(crate) enum NumberFormat {
 }
 
 impl NumberFormat {
-    /// `w:pgNumType w:fmt`; formats layout does not write are arabic.
-    pub(crate) fn of_section(fmt: Option<&str>) -> NumberFormat {
-        match fmt {
+    /// `w:pgNumType w:fmt`; `None` for a format layout does not write.
+    pub(crate) fn of_section(fmt: Option<&str>) -> Option<NumberFormat> {
+        Some(match fmt {
+            None | Some("decimal") => NumberFormat::Arabic,
             Some("lowerRoman") => NumberFormat::LowerRoman,
             Some("upperRoman") => NumberFormat::UpperRoman,
             Some("lowerLetter") => NumberFormat::LowerLetter,
             Some("upperLetter") => NumberFormat::UpperLetter,
-            _ => NumberFormat::Arabic,
-        }
+            Some(_) => return None,
+        })
     }
 
     /// A `\*` switch's format; `Err` for a number format layout does not
@@ -351,7 +352,8 @@ impl Values {
     ) -> Values {
         let number = |page: u32| pages.numbers.get(page as usize - 1).copied();
         let mut section_pages = Vec::new();
-        for page in &pages.numbers {
+        let counted = (1..).zip(&pages.numbers);
+        for (_, page) in counted.filter(|(n, _)| !pages.blank.contains(n)) {
             if section_pages.len() <= page.section {
                 section_pages.resize(page.section + 1, 0);
             }

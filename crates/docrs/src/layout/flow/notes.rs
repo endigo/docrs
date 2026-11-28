@@ -616,6 +616,6 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         while !self.notes.area.carry.is_empty() {
             self.new_page()?;
         }
-        self.finish_notes()
+        self.close_page()
     }
 }

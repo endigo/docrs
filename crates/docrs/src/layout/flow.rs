@@ -17,9 +17,10 @@ use std::ops::Range;
 use super::fields::Values;
 use super::furniture::{Furniture, PageAt, Pages};
 use super::model::{
-    Align, Block, Leader, LineSpacing, Metric, Model, NoteId, Para, Piece, Row, TabKind, TabStop,
-    Table,
+    Align, Block, Leader, LineSpacing, Metric, Model, NoteId, Para, Piece, Row, Section, TabKind,
+    TabStop, Table, VAlign,
 };
+use crate::authoring::SectionStart;
 use crate::xml::NodeId;
 use crate::{Error, Result};
 
@@ -194,7 +195,7 @@ fn is_space(ch: char) -> bool {
 fn gap_pieces(pieces: &[Piece], from: usize) -> Vec<bool> {
     let word = |piece: &Piece| match piece {
         Piece::Char { ch, .. } => !is_space(*ch),
-        Piece::Object { .. } => true,
+        Piece::Object { .. } | Piece::NoteRef { .. } => true,
         _ => false,
     };
     let first = pieces.iter().skip(from).position(word).map(|at| at + from);
@@ -1032,10 +1033,6 @@ pub(crate) struct Point {
 pub(crate) struct PageStart {
     pub number: u32,
     /// Into `Model.sections`.
-    #[cfg_attr(
-        not(feature = "pdf"),
-        allow(dead_code, reason = "the PDF painter reads it")
-    )]
     pub section: usize,
 }
 
@@ -1172,6 +1169,25 @@ pub(super) fn layout_work() -> u64 {
 /// A table's header rows and their height.
 type Headers<'a, 'm> = (&'a [RowLayout<'m>], f64);
 
+fn same_paper(a: &Section, b: &Section) -> bool {
+    (a.page.width, a.page.height) == (b.page.width, b.page.height)
+}
+
+/// Body output of a page whose section is centred or bottom-aligned, held
+/// until the page ends and moved down by `share` of the room left below it.
+struct Held<'m> {
+    share: f64,
+    items: Vec<HeldItem<'m>>,
+    /// Where the body ends, when not at the current position.
+    end: Option<f64>,
+}
+
+enum HeldItem<'m> {
+    Line(Point, &'m Para, Line),
+    Row(Point, &'m Table, usize, RowSlice),
+    Placed(Placed),
+}
+
 struct Flow<'m, 's, S: Sink> {
     model: &'m Model,
     sink: &'s mut S,
@@ -1192,6 +1208,7 @@ struct Flow<'m, 's, S: Sink> {
     at_section_start: bool,
     /// The paragraph that ended the previous section.
     section_end: Option<&'m Para>,
+    held: Option<Held<'m>>,
     previous: Option<&'m Para>,
     last: Option<(u32, f64)>,
     work: u64,
@@ -1227,7 +1244,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     /// Start the page: its header and footer, then the body at its top.
-    fn open_page(&mut self) -> Result<()> {
+    fn open_page(&mut self, blank: bool) -> Result<()> {
         self.sink.page(&PageStart {
             number: self.page,
             section: self.section(),
@@ -1236,7 +1253,18 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             page: self.page,
             section: self.section(),
             first: self.page == self.section_first_page,
+            blank,
         };
+        let share = match self.model.sections[at.section].valign {
+            VAlign::Top => None,
+            VAlign::Center => Some(0.5),
+            VAlign::Bottom => Some(1.0),
+        };
+        self.held = share.map(|share| Held {
+            share,
+            items: Vec::new(),
+            end: None,
+        });
         let Flow {
             furniture,
             sink,
@@ -1257,20 +1285,61 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     /// Close the page with its notes and open the next one with room for
     /// the body.
     fn new_page(&mut self) -> Result<()> {
+        self.break_page(false)
+    }
+
+    /// Close the page and open the next, blank when `blank`, until one has
+    /// room for the body.
+    fn break_page(&mut self, blank: bool) -> Result<()> {
+        let mut blank = blank;
         loop {
-            self.finish_notes()?;
-            self.turn_page()?;
+            self.close_page()?;
+            self.turn_page(blank)?;
+            blank = false;
             if !self.open_notes()? {
                 return Ok(());
             }
         }
     }
 
-    fn turn_page(&mut self) -> Result<()> {
+    /// The page's body, moved down when centred or bottom-aligned, then its
+    /// notes, which do not move.
+    fn close_page(&mut self) -> Result<()> {
+        self.release_held()?;
+        self.finish_notes()
+    }
+
+    fn turn_page(&mut self, blank: bool) -> Result<()> {
         self.page += 1;
         self.at_top = true;
         self.previous = None;
-        self.open_page()
+        self.open_page(blank)
+    }
+
+    /// Send a centred or bottom-aligned page's body, moved down.
+    fn release_held(&mut self) -> Result<()> {
+        let Some(held) = self.held.take() else {
+            return Ok(());
+        };
+        let end = held.end.unwrap_or(self.y);
+        let shift = (self.bottom - end).max(0.0) * held.share;
+        let down = |at: Point| Point {
+            y: at.y + shift,
+            ..at
+        };
+        for item in held.items {
+            match item {
+                HeldItem::Line(at, para, line) => self.sink.line(down(at), para, &line)?,
+                HeldItem::Row(at, table, row, slice) => {
+                    self.sink.row(down(at), table, row, &slice)?
+                }
+                HeldItem::Placed(placed) => self.sink.placed(Placed {
+                    y: placed.y + shift,
+                    ..placed
+                })?,
+            }
+        }
+        Ok(())
     }
 
     fn body_height(&self) -> f64 {
@@ -1279,10 +1348,19 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 
     fn emit(&mut self, placed: Placed) -> Result<()> {
         self.last = Some((placed.page, placed.y));
-        if self.notes.in_endnotes {
+        if self.notes.in_endnotes || self.hold(|| HeldItem::Placed(placed.clone())) {
             return Ok(());
         }
         self.sink.placed(placed)
+    }
+
+    /// Keep `item` for a centred or bottom-aligned page; false on others.
+    fn hold(&mut self, item: impl FnOnce() -> HeldItem<'m>) -> bool {
+        let Some(held) = &mut self.held else {
+            return false;
+        };
+        held.items.push(item());
+        true
     }
 
     /// Place `para` at its offset below the current position.
@@ -1308,13 +1386,19 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         page.left + page.gutter
     }
 
-    fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
+    fn line(&mut self, at: Point, para: &'m Para, line: &Line) -> Result<()> {
         self.charge(1)?;
+        if self.hold(|| HeldItem::Line(at, para, line.clone())) {
+            return Ok(());
+        }
         self.sink.line(at, para, line)
     }
 
-    fn row(&mut self, origin: Point, table: &Table, row: usize, slice: &RowSlice) -> Result<()> {
+    fn row(&mut self, origin: Point, table: &'m Table, row: usize, slice: &RowSlice) -> Result<()> {
         self.charge(1)?;
+        if self.hold(|| HeldItem::Row(origin, table, row, slice.clone())) {
+            return Ok(());
+        }
         self.sink.row(origin, table, row, slice)
     }
 
@@ -1373,18 +1457,47 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(())
     }
 
-    /// Start section `next` after the current paragraph.
-    fn next_section(&mut self, next: usize) -> Result<()> {
-        self.section = next.min(self.model.sections.len() - 1);
-        self.section_notes();
-        if self.model.sections[self.section].continuous {
+    /// Start section `next` after the current paragraph: on this page when
+    /// it is continuous on paper of the same size, else on a new page, after
+    /// a blank one when an even or odd start needs it.
+    /// `empty_mark`: the top of the breaking paragraph's line when it is empty.
+    fn next_section(&mut self, next: usize, empty_mark: Option<f64>) -> Result<()> {
+        let next = next.min(self.model.sections.len() - 1);
+        let section = &self.model.sections[next];
+        if section.start == SectionStart::Continuous
+            && same_paper(section, &self.model.sections[self.section()])
+        {
+            self.section = next;
+            self.section_notes();
             return Ok(());
         }
-        self.section_first_page = self.page + 1;
+        // Word gives an empty section-break paragraph ending a page no height.
+        if let (Some(held), Some(mark)) = (&mut self.held, empty_mark) {
+            held.end = Some(mark);
+        }
         self.section_end = self.previous;
+        let blank = self.needs_blank_page(section);
+        self.close_page()?;
+        self.section = next;
+        self.section_notes();
+        if blank {
+            self.break_page(true)?;
+        }
+        self.section_first_page = self.page + 1;
         self.new_page()?;
         self.at_section_start = true;
         Ok(())
+    }
+
+    /// Word gives an even or odd start the parity of the number its first
+    /// page shows, not of the physical page.
+    fn needs_blank_page(&self, section: &Section) -> bool {
+        let odd = self.furniture.next_number(true, section).rem_euclid(2) == 1;
+        match section.start {
+            SectionStart::EvenPage => odd,
+            SectionStart::OddPage => !odd,
+            _ => false,
+        }
     }
 
     /// The space above `para` here: none at the top of a page (but the
@@ -1497,7 +1610,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
         self.at_start = false;
         if let Some(next) = para.section_break {
-            self.next_section(next)?;
+            let mark = lines.last().filter(|_| para.pieces.is_empty());
+            self.next_section(next, mark.map(|line| self.y - line.height))?;
         }
         Ok(())
     }
@@ -1649,13 +1763,14 @@ fn paginate_within<S: Sink>(
         at_start: true,
         at_section_start: true,
         section_end: None,
+        held: None,
         previous: None,
         last: None,
         work: 0,
         budget,
         notes: notes::Notes::new(model),
     };
-    flow.open_page()?;
+    flow.open_page(false)?;
     flow.open_notes()?;
     flow.place_blocks(&model.blocks)?;
     flow.endnotes()?;
@@ -1666,8 +1781,9 @@ fn paginate_within<S: Sink>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authoring::SectionStart;
     use crate::layout::fields::NumberFormat;
-    use crate::layout::model::{Label, NoteSettings, Notes, Page, Section, Slots};
+    use crate::layout::model::{Label, NoteKind, NoteSettings, Notes, Page, Section, Slots};
 
     fn spaced(style: &str, before: f64, after: f64, contextual: bool) -> Para {
         Para {
@@ -1723,6 +1839,45 @@ mod tests {
             } else {
                 assert!((end - 100.0).abs() < 1e-9, "{end}");
             }
+        }
+    }
+
+    #[test]
+    fn a_justified_line_starting_or_ending_with_a_note_mark_widens_every_gap() {
+        let mut p = para(12, 20.0);
+        p.align = Align::Both;
+        // Four words to a line: lines end and start with a mark as wide as a word.
+        let mark = Piece::NoteRef {
+            note: NoteId {
+                kind: NoteKind::Footnote,
+                index: 0,
+            },
+            width: 20.0,
+            metric: 0,
+            look: 0,
+        };
+        for word in [11, 8, 7, 4, 3] {
+            p.pieces.splice(word * 5..word * 5 + 4, [mark.clone()]);
+        }
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert!(lines.len() > 2);
+        let at_mark = |at: u32| matches!(p.pieces[at as usize], Piece::NoteRef { .. });
+        assert!(at_mark(lines[1].pieces.start));
+        for line in lines.iter().filter(|line| !line.last) {
+            let (origins, _) = line.origins(&p);
+            let pieces = &p.pieces[line.pieces.start as usize..line.pieces.end as usize];
+            let gaps = gap_pieces(pieces, 0).iter().filter(|gap| **gap).count();
+            assert_eq!(gaps as u32, line.gaps);
+            let last = pieces
+                .iter()
+                .rposition(|p| !matches!(p, Piece::Char { ch: ' ', .. }))
+                .unwrap();
+            let width = if at_mark(line.pieces.start + last as u32) {
+                20.0
+            } else {
+                5.0
+            };
+            assert!((origins[last] + width - 100.0).abs() < 1e-9, "{line:?}");
         }
     }
 
@@ -1784,8 +1939,9 @@ mod tests {
                 title_page: false,
                 page_start: None,
                 number_format: NumberFormat::Arabic,
-                continuous: false,
                 notes: NoteSettings::default(),
+                start: SectionStart::NewPage,
+                valign: VAlign::Top,
             }],
             blocks,
             stories: Vec::new(),

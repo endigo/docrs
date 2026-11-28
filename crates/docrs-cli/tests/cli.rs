@@ -727,7 +727,7 @@ fn layout_lines_prints_one_json_object_a_line() {
     for line in &lines {
         assert_eq!(line["page"], 1);
         assert_eq!(line["story"], "body");
-        for key in ["x", "y", "width", "baseline"] {
+        for key in ["x", "y", "width", "baseline", "page_width", "page_height"] {
             assert!(line[key].is_number(), "{key}: {line}");
         }
         assert!(line["baseline"].as_f64() > line["y"].as_f64());

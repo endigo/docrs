@@ -31,6 +31,7 @@ use super::fields::{Context, FieldSpan, LayoutWarning, NumberFormat, Properties,
 use super::fonts::{Face, FontBook, FontKind};
 use super::variation::Style;
 use crate::Result;
+use crate::authoring::SectionStart;
 use crate::package::rels::{Relationship, rt};
 use crate::txn::Txn;
 use crate::wml::{R, W, w_attr, w_child};
@@ -42,8 +43,9 @@ pub use colour::{Colour, Rgb};
 pub(crate) use formatting::Formatting;
 #[cfg(feature = "pdf")]
 pub(crate) use formatting::ParaFormat;
+pub(crate) use look::VAlign;
 pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
-use look::{CellBorders, ParaBorders, VAlign};
+use look::{CellBorders, ParaBorders};
 #[cfg(feature = "pdf")]
 pub(crate) use marks::any_border;
 pub(crate) use math::MathScripts;
@@ -437,9 +439,11 @@ pub struct Section {
     pub page_start: Option<i64>,
     /// `w:pgNumType w:fmt`.
     pub number_format: NumberFormat,
-    /// Starts on the same page (`continuous`).
-    pub continuous: bool,
     pub notes: NoteSettings,
+    /// `w:type`; a column break starts a page, as one column is laid out.
+    pub start: SectionStart,
+    /// `w:vAlign`: where the body sits between the margins; `both` is top.
+    pub valign: VAlign,
 }
 
 /// A face a run asks for, and the face that measures it.
@@ -630,10 +634,13 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 .and_then(|n| w_attr(tree, n, "start"))
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|start| start.clamp(0, MAX_PAGE_START)),
-            number_format: NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt"))),
-            continuous: w_child(tree, *sect, "type").and_then(|t| w_attr(tree, t, "val"))
-                == Some("continuous"),
+            number_format: NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt")))
+                .unwrap_or(NumberFormat::Arabic),
+            start: section_start(tree, *sect),
             notes: notes.clone(),
+            valign: w_child(tree, *sect, "vAlign")
+                .and_then(|v| VAlign::read(w_attr(tree, v, "val")))
+                .unwrap_or_default(),
         });
     }
     if sections.is_empty() {
@@ -644,8 +651,9 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             title_page: false,
             page_start: None,
             number_format: NumberFormat::Arabic,
-            continuous: false,
+            start: SectionStart::NewPage,
             notes: section_notes[0].clone(),
+            valign: VAlign::Top,
         });
     }
     builder.story = StoryId::Body;
@@ -692,6 +700,14 @@ fn hyperlinks(txn: &Txn<'_>, part: &str) -> HashMap<String, String> {
         .filter(|rel| rel.rel_type == rt::HYPERLINK)
         .map(|rel| (rel.id, rel.target))
         .collect()
+}
+
+fn section_start(tree: &XmlTree, sect: NodeId) -> SectionStart {
+    let token = w_child(tree, sect, "type").and_then(|t| w_attr(tree, t, "val"));
+    match token.and_then(|t| SectionStart::parse(t).ok()) {
+        Some(SectionStart::NewColumn) | None => SectionStart::NewPage,
+        Some(start) => start,
+    }
 }
 
 /// Section properties in body order: those ending a section inside a

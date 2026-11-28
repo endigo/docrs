@@ -262,12 +262,13 @@ enum Command {
         file: std::path::PathBuf,
         #[command(flatten)]
         fonts: FontArgs,
-        /// Print every line instead, one JSON object a line: page, story,
-        /// x, y, width, height, baseline, tabs (points from the page's top-left
-        /// corner), each tab's leader (its character, first x and count),
-        /// slack, gaps, last, align, text and runs (text by look),
-        /// after one object with the looks and links. Each table row part
-        /// on a page is an object with `row` (its index), page, story, x, y,
+        /// Print every line instead, one JSON object a line: page, its
+        /// page_width and page_height, story, x, y, width, height, baseline,
+        /// tabs (points from the page's top-left corner), each tab's leader
+        /// (its character, first x and count), slack, gaps, last, align, text
+        /// and runs (text by look), after one object with the looks and
+        /// links. Each table row part on a page is an object with `row` (its
+        /// index), page, page_width, page_height, story, x, y,
         /// width, height, first, last, repeat (a repeated header) and cells
         /// (x, width, and the content offsets `from` and `to` on this page).
         /// Experimental.

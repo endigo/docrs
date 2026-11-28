@@ -1062,6 +1062,8 @@ fn record_json(record: &docrs::layout::Record, round: impl Fn(f64) -> f64) -> se
                 .collect();
             json!({
                 "page": line.page,
+                "page_width": round(line.page_width),
+                "page_height": round(line.page_height),
                 "story": line.story,
                 "x": round(line.x),
                 "y": round(line.y),
@@ -1098,6 +1100,8 @@ fn record_json(record: &docrs::layout::Record, round: impl Fn(f64) -> f64) -> se
             json!({
                 "row": row.row,
                 "page": row.page,
+                "page_width": round(row.page_width),
+                "page_height": round(row.page_height),
                 "story": row.story,
                 "x": round(row.x),
                 "y": round(row.y),

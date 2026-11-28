@@ -8,10 +8,11 @@
 //! (rows as tall as their tallest cell, split between lines, repeated
 //! header rows), inline pictures, each page's header and footer (first,
 //! even or default), which push the body down when taller than the margin,
-//! footnotes at the foot of their page and endnotes after the last block.
-//! Page numbers, page counts, page references and document properties are
-//! computed; other fields show their stored result. Floating objects,
-//! columns and multiple sections with different page setups are not
+//! footnotes at the foot of their page, endnotes after the last block,
+//! and sections with their own page setup, start (next, even or odd page,
+//! continuous) and page numbering. Page numbers, page counts, page
+//! references and document properties are computed; other fields show
+//! their stored result. Floating objects and columns are not
 //! modelled.
 
 mod fields;
@@ -69,6 +70,7 @@ pub struct Layout {
     /// Families measured from fonts embedded in the document.
     pub embedded_fonts: Vec<String>,
     bookmarks: HashMap<String, u32>,
+    numbers: Vec<fields::Number>,
 }
 
 impl Layout {
@@ -78,9 +80,18 @@ impl Layout {
         self.bookmarks.get(name).copied()
     }
 
-    /// The page number shown on physical page `page`.
+    /// The first page's number counted on to physical page `page`, past
+    /// any later section's restart; [`Layout::page_label`] gives the shown one.
     pub fn page_number(&self, page: u32) -> i64 {
         self.first_page_number + i64::from(page) - 1
+    }
+
+    /// The page number physical page `page` (from 1) shows, with its
+    /// section's restarts and written in its section's format (`iii`, `1`).
+    pub fn page_label(&self, page: u32) -> Option<String> {
+        let index = usize::try_from(page.checked_sub(1)?).ok()?;
+        let number = self.numbers.get(index)?;
+        Some(number.write(fields::NumberFormat::Section))
     }
 }
 
@@ -183,6 +194,7 @@ pub fn layout_with(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Layout>
         first_page_number: first_page_number(&model),
         missing_fonts: missing_fonts(&book.missing, unread),
         embedded_fonts: embedded_names,
+        numbers: pages.numbers,
     })
 }
 
@@ -242,15 +254,6 @@ impl Settled {
     pub(crate) fn model(&self) -> &model::Model {
         &self.model
     }
-
-    /// The page number a reference to `bookmark` shows, as its section
-    /// writes it.
-    fn bookmark_number(&self, bookmark: &str) -> Option<String> {
-        self.values
-            .bookmarks
-            .get(bookmark)
-            .map(|number| number.write(fields::NumberFormat::Section))
-    }
 }
 
 /// Lay `main` out until every page number, page count and page reference,
@@ -279,6 +282,7 @@ pub(crate) fn settle(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Settl
                 first_page_number: first_page_number(&model),
                 missing_fonts: missing_fonts(&book.missing, unread),
                 embedded_fonts: embedded_names,
+                numbers: pages.numbers,
             };
             return Ok(Settled {
                 model,
@@ -368,7 +372,8 @@ pub(crate) fn write_page_numbers(
     let tree = txn.tree_mut(main)?;
     let mut changed = 0;
     for (t, bookmark) in numbers {
-        let shown = match settled.bookmark_number(bookmark) {
+        let page = settled.layout.bookmark_page(bookmark);
+        let shown = match page.and_then(|page| settled.layout.page_label(page)) {
             Some(shown) => shown,
             None if blank_unplaced => String::new(),
             None => continue,
@@ -392,8 +397,8 @@ pub struct TocRefresh {
 
 /// Internal to docrs-wasm, not covered by semver. With `converted_only`,
 /// only the contents the last Markdown conversion of this document wrote.
-/// Entries in a section numbered other than in decimal or after a restart
-/// keep their numbers.
+/// Entries in a section whose page number format layout does not write, or
+/// with chapter numbers, keep their numbers.
 #[doc(hidden)]
 pub fn refresh_toc_page_numbers(
     document: &mut Document,
@@ -418,12 +423,12 @@ pub fn refresh_toc_page_numbers_with(
     let main = document.package().main_part_name().to_string();
     let numbers = {
         let tree = document.package().xml(&main)?;
-        let decimal = decimal_bookmarks(tree);
+        let written = written_bookmarks(tree);
         let converted = document.converted_toc();
         toc_page_refs(tree)
             .into_iter()
             .filter(|(t, bookmark)| {
-                decimal.contains(bookmark) && (!converted_only || converted.contains(t))
+                written.contains(bookmark) && (!converted_only || converted.contains(t))
             })
             .collect::<Vec<_>>()
     };
@@ -468,28 +473,24 @@ pub fn refresh_toc_page_numbers_if_settled_with(
     }
 }
 
-/// Bookmarks in decimal sections with no restart after the first section.
-fn decimal_bookmarks(tree: &XmlTree) -> HashSet<String> {
+/// Bookmarks in sections whose page numbers layout writes.
+fn written_bookmarks(tree: &XmlTree) -> HashSet<String> {
     let mut sections = Sections {
         tree,
-        decimal: HashSet::new(),
+        written: HashSet::new(),
         pending: Vec::new(),
-        first: true,
-        restarted: false,
     };
     if let Some(body) = w_child(tree, tree.root(), "body") {
         sections.visit(body);
         sections.close(None);
     }
-    sections.decimal
+    sections.written
 }
 
 struct Sections<'t> {
     tree: &'t XmlTree,
-    decimal: HashSet<String>,
+    written: HashSet<String>,
     pending: Vec<String>,
-    first: bool,
-    restarted: bool,
 }
 
 impl Sections<'_> {
@@ -517,20 +518,14 @@ impl Sections<'_> {
     }
 
     fn close(&mut self, sect_pr: Option<NodeId>) {
-        if self.pending.is_empty() && sect_pr.is_none() {
-            return;
-        }
         let tree = self.tree;
         let numbering = sect_pr.and_then(|s| w_child(tree, s, "pgNumType"));
-        self.restarted |=
-            !self.first && numbering.is_some_and(|n| w_attr(tree, n, "start").is_some());
-        self.first = false;
-        let decimal = numbering.is_none_or(|n| {
-            w_attr(tree, n, "fmt").is_none_or(|fmt| fmt == "decimal")
+        let written = numbering.is_none_or(|n| {
+            fields::NumberFormat::of_section(w_attr(tree, n, "fmt")).is_some()
                 && w_attr(tree, n, "chapStyle").is_none()
         });
-        if decimal && !self.restarted {
-            self.decimal.extend(self.pending.drain(..));
+        if written {
+            self.written.extend(self.pending.drain(..));
         }
         self.pending.clear();
     }
@@ -647,13 +642,25 @@ fn close_field(tree: &XmlTree, open: &mut Vec<OpenField>, out: &mut Vec<(NodeId,
         .iter()
         .any(|outer| !outer.in_code && !outer.deleted && is_command(&outer.instruction, "TOC"));
     let [t] = field.texts.as_slice() else { return };
-    let shows_digits = tree.text_content(*t).chars().all(|c| c.is_ascii_digit());
-    if !in_toc || field.deleted || !shows_digits {
+    if !in_toc || field.deleted || !shows_page_number(&tree.text_content(*t)) {
         return;
     }
     if let Some(bookmark) = page_ref_bookmark(&field.instruction) {
         out.push((*t, bookmark));
     }
+}
+
+/// Whether `text` reads as a page number: digits, roman numerals or one
+/// letter repeated, in one case.
+fn shows_page_number(text: &str) -> bool {
+    let one_case = text.chars().all(|c| c.is_ascii_lowercase())
+        || text.chars().all(|c| c.is_ascii_uppercase());
+    let roman = || {
+        text.chars()
+            .all(|c| "ivxlcdm".contains(c.to_ascii_lowercase()))
+    };
+    let repeated = || text.chars().all(|c| text.starts_with(c));
+    text.chars().all(|c| c.is_ascii_digit()) || one_case && (roman() || repeated())
 }
 
 /// A PAGEREF begins and ends in one paragraph: one still open when an end
@@ -699,6 +706,9 @@ fn page_ref_bookmark(instruction: &str) -> Option<String> {
 pub struct LineRecord {
     /// Physical page, from 1.
     pub page: u32,
+    /// The page's size in points.
+    pub page_width: f64,
+    pub page_height: f64,
     pub story: String,
     /// Points from the page's top-left corner, as are `baseline` and `tabs`.
     pub x: f64,
@@ -745,6 +755,9 @@ pub struct RunRecord {
 pub struct RowRecord {
     /// Physical page, from 1.
     pub page: u32,
+    /// The page's size in points.
+    pub page_width: f64,
+    pub page_height: f64,
     pub story: String,
     /// The row's index in its table.
     pub row: usize,
@@ -822,6 +835,7 @@ pub fn records_with(
         model: &settled.model,
         page: 0,
         marks: HashMap::new(),
+        paper: (0.0, 0.0),
         each,
     })
 }
@@ -830,6 +844,7 @@ struct LineDump<'m, F> {
     model: &'m model::Model,
     page: u32,
     marks: HashMap<model::NoteId, String>,
+    paper: (f64, f64),
     each: F,
 }
 
@@ -845,7 +860,9 @@ fn story_name(story: StoryId) -> String {
 
 impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
     fn page(&mut self, page: &flow::PageStart) -> Result<()> {
+        let geometry = &self.model.sections[page.section].page;
         self.page = page.number;
+        self.paper = (geometry.width, geometry.height);
         Ok(())
     }
 
@@ -883,6 +900,8 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
         let text = runs.iter().map(|run| run.text.as_str()).collect();
         (self.each)(Record::Line(LineRecord {
             page: self.page,
+            page_width: self.paper.0,
+            page_height: self.paper.1,
             story: story_name(para.story),
             x: at.x + line.start,
             y: at.y,
@@ -930,6 +949,8 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
             .collect();
         (self.each)(Record::Row(RowRecord {
             page: self.page,
+            page_width: self.paper.0,
+            page_height: self.paper.1,
             story: story_name(table.story),
             row,
             x: origin.x,
@@ -1011,6 +1032,8 @@ fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId
     }
 }
 
+#[cfg(test)]
+mod section_tests;
 #[cfg(test)]
 mod story_tests;
 

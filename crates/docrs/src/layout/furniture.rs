@@ -26,6 +26,8 @@ pub(super) struct PageAt {
     pub section: usize,
     /// The section's first page.
     pub first: bool,
+    /// Added before an odd or even section start: Word draws nothing on it.
+    pub blank: bool,
 }
 
 /// The page's body area, from the page top.
@@ -40,6 +42,8 @@ pub(super) struct Body {
 pub(crate) struct Pages {
     pub count: u32,
     pub numbers: Vec<Number>,
+    /// Blank pages added before odd and even starts, which no section counts.
+    pub blank: Vec<u32>,
     pub warnings: Vec<LayoutWarning>,
 }
 
@@ -49,6 +53,7 @@ pub(super) struct Furniture<'m> {
     /// Stories without live fields, laid out once per text width.
     laid_out: HashMap<(usize, u64), CellLayout<'m>>,
     numbers: Vec<Number>,
+    blank: Vec<u32>,
     warnings: Vec<LayoutWarning>,
 }
 
@@ -59,6 +64,7 @@ impl<'m> Furniture<'m> {
             values,
             laid_out: HashMap::new(),
             numbers: Vec::new(),
+            blank: Vec::new(),
             warnings: model.warnings.clone(),
         }
     }
@@ -67,6 +73,7 @@ impl<'m> Furniture<'m> {
         Pages {
             count: self.numbers.len() as u32,
             numbers: self.numbers,
+            blank: self.blank,
             warnings: self.warnings,
         }
     }
@@ -82,6 +89,9 @@ impl<'m> Furniture<'m> {
         let section = &self.model.sections[at.section];
         let number = self.number(at, section);
         self.numbers.push(number);
+        if at.blank {
+            self.blank.push(at.page);
+        }
         let page = &section.page;
         let context = Context {
             values: self.values,
@@ -104,15 +114,20 @@ impl<'m> Furniture<'m> {
     }
 
     fn number(&self, at: PageAt, section: &Section) -> Number {
-        let shown = match (self.numbers.last(), at.first, section.page_start) {
+        Number {
+            shown: self.next_number(at.first, section),
+            format: section.number_format,
+            section: at.section,
+        }
+    }
+
+    /// The number the next page shows: its section's start on the
+    /// section's `first` page, else one more than the page before.
+    pub(super) fn next_number(&self, first: bool, section: &Section) -> i64 {
+        match (self.numbers.last(), first, section.page_start) {
             (_, true, Some(start)) | (None, _, Some(start)) => start,
             (Some(previous), ..) => previous.shown.saturating_add(1),
             (None, ..) => 1,
-        };
-        Number {
-            shown,
-            format: section.number_format,
-            section: at.section,
         }
     }
 
@@ -121,7 +136,9 @@ impl<'m> Furniture<'m> {
     /// and those before it name none of that type.
     fn pick(&self, slots: Slots, at: PageAt, number: Number) -> Option<usize> {
         let section = &self.model.sections[at.section];
-        if at.first && section.title_page {
+        if at.blank {
+            None
+        } else if at.first && section.title_page {
             slots.first
         } else if self.model.even_and_odd && number.shown % 2 == 0 {
             slots.even
