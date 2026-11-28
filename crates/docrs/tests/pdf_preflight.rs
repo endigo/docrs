@@ -3,7 +3,7 @@
 mod support;
 
 use docrs::markdown::{MarkdownOptions, insert_markdown};
-use docrs::pdf::{NOT_YET_DRAWN, PdfReport, WARNING_CODES, preflight, preflight_steps};
+use docrs::pdf::{NOT_YET_DRAWN, PdfReport, WARNING_CODES, preflight, preflight_work_for_tests};
 use docrs::{Document, Limits, RefusalKind};
 use support::{ROOT_RELS, RawMember, build_zip, png_150dpi, snapshot};
 
@@ -713,10 +713,10 @@ fn many_pictures_and_links_scan_in_linear_time() {
         (pictures(1_000), pictures(8_000)),
         (links(1_000), links(8_000)),
     ] {
-        let (small_steps, large_steps) = (steps(&small), steps(&large));
+        let (small_work, large_work) = (work(&small), work(&large));
         assert!(
-            large_steps <= 8 * small_steps,
-            "{}: {small_steps} then {large_steps} steps",
+            large_work <= 8 * small_work,
+            "{}: {small_work} then {large_work} units of work",
             small.0
         );
     }
@@ -747,11 +747,12 @@ fn links(count: usize) -> Objects {
     ("link", count, docx(&body, &[], &links))
 }
 
-/// The steps a scan of `objects` takes, checking it reports them all.
-fn steps((subject, count, document): &Objects) -> u64 {
-    let (found, steps) = preflight_steps(document).unwrap();
+/// The children listed and relationships read to scan `objects`, checking
+/// the scan reports them all.
+fn work((subject, count, document): &Objects) -> u64 {
+    let (found, work) = preflight_work_for_tests(document).unwrap();
     assert_eq!(subjects(&found, NOT_YET_DRAWN), [(*subject, *count)]);
-    steps
+    work
 }
 
 #[test]

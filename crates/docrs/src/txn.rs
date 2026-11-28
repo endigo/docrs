@@ -207,10 +207,12 @@ impl<'d> Txn<'d> {
     pub fn relationships(&self, source: &str) -> Result<Vec<Relationship>> {
         let source_name = source_part_name(source);
         let rels_member = rels_member_for(&source_name);
-        match self.resolve(&rels_member) {
-            Some(member) => relationships_from_tree(self.tree(&member)?, base_uri(&source_name)),
-            None => Ok(Vec::new()),
-        }
+        let relationships = match self.resolve(&rels_member) {
+            Some(member) => relationships_from_tree(self.tree(&member)?, base_uri(&source_name))?,
+            None => Vec::new(),
+        };
+        crate::xml::tree::count_work(relationships.len());
+        Ok(relationships)
     }
 
     /// Internal relationships from `source` with the member each targets;

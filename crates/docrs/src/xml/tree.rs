@@ -289,10 +289,12 @@ impl XmlTree {
 
     /// Child nodes of an element (empty for other node kinds).
     pub fn children(&self, id: NodeId) -> &[NodeId] {
-        match &self.slots[id.0 as usize].data {
+        let children: &[NodeId] = match &self.slots[id.0 as usize].data {
             NodeData::Element(element) => &element.children,
             _ => &[],
-        }
+        };
+        count_work(children.len());
+        children
     }
 
     /// Element children only.
@@ -990,6 +992,26 @@ impl Iterator for Descendants<'_> {
         self.stack.extend(children.iter().rev().copied());
         Some(current)
     }
+}
+
+#[cfg(feature = "test-support")]
+thread_local! {
+    static WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Count `units` of work on this thread: children listed and relationships
+/// read (`test-support` feature; nothing otherwise).
+pub(crate) fn count_work(units: usize) {
+    #[cfg(feature = "test-support")]
+    WORK.with(|work| work.set(work.get() + units as u64));
+    #[cfg(not(feature = "test-support"))]
+    let _ = units;
+}
+
+/// The work counted on this thread so far (`test-support` feature).
+#[cfg(feature = "test-support")]
+pub(crate) fn work() -> u64 {
+    WORK.with(std::cell::Cell::get)
 }
 
 /// The python-docx `nsmap` prefix for well-known OOXML namespaces.
