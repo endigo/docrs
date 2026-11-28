@@ -11,6 +11,7 @@
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
 
 mod boxes;
+mod chain;
 mod decorate;
 mod font;
 mod image;
@@ -19,6 +20,7 @@ mod meta;
 mod nav;
 mod paint;
 mod preflight;
+mod symbols;
 mod writer;
 
 pub use limits::PdfLimits;
@@ -42,7 +44,9 @@ use serde::Serialize;
 use writer::{Dict, Object, Ref, Writer, count, name};
 
 use crate::coreprops::core_properties;
-use crate::layout::{Face, FontSet, settle};
+use crate::layout::fonts::{FaceSource, bundled};
+use crate::layout::model::Piece;
+use crate::layout::{Face, FontSet, LayoutTarget, model_of, settle};
 use crate::txn::Txn;
 use crate::{Document, Error, ErrorDetails, Limits, Result, WarningCount};
 
@@ -136,6 +140,22 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_link_target_missing",
         "a link goes to a bookmark the document does not have; its text is kept without the link",
+    ),
+    (
+        "pdf_font_substituted",
+        "a font or style was drawn and measured with another one, so lines may break differently than in Word",
+    ),
+    (
+        "pdf_glyph_missing",
+        "a character its font lacks was drawn and measured with a fallback font",
+    ),
+    (
+        "pdf_symbol_substituted",
+        "a symbol was drawn as the character it stands for in another font, or as a box",
+    ),
+    (
+        "pdf_font_not_embedded",
+        "a font is referenced by name and not embedded; viewers without it substitute another",
     ),
 ];
 
@@ -277,6 +297,41 @@ pub struct PdfReport {
     pub warnings: Vec<PdfWarning>,
     /// Pages written; `None` from [`preflight`].
     pub pages: Option<u32>,
+    /// What drew each family and style, in order of first use; empty from
+    /// [`preflight`].
+    pub fonts: Vec<PdfFontUse>,
+}
+
+/// A family and style the document asks for, and what drew it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct PdfFontUse {
+    pub requested_family: String,
+    pub bold: bool,
+    pub italic: bool,
+    /// The family of the face that drew it; `None` for the built-in symbol
+    /// font.
+    pub selected_family: Option<String>,
+    /// `document` (a font it embeds), `supplied`, `alias`, `fallback`,
+    /// `glyph_fallback` (characters the face lacks), `symbols` (the
+    /// built-in symbol font), `symbol_fallback` or `not_embedded`.
+    pub source: &'static str,
+    /// Bold or italic drawn from another style.
+    pub synthesized: bool,
+}
+
+/// A family and style the document's text is set in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct UsedFont {
+    pub family: String,
+    pub bold: bool,
+    pub italic: bool,
+    /// The document embeds a font program for it.
+    pub embedded: bool,
+    /// The built-in symbol font draws every character set in it, so a PDF
+    /// needs no program for it.
+    pub optional: bool,
 }
 
 /// How to export.
@@ -287,41 +342,56 @@ pub struct PdfOptions {
     pub fonts: FontSet,
     /// Refuse on any warning (`pdf_not_faithful`).
     pub strict: bool,
+    /// Reference a face with no program it may embed by name, measured as
+    /// layout measured it (`pdf_font_not_embedded`), instead of refusing.
+    pub allow_unembedded: bool,
     pub limits: PdfLimits,
 }
 
 const PRODUCER: &str = concat!("docrs ", env!("CARGO_PKG_VERSION"));
 
 /// The document as a PDF, with what it leaves out or changes. Runs
-/// [`preflight`] and [`PdfReport::check`] first. Each run is drawn in the
-/// face that measured it: the document's embedded font, else one of
-/// `options.fonts`; a family and style with neither refuses
-/// (`pdf_font_program_missing`, every one listed in the error's details).
-/// Reads only; the document is unchanged.
+/// [`preflight`] and [`PdfReport::check`] first, then decides how each
+/// character is drawn: in the face that measured it (the document's
+/// embedded font, else one of `options.fonts`: the family's own, an alias,
+/// the declared fallback for its kind), a character the face lacks in the
+/// next face of that chain, a symbol in the built-in symbol font. A family
+/// and style with no program refuses (`pdf_font_program_missing`, every
+/// one listed in the error's details) unless `allow_unembedded`, and so
+/// does a character nothing draws (`pdf_glyph_missing`). With `strict`,
+/// any warning refuses. Reads only; the document is unchanged.
 pub fn render(document: &Document, options: &PdfOptions) -> Result<(Vec<u8>, PdfReport)> {
     let mut report = preflight(document)?;
     report.check(options.strict)?;
-    let (bytes, pages) = paint(document, &options.fonts, &options.limits, None)?;
+    let (bytes, pages) = paint(document, options, None, &mut report)?;
     report.pages = Some(pages);
     Ok((bytes, report))
 }
 
-/// Lays out and draws `document`, without the preflight; `stand_in`
-/// draws what has no font program.
+/// Lays out and draws `document`, adding what its fonts change to
+/// `report` and refusing as [`PdfReport::check`] does before drawing;
+/// `stand_in` draws what nothing else does.
 fn paint(
     document: &Document,
-    fonts: &FontSet,
-    limits: &PdfLimits,
+    options: &PdfOptions,
     stand_in: Option<Arc<Face>>,
+    report: &mut PdfReport,
 ) -> Result<(Vec<u8>, u32)> {
     let txn = Txn::new(document);
     let main = document.package().main_part_name();
-    let settled = settle(&txn, main, fonts)?;
+    let target = LayoutTarget::Pdf {
+        allow_unembedded: options.allow_unembedded,
+    };
+    let (settled, mut book) = settle(&txn, main, &options.fonts, target)?;
     let model = settled.model();
-    if stand_in.is_none() {
-        paint::check_programs(model)?;
-    }
-    let mut painter = paint::Painter::new(model, &txn, limits, stand_in)?;
+    let mut chain = chain::Chain::new(&mut book, options.allow_unembedded, stand_in.is_some());
+    chain.check(model)?;
+    let (warnings, fonts) = chain.report();
+    report.warnings.extend(warnings);
+    report.fonts = fonts;
+    report.check(options.strict)?;
+    let limits = &options.limits;
+    let mut painter = paint::Painter::new(model, &txn, &mut chain, limits, stand_in)?;
     settled.paginate(&mut painter)?;
     painter.close_page()?;
     let pages = painter.pages.len() as u32;
@@ -362,16 +432,66 @@ fn info(document: &Document) -> Result<meta::Info> {
     })
 }
 
+/// The families and styles `document`'s body text is set in, in order of
+/// first use, for loading only the fonts a PDF needs. Reads only.
+pub fn used_fonts(document: &Document) -> Result<Vec<UsedFont>> {
+    let txn = Txn::new(document);
+    let main = document.package().main_part_name();
+    let (model, ..) = model_of(&txn, main, &FontSet::default(), LayoutTarget::Word)?;
+    let mut used: Vec<UsedFont> = Vec::new();
+    chain::each_para(&model.blocks, &mut |para| {
+        let label = para.label.iter().flat_map(|label| &label.pieces);
+        let pieces = label
+            .map(|p| (p, true))
+            .chain(para.pieces.iter().map(|p| (p, false)));
+        for (piece, in_label) in pieces {
+            let Piece::Char { ch, look, .. } = piece else {
+                continue;
+            };
+            let look = &model.looks[*look as usize];
+            let run = &model.faces[look.face(*ch) as usize];
+            let optional =
+                chain::own_shape(run, look.caps.apply(*ch, look.size).0, in_label).is_some();
+            let at = used.iter().position(|u| {
+                u.family == run.family && (u.bold, u.italic) == (run.bold, run.italic)
+            });
+            match at {
+                Some(at) => used[at].optional &= optional,
+                None => used.push(UsedFont {
+                    family: run.family.clone(),
+                    bold: run.bold,
+                    italic: run.italic,
+                    embedded: run.source == FaceSource::Document,
+                    optional,
+                }),
+            }
+        }
+    });
+    Ok(used)
+}
+
 impl PdfReport {
-    /// Replace every message with its code's fixed description and every
+    /// Replace every message with its code's fixed description, every
     /// location's part name with its story kind (`body`, `header`,
-    /// `footer`, `footnotes`, `endnotes`), so the report holds nothing from
-    /// the input.
+    /// `footer`, `footnotes`, `endnotes`), and every family name the
+    /// bundled metrics table does not hold with `redacted`, so the report
+    /// holds nothing from the input.
     pub fn redact(&mut self) {
         for warning in &mut self.warnings {
             warning.message = description(warning.code).to_string();
             for location in &mut warning.locations {
                 location.story = location.kind.to_string();
+            }
+        }
+        let redact = |family: &mut String| {
+            if !bundled(family) {
+                *family = "redacted".to_string();
+            }
+        };
+        for font in &mut self.fonts {
+            redact(&mut font.requested_family);
+            if let Some(selected) = &mut font.selected_family {
+                redact(selected);
             }
         }
     }
@@ -630,13 +750,24 @@ pub fn image_document_for_tests(
 #[doc(hidden)]
 pub fn paint_for_tests(document: &Document, fonts: &FontSet, stand_in: &[u8]) -> Result<Vec<u8>> {
     let stand_in = Face::read_at(&Arc::from(stand_in), 0)?;
-    paint(
-        document,
-        fonts,
-        &PdfLimits::default(),
-        Some(Arc::new(stand_in)),
-    )
-    .map(|(bytes, _)| bytes)
+    let options = PdfOptions {
+        fonts: fonts.clone(),
+        ..PdfOptions::default()
+    };
+    let mut report = PdfReport::default();
+    paint(document, &options, Some(Arc::new(stand_in)), &mut report).map(|(bytes, _)| bytes)
+}
+
+/// [`render`] without the preflight, for drawing what it still refuses,
+/// for tests only (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn render_unchecked_for_tests(
+    document: &Document,
+    options: &PdfOptions,
+) -> Result<(Vec<u8>, PdfReport)> {
+    let mut report = PdfReport::default();
+    paint(document, options, None, &mut report).map(|(bytes, _)| (bytes, report))
 }
 
 /// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).

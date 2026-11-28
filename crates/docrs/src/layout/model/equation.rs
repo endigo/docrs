@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use super::build::{DEFAULT_SIZE, Measurer};
+use super::build::{DEFAULT_SIZE, Measurer, Pen};
 use super::math::{CAMBRIA_MATH, MathScripts, Role, levels, linear_text, linearize};
 use super::props::{FontRef, RPr};
 use super::{Align, Builder, Equation, Para, Piece};
@@ -28,6 +28,8 @@ pub(super) struct Display {
 type PenKey = (Option<NodeId>, bool, u64, u64);
 
 struct MathPen {
+    /// The properties it was made from, raised and scaled.
+    rpr: RPr,
     measurer: Measurer,
     look: u32,
     /// The measurer's metric, raised or stacked.
@@ -73,15 +75,28 @@ impl Builder<'_> {
             let pen = pens
                 .entry(key)
                 .or_insert_with(|| self.math_pen(tree, key, levels, para_rpr));
-            let width = match c.role {
-                Role::Space(ems) => ems * pen.measurer.size,
-                _ => pen.measurer.width(ch),
+            let (width, look) = match c.role {
+                Role::Space(ems) => (ems * pen.measurer.size, pen.look),
+                _ => {
+                    // A character the face lacks is drawn in the next face
+                    // of the chain that has it, on the equation's line.
+                    let text = Pen {
+                        measurer: pen.measurer.clone(),
+                        link: self.link,
+                        look: pen.look,
+                    };
+                    let rpr = pen.rpr.clone();
+                    match self.glyph_pen(&rpr, &text, ch) {
+                        Some((measurer, look)) => (measurer.width(ch), look),
+                        None => (text.measurer.width(ch), text.look),
+                    }
+                }
             };
             para.pieces.push(Piece::Char {
                 ch,
                 width,
                 metric: pen.metric,
-                look: pen.look,
+                look,
             });
         }
         para.equations.push(Equation {
@@ -185,6 +200,7 @@ impl Builder<'_> {
         };
         let metric = self.metric(ascent + below, ascent);
         MathPen {
+            rpr,
             measurer,
             look,
             metric,

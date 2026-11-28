@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::fields::{Context, FieldSpan, LayoutWarning, NumberFormat, Properties, Values};
-use super::fonts::{Face, FontBook, FontKind};
+use super::fonts::{Face, FaceSource, FontBook, FontKind};
 use super::variation::Style;
 use crate::Result;
 use crate::authoring::SectionStart;
@@ -432,6 +432,26 @@ impl Table {
 pub struct FieldPen {
     pub measurer: Measurer,
     pub look: u32,
+    /// Each character the value can show that the face lacks, with the
+    /// measurer and look of the face of the chain that draws it.
+    pub glyphs: Vec<(char, Measurer, u32)>,
+}
+
+impl FieldPen {
+    /// `ch` of the value, in the face of the chain that draws it.
+    pub(crate) fn piece(&self, ch: char) -> Piece {
+        let (measurer, look) = self
+            .glyphs
+            .iter()
+            .find(|(c, ..)| *c == ch)
+            .map_or((&self.measurer, self.look), |(_, m, look)| (m, *look));
+        Piece::Char {
+            ch,
+            width: measurer.width(ch),
+            metric: measurer.metric,
+            look,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -495,6 +515,12 @@ pub struct RunFace {
     pub bold: bool,
     pub italic: bool,
     pub face: Arc<Face>,
+    pub source: FaceSource,
+    /// The family has this style in Word's fonts, but `face` is another.
+    pub style_missing: bool,
+    /// The family's own face was passed over: its licence forbids
+    /// embedding it in a PDF.
+    pub restricted: bool,
 }
 
 pub struct Model {
@@ -530,7 +556,10 @@ pub(super) struct Builder<'a> {
     /// Each look and its index.
     looks: HashMap<Appearance, u32>,
     faces: Vec<RunFace>,
-    face_index: HashMap<(String, Style), u32>,
+    /// By the family asked for, the style, and the measuring face.
+    face_index: HashMap<(String, Style, usize), u32>,
+    /// A look's measurer and look in a face that draws what its own lacks.
+    glyph_pens: HashMap<(u32, usize), (build::Measurer, u32)>,
     links: Vec<Link>,
     link_index: HashMap<Link, u32>,
     /// The story part's hyperlink relationships: id to target.
@@ -591,6 +620,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         looks: HashMap::new(),
         faces: Vec::new(),
         face_index: HashMap::new(),
+        glyph_pens: HashMap::new(),
         links: Vec::new(),
         link_index: HashMap::new(),
         hyperlinks: HashMap::new(),

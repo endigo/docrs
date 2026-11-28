@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use docrs::layout::{FontInfo, FontSet};
+use docrs::layout::{FontInfo, FontKind, FontSet};
 use docrs::{Error, Result};
 use serde_json::{Value, json};
 
@@ -76,8 +76,50 @@ pub fn load(args: &FontArgs) -> Result<Loaded> {
             }
         }
     }
+    let fallbacks = args
+        .fallbacks
+        .iter()
+        .map(|arg| fallback_of(arg))
+        .collect::<Result<Vec<_>>>()?;
+    for (kind, family) in &fallbacks {
+        builder.fallback(*kind, family);
+    }
+    if args.metric_aliases {
+        builder.metric_aliases();
+    }
     loaded.set = builder.build();
+    if let Some((_, family)) = fallbacks
+        .iter()
+        .find(|(_, family)| !loaded.set.provides(family))
+    {
+        return Err(Error::invalid_argument(
+            "fallback_not_supplied",
+            format!("--fallback names {family}, which no --font or --font-dir file provides"),
+        ));
+    }
     Ok(loaded)
+}
+
+/// `KIND=FAMILY` of `--fallback`.
+fn fallback_of(arg: &str) -> Result<(FontKind, &str)> {
+    let (kind, family) = arg.split_once('=').unwrap_or((arg, ""));
+    let kind = match kind.trim() {
+        "serif" => FontKind::Serif,
+        "sans" => FontKind::Sans,
+        "mono" => FontKind::Mono,
+        _ => return Err(bad_fallback(arg)),
+    };
+    match family.trim() {
+        "" => Err(bad_fallback(arg)),
+        family => Ok((kind, family)),
+    }
+}
+
+fn bad_fallback(arg: &str) -> Error {
+    Error::invalid_argument(
+        "fallback_invalid",
+        format!("--fallback {arg}: expected serif, sans or mono, then = and a family"),
+    )
 }
 
 fn in_file(path: &Path, err: &Error) -> String {

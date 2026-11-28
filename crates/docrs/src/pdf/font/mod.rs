@@ -1,12 +1,16 @@
-//! Embedded fonts: each face a document draws with becomes a `Type0` font
-//! with `Identity-H`, holding a subset of the glyphs it drew and a
-//! `ToUnicode` CMap so the text extracts as it was written.
+//! Fonts: each face a document draws with becomes a `Type0` font with
+//! `Identity-H`, holding a subset of the glyphs it drew and a `ToUnicode`
+//! CMap so the text extracts as it was written. The built-in symbol font
+//! is a `Type3` font, and a face drawn without its program a simple
+//! `TrueType` font referenced by name.
 
 mod face;
 mod program;
 #[cfg(any(test, feature = "test-support"))]
 mod sample;
+mod shapes;
 mod to_unicode;
+mod unembedded;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -24,6 +28,10 @@ use crate::{Error, Result};
 pub use self::sample::SampleLine;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use self::sample::{glyphs_by_cmap, text_document};
+pub(crate) use self::shapes::Shape;
+use self::shapes::Shapes;
+use self::unembedded::Unembedded;
+pub(crate) use self::unembedded::code as win_ansi;
 pub use crate::layout::variation::Style;
 
 /// A character code in an embedded font's content stream (two bytes, `Identity-H`).
@@ -40,6 +48,35 @@ impl FaceRef {
     }
 }
 
+/// A font a run is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PdfFont {
+    Embedded(FaceRef),
+    /// The built-in symbol font of that index.
+    Shapes(usize),
+    /// Referenced by name, at its index among them.
+    Named(usize),
+}
+
+impl PdfFont {
+    /// Its name in a page's `/Font` resources.
+    pub(crate) fn resource_name(self) -> String {
+        match self {
+            PdfFont::Embedded(face) => face.resource_name(),
+            PdfFont::Shapes(at) => format!("S{}", at + 1),
+            PdfFont::Named(at) => format!("N{}", at + 1),
+        }
+    }
+
+    /// Bytes per character code.
+    pub(crate) fn code_bytes(self) -> usize {
+        match self {
+            PdfFont::Embedded(_) => 2,
+            PdfFont::Shapes(_) | PdfFont::Named(_) => 1,
+        }
+    }
+}
+
 /// The fonts of one document, by font file, face and variation instance.
 #[derive(Default)]
 pub(crate) struct FontResources {
@@ -50,6 +87,8 @@ pub(crate) struct FontResources {
     infos: HashMap<(usize, u32), Arc<FaceInfo>>,
     refs: HashMap<InstanceKey, FaceRef>,
     faces: Vec<Resource>,
+    shapes: Shapes,
+    named: Vec<Unembedded>,
 }
 
 /// File, face index, and each axis value away from the default (as bits).
@@ -141,6 +180,15 @@ impl FontResources {
         let data = &self.files[file].data;
         Face::read_at(data, index as usize)?;
         let info = Arc::new(FaceInfo::read(data, index)?);
+        if !info.embeddable {
+            return Err(Error::invalid_argument(
+                "pdf_font_embedding_restricted",
+                format!(
+                    "the licence of {} does not allow embedding it in a PDF",
+                    info.label
+                ),
+            ));
+        }
         self.infos.insert((file, index), info.clone());
         Ok(info)
     }
@@ -190,17 +238,58 @@ impl FontResources {
         Ok(cid)
     }
 
-    /// Writes every face's font objects, returning each resource name with
-    /// its `Type0` font.
-    pub(crate) fn finish(self, writer: &mut Writer) -> Result<Vec<(String, Ref)>> {
-        self.faces
+    /// The built-in font and code that draw `shape` and extract as `text`,
+    /// and its width in thousandths of an em.
+    pub(crate) fn use_shape(&mut self, shape: Shape, text: &str) -> (PdfFont, u8, f64) {
+        let (font, code) = self.shapes.code(shape, text);
+        (PdfFont::Shapes(font), code, shape.width())
+    }
+
+    /// The index of `family` in a style, referenced by name and measured
+    /// by `face` ([`PdfFont::Named`]); `program` (the face's file and
+    /// index) gives its descriptor, else one estimated from `face`.
+    pub(crate) fn named(
+        &mut self,
+        family: &str,
+        bold: bool,
+        italic: bool,
+        face: &Arc<Face>,
+        program: Option<(&[u8], u32)>,
+    ) -> usize {
+        if let Some(at) = self
+            .named
             .iter()
-            .enumerate()
-            .map(|(index, face)| {
-                let data = &self.files[face.file].data;
-                Ok((FaceRef(index).resource_name(), face.write(data, writer)?))
-            })
-            .collect()
+            .position(|font| font.is(family, bold, italic))
+        {
+            return at;
+        }
+        let info = program.and_then(|(data, index)| FaceInfo::read(data, index).ok());
+        let font = Unembedded::new(family, bold, italic, face.clone(), info);
+        self.named.push(font);
+        self.named.len() - 1
+    }
+
+    /// The width `code` is drawn with in a font referenced by name.
+    pub(crate) fn named_width(&self, font: usize, code: u8) -> f64 {
+        self.named[font].width(code)
+    }
+
+    /// Writes every font's objects, returning each resource name with its
+    /// font.
+    pub(crate) fn finish(self, writer: &mut Writer) -> Result<Vec<(String, Ref)>> {
+        let mut out = Vec::new();
+        for (index, face) in self.faces.iter().enumerate() {
+            let data = &self.files[face.file].data;
+            out.push((FaceRef(index).resource_name(), face.write(data, writer)?));
+        }
+        for font in 0..self.shapes.fonts() {
+            let name = PdfFont::Shapes(font).resource_name();
+            out.push((name, self.shapes.write(font, writer)?));
+        }
+        for (at, font) in self.named.iter().enumerate() {
+            out.push((PdfFont::Named(at).resource_name(), font.write(writer)?));
+        }
+        Ok(out)
     }
 }
 
@@ -218,7 +307,7 @@ impl Resource {
         let base_font = self.base_font();
         let type0 = writer.alloc()?;
         let cid_font = writer.alloc()?;
-        let descriptor = writer.alloc()?;
+        let font_descriptor = writer.alloc()?;
         let file = writer.alloc()?;
         let to_unicode = writer.alloc()?;
         let mut file_dict = Dict::new();
@@ -228,7 +317,9 @@ impl Resource {
             file_dict.set("Length1", count(program.len())?);
         }
         writer.stream(file, file_dict, &program)?;
-        writer.dict(descriptor, self.descriptor(&base_font, cff, file))?;
+        let program = if cff { "FontFile3" } else { "FontFile2" };
+        let dict = descriptor(&self.info, &self.instance, &base_font, SYMBOLIC).with(program, file);
+        writer.dict(font_descriptor, dict)?;
         let mut cid_dict = Dict::new()
             .with("Type", name("Font"))
             .with(
@@ -243,7 +334,7 @@ impl Resource {
                     .with("Ordering", text("Identity"))
                     .with("Supplement", 0_i64),
             )
-            .with("FontDescriptor", descriptor)
+            .with("FontDescriptor", font_descriptor)
             .with("W", self.widths(&advances));
         if !cff {
             let map = writer.alloc()?;
@@ -255,7 +346,7 @@ impl Resource {
             .glyphs
             .iter()
             .map(|(cid, (_, text))| (*cid, text.as_str()));
-        writer.stream(to_unicode, Dict::new(), &to_unicode::cmap(texts))?;
+        writer.stream(to_unicode, Dict::new(), &to_unicode::cmap(texts, 2))?;
         // ISO 32000-1 9.7.6.1: a Type0 font over a CIDFontType0 font is
         // named after it and its CMap.
         let type0_name = if cff {
@@ -358,43 +449,41 @@ impl Resource {
         }
         map
     }
+}
 
-    /// The bbox, and the italic angle of an `ital` instance, are the default
-    /// instance's: subsetter keeps the source `head` and `post` tables.
-    fn descriptor(&self, base_font: &str, cff: bool, file: Ref) -> Dict {
-        let info = &self.info;
-        let instance = &self.instance;
-        let scale = |value: f64| (value * 1000.0 / info.units_per_em).round();
-        let mut flags = SYMBOLIC;
-        if info.fixed_pitch {
-            flags |= FIXED_PITCH;
-        }
-        if info.serif {
-            flags |= SERIF;
-        }
-        if instance.italic {
-            flags |= ITALIC;
-        }
-        let weight = f64::from(instance.weight);
-        Dict::new()
-            .with("Type", name("FontDescriptor"))
-            .with("FontName", name(base_font))
-            .with("Flags", flags)
-            .with(
-                "FontBBox",
-                info.bbox.map(|v| Object::Real(scale(v))).to_vec(),
-            )
-            .with("ItalicAngle", instance.italic_angle)
-            .with("Ascent", scale(info.ascent))
-            .with("Descent", scale(info.descent))
-            .with("CapHeight", scale(info.cap_height))
-            .with("StemV", (10.0 + 0.244 * (weight - 50.0)).round().max(0.0))
-            .with(
-                "FontWeight",
-                ((weight / 100.0).round() * 100.0).clamp(100.0, 900.0),
-            )
-            .with(if cff { "FontFile3" } else { "FontFile2" }, file)
+/// A font descriptor without its font file. The bbox, and the italic angle
+/// of an `ital` instance, are the default instance's: subsetter keeps the
+/// source `head` and `post` tables.
+fn descriptor(info: &FaceInfo, instance: &Instance, base_font: &str, encoding: u32) -> Dict {
+    let scale = |value: f64| (value * 1000.0 / info.units_per_em).round();
+    let mut flags = encoding;
+    if info.fixed_pitch {
+        flags |= FIXED_PITCH;
     }
+    if info.serif {
+        flags |= SERIF;
+    }
+    if instance.italic {
+        flags |= ITALIC;
+    }
+    let weight = f64::from(instance.weight);
+    Dict::new()
+        .with("Type", name("FontDescriptor"))
+        .with("FontName", name(base_font))
+        .with("Flags", flags)
+        .with(
+            "FontBBox",
+            info.bbox.map(|v| Object::Real(scale(v))).to_vec(),
+        )
+        .with("ItalicAngle", instance.italic_angle)
+        .with("Ascent", scale(info.ascent))
+        .with("Descent", scale(info.descent))
+        .with("CapHeight", scale(info.cap_height))
+        .with("StemV", (10.0 + 0.244 * (weight - 50.0)).round().max(0.0))
+        .with(
+            "FontWeight",
+            ((weight / 100.0).round() * 100.0).clamp(100.0, 900.0),
+        )
 }
 
 /// Font descriptor flags (ISO 32000-1 Table 123). Every embedded font is
@@ -402,6 +491,7 @@ impl Resource {
 const FIXED_PITCH: u32 = 1;
 const SERIF: u32 = 1 << 1;
 const SYMBOLIC: u32 = 1 << 2;
+const NONSYMBOLIC: u32 = 1 << 5;
 const ITALIC: u32 = 1 << 6;
 
 #[cfg(test)]
@@ -424,5 +514,21 @@ mod tests {
         assert_eq!((fonts.files.len(), fonts.seen.len()), (1, 1));
         assert!(Arc::ptr_eq(&fonts.files[0].data, &first));
         assert_eq!(fonts.add_face(first, 0, None).unwrap(), face);
+    }
+
+    #[test]
+    fn a_program_that_cannot_be_read_gives_a_named_font_estimated_metrics() {
+        use crate::layout::fonts::{FontBook, FontKind};
+        let arial = FontBook::default().face("Arial", false, false, FontKind::Sans);
+        let mut fonts = FontResources::default();
+        let at = fonts.named("Arial", false, false, &arial, Some((b"not a font", 0)));
+        assert_eq!(fonts.named_width(at, b'a'), 556.0);
+        let mut writer = Writer::new(1 << 20).unwrap();
+        let written = fonts.finish(&mut writer).unwrap();
+        assert_eq!(written[0].0, "N1");
+        let body = String::from_utf8_lossy(writer.body()).into_owned();
+        assert!(body.contains("/BaseFont /Arial"), "{body}");
+        // Estimated from the measured face: its ascent and descent, no bbox.
+        assert!(body.contains("/FontBBox [0 -212 1000 938]"), "{body}");
     }
 }

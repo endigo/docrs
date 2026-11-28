@@ -477,7 +477,12 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             );
             Ok(0)
         }
-        Command::Layout { file, fonts, lines } => {
+        Command::Layout {
+            file,
+            fonts,
+            lines,
+            pdf,
+        } => {
             let (document, _) = open_reference(Some(file), limits, false)?;
             let fonts = fonts::load(fonts)?;
             let txn = docrs::txn::Txn::new(&document);
@@ -495,10 +500,18 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         Error::io("write_failed", format!("writing a line: {err}"), err)
                     })
                 };
-                let result = docrs::layout::records_with(
+                let target = if *pdf {
+                    docrs::layout::LayoutTarget::Pdf {
+                        allow_unembedded: false,
+                    }
+                } else {
+                    docrs::layout::LayoutTarget::Word
+                };
+                let result = docrs::layout::records_for(
                     &txn,
                     &main,
                     &fonts.set,
+                    target,
                     |looks, links| {
                         let looks: Vec<_> = looks.iter().map(|l| look_json(l, round)).collect();
                         let links: Vec<_> = links.iter().map(link_json).collect();
@@ -542,6 +555,8 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let loaded = fonts::load(&FontArgs {
                 fonts: files.clone(),
                 font_dirs: font_dirs.clone(),
+                fallbacks: Vec::new(),
+                metric_aliases: false,
             })?;
             let value = json!({
                 "schema": "docrs_fonts",
@@ -554,6 +569,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         "italic": face.italic,
                         "style": fonts::style(face),
                         "variable": face.variable,
+                        "word_family": face.word_family,
                         "cff": face.cff,
                         "embeddable": face.embeddable,
                         "subsettable": face.subsettable,
@@ -569,6 +585,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             out,
             preflight,
             strict,
+            allow_unembedded,
             fonts,
         } => {
             let (document, set_aside) = open_reference(Some(input), limits, false)?;
@@ -584,7 +601,11 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             };
             refuse_overwriting(out, &[input])?;
             let fonts = fonts::load(fonts)?;
-            let report = write_pdf(&document, &fonts, *strict, limits, out)?;
+            let pdf = PdfFlags {
+                strict: *strict,
+                allow_unembedded: *allow_unembedded,
+            };
+            let report = write_pdf(&document, &fonts, pdf, limits, out)?;
             let mut value = json!({"schema": "docrs_pdf", "version": 1, "pdf": report.to_json(), "set_aside": set_aside, "out": out});
             fonts.report_skipped(&mut value);
             emit(json_mode, value, || {
@@ -671,17 +692,24 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct PdfFlags {
+    strict: bool,
+    allow_unembedded: bool,
+}
+
 /// Renders `document` as PDF with `fonts` and writes it to `out` atomically.
 fn write_pdf(
     document: &Document,
     fonts: &fonts::Loaded,
-    strict: bool,
+    flags: PdfFlags,
     limits: &Limits,
     out: &Path,
 ) -> Result<docrs::pdf::PdfReport> {
     let mut options = docrs::pdf::PdfOptions::default();
     options.fonts = fonts.set.clone();
-    options.strict = strict;
+    options.strict = flags.strict;
+    options.allow_unembedded = flags.allow_unembedded;
     if *limits == Limits::trusted() {
         options.limits = docrs::pdf::PdfLimits::trusted();
     }
@@ -820,6 +848,7 @@ fn convert(
         styles,
         strict_styles,
         strict,
+        allow_unembedded,
         resource_path,
         toc,
         no_toc,
@@ -918,7 +947,11 @@ fn convert(
                 .flatten()
                 .collect();
             refuse_overwriting(out, &inputs)?;
-            let pdf = write_pdf(&document, &fonts, *strict, limits, out)?;
+            let flags = PdfFlags {
+                strict: *strict,
+                allow_unembedded: *allow_unembedded,
+            };
+            let pdf = write_pdf(&document, &fonts, flags, limits, out)?;
             value["pdf"] = pdf.to_json();
             Some(pdf)
         }
@@ -970,6 +1003,10 @@ fn fonts_text(loaded: &fonts::Loaded) -> String {
     for (path, faces) in &loaded.files {
         text.push_str(&format!("{}\n", path.display()));
         for face in faces {
+            let word = face
+                .word_family
+                .as_ref()
+                .map(|name| format!("Word for Mac names it {name}"));
             let mut notes = Vec::new();
             if face.cff {
                 notes.push("CFF outlines");
@@ -982,6 +1019,7 @@ fn fonts_text(loaded: &fonts::Loaded) -> String {
             } else if !face.subsettable {
                 notes.push("its licence forbids subsetting");
             }
+            notes.extend(word.as_deref());
             let notes = if notes.is_empty() {
                 String::new()
             } else {

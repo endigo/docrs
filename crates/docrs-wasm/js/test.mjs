@@ -893,7 +893,19 @@ test("toPdf and every conversion with pdf draw a PDF, with or without the docx",
   assert.deepEqual(both.docx, plain.docx);
   assert.deepEqual(both.report, plain.report);
   assert.ok(isPdf(both.pdf));
-  assert.deepEqual(both.pdfReport, { schema_version: 1, warnings: [], pages: 1 });
+  // Times New Roman through the tested Liberation Serif alias is silent.
+  const used = (requested_family, bold, selected_family, source) =>
+    ({ requested_family, bold, italic: false, selected_family, source, synthesized: false });
+  assert.deepEqual(both.pdfReport, {
+    schema_version: 1,
+    warnings: [],
+    pages: 1,
+    fonts: [
+      used("Inter", true, "Inter", "supplied"),
+      used("Inter", false, "Inter", "supplied"),
+      used("Times New Roman", false, "Liberation Serif", "alias"),
+    ],
+  });
   const only = lib.fromHtml(ADVICE, { ...options, pdf: { strict: true }, docx: false });
   assert.deepEqual(sorted(only), ["pdf", "pdfReport", "referenceSetAside", "report"]);
   assert.deepEqual(only.pdf, both.pdf);

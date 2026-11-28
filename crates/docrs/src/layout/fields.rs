@@ -495,16 +495,7 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
         let Some(text) = context.value(&span.kind, para.node) else {
             continue;
         };
-        let pen = &span.pen;
-        let pieces: Vec<Piece> = text
-            .chars()
-            .map(|ch| Piece::Char {
-                ch,
-                width: pen.measurer.width(ch),
-                metric: pen.measurer.metric,
-                look: pen.look,
-            })
-            .collect();
+        let pieces: Vec<Piece> = text.chars().map(|ch| span.pen.piece(ch)).collect();
         let added = pieces.len() as u32;
         para.pieces.splice(start as usize..end as usize, pieces);
         let moved = i64::from(added) - i64::from(end - start);

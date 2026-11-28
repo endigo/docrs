@@ -17,6 +17,8 @@ pub(super) struct FaceInfo {
     /// Family and style, for messages.
     pub label: String,
     pub outlines: Outlines,
+    /// The licence allows embedding the outlines.
+    pub embeddable: bool,
     pub subsettable: bool,
     pub glyphs: u16,
     pub units_per_em: f64,
@@ -68,13 +70,7 @@ impl FaceInfo {
             ));
         };
         let (embeddable, subsettable) = licence(&ttf);
-        if !embeddable {
-            return Err(Error::invalid_argument(
-                "pdf_font_embedding_restricted",
-                format!("the licence of {label} does not allow embedding it in a PDF"),
-            ));
-        }
-        if !subsettable && ttf.table(b"CFF ").is_some_and(cid_keyed) {
+        if embeddable && !subsettable && ttf.table(b"CFF ").is_some_and(cid_keyed) {
             return Err(Error::invalid_argument(
                 "pdf_font_embedding_unsupported",
                 format!(
@@ -100,6 +96,7 @@ impl FaceInfo {
             .unwrap_or_else(|| postscript(&label));
         Ok(FaceInfo {
             outlines,
+            embeddable,
             subsettable,
             glyphs: be16(maxp, 4)
                 .filter(|n| *n > 0)

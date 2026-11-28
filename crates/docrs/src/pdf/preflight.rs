@@ -396,7 +396,6 @@ impl<'s, 'd> Scan<'s, 'd> {
                 self.text(&text_of(tree, node));
                 return false;
             }
-            "sym" => self.note_once(NOT_YET_DRAWN, "symbol"),
             "noBreakHyphen" => self.note_once(NOT_YET_DRAWN, "no-break hyphen"),
             "softHyphen" => self.note_once(NOT_YET_DRAWN, "soft hyphen"),
             "sectPr" if parent == Some("pPr") => self.note(NOT_YET_DRAWN, "section break"),
@@ -812,7 +811,7 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
         PdfReport {
             warnings: self.tally.finish(),
-            pages: None,
+            ..PdfReport::default()
         }
     }
 }
