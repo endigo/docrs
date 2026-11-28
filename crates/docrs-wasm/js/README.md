@@ -149,8 +149,10 @@ instances: a reset frees no room.
 family, bold?, italic?, url | data }`. Each entry's file must hold its
 `family` in the declared style (`font_face_mismatch` otherwise; a variable
 face covers both weights). `data` is copied. A `url` must be a string and
-https, and is fetched with `redirect: "error"`: a response that was
-redirected anyway is refused. Https alone does not stop a request to a host
+https, and is fetched without its fragment and with `redirect: "error"`, so
+a redirect fails the fetch (`font_fetch_failed`); a response that was
+redirected anyway, by a `fetch` of your own, is refused
+(`font_url_redirected`). Https alone does not stop a request to a host
 you did not mean, so give only your own storage's URLs (signed URLs, for
 example), never a URL a tenant typed. Each file and all of them together
 are capped by the budgets above and by `maxBytes`, while they stream (a
@@ -196,6 +198,28 @@ export async function POST(request: Request) {
     },
   });
 }
+```
+
+Fonts (experimental): keep one font set per tenant for the life of the
+process, and memoise the promise of `loadFontManifest`, not the set, so
+concurrent cold requests fetch once and share one handle (each extra handle
+counts against the live-set budget):
+
+```ts
+import { createFontCache, loadFontManifest, type FontManifestEntry, type FontSet } from "docrs-wasm";
+
+const fontSets = new Map<string, Promise<FontSet>>();
+
+function tenantFonts(tenant: string, entries: FontManifestEntry[]): Promise<FontSet> {
+  let fonts = fontSets.get(tenant);
+  if (!fonts) {
+    fonts = loadFontManifest(entries, { cache: createFontCache(), limits: "serverless" });
+    fonts.catch(() => fontSets.delete(tenant)); // retry after a failure
+    fontSets.set(tenant, fonts);
+  }
+  return fonts;
+}
+// When a tenant's fonts change: (await fontSets.get(tenant))?.free(); fontSets.delete(tenant);
 ```
 
 For a TipTap editor, post `editor.getJSON()` as the request body and hand

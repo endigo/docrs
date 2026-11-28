@@ -710,6 +710,15 @@ test("a font manifest fetches over https only and names the entry in errors", as
     );
   }
   assert.ok(inits.every((init) => init.redirect === "error"));
+  // A fragment is not sent, so a response without it is no redirect.
+  const asks = [];
+  const plain = async (url) => {
+    asks.push(url);
+    return Object.defineProperty(new Response(INTER), "url", { value: "https://fonts.example/inter.ttf" });
+  };
+  const versioned = await lib.loadFontManifest([entry("m1-fragment", "https://fonts.example/inter.ttf#v2")], { fetch: plain });
+  assert.deepEqual(asks, ["https://fonts.example/inter.ttf"]);
+  versioned.free();
   await assert.rejects(
     lib.loadFontManifest([entry("m1-404", "https://fonts.example/none.ttf", { italic: true })], { fetch }),
     (err) => err.code === "io" && err.reason === "font_fetch_failed" && /"m1-404" \(Inter, italic\)/.test(err.message),

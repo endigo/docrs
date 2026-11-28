@@ -368,6 +368,8 @@ function entryOf(entry, at) {
       throw named(read, invalid("font_url_invalid", "url is not a URL"));
     }
     if (parsed.protocol !== "https:") throw named(read, invalid("font_url_not_https", "fonts are fetched over https only"));
+    // A response's url never has a fragment; keeping one would read as a redirect.
+    parsed.hash = "";
     read.url = parsed.href;
   }
   return read;
