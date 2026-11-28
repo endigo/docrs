@@ -13,6 +13,10 @@ use crate::xml::{NodeId, XmlTree};
 #[non_exhaustive]
 pub struct Appearance {
     pub metric: u32,
+    /// Into `Model.faces`: the face of characters below U+0080, and of
+    /// the rest (`w:ascii` and `w:hAnsi`).
+    pub ascii: u32,
+    pub hansi: u32,
     /// The drawn size in points: 2/3 of the font size for super- and
     /// subscript.
     pub size: f64,
@@ -37,6 +41,22 @@ pub struct Appearance {
 
 impl Eq for Appearance {}
 
+impl Appearance {
+    /// The face that measures and draws `ch`.
+    pub fn face(&self, ch: char) -> u32 {
+        if is_ascii_slot(ch) {
+            self.ascii
+        } else {
+            self.hansi
+        }
+    }
+}
+
+/// Characters a run sets in its `w:ascii` font; the rest take `w:hAnsi`.
+pub(super) fn is_ascii_slot(ch: char) -> bool {
+    (ch as u32) < 0x80
+}
+
 impl Hash for Appearance {
     fn hash<H: Hasher>(&self, state: &mut H) {
         [self.size, self.rise, self.spacing, self.scale]
@@ -44,6 +64,8 @@ impl Hash for Appearance {
             .hash(state);
         (
             self.metric,
+            self.ascii,
+            self.hansi,
             self.colour,
             self.bold,
             self.italic,
@@ -156,6 +178,26 @@ pub enum Caps {
 }
 
 impl Caps {
+    pub(super) fn of(caps: bool, small_caps: bool) -> Caps {
+        if caps {
+            Caps::All
+        } else if small_caps {
+            Caps::Small
+        } else {
+            Caps::None
+        }
+    }
+
+    /// The character drawn for `ch`, and its share of the font size.
+    pub fn apply(self, ch: char) -> (char, f64) {
+        let upper = || ch.to_uppercase().next().unwrap_or(ch);
+        match self {
+            Caps::All => (upper(), 1.0),
+            Caps::Small if ch.is_lowercase() => (upper(), 0.8),
+            _ => (ch, 1.0),
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Caps::None => "none",

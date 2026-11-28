@@ -23,7 +23,7 @@ fault-injection = []
 test-support = ["fault-injection"]
 # Markdown → DOCX conversion (`docrs::markdown`).
 markdown = ["dep:pulldown-cmark"]
-# Experimental PDF export (`docrs::pdf`); no public API yet.
+# Experimental PDF export (`docrs::pdf`).
 pdf = ["dep:subsetter"]
 
 [dependencies]
@@ -34,6 +34,7 @@ serde.workspace = true
 serde_json.workspace = true
 pulldown-cmark = { workspace = true, optional = true }
 subsetter = { workspace = true, optional = true }
+skrifa.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

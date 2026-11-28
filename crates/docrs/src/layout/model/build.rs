@@ -1,11 +1,14 @@
 use super::formatting::ParaFormat;
-use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign};
+use std::sync::Arc;
+
+use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign, is_ascii_slot};
 use super::props::{FontRef, RPr, length, number, read_rpr};
 use super::table::TableCtx;
-use super::{Block, Builder, FieldPen, Label, LineRule, LineSpacing, Metric, Para, Piece};
+use super::{Block, Builder, FieldPen, Label, LineRule, LineSpacing, Metric, Para, Piece, RunFace};
 use crate::fields::fieldcode;
 use crate::layout::fields::{FieldKind, FieldSpan, LayoutWarning, instruction};
 use crate::layout::fonts::{Face, FontKind};
+use crate::layout::variation::Style;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeData, NodeId, XmlTree};
@@ -108,6 +111,8 @@ impl Builder<'_> {
         let on = |toggle: Option<bool>| toggle.unwrap_or(false);
         let look = Appearance {
             metric: measurer.metric,
+            ascii: measurer.faces[0],
+            hansi: measurer.faces[1],
             size: measurer.size,
             rise: rpr.position.unwrap_or(0.0) + shift,
             colour: rpr.colour.unwrap_or_default(),
@@ -123,13 +128,7 @@ impl Builder<'_> {
             },
             highlight: rpr.highlight.flatten(),
             shade: rpr.shd.flatten(),
-            caps: if measurer.caps {
-                Caps::All
-            } else if measurer.small_caps {
-                Caps::Small
-            } else {
-                Caps::None
-            },
+            caps: measurer.caps,
             spacing: measurer.spacing,
             scale: measurer.scale,
             link,
@@ -291,6 +290,7 @@ impl Builder<'_> {
                 .unwrap_or(FontKind::Serif)
         };
         let (ascii_kind, hansi_kind) = (kind(&ascii), kind(&hansi));
+        let style = Style::of(bold, italic);
         let face = self.fonts.face(&ascii, bold, italic, ascii_kind);
         let face_hansi = if hansi.eq_ignore_ascii_case(&ascii) {
             face.clone()
@@ -299,17 +299,38 @@ impl Builder<'_> {
         };
         let metric = self.metric(face.line_height() * size, face.ascent() * size);
         let (small, _) = script(size, rpr.vert, &face);
+        let faces = [
+            self.run_face(ascii, style, &face),
+            self.run_face(hansi, style, &face_hansi),
+        ];
         Measurer {
             ascii: face,
             hansi: face_hansi,
+            faces,
             size: small,
-            caps: rpr.caps.unwrap_or(false),
-            small_caps: rpr.small_caps.unwrap_or(false),
+            caps: Caps::of(rpr.caps.unwrap_or(false), rpr.small_caps.unwrap_or(false)),
+            bold,
             spacing: rpr.spacing.unwrap_or(0.0),
             scale: rpr.scale.unwrap_or(100.0) / 100.0,
             kern: rpr.kern.is_some_and(|from| from > 0.0 && size >= from),
             metric,
         }
+    }
+
+    fn run_face(&mut self, family: String, style: Style, face: &Arc<Face>) -> u32 {
+        let key = (family, style);
+        if let Some(index) = self.face_index.get(&key) {
+            return *index;
+        }
+        let index = self.faces.len() as u32;
+        self.faces.push(RunFace {
+            family: key.0.clone(),
+            bold: style.weight >= 600,
+            italic: style.italic,
+            face: face.clone(),
+        });
+        self.face_index.insert(key, index);
+        index
     }
 
     fn paragraph(&mut self, tree: &XmlTree, p: NodeId, table: Option<&TableCtx>) -> Para {
@@ -369,16 +390,32 @@ impl Builder<'_> {
                 let mut label_rpr = mark_rpr.clone();
                 label_rpr.merge(&level_rpr);
                 let measurer = self.measurer(&label_rpr);
-                let width: f64 = text.chars().map(|c| measurer.width(c)).sum();
+                let look = self.look(&label_rpr, &measurer, None);
+                let pieces: Vec<Piece> = text
+                    .chars()
+                    .map(|ch| Piece::Char {
+                        ch,
+                        width: measurer.width(ch),
+                        metric: measurer.metric,
+                        look,
+                    })
+                    .collect();
+                let width = pieces
+                    .iter()
+                    .map(|piece| match piece {
+                        Piece::Char { width, .. } => *width,
+                        _ => 0.0,
+                    })
+                    .sum();
                 let space = if suffix == "space" {
                     measurer.width(' ')
                 } else {
                     0.0
                 };
                 para.label = Some(Label {
+                    pieces,
                     width,
                     metric: measurer.metric,
-                    look: self.look(&label_rpr, &measurer, None),
                     tab: suffix == "tab",
                     space,
                 });
@@ -720,13 +757,20 @@ fn vml_size(style: &str) -> (f64, f64) {
     (width, height)
 }
 
+/// The advance Word for Mac adds to each glyph of a bold run set in a face
+/// that is not bold, in ems (measured, 11 pt Liberation Serif).
+const SYNTHETIC_BOLD_ADVANCE: f64 = 0.018;
+
 #[derive(Debug, Clone)]
 pub(crate) struct Measurer {
-    ascii: std::sync::Arc<crate::layout::fonts::Face>,
-    hansi: std::sync::Arc<crate::layout::fonts::Face>,
+    ascii: Arc<Face>,
+    hansi: Arc<Face>,
+    /// Into `Model.faces`, for `ascii` and `hansi`.
+    faces: [u32; 2],
     size: f64,
-    caps: bool,
-    small_caps: bool,
+    caps: Caps,
+    /// The run is bold: a face that is not is drawn emboldened.
+    bold: bool,
     spacing: f64,
     scale: f64,
     /// Pair kerning on (`w:kern` at or below the size).
@@ -735,41 +779,31 @@ pub(crate) struct Measurer {
 }
 
 impl Measurer {
-    pub(crate) fn width(&self, ch: char) -> f64 {
-        let face = if (ch as u32) < 0x80 {
+    fn face(&self, ch: char) -> &Arc<Face> {
+        if is_ascii_slot(ch) {
             &self.ascii
         } else {
             &self.hansi
-        };
-        let (ch, size) = if self.caps || (self.small_caps && ch.is_lowercase()) {
-            let upper = ch.to_uppercase().next().unwrap_or(ch);
-            let size = if self.small_caps && ch.is_lowercase() && !self.caps {
-                self.size * 0.8
-            } else {
-                self.size
-            };
-            (upper, size)
+        }
+    }
+
+    pub(crate) fn width(&self, ch: char) -> f64 {
+        let face = self.face(ch);
+        let (ch, share) = self.caps.apply(ch);
+        let size = self.size * share;
+        let emboldened = if self.bold && !face.bold {
+            size * SYNTHETIC_BOLD_ADVANCE
         } else {
-            (ch, self.size)
+            0.0
         };
-        face.advance(ch) * size * self.scale + self.spacing
+        face.advance(ch) * size * self.scale + self.spacing + emboldened
     }
 
     /// The kerning `left` takes before `right` (points), when kerning is on
     /// and both are set in the same face.
     pub(super) fn kern(&self, left: char, right: char) -> f64 {
-        let face = |ch: char| {
-            if (ch as u32) < 0x80 {
-                &self.ascii
-            } else {
-                &self.hansi
-            }
-        };
-        if !self.kern
-            || !std::sync::Arc::ptr_eq(face(left), face(right))
-            || self.caps
-            || self.small_caps
-        {
+        let face = |ch: char| self.face(ch);
+        if !self.kern || !Arc::ptr_eq(face(left), face(right)) || self.caps != Caps::None {
             return 0.0;
         }
         face(left).kern(left, right) * self.size * self.scale

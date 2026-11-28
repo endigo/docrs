@@ -1,9 +1,11 @@
 //! PDF export. **Experimental**: exempt from semantic versioning until the
 //! release that completes it. Output is deterministic for a given build.
 //!
-//! [`preflight`] reports what a document holds that a PDF would not show
-//! faithfully. While the engine is incomplete, every construct it does not
-//! draw yet is a `pdf_not_yet_drawn` warning, and [`PdfReport::check`]
+//! [`render`] lays the document out as the TOC page numbers are laid out
+//! and draws its text where layout placed it, in the fonts that measured
+//! it. [`preflight`] reports what a document holds that a PDF would not
+//! show faithfully. While the engine is incomplete, every construct it does
+//! not draw yet is a `pdf_not_yet_drawn` warning, and [`PdfReport::check`]
 //! refuses it, so a PDF is never silently incomplete.
 
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
@@ -13,6 +15,7 @@ mod image;
 mod limits;
 mod meta;
 mod nav;
+mod paint;
 mod preflight;
 mod writer;
 
@@ -31,10 +34,15 @@ pub use meta::Info;
 #[doc(hidden)]
 pub use nav::{LinkId, Navigation, Rect};
 
-use serde::Serialize;
-use writer::{Dict, Object, Writer, count, name};
+use std::sync::Arc;
 
-use crate::{Error, ErrorDetails, Limits, Result, WarningCount};
+use serde::Serialize;
+use writer::{Dict, Object, Ref, Writer, count, name};
+
+use crate::coreprops::core_properties;
+use crate::layout::{Face, FontSet, settle};
+use crate::txn::Txn;
+use crate::{Document, Error, ErrorDetails, Limits, Result, WarningCount};
 
 /// The code of a construct the engine does not draw yet.
 pub const NOT_YET_DRAWN: &str = "pdf_not_yet_drawn";
@@ -103,6 +111,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_field_cached",
         "a date or time field shows the value saved in the document, not the current one",
+    ),
+    (
+        "pdf_justification_unsupported",
+        "distributed, kashida or Thai justification is drawn as ordinary justification",
     ),
     (
         "pdf_link_scheme_skipped",
@@ -250,6 +262,91 @@ impl Tally {
 pub struct PdfReport {
     /// In order of first occurrence.
     pub warnings: Vec<PdfWarning>,
+    /// Pages written; `None` from [`preflight`].
+    pub pages: Option<u32>,
+}
+
+/// How to export.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct PdfOptions {
+    /// Font programs for the families the document does not embed.
+    pub fonts: FontSet,
+    /// Refuse on any warning (`pdf_not_faithful`).
+    pub strict: bool,
+    pub limits: PdfLimits,
+}
+
+const PRODUCER: &str = concat!("docrs ", env!("CARGO_PKG_VERSION"));
+
+/// The document as a PDF, with what it leaves out or changes. Runs
+/// [`preflight`] and [`PdfReport::check`] first. Each run is drawn in the
+/// face that measured it: the document's embedded font, else one of
+/// `options.fonts`; a family and style with neither refuses
+/// (`pdf_font_program_missing`, every one listed in the error's details).
+/// Reads only; the document is unchanged.
+pub fn render(document: &Document, options: &PdfOptions) -> Result<(Vec<u8>, PdfReport)> {
+    let mut report = preflight(document)?;
+    report.check(options.strict)?;
+    let (bytes, pages) = paint(document, &options.fonts, &options.limits, None)?;
+    report.pages = Some(pages);
+    Ok((bytes, report))
+}
+
+/// Lays out and draws `document`, without the preflight; `stand_in`
+/// draws what has no font program.
+fn paint(
+    document: &Document,
+    fonts: &FontSet,
+    limits: &PdfLimits,
+    stand_in: Option<Arc<Face>>,
+) -> Result<(Vec<u8>, u32)> {
+    let txn = Txn::new(document);
+    let main = document.package().main_part_name();
+    let settled = settle(&txn, main, fonts)?;
+    let model = settled.model();
+    if stand_in.is_none() {
+        paint::check_programs(model)?;
+    }
+    let mut painter = paint::Painter::new(model, &txn, limits, stand_in)?;
+    settled.paginate(&mut painter)?;
+    painter.close_page()?;
+    let pages = painter.pages.len() as u32;
+    let mut writer = painter.writer;
+    let fonts = painter
+        .fonts
+        .finish(&mut writer)?
+        .into_iter()
+        .fold(Dict::new(), |fonts, (name, font)| fonts.with(&name, font));
+    let sizes: Vec<((f64, f64), Ref)> = painter
+        .pages
+        .iter()
+        .map(|page| (page.size, page.contents))
+        .collect();
+    let info = info(document)?;
+    let (bytes, _) = write_document(
+        writer,
+        &sizes,
+        Dict::new().with("Font", fonts),
+        nav::Navigation::default(),
+        &info,
+        PRODUCER,
+    )?;
+    Ok((bytes, pages))
+}
+
+/// `/Info` from the core properties.
+fn info(document: &Document) -> Result<meta::Info> {
+    let core = core_properties(document)?;
+    let text = |value: &str| (!value.trim().is_empty()).then(|| value.to_string());
+    Ok(meta::Info {
+        title: text(&core.title),
+        author: text(&core.author),
+        subject: text(&core.subject),
+        keywords: text(&core.keywords),
+        created: core.created,
+        modified: core.modified,
+    })
 }
 
 impl PdfReport {
@@ -326,7 +423,10 @@ impl PdfReport {
                 description: description(code),
             })
             .collect();
-        ErrorDetails { warnings }
+        ErrorDetails {
+            warnings,
+            ..ErrorDetails::default()
+        }
     }
 }
 
@@ -343,16 +443,26 @@ pub(crate) fn blank_document(
     limits: &Limits,
 ) -> Result<(Vec<u8>, Vec<PdfWarning>)> {
     check_pages(pages)?;
-    let pages: Vec<((f64, f64), Vec<u8>)> = pages.iter().map(|&size| (size, Vec::new())).collect();
-    let writer = Writer::new(limits.max_output_bytes)?;
+    let mut writer = Writer::new(limits.max_output_bytes)?;
+    let pages = pages
+        .iter()
+        .map(|&size| Ok((size, page_content(&mut writer, &[])?)))
+        .collect::<Result<Vec<_>>>()?;
     write_document(writer, &pages, Dict::new(), navigation, info, producer)
+}
+
+/// A page's content stream.
+fn page_content(writer: &mut Writer, content: &[u8]) -> Result<Ref> {
+    let contents = writer.alloc()?;
+    writer.stream(contents, Dict::new(), content)?;
+    Ok(contents)
 }
 
 /// Writes the pages, each `(size, content stream)`, sharing `resources`,
 /// with their navigation, then the catalog, the `/Info` and the trailer.
 fn write_document(
     mut writer: Writer,
-    pages: &[((f64, f64), Vec<u8>)],
+    pages: &[((f64, f64), Ref)],
     resources: Dict,
     navigation: nav::Navigation,
     info: &meta::Info,
@@ -360,20 +470,17 @@ fn write_document(
 ) -> Result<(Vec<u8>, Vec<PdfWarning>)> {
     let catalog = writer.alloc()?;
     let tree = writer.alloc()?;
-    let mut slots = Vec::with_capacity(pages.len());
+    let mut page_refs = Vec::with_capacity(pages.len());
     for _ in pages {
-        slots.push((writer.alloc()?, writer.alloc()?));
+        page_refs.push(writer.alloc()?);
     }
-    let page_refs: Vec<_> = slots.iter().map(|&(page, _)| page).collect();
     let heights = pages.iter().map(|((_, height), _)| *height);
     let placed: Vec<_> = page_refs.iter().copied().zip(heights).collect();
     let nav = navigation.write(&mut writer, &placed)?;
-    for ((((width, height), content), (page, contents)), annots) in
-        pages.iter().zip(slots).zip(nav.annots)
+    for ((&((width, height), contents), &page), annots) in
+        pages.iter().zip(&page_refs).zip(nav.annots)
     {
-        writer.stream(contents, Dict::new(), content)?;
-        let media_box: Vec<Object> =
-            vec![0.0.into(), 0.0.into(), (*width).into(), (*height).into()];
+        let media_box: Vec<Object> = vec![0.0.into(), 0.0.into(), width.into(), height.into()];
         let mut dict = Dict::new()
             .with("Type", name("Page"))
             .with("Parent", tree)
@@ -421,19 +528,24 @@ fn check_pages(pages: &[(f64, f64)]) -> Result<()> {
             "a PDF needs at least one page",
         ));
     }
-    for &(width, height) in pages {
-        for side in [width, height] {
-            if !(MIN_PAGE_SIDE..=MAX_PAGE_SIDE).contains(&side) {
-                return Err(Error::invalid_argument(
-                    "pdf_page_size",
-                    format!(
-                        "page {width} × {height} pt: each side must be {MIN_PAGE_SIDE} to {MAX_PAGE_SIDE} pt"
-                    ),
-                ));
-            }
-        }
+    pages
+        .iter()
+        .try_for_each(|&(width, height)| check_page(width, height))
+}
+
+fn check_page(width: f64, height: f64) -> Result<()> {
+    if [width, height]
+        .iter()
+        .all(|side| (MIN_PAGE_SIDE..=MAX_PAGE_SIDE).contains(side))
+    {
+        return Ok(());
     }
-    Ok(())
+    Err(Error::unsupported(
+        "pdf_page_size",
+        format!(
+            "page {width} × {height} pt: each side must be {MIN_PAGE_SIDE} to {MAX_PAGE_SIDE} pt"
+        ),
+    ))
 }
 
 /// [`blank_document`] for tests only (`test-support` feature).
@@ -484,6 +596,22 @@ pub fn image_document_for_tests(
     limits: &PdfLimits,
 ) -> Result<(Vec<u8>, Vec<Vec<&'static str>>)> {
     image::image_document(images, info, producer, limits)
+}
+
+/// The document's body drawn without the preflight, every face that has
+/// no font program drawn with `stand_in`'s first face, for tests only
+/// (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn paint_for_tests(document: &Document, fonts: &FontSet, stand_in: &[u8]) -> Result<Vec<u8>> {
+    let stand_in = Face::read_at(&Arc::from(stand_in), 0)?;
+    paint(
+        document,
+        fonts,
+        &PdfLimits::default(),
+        Some(Arc::new(stand_in)),
+    )
+    .map(|(bytes, _)| bytes)
 }
 
 /// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).

@@ -12,7 +12,7 @@ use docrs::{
 };
 use serde_json::{Value, json};
 
-use crate::{Command, ConvertArgs, FontArgs, fonts, paragraphs};
+use crate::{Command, ConvertArgs, FontArgs, OutputFormat, fonts, paragraphs};
 
 fn read(path: &Path) -> Result<Vec<u8>> {
     std::fs::read(path)
@@ -564,12 +564,34 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             emit(json_mode, value, || fonts_text(&loaded));
             Ok(0)
         }
-        Command::Pdf { input, .. } => {
+        Command::Pdf {
+            input,
+            out,
+            preflight,
+            strict,
+            fonts,
+        } => {
             let (document, set_aside) = open_reference(Some(input), limits, false)?;
-            let report = docrs::pdf::preflight(&document)?;
-            let mut value = report.to_json();
-            value["set_aside"] = json!(set_aside);
-            emit(json_mode, value, || preflight_text(&report, &set_aside));
+            let out = match out {
+                Some(out) if !preflight => out,
+                _ => {
+                    let report = docrs::pdf::preflight(&document)?;
+                    let mut value = report.to_json();
+                    value["set_aside"] = json!(set_aside);
+                    emit(json_mode, value, || preflight_text(&report, &set_aside));
+                    return Ok(0);
+                }
+            };
+            refuse_overwriting(out, &[input])?;
+            let fonts = fonts::load(fonts)?;
+            let report = write_pdf(&document, &fonts, *strict, limits, out)?;
+            let mut value = json!({"schema": "docrs_pdf", "version": 1, "pdf": report.to_json(), "set_aside": set_aside, "out": out});
+            fonts.report_skipped(&mut value);
+            emit(json_mode, value, || {
+                let mut text = pdf_text(&report, out);
+                text.push_str(&fonts.skipped_text());
+                text
+            });
             Ok(0)
         }
         Command::MarkdownInspect {
@@ -649,6 +671,103 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
     }
 }
 
+/// Renders `document` as PDF with `fonts` and writes it to `out` atomically.
+fn write_pdf(
+    document: &Document,
+    fonts: &fonts::Loaded,
+    strict: bool,
+    limits: &Limits,
+    out: &Path,
+) -> Result<docrs::pdf::PdfReport> {
+    let mut options = docrs::pdf::PdfOptions::default();
+    options.fonts = fonts.set.clone();
+    options.strict = strict;
+    if *limits == Limits::trusted() {
+        options.limits = docrs::pdf::PdfLimits::trusted();
+    }
+    let (bytes, report) = docrs::pdf::render(document, &options)?;
+    docrs::package::save::write_atomic(out, &bytes, None)?;
+    Ok(report)
+}
+
+/// Refuses an output that is one of `inputs`, through a symbolic or hard
+/// link, or a directory the write would create, too. Creates nothing.
+fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
+    let destination = docrs::package::save::destination(out)?;
+    let Some(target) = landing(&destination).and_then(|path| std::fs::metadata(path).ok()) else {
+        return Ok(());
+    };
+    for input in inputs {
+        if std::fs::metadata(input).is_ok_and(|source| same_file(&source, &target, input, out)) {
+            return Err(Error::invalid_argument(
+                "output_is_input",
+                format!(
+                    "{} is {}; write the PDF elsewhere",
+                    out.display(),
+                    input.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Where a write to `path` lands once it has created the directories it
+/// needs: its longest existing ancestor resolved, then the rest applied
+/// as names, since a directory the write creates is no symbolic link.
+fn landing(path: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).ok()?;
+    let mut components = absolute.components();
+    let mut existing = std::path::PathBuf::new();
+    let mut missing = None;
+    for component in components.by_ref() {
+        let next = existing.join(component);
+        if std::fs::metadata(&next).is_err() {
+            missing = Some(component);
+            break;
+        }
+        existing = next;
+    }
+    let mut out = existing.canonicalize().ok()?;
+    for component in missing.into_iter().chain(components) {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(name) => out.push(name),
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+#[cfg(unix)]
+fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata, _: &Path, _: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    (a.dev(), a.ino()) == (b.dev(), b.ino())
+}
+
+#[cfg(not(unix))]
+fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata, a: &Path, b: &Path) -> bool {
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+fn pdf_text(report: &docrs::pdf::PdfReport, out: &Path) -> String {
+    let mut text = format!(
+        "wrote {} ({} pages, experimental)",
+        out.display(),
+        report.pages.unwrap_or(0)
+    );
+    for warning in &report.warnings {
+        text.push_str(&format!(
+            "\n  warning: {}: {}",
+            warning.code, warning.message
+        ));
+    }
+    text
+}
+
 fn preflight_text(report: &docrs::pdf::PdfReport, set_aside: &[String]) -> String {
     let mut lines: Vec<String> = report
         .warnings
@@ -701,6 +820,7 @@ fn convert(
         input,
         reference,
         out,
+        format: output_format,
         placeholder,
         append,
         styles,
@@ -792,14 +912,33 @@ fn convert(
     }
     let report =
         docrs::markdown::insert_source_with(&mut document, &text, format, &options, &fonts.set)?;
-    let patch = document.save(out)?;
-    let mut value = json!({"schema": schema, "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "save": patch.to_json(), "out": out});
+    let mut value = json!({"schema": schema, "version": 1, "markdown": report.to_json(), "reference_set_aside": set_aside, "out": out});
+    let pdf = match output_format {
+        OutputFormat::Docx => {
+            value["save"] = document.save(out)?.to_json();
+            None
+        }
+        OutputFormat::Pdf => {
+            let inputs: Vec<&Path> = [Some(input.as_path()), reference.as_deref()]
+                .into_iter()
+                .flatten()
+                .collect();
+            refuse_overwriting(out, &inputs)?;
+            let pdf = write_pdf(&document, &fonts, *strict, limits, out)?;
+            value["pdf"] = pdf.to_json();
+            Some(pdf)
+        }
+    };
     fonts.report_skipped(&mut value);
     emit(json_mode, value, || {
         let c = &report.counts;
         let mut text = format!(
-            "wrote {} ({} headings, {} paragraphs, {} list items, {} tables, {} images, {} footnotes, {} links)",
+            "wrote {}{} ({} headings, {} paragraphs, {} list items, {} tables, {} images, {} footnotes, {} links)",
             out.display(),
+            pdf.as_ref().map_or(String::new(), |pdf| format!(
+                " as PDF ({} pages, experimental)",
+                pdf.pages.unwrap_or(0)
+            )),
             c.headings,
             c.paragraphs,
             c.list_items,

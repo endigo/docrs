@@ -938,7 +938,7 @@ fn a_supplied_font_measures_the_contents_numbers() {
 }
 
 #[test]
-fn pdf_preflight_prints_the_report_and_is_hidden() {
+fn pdf_preflight_prints_the_report() {
     let output = bin()
         .args(["--json", "pdf", "--preflight"])
         .arg(fixture("generated/feature-isolated/textbox.docx"))
@@ -956,5 +956,190 @@ fn pdf_preflight_prints_the_report_and_is_hidden() {
     assert!(codes.contains(&"pdf_text_box_skipped"), "{codes:?}");
     assert_eq!(report["set_aside"], serde_json::json!([]));
     let help = bin().arg("--help").output().unwrap();
-    assert!(!String::from_utf8(help.stdout).unwrap().contains("pdf"));
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(
+        help.contains("pdf") && help.contains("experimental"),
+        "{help}"
+    );
+}
+
+/// The memo converted into the Inter reference, as a .docx in `dir`.
+fn inter_memo(dir: &Path) -> PathBuf {
+    let docx = dir.join("memo.docx");
+    let output = bin()
+        .arg("from-markdown")
+        .arg(repo("tests/fixtures/pdf/sources/memo.md"))
+        .arg("--reference")
+        .arg(repo("tests/fixtures/pdf/references/inter.docx"))
+        .arg("--out")
+        .arg(&docx)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    docx
+}
+
+fn is_pdf(path: &Path) -> bool {
+    std::fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"%PDF-1.7"))
+}
+
+#[test]
+fn pdf_writes_the_document_with_the_fonts_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let docx = inter_memo(dir.path());
+    let pdf = dir.path().join("memo.pdf");
+    let output = bin()
+        .args(["--json", "pdf"])
+        .arg(&docx)
+        .arg("--out")
+        .arg(&pdf)
+        .arg("--font-dir")
+        .arg(repo(INTER_DIR))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let report = json_of(&output);
+    assert_eq!(report["schema"], "docrs_pdf");
+    assert_eq!(report["pdf"]["pages"], 2);
+    assert!(is_pdf(&pdf));
+
+    let missing = dir.path().join("missing.pdf");
+    let output = bin()
+        .args(["--json", "pdf"])
+        .arg(&docx)
+        .arg("--out")
+        .arg(&missing)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error = &json_of(&output)["error"];
+    assert_eq!(error["reason"], "pdf_font_program_missing");
+    assert_eq!(error["details"]["missing_fonts"][0]["family"], "Inter");
+    assert!(!missing.exists());
+
+    let output = bin().arg("pdf").arg(&docx).output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "--out or --preflight");
+}
+
+#[test]
+fn pdf_refuses_to_write_over_its_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let docx = inter_memo(dir.path());
+    let before = std::fs::read(&docx).unwrap();
+    let through_new_directory = dir.path().join("new").join("..").join("memo.docx");
+    let outs = vec![docx.clone(), through_new_directory];
+    // Hard and symbolic links are recognised on Unix only.
+    #[cfg(unix)]
+    let outs = {
+        let mut outs = outs;
+        let hard = dir.path().join("hard.pdf");
+        std::fs::hard_link(&docx, &hard).unwrap();
+        outs.push(hard);
+        let soft = dir.path().join("soft.pdf");
+        std::os::unix::fs::symlink(&docx, &soft).unwrap();
+        outs.push(soft);
+        // Dangling until the write would create `nodir`.
+        let dangling = dir.path().join("dangling.pdf");
+        std::os::unix::fs::symlink("nodir/../memo.docx", &dangling).unwrap();
+        outs.push(dangling);
+        outs
+    };
+    for out in outs {
+        let output = bin()
+            .args(["--json", "pdf"])
+            .arg(&docx)
+            .arg("--out")
+            .arg(&out)
+            .arg("--font-dir")
+            .arg(repo(INTER_DIR))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{}", out.display());
+        assert_eq!(json_of(&output)["error"]["reason"], "output_is_input");
+        assert_eq!(std::fs::read(&docx).unwrap(), before);
+    }
+    let reference = dir.path().join("reference.docx");
+    std::fs::copy(repo("tests/fixtures/pdf/references/inter.docx"), &reference).unwrap();
+    let kept = std::fs::read(&reference).unwrap();
+    let output = bin()
+        .args(["--json", "from-markdown"])
+        .arg(repo("tests/fixtures/pdf/sources/memo.md"))
+        .arg("--reference")
+        .arg(&reference)
+        .args(["--format", "pdf", "--out"])
+        .arg(dir.path().join("other").join("..").join("reference.docx"))
+        .arg("--font-dir")
+        .arg(repo(INTER_DIR))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(json_of(&output)["error"]["reason"], "output_is_input");
+    assert_eq!(std::fs::read(&reference).unwrap(), kept);
+    for made in ["new", "nodir", "other"] {
+        assert!(!dir.path().join(made).exists(), "a refusal left {made}/");
+    }
+}
+
+#[test]
+fn each_convert_command_writes_pdf_with_format_pdf() {
+    let dir = tempfile::tempdir().unwrap();
+    let sources = [
+        ("from-markdown", repo("tests/fixtures/pdf/sources/memo.md")),
+        ("from-html", dir.path().join("page.html")),
+        ("from-json", dir.path().join("doc.json")),
+    ];
+    std::fs::write(
+        &sources[1].1,
+        "<h1>Title</h1><p>Some <strong>bold</strong> text.</p>",
+    )
+    .unwrap();
+    std::fs::write(
+        &sources[2].1,
+        r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Hello"}]}]}"#,
+    )
+    .unwrap();
+    for (command, source) in &sources {
+        let out = dir.path().join(format!("{command}.pdf"));
+        let output = bin()
+            .args(["--json", command])
+            .arg(source)
+            .arg("--reference")
+            .arg(repo("tests/fixtures/pdf/references/inter.docx"))
+            .args(["--format", "pdf", "--out"])
+            .arg(&out)
+            .arg("--font-dir")
+            .arg(repo(INTER_DIR))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{command}: {output:?}");
+        let report = json_of(&output);
+        assert!(report["pdf"]["pages"].as_u64().unwrap() >= 1, "{report}");
+        assert!(report.get("save").is_none());
+        assert!(is_pdf(&out), "{command}");
+    }
+    let docx = dir.path().join("named.pdf");
+    let output = bin()
+        .arg("from-html")
+        .arg(&sources[1].1)
+        .arg("--out")
+        .arg(&docx)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        std::fs::read(&docx).unwrap().starts_with(b"PK"),
+        "the extension never picks the format"
+    );
+    let output = bin()
+        .arg("from-html")
+        .arg(&sources[1].1)
+        .args(["--format", "pdf", "--strict", "--out"])
+        .arg(dir.path().join("strict.pdf"))
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "no font program for the default fonts"
+    );
 }
