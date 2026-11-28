@@ -785,22 +785,48 @@ fn inter(source: &str) -> Document {
 /// A Letter document of `body`, with hyperlink relationships `rLink` to
 /// `https://example.com/raw` and `rTop` to `#_top`.
 fn raw(body: &str) -> Document {
+    raw_with_notes(body, None)
+}
+
+/// [`raw`], with `footnotes` (the `w:footnote`s after the two separators)
+/// as its footnotes part.
+fn raw_with_notes(body: &str, footnotes: Option<&str>) -> Document {
     const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     let section = r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#;
     let document = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{W}" xmlns:r="{R}"><w:body>{body}{section}</w:body></w:document>"#
     );
-    let types = r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
-    let rels = format!(
-        r##"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="{R}/hyperlink" Target="https://example.com/raw" TargetMode="External"/><Relationship Id="rTop" Type="{R}/hyperlink" Target="#_top" TargetMode="External"/></Relationships>"##
+    let notes_type = r#"<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>"#;
+    let types = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>{}</Types>"#,
+        if footnotes.is_some() { notes_type } else { "" }
     );
-    support::open_bytes(&build_zip(&[
+    let notes_rel =
+        format!(r#"<Relationship Id="rNotes" Type="{R}/footnotes" Target="footnotes.xml"/>"#);
+    let rels = format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="{R}/hyperlink" Target="https://example.com/raw" TargetMode="External"/><Relationship Id="rTop" Type="{R}/hyperlink" Target="#_top" TargetMode="External"/>{}</Relationships>"##,
+        if footnotes.is_some() {
+            notes_rel.as_str()
+        } else {
+            ""
+        }
+    );
+    let notes = footnotes.map(|notes| {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="{W}" xmlns:r="{R}"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>{notes}</w:footnotes>"#
+        )
+    });
+    let mut members = vec![
         RawMember::new("[Content_Types].xml", types.as_bytes()),
         RawMember::new("_rels/.rels", support::ROOT_RELS.as_bytes()),
         RawMember::new("word/document.xml", document.as_bytes()),
         RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
-    ]))
+    ];
+    if let Some(notes) = &notes {
+        members.push(RawMember::new("word/footnotes.xml", notes.as_bytes()));
+    }
+    support::open_bytes(&build_zip(&members))
 }
 
 /// A run of `text` in 11 pt Liberation Serif.
@@ -941,6 +967,9 @@ fn every_showcase_link_lands_on_its_text_and_resolves() {
                 &uri("https://www.rust-lang.org")
             ),
             ("team@example.com", &uri("mailto:team@example.com")),
+            // The first footnote's, at the foot of its page.
+            ("link", &uri("https://example.com")),
+            // In a table cell.
             ("links", &uri("https://example.com")),
         ]
     );
@@ -1410,4 +1439,207 @@ fn bookmarks_outside_paragraphs_go_to_the_next_paragraph() {
             .iter()
             .all(|w| w.code != "pdf_link_target_missing")
     );
+}
+
+/// A hyperlink to the bookmark `name` over `text`.
+fn anchor_link(name: &str, text: &str) -> String {
+    format!(
+        r#"<w:hyperlink w:anchor="{name}">{}</w:hyperlink>"#,
+        run(text)
+    )
+}
+
+/// Each link's text, and for one inside the document the text of the line
+/// it goes to.
+fn landings(pdf: &Pdf) -> Vec<(String, String)> {
+    let drawn = glyphs(pdf);
+    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
+    linked_texts(pdf)
+        .into_iter()
+        .map(|(text, goes, _)| match goes {
+            Goes::At(page, _, top) => (text, line_below(&drawn, &heights, page, top).0),
+            Goes::Uri(uri) => (text, uri),
+            Goes::Page(..) => panic!("{text}: {goes:?}"),
+        })
+        .collect()
+}
+
+fn pairs(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect()
+}
+
+/// A cell on the table's grid, after `w:gridBefore` and across a span, on
+/// an indented table: its link covers its text where the cell puts it.
+#[test]
+fn a_link_in_a_cell_covers_its_text_where_the_grid_puts_it() {
+    let cell = |span: u32, content: &str| {
+        format!(
+            r#"<w:tc><w:tcPr><w:gridSpan w:val="{span}"/></w:tcPr>{}</w:tc>"#,
+            para("", content)
+        )
+    };
+    let table = format!(
+        r#"<w:tbl><w:tblPr><w:tblInd w:w="720" w:type="dxa"/><w:tblCellMar><w:left w:w="200" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="1000"/><w:gridCol w:w="2000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr><w:trPr><w:gridBefore w:val="1"/></w:trPr>{}</w:tr><w:tr>{}{}</w:tr></w:tbl>"#,
+        cell(
+            2,
+            &format!(
+                r#"<w:hyperlink r:id="rLink">{}</w:hyperlink>"#,
+                run("Spanned")
+            )
+        ),
+        cell(1, &run("a")),
+        cell(2, &anchor_link("End", "To the end")),
+    );
+    let body = [
+        table,
+        para(
+            "",
+            &(r#"<w:bookmarkStart w:id="0" w:name="End"/>"#.to_string() + &run("The end")),
+        ),
+    ]
+    .concat();
+    let bytes = paint_for_tests(&raw(&body), &fonts(), &font(LIBERATION)).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    assert_eq!(
+        landings(&pdf),
+        pairs(&[
+            ("Spanned", "https://example.com/raw"),
+            ("To the end", "The end")
+        ])
+    );
+    // The page's margin and the indent, less the first cell's left margin
+    // (no compatibility mode stated: below 15, it hangs outside the
+    // indent), then the grid column skipped and the cell's margin. The
+    // second row's span starts on the same grid line.
+    let lefts: Vec<f64> = annots(&pdf).iter().map(|a| a.rect[0]).collect();
+    let spanned = 72.0 + 36.0 - 10.0 + 50.0 + 10.0 - LINK_MARGIN;
+    assert!((lefts[0] - spanned).abs() < 0.001, "{lefts:?}");
+    assert!((lefts[1] - spanned).abs() < 0.001, "{lefts:?}");
+}
+
+/// A bordered and shaded paragraph (#69) and underlined and highlighted
+/// link text (#65): the rect still covers the text, from the line's top.
+#[test]
+fn a_link_in_a_box_or_with_decorations_covers_its_text() {
+    let decorated = r#"<w:r><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/><w:sz w:val="22"/><w:u w:val="single"/><w:highlight w:val="yellow"/></w:rPr><w:t>Marked</w:t></w:r>"#;
+    let boxed = r#"<w:pBdr><w:top w:val="single" w:sz="12" w:space="4" w:color="000000"/><w:left w:val="single" w:sz="12" w:space="4" w:color="000000"/><w:bottom w:val="single" w:sz="12" w:space="4" w:color="000000"/><w:right w:val="single" w:sz="12" w:space="4" w:color="000000"/></w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="DDDDDD"/>"#;
+    let body = [
+        para(
+            boxed,
+            &format!(
+                r#"<w:hyperlink r:id="rLink">{}</w:hyperlink>"#,
+                run("Boxed")
+            ),
+        ),
+        para(
+            "",
+            &format!(r#"<w:hyperlink r:id="rLink">{decorated}</w:hyperlink>"#),
+        ),
+    ]
+    .concat();
+    let bytes = paint_for_tests(&raw(&body), &fonts(), &font(LIBERATION)).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let uri = "https://example.com/raw";
+    assert_eq!(landings(&pdf), pairs(&[("Boxed", uri), ("Marked", uri)]));
+    let rects: Vec<[f64; 4]> = annots(&pdf).into_iter().map(|a| a.rect).collect();
+    // Below the box's top border and its space: 1.5 pt + 4 pt.
+    assert!((rects[0][3] - (720.0 - 5.5)).abs() < 0.01, "{rects:?}");
+    assert!(
+        (rects[0][0] - (72.0 - LINK_MARGIN)).abs() < 0.001,
+        "{rects:?}"
+    );
+}
+
+/// Footnotes (#68): a bookmark in a note is a destination at its line, a
+/// link in a note goes where it says, and a note's heading is not in the
+/// outline, nor a heading's note reference in its title.
+#[test]
+fn footnotes_hold_destinations_and_links_but_no_headings() {
+    let reference = r#"<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteReference w:id="1"/></w:r>"#;
+    let body = [
+        para(
+            r#"<w:outlineLvl w:val="0"/>"#,
+            &(run("Heading") + reference),
+        ),
+        para(
+            "",
+            &(r#"<w:bookmarkStart w:id="0" w:name="Start"/>"#.to_string() + &run("Start here")),
+        ),
+        para("", &anchor_link("InNote", "To the note")),
+    ]
+    .concat();
+    let note = [
+        r#"<w:footnote w:id="1">"#.to_string(),
+        para(
+            r#"<w:outlineLvl w:val="0"/>"#,
+            &(r#"<w:bookmarkStart w:id="1" w:name="InNote"/>"#.to_string()
+                + &run("Note text ")
+                + &anchor_link("Start", "back")),
+        ),
+        "</w:footnote>".to_string(),
+    ]
+    .concat();
+    let document = raw_with_notes(&body, Some(&note));
+    let bytes = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let mut landed = landings(&pdf);
+    landed.sort();
+    assert_eq!(
+        landed,
+        pairs(&[("To the note", "Note text back"), ("back", "Start here")])
+    );
+    let titles: Vec<String> = outline(&pdf).into_iter().map(|item| item.title).collect();
+    assert_eq!(titles, ["Heading"], "without its note's mark");
+    assert!(
+        preflight(&document)
+            .unwrap()
+            .warnings
+            .iter()
+            .all(|w| w.code != "pdf_link_target_missing")
+    );
+}
+
+/// Sections (#67) of different page sizes and margins: each heading is
+/// in the one outline at its own page's top, and a link across the break
+/// lands on the next section's first line.
+#[test]
+fn the_outline_and_destinations_run_across_sections() {
+    let a5 = r#"<w:sectPr><w:pgSz w:w="8391" w:h="11906"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360" w:gutter="0"/></w:sectPr>"#;
+    let heading =
+        |level: u8, text: &str| para(&format!(r#"<w:outlineLvl w:val="{level}"/>"#), &run(text));
+    let body = [
+        heading(0, "First section"),
+        para(a5, &anchor_link("Second", "To the second")),
+        para(
+            r#"<w:outlineLvl w:val="1"/>"#,
+            &(r#"<w:bookmarkStart w:id="0" w:name="Second"/>"#.to_string()
+                + &run("Second section")),
+        ),
+    ]
+    .concat();
+    let bytes = paint_for_tests(&raw(&body), &fonts(), &font(LIBERATION)).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
+    assert_eq!(heights.len(), 2);
+    assert!((heights[0] - 595.3).abs() < 0.01, "{heights:?}");
+    let items: Vec<(usize, String, Goes)> = outline(&pdf)
+        .into_iter()
+        .map(|item| (item.depth, item.title, item.goes))
+        .collect();
+    assert_eq!(
+        items,
+        [
+            (0, "First section".to_string(), Goes::Page(0, 595.3 - 36.0)),
+            (1, "Second section".to_string(), Goes::Page(1, 720.0)),
+        ]
+    );
+    assert_eq!(
+        landings(&pdf),
+        pairs(&[("To the second", "Second section")])
+    );
+    let annots = annots(&pdf);
+    assert_eq!(annots[0].goes, Goes::At(1, 69.84, 720.0));
 }

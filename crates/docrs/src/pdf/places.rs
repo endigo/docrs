@@ -87,8 +87,8 @@ impl Places {
             .unwrap_or_default();
         let drawn = pieces.iter().rposition(|piece| match piece {
             Piece::Char { ch, .. } => *ch != ' ',
-            Piece::Tab { .. } | Piece::Object { .. } => true,
-            Piece::LineBreak { .. } | Piece::PageBreak => false,
+            Piece::Tab { .. } | Piece::Object { .. } | Piece::NoteRef { .. } => true,
+            Piece::LineBreak { .. } | Piece::PageBreak | Piece::Separator { .. } => false,
         });
         let mut parts: Vec<(LinkId, u32, f64, f64)> = Vec::new();
         for (at, piece) in pieces.iter().enumerate() {
@@ -214,17 +214,18 @@ fn text_right(para: &Para, line: &Line) -> f64 {
 /// The link of a piece that can be part of one.
 fn link_of(model: &Model, piece: &Piece) -> Option<u32> {
     match piece {
-        Piece::Char { look, .. } | Piece::Tab { look, .. } | Piece::LineBreak { look, .. } => {
-            model.looks[*look as usize].link
-        }
-        Piece::PageBreak | Piece::Object { .. } => None,
+        Piece::Char { look, .. }
+        | Piece::Tab { look, .. }
+        | Piece::LineBreak { look, .. }
+        | Piece::NoteRef { look, .. } => model.looks[*look as usize].link,
+        Piece::PageBreak | Piece::Separator { .. } | Piece::Object { .. } => None,
     }
 }
 
 /// Where a character or tab ends.
 fn piece_end(line: &Line, origins: &[f64], first: u32, at: usize, piece: &Piece) -> Option<f64> {
     Some(match piece {
-        Piece::Char { width, .. } => origins[at] + width,
+        Piece::Char { width, .. } | Piece::NoteRef { width, .. } => origins[at] + width,
         Piece::Tab { .. } => line
             .tabs
             .iter()
@@ -234,14 +235,16 @@ fn piece_end(line: &Line, origins: &[f64], first: u32, at: usize, piece: &Piece)
     })
 }
 
-/// A heading's text with its list label, as the outline shows it.
+/// A heading's text with its list label, as the outline shows it; its note
+/// references are left out.
 fn title(para: &Para) -> String {
     let text = |pieces: &[Piece]| -> String {
         pieces
             .iter()
-            .map(|piece| match piece {
-                Piece::Char { ch, .. } => *ch,
-                _ => ' ',
+            .filter_map(|piece| match piece {
+                Piece::Char { ch, .. } => Some(*ch),
+                Piece::NoteRef { .. } | Piece::Separator { .. } => None,
+                _ => Some(' '),
             })
             .collect()
     };
