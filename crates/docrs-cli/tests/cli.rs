@@ -747,6 +747,56 @@ fn layout_lines_prints_one_json_object_a_line() {
 }
 
 #[test]
+fn layout_lines_shows_repeated_headers_and_continued_rows() {
+    let rows = |fixture: &str| -> Vec<serde_json::Value> {
+        let output = bin()
+            .args(["layout", "--lines"])
+            .arg(repo("tests/fixtures/layout/geometry").join(fixture))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .filter(|record| record.get("row").is_some())
+            .collect()
+    };
+    let headers = rows("header-rows.docx");
+    let repeated = headers.iter().filter(|row| row["repeat"] == true);
+    assert_eq!(repeated.count(), 12);
+    let long: Vec<_> = rows("row-three-pages.docx")
+        .into_iter()
+        .filter(|row| row["row"] == 1)
+        .collect();
+    let flags: Vec<_> = long
+        .iter()
+        .map(|row| {
+            (
+                row["page"].clone(),
+                row["first"].clone(),
+                row["last"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        flags,
+        [(1, true, false), (2, false, false), (3, false, true)].map(|(page, first, last)| (
+            page.into(),
+            first.into(),
+            last.into()
+        ))
+    );
+    for row in &long {
+        let cells = row["cells"].as_array().unwrap();
+        assert_eq!(cells.len(), 2);
+        for key in ["x", "width", "from", "to"] {
+            assert!(cells[0][key].is_number(), "{key}: {row}");
+        }
+    }
+}
+
+#[test]
 fn layout_lines_ends_quietly_when_its_reader_stops() {
     use std::io::{BufRead, BufReader};
     let dir = tempfile::tempdir().unwrap();

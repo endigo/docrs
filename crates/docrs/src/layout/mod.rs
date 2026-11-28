@@ -263,7 +263,7 @@ pub(crate) fn settle(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Settl
     let mut seen: Vec<u64> = Vec::new();
     for passes in 1..=MAX_PASSES {
         show_body(&mut model, &values);
-        let mut record = Record::default();
+        let mut record = PassRecord::default();
         let pages = flow::paginate(&model, &values, &mut record)?;
         let bookmarks = bookmark_pages(&model, &record.placed);
         let next = Values::of(&pages, &bookmarks, &record.placed, &page_fields);
@@ -316,13 +316,13 @@ fn signature(values: &Values, breaks: u64) -> u64 {
 
 /// Where each body paragraph landed and where every line broke.
 #[derive(Default)]
-struct Record {
+struct PassRecord {
     placed: Vec<Placed>,
     breaks: DefaultHasher,
     page: u32,
 }
 
-impl flow::Sink for Record {
+impl flow::Sink for PassRecord {
     fn page(&mut self, page: &flow::PageStart) -> Result<()> {
         self.page = page.number;
         Ok(())
@@ -717,6 +717,52 @@ pub struct RunRecord {
     pub look: u32,
 }
 
+/// The part of a table row on one page (`docrs layout --lines`).
+/// Experimental.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct RowRecord {
+    /// Physical page, from 1.
+    pub page: u32,
+    pub story: String,
+    /// The row's index in its table.
+    pub row: usize,
+    /// Points from the page's top-left corner.
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// The row starts on this page, and ends on it.
+    pub first: bool,
+    pub last: bool,
+    /// A header row repeated on a page the table continues on.
+    pub repeat: bool,
+    pub cells: Vec<CellRecord>,
+}
+
+/// A cell of a [`RowRecord`]. Experimental.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct CellRecord {
+    pub x: f64,
+    pub width: f64,
+    /// The cell's content on this page, points from the content's top:
+    /// the lines whose top is in `from..to`.
+    pub from: f64,
+    pub to: f64,
+}
+
+/// A line or a row part, in the order they are laid out. Experimental.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Record {
+    Line(LineRecord),
+    Row(RowRecord),
+}
+
 /// The looks and links of `main`, then every line of each page: its
 /// header's, its footer's, then its body's, with fields settled.
 /// Experimental.
@@ -726,19 +772,29 @@ pub fn line_records(
     main: &str,
     extra: Vec<Face>,
     looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
-    each: impl FnMut(LineRecord) -> Result<()>,
+    mut each: impl FnMut(LineRecord) -> Result<()>,
 ) -> Result<()> {
-    line_records_with(txn, main, &FontSet::from_faces(extra), looks, each)
+    records_with(
+        txn,
+        main,
+        &FontSet::from_faces(extra),
+        looks,
+        |record| match record {
+            Record::Line(line) => each(line),
+            Record::Row(_) => Ok(()),
+        },
+    )
 }
 
-/// [`line_records`], measuring with `fonts`. Experimental.
+/// The looks and links of `main`, then every line and row part of its
+/// body, measuring with `fonts`. Experimental.
 #[doc(hidden)]
-pub fn line_records_with(
+pub fn records_with(
     txn: &Txn<'_>,
     main: &str,
     fonts: &FontSet,
     looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
-    each: impl FnMut(LineRecord) -> Result<()>,
+    each: impl FnMut(Record) -> Result<()>,
 ) -> Result<()> {
     let settled = settle(txn, main, fonts)?;
     looks(&settled.model.looks, &settled.model.links)?;
@@ -750,7 +806,15 @@ struct LineDump<F> {
     each: F,
 }
 
-impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
+fn story_name(story: StoryId) -> String {
+    match story {
+        StoryId::Body => "body".to_string(),
+        StoryId::Header(n) => format!("header{n}"),
+        StoryId::Footer(n) => format!("footer{n}"),
+    }
+}
+
+impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<F> {
     fn page(&mut self, page: &flow::PageStart) -> Result<()> {
         self.page = page.number;
         Ok(())
@@ -777,14 +841,9 @@ impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
             }
         }
         let text = runs.iter().map(|run| run.text.as_str()).collect();
-        let story = match para.story {
-            StoryId::Body => "body".to_string(),
-            StoryId::Header(n) => format!("header{n}"),
-            StoryId::Footer(n) => format!("footer{n}"),
-        };
-        (self.each)(LineRecord {
+        (self.each)(Record::Line(LineRecord {
             page: self.page,
-            story,
+            story: story_name(para.story),
             x: at.x + line.start,
             y: at.y,
             width: line.width,
@@ -801,7 +860,45 @@ impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
             align: para.align.name(),
             text,
             runs,
-        })
+        }))
+    }
+
+    fn row(
+        &mut self,
+        origin: flow::Point,
+        table: &model::Table,
+        row: usize,
+        slice: &flow::RowSlice,
+    ) -> Result<()> {
+        let cells = &table.rows[row].cells;
+        let mut x = origin.x;
+        let cells = cells
+            .iter()
+            .zip(&slice.cells)
+            .map(|(cell, content)| {
+                let record = CellRecord {
+                    x,
+                    width: cell.width,
+                    from: content.start,
+                    to: content.end,
+                };
+                x += cell.width;
+                record
+            })
+            .collect();
+        (self.each)(Record::Row(RowRecord {
+            page: self.page,
+            story: story_name(table.story),
+            row,
+            x: origin.x,
+            y: origin.y,
+            width: x - origin.x,
+            height: slice.height,
+            first: slice.first,
+            last: slice.last,
+            repeat: slice.repeat,
+            cells,
+        }))
     }
 }
 

@@ -5,7 +5,7 @@
 
 mod support;
 
-use docrs::layout::{Appearance, Caps, Colour, FontSet, Link, Rgb, Strike, line_records_with};
+use docrs::layout::{Appearance, Caps, Colour, FontSet, Link, Record, Rgb, Strike, records_with};
 use docrs::txn::Txn;
 use docrs::{Document, Limits};
 use support::*;
@@ -398,7 +398,7 @@ fn runs_with(bytes: &[u8], fonts: &FontSet) -> Vec<(String, Appearance, Option<L
     let main = doc.package().main_part_name().to_string();
     let mut table = (Vec::new(), Vec::new());
     let mut out = Vec::new();
-    line_records_with(
+    records_with(
         &txn,
         &main,
         fonts,
@@ -406,8 +406,10 @@ fn runs_with(bytes: &[u8], fonts: &FontSet) -> Vec<(String, Appearance, Option<L
             table = (looks.to_vec(), links.to_vec());
             Ok(())
         },
-        |line| {
-            out.extend(line.runs.into_iter().map(|run| (run.text, run.look)));
+        |record| {
+            if let Record::Line(line) = record {
+                out.extend(line.runs.into_iter().map(|run| (run.text, run.look)));
+            }
             Ok(())
         },
     )

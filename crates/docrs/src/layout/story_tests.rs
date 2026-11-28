@@ -129,13 +129,15 @@ impl Doc<'_> {
     fn lines(&self) -> Vec<(u32, String, f64, String)> {
         let mut out = Vec::new();
         self.with(|txn, main| {
-            line_records_with(
+            records_with(
                 txn,
                 main,
                 &FontSet::default(),
                 |_, _| Ok(()),
-                |line| {
-                    out.push((line.page, line.story, line.y, line.text));
+                |record| {
+                    if let Record::Line(line) = record {
+                        out.push((line.page, line.story, line.y, line.text));
+                    }
                     Ok(())
                 },
             )

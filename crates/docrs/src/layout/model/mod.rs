@@ -274,7 +274,6 @@ pub struct Row {
 
 #[derive(Debug, Clone, Default)]
 pub struct Table {
-    #[allow(dead_code, reason = "the PDF painter reads it")]
     pub story: StoryId,
     pub rows: Vec<Row>,
 }

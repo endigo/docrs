@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 use super::fields::{self, Context, LayoutWarning, Number, Values};
-use super::flow::{CellLayout, Drawn, EPSILON, Item, Point, RowSlice, Sink, story_layout};
+use super::flow::{CellLayout, Drawn, EPSILON, Item, Point, Sink, story_layout};
 use super::model::{Model, Section, Slots};
 use crate::Result;
 
@@ -189,7 +189,7 @@ impl<'m> Furniture<'m> {
                         line.height + para.after_spacing()
                     }
                     Item::Line(_, line) => line.height,
-                    Item::Row(_, _, height) => *height,
+                    Item::Row(_, _, slice) => slice.height,
                 }
         };
         let shown =
@@ -219,9 +219,7 @@ impl<'m> Furniture<'m> {
             charge(1)?;
             match &drawn.item {
                 Item::Line(para, line) => sink.line(point, para, line)?,
-                Item::Row(table, row, height) => {
-                    sink.row(point, table, *row, &RowSlice::whole(*height))?
-                }
+                Item::Row(table, row, slice) => sink.row(point, table, *row, slice)?,
             }
         }
         if clipped {
