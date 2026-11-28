@@ -442,7 +442,18 @@ pub fn refresh_toc_page_numbers_if_settled(
     document: &mut Document,
     converted_only: bool,
 ) -> Result<Option<TocRefresh>> {
-    match refresh_toc_page_numbers(document, converted_only) {
+    refresh_toc_page_numbers_if_settled_with(document, converted_only, &FontSet::default())
+}
+
+/// [`refresh_toc_page_numbers_if_settled`], measuring with `fonts`. Internal
+/// to docrs-wasm, not covered by semver.
+#[doc(hidden)]
+pub fn refresh_toc_page_numbers_if_settled_with(
+    document: &mut Document,
+    converted_only: bool,
+    fonts: &FontSet,
+) -> Result<Option<TocRefresh>> {
+    match refresh_toc_page_numbers_with(document, converted_only, fonts) {
         Err(error) if error.reason() == NOT_CONVERGED => {
             let mut txn = Txn::new(document);
             crate::fields::set_update_fields_on_open(&mut txn)?;

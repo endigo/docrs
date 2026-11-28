@@ -104,6 +104,70 @@ panicked is left to the garbage collector with everything the call had
 allocated; V8 frees it at its next full collection. Errors docrs reports
 (an `Error` with a `code`) leave the instance in place.
 
+## Fonts (experimental)
+
+Contents page numbers are worked out by measuring the template's fonts: a
+font it embeds, else the package's own metrics for common fonts, else a
+substitute (listed in `report.toc.missing_fonts`). Load the font files your users upload once,
+and pass the set to every conversion so the contents page numbers are
+measured with them:
+
+```js
+const { loadFonts, loadFontManifest, fromHtml } = require("docrs-wasm");
+
+const brand = loadFonts([interVariable, interBoldItalic], { limits: "serverless" });
+brand.faces; // [{ family: "Inter", bold: false, italic: false, variable: true, ... }, ...]
+const { docx, report } = fromHtml(html, { reference, toc: true, fonts: brand, limits: "serverless" });
+brand.free(); // when the tenant's fonts change
+```
+
+`loadFonts` reads TTF, OTF, TTC and OTC files, variable fonts included (the
+default instance is measured). One file it cannot read refuses them all,
+with the file's index in `error.file`. The set keeps its own copy of the
+bytes and outlives the module's instance: after a panic, or after the
+package replaces an instance whose memory grew past 128 MiB, it is loaded
+again into the next one when a call first uses it. `free()` releases it;
+using it afterwards throws `pdf_font_handle_disposed`. A set that is never
+freed is released once garbage collected, at best. Sets are never shared
+or looked up by family: each conversion uses exactly the set it is given.
+`inspectReference` and `markdownStyles` take no `fonts`.
+
+Budgets, by `limits`. Sizes are checked before anything is copied, and
+every call checks the set again against its own `limits`, so a set loaded
+under the default budgets is refused by a `serverless` call it exceeds.
+Live sets are the handles not yet freed or collected, counted across
+instances: a reset frees no room.
+
+| | default | serverless |
+| -- | -- | -- |
+| one file / the set | 32 / 64 MiB | 8 / 16 MiB |
+| faces in a set | 64 | 24 |
+| live sets | 64 | 8 |
+| bytes of all live sets | 4 GiB | 128 MiB |
+
+`loadFontManifest(entries, options?)` builds a set from entries `{ id,
+family, bold?, italic?, url | data }`. Each entry's file must hold its
+`family` in the declared style (`font_face_mismatch` otherwise; a variable
+face covers both weights). `data` is copied. A `url` must be a string and
+https, and is fetched without its fragment and with `redirect: "error"`, so
+a redirect fails the fetch (`font_fetch_failed`); a response that was
+redirected anyway, by a `fetch` of your own, is refused
+(`font_url_redirected`). Https alone does not stop a request to a host
+you did not mean, so give only your own storage's URLs (signed URLs, for
+example), never a URL a tenant typed. Each file and all of them together
+are capped by the budgets above and by `maxBytes`, while they stream (a
+response without a stream is read whole and then capped, before anything
+is copied into WebAssembly memory). `timeoutMs` (1 to 2,147,483,647,
+default 30,000) bounds the fetches together and `signal` aborts them.
+Every entry is fetched; errors name the entry's `id`, `family` and style.
+Pass `fetch` to use your own.
+
+Nothing is cached unless you pass a `cache` from `createFontCache({
+maxBytes? })` (64 MiB by default, least recently used dropped first). It
+keeps fetched files by entry `id`, never by URL, so an id must name one
+file: make one cache per tenant, and give each file an id that changes with
+its content (a tenant id and a content hash, for example).
+
 ## Next.js
 
 Use it from a Route Handler or Server Action on the Node.js runtime and keep
@@ -134,6 +198,28 @@ export async function POST(request: Request) {
     },
   });
 }
+```
+
+Fonts (experimental): keep one font set per tenant for the life of the
+process, and memoise the promise of `loadFontManifest`, not the set, so
+concurrent cold requests fetch once and share one handle (each extra handle
+counts against the live-set budget):
+
+```ts
+import { createFontCache, loadFontManifest, type FontManifestEntry, type FontSet } from "docrs-wasm";
+
+const fontSets = new Map<string, Promise<FontSet>>();
+
+function tenantFonts(tenant: string, entries: FontManifestEntry[]): Promise<FontSet> {
+  let fonts = fontSets.get(tenant);
+  if (!fonts) {
+    fonts = loadFontManifest(entries, { cache: createFontCache(), limits: "serverless" });
+    fonts.catch(() => fontSets.delete(tenant)); // retry after a failure
+    fontSets.set(tenant, fonts);
+  }
+  return fonts;
+}
+// When a tenant's fonts change: (await fontSets.get(tenant))?.free(); fontSets.delete(tenant);
 ```
 
 For a TipTap editor, post `editor.getJSON()` as the request body and hand
