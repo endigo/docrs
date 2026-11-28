@@ -40,6 +40,9 @@ fn xml_part(name: &'static str, kind: &'static str, root: &str, content: &str) -
         name,
         content_type: match kind {
             "header" => "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml",
+            "footnotes" => {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+            }
             "settings" => {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
             }
@@ -688,6 +691,30 @@ fn notes_the_layout_cannot_place_refuse_even_without_strict() {
             .all(|w| w.code != FOOTNOTE_LAYOUT_UNSUPPORTED),
         "one section's end is the document's"
     );
+}
+
+#[test]
+fn a_note_referenced_only_from_a_note_refuses() {
+    let notes = xml_part(
+        "word/footnotes.xml",
+        "footnotes",
+        "footnotes",
+        &(r#"<w:footnote w:id="1">"#.to_string()
+            + &para(r#"<w:r><w:footnoteReference w:id="2"/></w:r>"#)
+            + r#"</w:footnote><w:footnote w:id="2">"#
+            + &para(&run("<w:t>Nested.</w:t>"))
+            + "</w:footnote>"),
+    );
+    let mut report = report(&docx(&para(FOOTNOTE_REF), &[notes], &[]));
+    report
+        .warnings
+        .retain(|w| w.code == FOOTNOTE_LAYOUT_UNSUPPORTED);
+    assert_eq!(report.warnings.len(), 1, "{report:#?}");
+    assert_eq!(
+        report.warnings[0].subject,
+        "notes referenced only from a note"
+    );
+    assert_eq!(report.warnings[0].count, 1);
 }
 
 #[test]

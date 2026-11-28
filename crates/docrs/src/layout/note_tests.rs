@@ -4,14 +4,15 @@ use super::flow::Sink;
 use super::model::{NoteId, NoteKind};
 use super::*;
 use crate::package::ct;
-use crate::wml::W;
+use crate::txn::RelTarget;
+use crate::wml::{R, W};
 use crate::xml::parse_str;
 
 /// Arial 11 body text (12.65 points a line), Arial 10 notes (11.5).
 const STYLES: &str = r#"<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:rPr><w:sz w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>"#;
 
 /// A 216-point page with half-inch margins: a body from 36 to 180.
-const SECT: &str = r#"<w:sectPr><w:pgSz w:w="12240" w:h="4320"/><w:pgMar w:top="720" w:right="1440" w:bottom="720" w:left="1440" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>"#;
+const SECT: &str = r#"<w:sectPr>{footer}<w:pgSz w:w="12240" w:h="4320"/><w:pgMar w:top="720" w:right="1440" w:bottom="720" w:left="1440" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>"#;
 const BODY_BOTTOM: f64 = 180.0;
 
 const SEPARATORS: &str = r#"<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>"#;
@@ -59,6 +60,8 @@ struct Parts<'a> {
     footnotes: &'a str,
     endnotes: &'a str,
     settings: &'a str,
+    /// The default footer's paragraphs.
+    footer: &'a str,
 }
 
 const NONE: Parts<'static> = Parts {
@@ -66,6 +69,7 @@ const NONE: Parts<'static> = Parts {
     footnotes: "",
     endnotes: "",
     settings: "",
+    footer: "",
 };
 
 fn replace(txn: &mut Txn<'_>, rel: &str, name: &str, content_type: &str, xml: String) {
@@ -77,9 +81,20 @@ fn document(parts: Parts<'_>) -> Document {
     let mut doc = Document::new();
     let mut txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
+    let mut footer = String::new();
+    if !parts.footer.is_empty() {
+        let tree = parse_str(&format!("<w:ftr xmlns:w=\"{W}\">{}</w:ftr>", parts.footer)).unwrap();
+        txn.add_xml_part("word/footer1.xml", ct::WML_FOOTER, tree)
+            .unwrap();
+        let id = txn
+            .relate_to(&main, rt::FOOTER, RelTarget::Part("word/footer1.xml"))
+            .unwrap();
+        footer = format!(r#"<w:footerReference w:type="default" r:id="{id}"/>"#);
+    }
     *txn.tree_mut(&main).unwrap() = parse_str(&format!(
-        "<w:document xmlns:w=\"{W}\"><w:body>{}{SECT}</w:body></w:document>",
-        parts.body
+        "<w:document xmlns:w=\"{W}\" xmlns:r=\"{R}\"><w:body>{}{}</w:body></w:document>",
+        parts.body,
+        SECT.replace("{footer}", &footer)
     ))
     .unwrap();
     let styles = txn.part_related_by(&main, rt::STYLES).unwrap().unwrap();
@@ -436,4 +451,64 @@ fn notes_count_toward_the_work_budget() {
     let error = paginate_into(&doc, &mut Vec::new()).unwrap_err();
     TEST_LAYOUT_WORK.set(None);
     assert_eq!(error.reason(), "max_layout_work");
+}
+
+#[test]
+fn notes_sit_on_the_body_bottom_a_tall_footer_raises() {
+    // Four footer lines (50.6 pt) pass the 36 pt margin: the body ends at
+    // 165.4, and the note with it.
+    let doc = document(Parts {
+        body: &cited("Text", &[1]),
+        footnotes: &footnote(1, &["Above the footer."]),
+        footer: &filler(4),
+        ..NONE
+    });
+    let records = records(&doc);
+    let note = find(&records, "1 Above the footer.");
+    let footer = of_story(&records, "footer1");
+    assert_eq!(footer.len(), 4);
+    assert!(
+        close(note.y + note.height, footer[0].y),
+        "{note:?} {footer:?}"
+    );
+}
+
+fn heading(bookmark: &str, text: &str) -> String {
+    format!(
+        r#"<w:p><w:pPr><w:keepNext/></w:pPr><w:bookmarkStart w:id="0" w:name="{bookmark}"/><w:r><w:t>{text}</w:t></w:r><w:bookmarkEnd w:id="0"/></w:p>"#
+    )
+}
+
+#[test]
+fn notes_move_the_pages_bookmarks_report() {
+    // Without its note the cited line and the bookmark after it fit on
+    // page 1.
+    let body = filler(9) + &cited("Cited", &[1]) + &heading("After", "After");
+    let with_note = document(Parts {
+        body: &body,
+        footnotes: &footnote(1, &["A note.", "Two lines."]),
+        ..NONE
+    });
+    assert_eq!(estimate(&with_note).bookmark_page("After"), Some(2));
+    let without = document(Parts {
+        body: &(filler(9) + &para("Cited") + &heading("After", "After")),
+        ..NONE
+    });
+    assert_eq!(estimate(&without).bookmark_page("After"), Some(1));
+}
+
+#[test]
+fn keep_with_next_does_not_count_notes_yet() {
+    // The heading and the cited line fit together without the note, so
+    // the heading stays when the line moves on with its note. Word's
+    // choice here is not measured yet.
+    let body = filler(8) + &heading("Kept", "Heading") + &cited("Cited", &[1]);
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &footnote(1, &["The note."]),
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "Heading").page, 1);
+    assert_eq!(find(&records, "Cited1").page, 2);
 }

@@ -89,6 +89,7 @@ pub fn preflight(document: &Document) -> Result<PdfReport> {
     }
     if let Some(body) = body {
         scan.note_placement(tree, body, settings);
+        scan.nested_notes(&txn, main, tree, body)?;
     }
     Ok(scan.finish())
 }
@@ -227,6 +228,45 @@ impl<'s, 'd> Scan<'s, 'd> {
 
     /// Notes the layout puts only at the foot of the page or after the last
     /// block, in one column.
+    /// Notes referenced only from another note: layout lays out the notes
+    /// the body refers to.
+    fn nested_notes(
+        &mut self,
+        txn: &Txn<'_>,
+        main: &str,
+        tree: &XmlTree,
+        body: NodeId,
+    ) -> Result<()> {
+        let kinds = ["footnoteReference", "endnoteReference"];
+        let references = |tree: &XmlTree, root: NodeId| -> Vec<(&'static str, String)> {
+            tree.descendants(root)
+                .filter_map(|n| {
+                    let kind = kinds.into_iter().find(|k| tree.is(n, W, k))?;
+                    Some((kind, w_attr(tree, n, "id")?.to_string()))
+                })
+                .collect()
+        };
+        let cited = references(tree, body);
+        for rel in [rt::FOOTNOTES, rt::ENDNOTES] {
+            let Some(notes) = related(txn, main, rel)? else {
+                continue;
+            };
+            let nested = references(notes, notes.root())
+                .into_iter()
+                .filter(|reference| !cited.contains(reference))
+                .count();
+            for _ in 0..nested {
+                self.note_at(
+                    FOOTNOTE_LAYOUT_UNSUPPORTED,
+                    "notes referenced only from a note",
+                    false,
+                    None,
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn note_placement(&mut self, tree: &XmlTree, body: NodeId, settings: Option<&XmlTree>) {
         let referenced = |local: &str| tree.descendants(body).any(|n| tree.is(n, W, local));
         let document = NoteSettings::document(settings);
