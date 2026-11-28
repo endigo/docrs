@@ -1084,6 +1084,10 @@ pub(crate) struct Point {
 pub(crate) struct PageStart {
     pub number: u32,
     /// The number the page shows is odd: its inside margin is on the left.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "PDF pictures read it")
+    )]
     pub odd: bool,
     /// Into `Model.sections`.
     pub section: usize,
