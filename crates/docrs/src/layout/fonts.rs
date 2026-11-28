@@ -2848,9 +2848,11 @@ mod font_set {
             "/../../tests/fixtures/fonts/liberation"
         );
         for (family, to) in METRIC_ALIASES {
+            let style = to.trim_start_matches("liberation ");
             let file = format!(
-                "{dir}/{}-Regular.ttf",
-                to.replace("liberation ", "Liberation").replace(' ', "")
+                "{dir}/Liberation{}{}-Regular.ttf",
+                style[..1].to_uppercase(),
+                &style[1..]
             );
             let alias = Face::parse_file(&std::fs::read(&file).unwrap()).remove(0);
             let slots = builtin_slots(family).unwrap_or_else(|| panic!("{family}"));
