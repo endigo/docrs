@@ -699,6 +699,9 @@ fn page_ref_bookmark(instruction: &str) -> Option<String> {
 pub struct LineRecord {
     /// Physical page, from 1.
     pub page: u32,
+    /// The page's size in points.
+    pub page_width: f64,
+    pub page_height: f64,
     pub story: String,
     /// Points from the page's top-left corner, as are `baseline` and `tabs`.
     pub x: f64,
@@ -745,6 +748,9 @@ pub struct RunRecord {
 pub struct RowRecord {
     /// Physical page, from 1.
     pub page: u32,
+    /// The page's size in points.
+    pub page_width: f64,
+    pub page_height: f64,
     pub story: String,
     /// The row's index in its table.
     pub row: usize,
@@ -822,6 +828,7 @@ pub fn records_with(
         model: &settled.model,
         page: 0,
         marks: HashMap::new(),
+        paper: (0.0, 0.0),
         each,
     })
 }
@@ -830,6 +837,7 @@ struct LineDump<'m, F> {
     model: &'m model::Model,
     page: u32,
     marks: HashMap<model::NoteId, String>,
+    paper: (f64, f64),
     each: F,
 }
 
@@ -845,7 +853,9 @@ fn story_name(story: StoryId) -> String {
 
 impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
     fn page(&mut self, page: &flow::PageStart) -> Result<()> {
+        let geometry = &self.model.sections[page.section].page;
         self.page = page.number;
+        self.paper = (geometry.width, geometry.height);
         Ok(())
     }
 
@@ -883,6 +893,8 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
         let text = runs.iter().map(|run| run.text.as_str()).collect();
         (self.each)(Record::Line(LineRecord {
             page: self.page,
+            page_width: self.paper.0,
+            page_height: self.paper.1,
             story: story_name(para.story),
             x: at.x + line.start,
             y: at.y,
@@ -930,6 +942,8 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
             .collect();
         (self.each)(Record::Row(RowRecord {
             page: self.page,
+            page_width: self.paper.0,
+            page_height: self.paper.1,
             story: story_name(table.story),
             row,
             x: origin.x,

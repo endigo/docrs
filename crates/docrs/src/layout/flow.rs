@@ -1032,10 +1032,6 @@ pub(crate) struct Point {
 pub(crate) struct PageStart {
     pub number: u32,
     /// Into `Model.sections`.
-    #[cfg_attr(
-        not(feature = "pdf"),
-        allow(dead_code, reason = "the PDF painter reads it")
-    )]
     pub section: usize,
 }
 

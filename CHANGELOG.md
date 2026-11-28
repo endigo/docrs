@@ -75,6 +75,7 @@
 - `layout --lines` baselines sit where Word for Mac draws them. With auto or multiple line spacing, the baseline is the line's largest ascent (line gap included) below its top, and the extra space goes below the text, 1.8 to 2.5 pt higher than before with 1.15 spacing. With exact spacing or a multiple below 1, the baseline is 0.8 of the line height. Line heights, pitch and page breaks are unchanged.
 - `docrs pdf --preflight IN.docx` prints the PDF preflight report (JSON with `--json`), with what the package reader set aside (`set_aside`). The command is hidden and experimental, and writes no PDF yet.
 - `layout --lines` also prints each part of a table row on a page, as an object with `row` (its index in its table), `page`, `story`, `x`, `y`, `width`, `height`, `first` and `last` (the row starts and ends on this page), `repeat` (a header row repeated on a later page) and `cells` (each one's `x`, `width`, and the content offsets `from` and `to` shown on this page) (experimental).
+- `layout --lines` gives each line and row part its page's size, `page_width` and `page_height` in points: a landscape section's pages read 792 by 612 on Letter paper.
 
 ## 1.0.1 (2026-11-23)
 
