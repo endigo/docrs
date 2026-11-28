@@ -479,10 +479,9 @@ pub fn image_document_for_tests(
     images: &[(&str, &[u8])],
     info: &Info,
     producer: &str,
-    limits: &Limits,
-    pdf_limits: &PdfLimits,
+    limits: &PdfLimits,
 ) -> Result<(Vec<u8>, Vec<Vec<&'static str>>)> {
-    image::image_document(images, info, producer, limits, pdf_limits)
+    image::image_document(images, info, producer, limits)
 }
 
 /// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).

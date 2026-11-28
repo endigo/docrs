@@ -1,7 +1,9 @@
 //! Windows bitmaps without compression: 1, 4 and 8 bits through a palette,
 //! 24-bit BGR and 32-bit BGRX or bit fields, bottom-up or top-down.
 
-use super::{Budget, Image, Space, byte, bytes, le16, le32, malformed, plane, unsupported};
+use super::{
+    Budget, Image, Space, byte, bytes, le16, le32, malformed, plane, too_large, unsupported,
+};
 use crate::{Error, Result};
 
 const FILE_HEADER: usize = 14;
@@ -26,13 +28,13 @@ pub(super) fn read(data: &[u8], budget: &Budget) -> Result<Image> {
         .ok()
         .and_then(|w| w.checked_mul(usize::from(header.bits)))
         .map(|bits| bits.div_ceil(32) * 4)
-        .ok_or(Error::out_of_memory(usize::MAX))?;
+        .ok_or_else(too_large)?;
     let rows = bytes(
         data,
         header.data,
         stride
             .checked_mul(header.height as usize)
-            .ok_or(Error::out_of_memory(usize::MAX))?,
+            .ok_or_else(too_large)?,
     )?;
     let mut color = plane(header.width, header.height, 3)?;
     let mut alpha = plane(header.width, header.height, 1)?;
@@ -102,18 +104,14 @@ fn read_header(data: &[u8]) -> Result<Header> {
     }
     let masks = if compression == BI_BITFIELDS {
         let alpha = if size >= 56 { le32(data, 66)? } else { 0 };
-        [le32(data, 54)?, le32(data, 58)?, le32(data, 62)?, alpha]
+        check_masks([le32(data, 54)?, le32(data, 58)?, le32(data, 62)?, alpha])?
     } else {
         [0xFF_0000, 0xFF00, 0xFF, 0]
     };
-    let palette_at = FILE_HEADER
-        + size
-        + if size == 40 && compression == BI_BITFIELDS {
-            12
-        } else {
-            0
-        };
     let palette = if bits <= 8 {
+        let palette_at = FILE_HEADER
+            .checked_add(size)
+            .ok_or_else(|| malformed("the BMP header is too long"))?;
         let count = match colors {
             0 => 1 << bits,
             n => n.min(1 << bits) as usize,
@@ -163,7 +161,23 @@ impl Header {
     }
 }
 
-/// The 8-bit value of the bits `mask` selects.
+/// Masks that each select one run of bits, no two the same bit.
+fn check_masks(masks: [u32; 4]) -> Result<[u32; 4]> {
+    let contiguous = |mask: u32| {
+        let run = mask.checked_shr(mask.trailing_zeros()).unwrap_or(0);
+        run & run.wrapping_add(1) == 0
+    };
+    let union = masks.iter().fold(0u32, |all, mask| all | mask);
+    let bits: u32 = masks.iter().map(|mask| mask.count_ones()).sum();
+    if !masks.iter().all(|&mask| contiguous(mask)) || union.count_ones() != bits {
+        return Err(malformed(
+            "the BMP colour masks are not separate runs of bits",
+        ));
+    }
+    Ok(masks)
+}
+
+/// The 8-bit value of the bits `mask` selects, a run of bits.
 fn channel(value: u32, mask: u32) -> u8 {
     if mask == 0 {
         return 0;

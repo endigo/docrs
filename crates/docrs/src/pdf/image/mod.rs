@@ -11,6 +11,7 @@ mod png;
 #[cfg(any(test, feature = "test-support"))]
 mod sample;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
@@ -88,21 +89,16 @@ impl Space {
 }
 
 impl Image {
-    /// Reads an image, recognising its format by its bytes, within the
-    /// pixel budgets of `limits` for a document that has decoded `used`.
-    pub(crate) fn read(data: &[u8], limits: &PdfLimits, used: u64) -> Result<Image> {
-        let budget = Budget { limits, used };
+    /// Reads an image, recognising its format by its bytes, within
+    /// `budget`.
+    fn read(data: &[u8], budget: &Budget) -> Result<Image> {
         match format(data) {
-            Format::Png => png::read(data, &budget),
-            Format::Jpeg => jpeg::read(data, &budget),
-            Format::Gif => gif::read(data, &budget),
-            Format::Bmp => bmp::read(data, &budget),
+            Format::Png => png::read(data, budget),
+            Format::Jpeg => jpeg::read(data, budget),
+            Format::Gif => gif::read(data, budget),
+            Format::Bmp => bmp::read(data, budget),
             Format::Other(what) => Err(unsupported(what)),
         }
-    }
-
-    fn pixels(&self) -> u64 {
-        u64::from(self.width) * u64::from(self.height)
     }
 
     /// Writes the image XObject, and its soft mask before it.
@@ -216,8 +212,9 @@ fn format(data: &[u8]) -> Format {
 /// The images of one document: one XObject per media part.
 #[derive(Default)]
 pub(crate) struct ImageResources {
-    placed: BTreeMap<String, Placed>,
-    /// Decoded pixels of every image written.
+    /// Each part read, with its XObject or why it has none.
+    placed: BTreeMap<String, Result<Placed>>,
+    /// Pixels of every image whose size was read, drawn or not.
     pixels: u64,
 }
 
@@ -234,7 +231,8 @@ pub(crate) struct Placed {
 
 impl ImageResources {
     /// Media part `part`, holding `data`: read and written the first time,
-    /// within the per-image and per-document pixel budgets.
+    /// within the per-image and per-document pixel budgets. A part that
+    /// fails is read once too: later calls return the same error.
     pub(crate) fn add(
         &mut self,
         writer: &mut Writer,
@@ -243,28 +241,38 @@ impl ImageResources {
         limits: &PdfLimits,
     ) -> Result<&Placed> {
         let number = self.placed.len() + 1;
-        match self.placed.entry(part.to_string()) {
-            Entry::Occupied(placed) => Ok(placed.into_mut()),
+        let placed = match self.placed.entry(part.to_string()) {
+            Entry::Occupied(placed) => placed.into_mut(),
             Entry::Vacant(slot) => {
-                let image = Image::read(data, limits, self.pixels)?;
-                let xobject = image.write(writer)?;
-                self.pixels += image.pixels();
-                Ok(slot.insert(Placed {
-                    name: format!("Im{number}"),
-                    xobject,
-                    width: image.width,
-                    height: image.height,
-                    warnings: image.warnings,
-                }))
+                let budget = Budget {
+                    limits,
+                    used: self.pixels,
+                    claimed: Cell::new(0),
+                };
+                let placed = Image::read(data, &budget).and_then(|image| {
+                    Ok(Placed {
+                        name: format!("Im{number}"),
+                        xobject: image.write(writer)?,
+                        width: image.width,
+                        height: image.height,
+                        warnings: image.warnings,
+                    })
+                });
+                self.pixels = self.pixels.saturating_add(budget.claimed.get());
+                slot.insert(placed)
             }
-        }
+        };
+        placed.as_ref().map_err(Error::repeated)
     }
 
     /// The `/XObject` resource dictionary.
     pub(crate) fn resources(&self) -> Dict {
-        self.placed.values().fold(Dict::new(), |dict, placed| {
-            dict.with(&placed.name, placed.xobject)
-        })
+        self.placed
+            .values()
+            .flatten()
+            .fold(Dict::new(), |dict, placed| {
+                dict.with(&placed.name, placed.xobject)
+            })
     }
 }
 
@@ -273,6 +281,8 @@ impl ImageResources {
 struct Budget<'a> {
     limits: &'a PdfLimits,
     used: u64,
+    /// The pixels of the size checked, once it fits.
+    claimed: Cell<u64>,
 }
 
 impl Budget<'_> {
@@ -297,6 +307,7 @@ impl Budget<'_> {
                 total,
             ));
         }
+        self.claimed.set(pixels);
         Ok(())
     }
 }
@@ -308,14 +319,14 @@ fn plane(width: u32, height: u32, components: usize) -> Result<Vec<u8>> {
         .zip(usize::try_from(height).ok())
         .and_then(|(width, height)| width.checked_mul(height))
         .and_then(|pixels| pixels.checked_mul(components))
-        .ok_or(Error::out_of_memory(usize::MAX))?;
+        .ok_or_else(too_large)?;
     zeroed(len)
 }
 
 fn zeroed(len: usize) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     out.try_reserve_exact(len)
-        .map_err(|_| Error::out_of_memory(len))?;
+        .map_err(|_| Error::out_of_memory(format_args!("{len} bytes")))?;
     out.resize(len, 0);
     Ok(out)
 }
@@ -323,9 +334,14 @@ fn zeroed(len: usize) -> Result<Vec<u8>> {
 fn copied(data: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     out.try_reserve_exact(data.len())
-        .map_err(|_| Error::out_of_memory(data.len()))?;
+        .map_err(|_| Error::out_of_memory(format_args!("{} bytes", data.len())))?;
     out.extend_from_slice(data);
     Ok(out)
+}
+
+/// A size whose bytes do not fit this machine's address space.
+fn too_large() -> Error {
+    Error::out_of_memory("an image larger than this machine can address")
 }
 
 fn malformed(what: impl std::fmt::Display) -> Error {
@@ -372,8 +388,14 @@ mod tests {
 
     #[test]
     fn the_format_comes_from_the_bytes() {
+        let limits = PdfLimits::default();
         let unsupported = |data: &[u8]| {
-            let err = Image::read(data, &PdfLimits::default(), 0).unwrap_err();
+            let budget = Budget {
+                limits: &limits,
+                used: 0,
+                claimed: Cell::new(0),
+            };
+            let err = Image::read(data, &budget).unwrap_err();
             assert_eq!(err.reason(), UNSUPPORTED, "{err}");
             err.to_string()
         };
@@ -393,12 +415,16 @@ mod tests {
         let limits = PdfLimits {
             max_image_pixels: 100,
             max_document_pixels: 150,
+            ..PdfLimits::default()
         };
         let budget = |used| Budget {
             limits: &limits,
             used,
+            claimed: Cell::new(0),
         };
-        assert!(budget(0).check(10, 10).is_ok());
+        let fits = budget(0);
+        assert!(fits.check(10, 10).is_ok());
+        assert_eq!(fits.claimed.get(), 100);
         let err = budget(0).check(10, 11).unwrap_err();
         assert_eq!(err.reason(), "max_image_pixels");
         let err = budget(60).check(10, 10).unwrap_err();
@@ -406,5 +432,59 @@ mod tests {
         assert_eq!(err.limit_exceeded().unwrap().observed, 160);
         let err = budget(0).check(0, 5).unwrap_err();
         assert_eq!(err.reason(), "pdf_image_malformed");
+    }
+
+    /// A BMP header for `side` × `side` 24-bit pixels, and `rows` bytes of
+    /// pixel data.
+    fn bmp(side: u8, rows: usize) -> Vec<u8> {
+        let mut file = b"BM".to_vec();
+        file.extend_from_slice(&[0; 8]);
+        file.extend_from_slice(&54u32.to_le_bytes());
+        file.extend_from_slice(&40u32.to_le_bytes());
+        file.extend_from_slice(&[side, 0, 0, 0, side, 0, 0, 0, 1, 0, 24, 0]);
+        file.resize(54 + rows, 0);
+        file
+    }
+
+    #[test]
+    fn a_failed_part_is_read_once_and_its_pixels_count() {
+        let limits = PdfLimits {
+            max_document_pixels: 150,
+            ..PdfLimits::default()
+        };
+        let mut writer = Writer::new(1 << 20).unwrap();
+        let mut images = ImageResources::default();
+        let truncated = bmp(10, 0);
+        for _ in 0..2 {
+            let err = images
+                .add(&mut writer, "a", &truncated, &limits)
+                .unwrap_err();
+            assert_eq!(err.reason(), "pdf_image_malformed");
+        }
+        let err = images
+            .add(&mut writer, "a", &bmp(10, 400), &limits)
+            .unwrap_err();
+        assert_eq!(
+            err.reason(),
+            "pdf_image_malformed",
+            "the first outcome stays"
+        );
+        assert_eq!(images.pixels, 100);
+        let err = images
+            .add(&mut writer, "b", &bmp(10, 400), &limits)
+            .unwrap_err();
+        assert_eq!(err.reason(), "max_document_pixels");
+        assert!(
+            images
+                .add(&mut writer, "c", &bmp(7, 7 * 24), &limits)
+                .is_ok()
+        );
+        let names: Vec<&str> = images
+            .placed
+            .values()
+            .flatten()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(names, ["Im3"]);
     }
 }

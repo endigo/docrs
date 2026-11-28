@@ -48,6 +48,15 @@ pub(super) fn read(data: &[u8], budget: &Budget) -> Result<Image> {
     }
     let frame = frame.ok_or_else(|| malformed("the JPEG has no frame header"))?;
     budget.check(frame.width, frame.height)?;
+    let scan = at.checked_add(usize::from(be16(data, at)?));
+    if scan
+        .and_then(|scan| data.get(scan..))
+        .is_none_or(|rest| rest.is_empty() || rest.starts_with(&[0xFF, 0xD9]))
+    {
+        return Err(malformed(
+            "the JPEG has no image data after its scan header",
+        ));
+    }
     // Adobe's CMYK (transform 0) is the one four-component JPEG tested
     // against a real encoder; its values are stored inverted.
     let space = match (frame.components, adobe) {
@@ -97,9 +106,15 @@ fn read_frame(segment: &[u8]) -> Result<Frame> {
     if height == 0 {
         return Err(unsupported("a JPEG whose height follows its first scan"));
     }
+    let components = byte(segment, 5)?;
+    if segment.len() != 6 + 3 * usize::from(components) {
+        return Err(malformed(
+            "the JPEG frame header does not list its components",
+        ));
+    }
     Ok(Frame {
         width: u32::from(be16(segment, 3)?),
         height,
-        components: byte(segment, 5)?,
+        components,
     })
 }

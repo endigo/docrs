@@ -2,12 +2,13 @@
 //! data as it is: 8-bit grey, RGB or palette, no transparency, not
 //! interlaced. Everything else is decoded into 8-bit colour plus alpha.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 
 use flate2::read::ZlibDecoder;
 
 use super::{
     ANIMATED, Budget, Image, PROFILE_IGNORED, Samples, Space, be32, byte, bytes, malformed, plane,
+    too_large, zeroed,
 };
 use crate::{Error, Result};
 
@@ -42,7 +43,7 @@ pub(super) fn read(data: &[u8], budget: &Budget) -> Result<Image> {
         && chunks.transparency.is_none()
         && !header.interlaced
     {
-        check_rows(&header, &chunks.data)?;
+        check_rows(&header, &chunks)?;
         Image {
             width: header.width,
             height: header.height,
@@ -99,7 +100,7 @@ fn read_chunks<'a>(data: &'a [u8], budget: &Budget) -> Result<(Header, Chunks<'a
                 chunks
                     .data
                     .try_reserve(body.len())
-                    .map_err(|_| Error::out_of_memory(body.len()))?;
+                    .map_err(|_| Error::out_of_memory(format_args!("{} bytes", body.len())))?;
                 chunks.data.extend_from_slice(body);
             }
             b"iCCP" => chunks.profile = true,
@@ -213,7 +214,7 @@ fn row_bytes(header: &Header, width: u32) -> Result<usize> {
         .ok()
         .and_then(|w| w.checked_mul(channels(header.color) * usize::from(header.depth)))
         .map(|bits| bits.div_ceil(8))
-        .ok_or(Error::out_of_memory(usize::MAX))
+        .ok_or_else(too_large)
 }
 
 /// The inflated size of every pass, filter bytes included.
@@ -225,68 +226,70 @@ fn inflated_size(header: &Header) -> Result<usize> {
             .zip(rows)
             .and_then(|(row, rows)| row.checked_mul(rows))
             .and_then(|size| total.checked_add(size))
-            .ok_or(Error::out_of_memory(usize::MAX))
+            .ok_or_else(too_large)
     })
 }
 
-/// Inflates the passed-through data without keeping it, checking it holds
-/// every row with a known filter.
-fn check_rows(header: &Header, data: &[u8]) -> Result<()> {
-    let row = row_bytes(header, header.width)? + 1;
-    let mut rows = Rows { row, at: 0 };
-    let size = inflated_size(header)? as u64;
-    let copied = io::copy(&mut ZlibDecoder::new(data).take(size), &mut rows)
-        .map_err(|_| malformed("the PNG image data is corrupt"))?;
-    if copied < size {
-        return Err(malformed("the PNG image data ends early"));
-    }
-    Ok(())
-}
+/// Deflate expands data at most about 1,032 times: data shorter than that
+/// share of the rows cannot hold them, and is refused before anything is
+/// allocated for them.
+const MAX_DEFLATE_RATIO: u64 = 1_033;
 
-/// Checks the filter byte at the start of each row of the bytes written.
-struct Rows {
-    row: usize,
-    at: usize,
-}
-
-impl Write for Rows {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        for (offset, &byte) in buf.iter().enumerate() {
-            if (self.at + offset).is_multiple_of(self.row) && byte > 4 {
-                return Err(io::Error::other("unknown PNG filter"));
-            }
-        }
-        self.at += buf.len();
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// The inflated data, held as it arrives so that memory follows the data
-/// and not the header.
-fn inflate(header: &Header, data: &[u8]) -> Result<Vec<u8>> {
+/// Inflates and unfilters each row of every pass in turn, holding two rows
+/// at a time; returns the decoder after the last row.
+fn each_row<'a>(
+    header: &Header,
+    data: &'a [u8],
+    mut visit: impl FnMut(&Pass, u32, &[u8]) -> Result<()>,
+) -> Result<ZlibDecoder<&'a [u8]>> {
     let size = inflated_size(header)?;
-    let mut decoder = ZlibDecoder::new(data).take(size as u64);
-    let mut out = Vec::new();
-    let mut chunk = [0u8; 1 << 16];
-    loop {
-        let read = decoder
-            .read(&mut chunk)
-            .map_err(|_| malformed("the PNG image data is corrupt"))?;
-        let Some(piece) = chunk.get(..read).filter(|piece| !piece.is_empty()) else {
-            break;
-        };
-        out.try_reserve(read)
-            .map_err(|_| Error::out_of_memory(read))?;
-        out.extend_from_slice(piece);
-    }
-    if out.len() < size {
+    if (data.len() as u64).saturating_mul(MAX_DEFLATE_RATIO) < size as u64 {
         return Err(malformed("the PNG image data ends early"));
     }
-    Ok(out)
+    let widest = row_bytes(header, header.width)?;
+    let mut line = zeroed(widest + 1)?;
+    let mut previous = zeroed(widest)?;
+    let bpp = (channels(header.color) * usize::from(header.depth)).div_ceil(8);
+    let mut decoder = ZlibDecoder::new(data);
+    for pass in passes(header) {
+        let length = row_bytes(header, pass.width)?;
+        let (line, previous) = line
+            .get_mut(..=length)
+            .zip(previous.get_mut(..length))
+            .ok_or_else(|| Error::internal("pdf_image_row", "a PNG pass wider than the image"))?;
+        previous.fill(0);
+        for row in 0..pass.height {
+            decoder.read_exact(line).map_err(|err| match err.kind() {
+                io::ErrorKind::UnexpectedEof => malformed("the PNG image data ends early"),
+                _ => malformed("the PNG image data is corrupt"),
+            })?;
+            let (&mut filter, line) = line
+                .split_first_mut()
+                .ok_or_else(|| malformed("an empty PNG row"))?;
+            unfilter(filter, line, previous, bpp)?;
+            visit(&pass, row, line)?;
+            previous.copy_from_slice(line);
+        }
+    }
+    Ok(decoder)
+}
+
+/// Checks the passed-through data as decoding would, without keeping it:
+/// every row with a known filter, every index in the palette, and nothing
+/// after the last row, so the PDF holds no more than the image.
+fn check_rows(header: &Header, chunks: &Chunks) -> Result<()> {
+    let entries = chunks.palette.map_or(0, |palette| palette.len() / 3);
+    let mut decoder = each_row(header, &chunks.data, |_, _, line| {
+        if header.color == PALETTE && line.iter().any(|&index| usize::from(index) >= entries) {
+            return Err(malformed("a PNG pixel outside its palette"));
+        }
+        Ok(())
+    })?;
+    match decoder.read(&mut [0u8; 1]) {
+        Ok(0) => Ok(()),
+        Ok(_) => Err(malformed("the PNG image data runs past its last row")),
+        Err(_) => Err(malformed("the PNG image data is corrupt")),
+    }
 }
 
 /// What a decoded pixel becomes.
@@ -300,7 +303,6 @@ struct Target<'a> {
 }
 
 fn decode(header: &Header, chunks: &Chunks) -> Result<Image> {
-    let raw = inflate(header, &chunks.data)?;
     let grey = matches!(header.color, GREY | GREY_ALPHA);
     let components = if grey { 1 } else { 3 };
     let mut target = Target {
@@ -311,28 +313,11 @@ fn decode(header: &Header, chunks: &Chunks) -> Result<Image> {
         color: plane(header.width, header.height, components)?,
         alpha: plane(header.width, header.height, 1)?,
     };
-    let bpp = (channels(header.color) * usize::from(header.depth)).div_ceil(8);
-    let mut rest = raw.as_slice();
-    for pass in passes(header) {
-        let length = row_bytes(header, pass.width)? + 1;
-        let mut previous: Vec<u8> = Vec::new();
-        for row in 0..pass.height {
-            let (line, tail) = rest
-                .split_at_checked(length)
-                .ok_or_else(|| malformed("the PNG image data ends early"))?;
-            rest = tail;
-            let (&filter, line) = line
-                .split_first()
-                .ok_or_else(|| malformed("an empty PNG row"))?;
-            let mut line = line.to_vec();
-            unfilter(filter, &mut line, &previous, bpp)?;
-            let y = pass.y + row * pass.dy;
-            for column in 0..pass.width {
-                target.put(pass.x + column * pass.dx, y, &line, column)?;
-            }
-            previous = line;
-        }
-    }
+    each_row(header, &chunks.data, |pass, row, line| {
+        let y = pass.y + row * pass.dy;
+        (0..pass.width)
+            .try_for_each(|column| target.put(pass.x + column * pass.dx, y, line, column))
+    })?;
     let space = if grey { Space::Gray } else { Space::Rgb };
     Ok(Image::decoded(
         header.width,
@@ -392,11 +377,12 @@ impl Target<'_> {
             *sample = sample_at(line, column as usize * channels + channel, header.depth);
         }
         let [first, second, third, fourth] = samples;
+        let depth_mask = ((1u32 << header.depth) - 1) as u16;
         let opaque = |key: &[u16]| {
             let matches = self.transparency.is_some_and(|t| {
                 key.iter()
                     .enumerate()
-                    .all(|(i, &v)| be16_at(t, i) == Some(v))
+                    .all(|(i, &v)| be16_at(t, i).map(|k| k & depth_mask) == Some(v))
             });
             if matches { 0 } else { u8::MAX }
         };

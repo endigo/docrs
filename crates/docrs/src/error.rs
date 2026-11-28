@@ -10,8 +10,9 @@
 //! * [`ErrorKind::InvalidArgument`] — the caller passed something unusable
 //!   (upstream raises `TypeError`/`ValueError`). Also leaves state unchanged.
 //! * [`ErrorKind::ResourceLimit`] — an explicit [`crate::Limits`] budget was
-//!   exceeded. This is a *policy* outcome, never evidence that the input is
-//!   malformed; [`LimitExceeded`] names the budget.
+//!   exceeded, and [`LimitExceeded`] names the budget; or (reason
+//!   `out_of_memory`, without [`LimitExceeded`]) the memory an input needs
+//!   could not be reserved. Never evidence that the input is malformed.
 //! * [`ErrorKind::Io`] — the filesystem failed. A failed save never replaces
 //!   an existing destination, but it does not undo an earlier successful edit.
 //! * [`ErrorKind::Internal`] — an invariant inside this crate failed (a bug).
@@ -213,15 +214,27 @@ impl Error {
         }
     }
 
-    /// Memory for `bytes` more could not be reserved: the input needs more
-    /// than this process has, which no [`crate::Limits`] budget names.
-    pub(crate) fn out_of_memory(bytes: usize) -> Self {
+    /// Memory for `what` could not be reserved: the input needs more than
+    /// this process has, which no budget names (no [`LimitExceeded`]).
+    pub(crate) fn out_of_memory(what: impl fmt::Display) -> Self {
         Error {
             kind: ErrorKind::ResourceLimit,
             reason: "out_of_memory",
-            message: format!("could not reserve {bytes} bytes"),
+            message: format!("could not reserve memory for {what}"),
             limit: None,
             details: None,
+            source: None,
+        }
+    }
+
+    /// The same error without its `source`, for an outcome given again.
+    pub(crate) fn repeated(&self) -> Self {
+        Error {
+            kind: self.kind,
+            reason: self.reason,
+            message: self.message.clone(),
+            limit: self.limit.clone(),
+            details: self.details.clone(),
             source: None,
         }
     }

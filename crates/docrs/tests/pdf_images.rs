@@ -12,8 +12,8 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
 
+use docrs::ErrorKind;
 use docrs::pdf::{Info, PdfLimits, image_document_for_tests};
-use docrs::{ErrorKind, Limits};
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
@@ -38,7 +38,7 @@ fn document_with(
         title: Some("Images".into()),
         ..Info::default()
     };
-    image_document_for_tests(images, &info, PRODUCER, &Limits::default(), limits)
+    image_document_for_tests(images, &info, PRODUCER, limits)
 }
 
 fn read(data: &[u8]) -> docrs::Result<(Vec<u8>, Vec<&'static str>)> {
@@ -350,7 +350,11 @@ impl Png {
     }
 
     fn encode(&self) -> Vec<u8> {
-        let compressed = self.compressed();
+        self.encode_with(&self.compressed())
+    }
+
+    /// The file around `compressed` image data.
+    fn encode_with(&self, compressed: &[u8]) -> Vec<u8> {
         let mut ihdr = Vec::new();
         ihdr.extend_from_slice(&self.width.to_be_bytes());
         ihdr.extend_from_slice(&self.height.to_be_bytes());
@@ -376,8 +380,15 @@ impl Png {
         out
     }
 
-    /// The image data, every row filtered, the filters taken in turn.
     fn compressed(&self) -> Vec<u8> {
+        let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
+        z.write_all(&self.filtered()).unwrap();
+        z.finish().unwrap()
+    }
+
+    /// The image data before compression, every row filtered, the filters
+    /// taken in turn.
+    fn filtered(&self) -> Vec<u8> {
         let mut raw = Vec::new();
         let passes: &[(u32, u32, u32, u32)] = if self.interlaced {
             &[
@@ -432,9 +443,7 @@ impl Png {
                 previous = line;
             }
         }
-        let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
-        z.write_all(&raw).unwrap();
-        z.finish().unwrap()
+        raw
     }
 }
 
@@ -647,7 +656,7 @@ fn a_damaged_png_is_a_typed_error() {
     chunk(&mut file, b"IHDR", &[0, 0, 0, 4, 0, 0, 0, 2, 8, 0, 0, 0, 0]);
     chunk(&mut file, b"IDAT", &z.finish().unwrap());
     chunk(&mut file, b"IEND", &[]);
-    assert!(malformed(&file).contains("corrupt"));
+    assert!(malformed(&file).contains("unknown PNG filter"));
     raw.truncate(5);
     let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
     z.write_all(&raw[1..]).unwrap();
@@ -709,8 +718,8 @@ fn huge_dimensions_hit_the_budget_before_any_allocation() {
     let mut jpeg = fixture("photo-rgb.jpg");
     let sof = jpeg.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
     jpeg[sof + 5..sof + 9].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
-    let mut gif = b"GIF89a\xFF\xFF\xFF\xFF\x00\x00\x00".to_vec();
-    gif.push(0x3B);
+    let mut gif = b"GIF89a\xFF\xFF\xFF\xFF\x80\x00\x00\0\0\0\xFF\xFF\xFF".to_vec();
+    gif.extend_from_slice(b"\x2C\0\0\0\0\x01\0\x01\0\0\x02\x02\x4C\x01\0\x3B");
     let mut bmp = bmp(&Bmp::pattern(2, 2, 24, false));
     bmp[18..26].copy_from_slice(&[0xFF, 0xFF, 0, 0, 0xFF, 0xFF, 0, 0]);
     for file in [png, jpeg, gif, bmp] {
@@ -1249,6 +1258,139 @@ fn compressed_and_16_bit_bmps_are_unsupported() {
     assert!(malformed(&bmp(&outside)).contains("outside its palette"));
 }
 
+/// A 1 × 1 GIF whose LZW data fills the table with KwKwK codes, then repeats
+/// the longest code for 4 MiB: each code would walk a 4,000-link chain.
+fn lzw_chain_bomb() -> Vec<u8> {
+    let mut codes = Vec::new();
+    let mut put = BitWriter::default();
+    let (mut next, mut width) = (6u32, 3u32);
+    put.code(0, width);
+    while next < 4096 {
+        put.code(next, width);
+        next += 1;
+        if next == 1 << width && width < 12 {
+            width += 1;
+        }
+    }
+    while put.out.len() < 4 << 20 {
+        put.code(4095, width);
+    }
+    codes.extend(put.out);
+    let mut out = b"GIF89a\x01\0\x01\0\x81\0\0".to_vec();
+    out.extend_from_slice(&[0, 0, 0, 255, 255, 255, 1, 2, 3, 4, 5, 6]);
+    out.extend_from_slice(b"\x2C\0\0\0\0\x01\0\x01\0\0\x02");
+    for block in codes.chunks(255) {
+        out.push(block.len() as u8);
+        out.extend_from_slice(block);
+    }
+    out.extend_from_slice(&[0, 0x3B]);
+    out
+}
+
+#[derive(Default)]
+struct BitWriter {
+    out: Vec<u8>,
+    acc: u32,
+    bits: u32,
+}
+
+impl BitWriter {
+    fn code(&mut self, code: u32, width: u32) {
+        self.acc |= code << self.bits;
+        self.bits += width;
+        while self.bits >= 8 {
+            self.out.push(self.acc as u8);
+            self.acc >>= 8;
+            self.bits -= 8;
+        }
+    }
+}
+
+#[test]
+fn gif_decoding_stops_at_the_frame_last_pixel() {
+    let bomb = lzw_chain_bomb();
+    assert!(bomb.len() > 4 << 20);
+    let start = std::time::Instant::now();
+    let (pdf, _) = case("gif-lzw-bomb", &bomb, "gif");
+    assert!(start.elapsed().as_secs_f64() < 2.0, "{:?}", start.elapsed());
+    let (width, height, pixels) = rgba(&pdf);
+    assert_eq!((width, height, pixels), (1, 1, vec![[0, 0, 0, 255]]));
+}
+
+#[test]
+fn bit_field_masks_must_be_separate_runs() {
+    let mut spec = Bmp::pattern(1, 1, 32, false);
+    spec.alpha = Some(vec![255]);
+    spec.rgb = vec![[255, 255, 255]];
+    for masks in [
+        [0x8000_0001u32, 0xFF00, 0xFF, 0],
+        [0xFF_0000, 0xFF_FF00, 0xFF, 0],
+        [0xF0F0_0000, 0xFF00, 0xFF, 0],
+    ] {
+        let mut file = bmp(&spec);
+        file[70..74].copy_from_slice(&[0xFF; 4]);
+        for (i, mask) in masks.iter().enumerate() {
+            file[54 + i * 4..58 + i * 4].copy_from_slice(&mask.to_le_bytes());
+        }
+        assert!(malformed(&file).contains("masks"), "{masks:x?}");
+    }
+}
+
+#[test]
+fn passed_through_png_data_must_end_with_the_last_row() {
+    let png = Png::pattern(1, 1, 8, GREY, false);
+    let mut z = ZlibEncoder::new(Vec::new(), Compression::best());
+    z.write_all(&[0, 7]).unwrap();
+    let zeros = vec![0u8; 1 << 20];
+    for _ in 0..512 {
+        z.write_all(&zeros).unwrap();
+    }
+    let bomb = png.encode_with(&z.finish().unwrap());
+    let start = std::time::Instant::now();
+    assert!(malformed(&bomb).contains("runs past its last row"));
+    assert!(start.elapsed().as_secs_f64() < 1.0, "{:?}", start.elapsed());
+    let mut checksum = png.encode_with(&{
+        let mut data = png.compressed();
+        let last = data.len() - 1;
+        data[last] ^= 1;
+        data
+    });
+    repair_crcs(&mut checksum);
+    assert!(malformed(&checksum).contains("corrupt"));
+}
+
+#[test]
+fn a_passed_through_palette_index_must_be_in_the_palette() {
+    let mut png = Png::pattern(4, 4, 8, PALETTE, false);
+    png.palette.truncate(3);
+    assert!(malformed(&png.encode()).contains("outside its palette"));
+}
+
+#[test]
+fn a_jpeg_needs_its_components_and_scan_data() {
+    let rgb = fixture("photo-rgb.jpg");
+    let sos = rgb.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+    let length = usize::from(u16::from_be_bytes([rgb[sos + 2], rgb[sos + 3]]));
+    let scan_header = sos + 2 + length;
+    assert!(malformed(&rgb[..scan_header]).contains("no image data"));
+    let mut eoi = rgb[..scan_header].to_vec();
+    eoi.extend_from_slice(&[0xFF, 0xD9]);
+    assert!(malformed(&eoi).contains("no image data"));
+    let sof = rgb.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+    let mut listed = rgb.clone();
+    listed[sof + 9] = 4;
+    assert!(malformed(&listed).contains("components"));
+}
+
+#[test]
+fn a_gif_with_an_empty_logical_screen_takes_its_frame_size() {
+    let spec = Gif::pattern(20, 12, false);
+    let mut file = gif(&spec);
+    file[6..10].copy_from_slice(&[0; 4]);
+    let (pdf, _) = case("gif-zero-screen", &file, "gif");
+    assert_pixels("gif-zero-screen", &pdf, 20, 12, &spec.expected());
+}
+
 /// After an intended change to the output, regenerate the file with
 /// `DOCRS_BLESS=1 cargo test -p docrs --test pdf_images output_matches_the_golden_file`,
 /// then run `qpdf --check` on it and review the diff.
@@ -1267,15 +1409,60 @@ fn output_matches_the_golden_file() {
 }
 
 fn seeds() -> Vec<Vec<u8>> {
+    let mut fields = Bmp::pattern(6, 5, 32, false);
+    fields.alpha = Some(vec![128; 30]);
+    let mut noisy = Gif::pattern(60, 40, false);
+    noisy.palette = (0..=255u8).flat_map(|i| [i, i, i]).collect();
+    noisy.indices = (0..2400u32)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .collect();
     vec![
         Png::pattern(6, 5, 2, PALETTE, true).encode(),
         Png::pattern(6, 5, 16, RGBA, false).encode(),
         fixture("photo-progressive.jpg"),
+        fixture("photo-cmyk.jpg"),
         fixture("animated.gif"),
         gif(&Gif::pattern(6, 5, true)),
+        gif(&noisy),
         bmp(&Bmp::pattern(6, 5, 4, false)),
+        bmp(&fields),
     ]
 }
+
+/// Each PNG chunk's CRC recomputed, so that edits reach what is inside.
+fn repair_crcs(file: &mut [u8]) {
+    let mut at = 8;
+    while at + 12 <= file.len() {
+        let len = u32::from_be_bytes(file[at..at + 4].try_into().unwrap()) as usize;
+        let Some(end) = (at + 8)
+            .checked_add(len)
+            .filter(|end| end + 4 <= file.len())
+        else {
+            return;
+        };
+        let crc = crc32fast::hash(&file[at + 4..end]);
+        file[end..end + 4].copy_from_slice(&crc.to_be_bytes());
+        at = end + 4;
+    }
+}
+
+const COLOUR_DEPTHS: [(u8, u8); 15] = [
+    (GREY, 1),
+    (GREY, 2),
+    (GREY, 4),
+    (GREY, 8),
+    (GREY, 16),
+    (RGB, 8),
+    (RGB, 16),
+    (PALETTE, 1),
+    (PALETTE, 2),
+    (PALETTE, 4),
+    (PALETTE, 8),
+    (GREY_ALPHA, 8),
+    (GREY_ALPHA, 16),
+    (RGBA, 8),
+    (RGBA, 16),
+];
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
@@ -1284,7 +1471,7 @@ proptest! {
     /// error.
     #[test]
     fn damaged_images_never_panic(
-        seed in 0usize..6,
+        seed in 0usize..9,
         edits in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8),
         cut in any::<prop::sample::Index>(),
     ) {
@@ -1295,6 +1482,41 @@ proptest! {
         }
         let len = cut.index(file.len() + 1);
         file.truncate(len.max(file.len() * 3 / 4));
+        if file.starts_with(b"\x89PNG") {
+            repair_crcs(&mut file);
+        }
+        if let Err(err) = read(&file) {
+            prop_assert!(!matches!(err.kind(), ErrorKind::Internal), "{err}");
+        }
+    }
+
+    /// PNGs damaged inside their compressed data, with valid chunks: rows,
+    /// filters, palettes and header fields that disagree with the data.
+    #[test]
+    fn damaged_png_rows_never_panic(
+        kind in 0usize..15,
+        width in 1u32..20,
+        height in 1u32..20,
+        interlaced in any::<bool>(),
+        edits in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 0..6),
+        header in proptest::option::of((0usize..5, any::<u8>())),
+        cut in any::<prop::sample::Index>(),
+    ) {
+        let (color, depth) = COLOUR_DEPTHS[kind];
+        let png = Png::pattern(width, height, depth, color, interlaced);
+        let mut raw = png.filtered();
+        for (at, value) in edits {
+            let at = at.index(raw.len());
+            raw[at] = value;
+        }
+        raw.truncate(cut.index(raw.len() + 1).max(raw.len() * 7 / 8));
+        let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
+        z.write_all(&raw).unwrap();
+        let mut file = png.encode_with(&z.finish().unwrap());
+        if let Some((field, value)) = header {
+            file[16 + 8 + field] = value;
+            repair_crcs(&mut file);
+        }
         if let Err(err) = read(&file) {
             prop_assert!(!matches!(err.kind(), ErrorKind::Internal), "{err}");
         }

@@ -19,9 +19,6 @@ struct Frame<'a> {
 }
 
 pub(super) fn read(data: &[u8], budget: &Budget) -> Result<Image> {
-    let width = u32::from(le16(data, 6)?);
-    let height = u32::from(le16(data, 8)?);
-    budget.check(width, height)?;
     let flags = byte(data, 10)?;
     let mut at = 13;
     let global = if flags & 0x80 != 0 {
@@ -32,6 +29,14 @@ pub(super) fn read(data: &[u8], budget: &Budget) -> Result<Image> {
         &[]
     };
     let (frame, data_at) = first_frame(data, at, global)?;
+    // A logical screen of 0 × 0, seen in the wild, is the frame's extent.
+    let screen = |at, extent| match le16(data, at).map(u32::from)? {
+        0 => Ok(extent),
+        side => Ok(side),
+    };
+    let width = screen(6, frame.left + frame.width)?;
+    let height = screen(8, frame.top + frame.height)?;
+    budget.check(width, height)?;
     if frame.left + frame.width > width || frame.top + frame.height > height {
         return Err(malformed("the first GIF frame lies outside the image"));
     }
@@ -115,6 +120,8 @@ fn later_frame(data: &[u8], mut at: usize) -> bool {
 }
 
 /// The frame's colour indices in stored row order, and where its data ends.
+/// Decoding stops at the frame's last pixel, so the work is bounded by the
+/// pixels and the input, whatever the codes after it.
 fn decompress(data: &[u8], mut at: usize, frame: &Frame) -> Result<(Vec<u8>, usize)> {
     if !(2..=8).contains(&frame.min_code) {
         return Err(malformed("an invalid GIF code size"));
@@ -141,7 +148,7 @@ fn decompress(data: &[u8], mut at: usize, frame: &Frame) -> Result<(Vec<u8>, usi
                 let code = (held & ((1 << lzw.width) - 1)) as u16;
                 held >>= lzw.width;
                 bits -= u32::from(lzw.width);
-                ended = !lzw.code(code, &mut out, total)?;
+                ended = !lzw.code(code, &mut out, total)? || out.len() >= total;
             }
         }
         at += size;
@@ -254,7 +261,7 @@ impl Lzw {
         self.stack.push(code as u8);
         let room = total.saturating_sub(out.len()).min(self.stack.len());
         out.try_reserve(room)
-            .map_err(|_| Error::out_of_memory(room))?;
+            .map_err(|_| Error::out_of_memory(format_args!("{room} bytes")))?;
         out.extend(self.stack.iter().rev().take(room));
         Ok(())
     }
