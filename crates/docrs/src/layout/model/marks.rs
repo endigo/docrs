@@ -1,17 +1,18 @@
 //! What a table style draws, for the PDF preflight.
 
-use super::props::{on_off, shaded};
+use super::look::BorderStyle;
+use super::props::on_off;
 use crate::wml::W;
 use crate::wml::w_attr;
 use crate::xml::{NodeId, XmlTree};
 
-/// What a table style draws around and behind its cells. Every
-/// conditional format counts whatever the table's `w:tblLook` turns off, so
-/// it can over-report, never under-report.
+/// What of a table style the PDF changes. Every conditional format counts
+/// whatever the table's `w:tblLook` turns off, so it can over-report, never
+/// under-report.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct TableMarks {
-    pub(crate) border: bool,
-    pub(crate) shading: bool,
+    /// A border in a style drawn as a single line.
+    pub(crate) approximated: bool,
     pub(crate) floating: bool,
     pub(crate) bidi: bool,
 }
@@ -29,8 +30,7 @@ impl TableMarks {
                 continue;
             }
             match tree.local_name(node).unwrap_or("") {
-                "tblBorders" | "tcBorders" => marks.border |= any_border(tree, node),
-                "shd" => marks.shading |= shaded(tree, node),
+                "tblBorders" | "tcBorders" => marks.approximated |= approximated(tree, node),
                 "tblpPr" => marks.floating = true,
                 "bidiVisual" => marks.bidi |= on_off(tree, node),
                 _ => {}
@@ -41,17 +41,19 @@ impl TableMarks {
 
     pub(super) fn or(self, other: TableMarks) -> TableMarks {
         TableMarks {
-            border: self.border || other.border,
-            shading: self.shading || other.shading,
+            approximated: self.approximated || other.approximated,
             floating: self.floating || other.floating,
             bidi: self.bidi || other.bidi,
         }
     }
 }
 
-/// A border group (`w:tblBorders`, `w:tcBorders`) with an edge that draws a
-/// line.
-pub(crate) fn any_border(tree: &XmlTree, group: NodeId) -> bool {
-    tree.child_elements(group)
-        .any(|edge| !matches!(w_attr(tree, edge, "val"), None | Some("none" | "nil")))
+/// A border group (`w:tblBorders`, `w:tcBorders`) with an edge in a style
+/// the PDF draws as a single line.
+pub(crate) fn approximated(tree: &XmlTree, group: NodeId) -> bool {
+    tree.child_elements(group).any(|edge| {
+        w_attr(tree, edge, "val")
+            .and_then(BorderStyle::read)
+            .is_some_and(|style| !style.drawn())
+    })
 }

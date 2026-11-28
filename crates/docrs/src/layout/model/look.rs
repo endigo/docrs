@@ -350,6 +350,16 @@ impl BorderStyle {
 }
 
 impl BorderStyle {
+    /// The style `name`s; `None` for `none` and `nil`, and a name not in
+    /// `ST_Border` a picture border.
+    pub(super) fn read(name: &str) -> Option<BorderStyle> {
+        Self::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, style)| *style)
+            .or_else(|| (!matches!(name, "none" | "nil")).then_some(BorderStyle::Art))
+    }
+
     /// The `ST_Border` value; `art` for the picture borders.
     pub fn name(self) -> &'static str {
         Self::NAMES
@@ -488,12 +498,7 @@ pub(super) fn read_edge(tree: &XmlTree, side: NodeId, palette: &Palette) -> Edge
 
 /// One side of a border element: `None` is `none` or `nil`.
 pub(super) fn read_border(tree: &XmlTree, side: NodeId, palette: &Palette) -> Option<Border> {
-    let name = w_attr(tree, side, "val")?;
-    let style = BorderStyle::NAMES
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, style)| *style)
-        .or_else(|| (!matches!(name, "none" | "nil")).then_some(BorderStyle::Art))?;
+    let style = BorderStyle::read(w_attr(tree, side, "val")?)?;
     let sz = w_attr(tree, side, "sz").and_then(number);
     // Line widths are eighths of a point (¼–12 pt); picture borders' are points.
     let width = match style {

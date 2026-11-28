@@ -22,7 +22,7 @@ mod furniture;
 pub(crate) mod model;
 #[cfg(test)]
 mod note_tests;
-mod strokes;
+pub(crate) mod strokes;
 pub(crate) mod variation;
 
 use std::collections::{HashMap, HashSet};

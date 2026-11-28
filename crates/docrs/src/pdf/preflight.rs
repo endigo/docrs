@@ -9,8 +9,8 @@ use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
 use super::{FOOTNOTE_LAYOUT_UNSUPPORTED, NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
     self, CAMBRIA_MATH, Formatting, Frame, Link, NoteKind, NotePosition, NoteSettings, ParaFormat,
-    Parts, RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize,
-    on_off, section_properties, shaded, story_references,
+    Parts, RPr, StoryRef, TableCtx, approximated, field_link, horizontal, linear_text, linearize,
+    on_off, section_properties, story_references,
 };
 use crate::layout::{FIELD_FORMAT_APPROXIMATED, FieldShown, field_locked, field_shown};
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
@@ -56,6 +56,7 @@ const APPROXIMATED: &str = "pdf_decoration_approximated";
 const FALLBACK: &str = "pdf_drawing_fallback_used";
 
 const RTL: &str = "right-to-left text";
+const TABLE_BORDER: &str = "table border";
 
 /// Subjects the painter draws; each painter PR adds its own.
 const DRAWN: &[&str] = &["text", "tab", "line break", "page break", "list", TEXT_LINK];
@@ -458,11 +459,8 @@ impl<'s, 'd> Scan<'s, 'd> {
             "br" | "cr" => self.note_once(NOT_YET_DRAWN, "line break"),
             "tblpPr" => self.note(LAYOUT, "floating tables"),
             "tblCellSpacing" if spaced(tree, node) => self.note(LAYOUT, "cell spacing"),
-            "tblBorders" | "tcBorders" if any_border(tree, node) => {
-                self.note(NOT_YET_DRAWN, "border")
-            }
-            "shd" if matches!(parent, Some("tblPr" | "tblPrEx" | "tcPr")) && shaded(tree, node) => {
-                self.note(NOT_YET_DRAWN, "shading")
+            "tblBorders" | "tcBorders" if approximated(tree, node) => {
+                self.note(APPROXIMATED, TABLE_BORDER)
             }
             "bidiVisual" if on => self.note(TEXT, RTL),
             "bidi" if parent == Some("sectPr") && on => self.note(TEXT, RTL),
@@ -553,6 +551,9 @@ impl<'s, 'd> Scan<'s, 'd> {
         if ppr.border_approximated() {
             self.note(APPROXIMATED, "paragraph border");
         }
+        if !self.tables.is_empty() && ppr.boxed() {
+            self.note(NOT_YET_DRAWN, "paragraph border or shading in a table cell");
+        }
         match ppr.frame {
             Some(Frame::DropCap) => self.note(LAYOUT, "drop caps"),
             Some(Frame::Frame) => self.note(LAYOUT, "frames"),
@@ -583,17 +584,13 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
     }
 
-    /// A table and what its style draws; direct table properties are
-    /// noted as the walk reaches them.
+    /// A table and what of its style the PDF changes; direct table
+    /// properties are noted as the walk reaches them.
     fn table(&mut self, tree: &XmlTree, tbl: NodeId) {
-        self.note(NOT_YET_DRAWN, "table");
         let format = self.formatting.table(tree, tbl);
         let marks = self.formatting.table_marks(format.id.as_deref());
-        if marks.border {
-            self.note(NOT_YET_DRAWN, "border");
-        }
-        if marks.shading {
-            self.note(NOT_YET_DRAWN, "shading");
+        if marks.approximated {
+            self.note(APPROXIMATED, TABLE_BORDER);
         }
         if marks.floating {
             self.note(LAYOUT, "floating tables");
