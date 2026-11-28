@@ -328,10 +328,11 @@ fn fixture() -> Vec<u8> {
     package(&body(), &styles())
 }
 
-const SCRIPT_FONTS: [&str; 3] = ["Arial", "Times New Roman", "Liberation Serif"];
-const SCRIPT_SIZES: [u32; 3] = [8, 11, 24];
-/// Each script paragraph's runs after its plain label, with their properties.
-const SCRIPT_RUNS: [(&str, &str); 7] = [
+const SCRIPT_FONTS: [&str; 4] = ["Arial", "Times New Roman", "Georgia", "Courier New"];
+const SCRIPT_SIZES: [u32; 6] = [8, 10, 11, 12, 24, 72];
+/// The marker paragraph's runs, with their properties.
+const SCRIPT_RUNS: [(&str, &str); 8] = [
+    ("", "x"),
     ("<w:vertAlign w:val=\"superscript\"/>", "sup"),
     ("", " x"),
     ("<w:vertAlign w:val=\"subscript\"/>", "sub"),
@@ -341,25 +342,38 @@ const SCRIPT_RUNS: [(&str, &str); 7] = [
     ("<w:position w:val=\"-6\"/>", "down3"),
 ];
 
-/// A paragraph per font and size: its label, then `SCRIPT_RUNS`.
+/// The letters of the long runs at `size`: 60, fewer above 12 pt so that
+/// each fits on one line.
+fn script_letters(size: u32) -> String {
+    let count = 60 * 12 / size.max(12);
+    ('a'..='z').cycle().take(count as usize).collect()
+}
+
+/// For each font and size: a heading in the default font, the
+/// `SCRIPT_RUNS`, then the same letters plain, as superscript and as
+/// subscript, each in a paragraph of its own.
 fn script_fixture() -> Vec<u8> {
-    let para_for = |font: &str, size: u32| {
+    let group = |font: &str, size: u32| {
         let rpr = |extra: &str| {
             format!(
                 "<w:rFonts w:ascii=\"{font}\" w:hAnsi=\"{font}\" w:cs=\"{font}\"/><w:sz w:val=\"{}\"/>{extra}",
                 size * 2
             )
         };
-        let label = run(&rpr(""), &format!("{font} {size} pt x"));
-        let runs: String = SCRIPT_RUNS
+        let heading = para("", &run("", &format!("{font} {size} pt")));
+        let markers: String = SCRIPT_RUNS
             .iter()
             .map(|(extra, text)| run(&rpr(extra), text))
             .collect();
-        para("<w:spacing w:after=\"240\"/>", &(label + &runs))
+        let letters = script_letters(size);
+        let long = ["", SCRIPT_RUNS[1].0, SCRIPT_RUNS[3].0]
+            .map(|extra| para("", &run(&rpr(extra), &letters)))
+            .concat();
+        heading + &para("", &markers) + &long
     };
     let body: String = SCRIPT_FONTS
         .iter()
-        .flat_map(|font| SCRIPT_SIZES.map(|size| para_for(font, size)))
+        .flat_map(|font| SCRIPT_SIZES.map(|size| group(font, size)))
         .collect();
     package(&body, "")
 }
@@ -563,15 +577,27 @@ fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
     let runs = runs(&script_fixture());
     for font in SCRIPT_FONTS {
         for size in SCRIPT_SIZES {
-            let label = format!("{font} {size} pt x");
-            let at = runs.iter().position(|r| r.0 == label).unwrap();
-            let look = |i: usize| runs[at + i].1;
+            let heading = format!("{font} {size} pt");
+            let at = runs.iter().position(|r| r.0 == heading).unwrap() + 1;
+            let end = runs[at..]
+                .iter()
+                .position(|r| r.0.ends_with(" pt"))
+                .map_or(runs.len(), |n| at + n);
+            let group = &runs[at..end];
+            let marker = |text: &str| look(group, text);
             let size = f64::from(size);
-            assert_eq!((look(0).size, look(0).rise), (size, 0.0), "{label}");
-            assert_eq!(look(1).rise, size * 0.41, "{label} sup");
-            assert_eq!(look(3).rise, -size * 0.087, "{label} sub");
-            assert_eq!(look(5).rise, 3.0, "{label} up3");
-            assert_eq!(look(7).rise, -3.0, "{label} down3");
+            assert_eq!(marker("sup").rise, size * 0.41, "{heading} sup");
+            assert_eq!(marker("sub").rise, -size * 0.087, "{heading} sub");
+            assert_eq!(marker("up3").rise, 3.0, "{heading} up3");
+            assert_eq!(marker("down3").rise, -3.0, "{heading} down3");
+            let letters = script_letters(size as u32);
+            let sizes: Vec<f64> = group
+                .iter()
+                .filter(|r| r.0 == letters)
+                .map(|r| r.1.size)
+                .collect();
+            let small = size * 2.0 / 3.0;
+            assert_eq!(sizes, [size, small, small], "{heading}");
         }
     }
 }
