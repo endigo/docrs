@@ -18,7 +18,7 @@ use super::fields::Values;
 use super::furniture::{Furniture, PageAt, Pages};
 use super::model::{
     Align, Block, Leader, LineSpacing, Metric, Model, NoteId, Para, Piece, Row, Section, TabKind,
-    TabStop, Table,
+    TabStop, Table, VAlign,
 };
 use crate::authoring::SectionStart;
 use crate::xml::NodeId;
@@ -1169,11 +1169,23 @@ pub(super) fn layout_work() -> u64 {
 /// A table's header rows and their height.
 type Headers<'a, 'm> = (&'a [RowLayout<'m>], f64);
 
-/// A continuous section break between different paper sizes starts a page.
-pub(crate) const SECTION_LAYOUT_UNSUPPORTED: &str = "pdf_section_layout_unsupported";
-
 fn same_paper(a: &Section, b: &Section) -> bool {
     (a.page.width, a.page.height) == (b.page.width, b.page.height)
+}
+
+/// Body output of a page whose section is centred or bottom-aligned, held
+/// until the page ends and moved down by `share` of the room left below it.
+struct Held<'m> {
+    share: f64,
+    items: Vec<HeldItem<'m>>,
+    /// Where the body ends, when not at the current position.
+    end: Option<f64>,
+}
+
+enum HeldItem<'m> {
+    Line(Point, &'m Para, Line),
+    Row(Point, &'m Table, usize, RowSlice),
+    Placed(Placed),
 }
 
 struct Flow<'m, 's, S: Sink> {
@@ -1196,6 +1208,7 @@ struct Flow<'m, 's, S: Sink> {
     at_section_start: bool,
     /// The paragraph that ended the previous section.
     section_end: Option<&'m Para>,
+    held: Option<Held<'m>>,
     previous: Option<&'m Para>,
     last: Option<(u32, f64)>,
     work: u64,
@@ -1231,7 +1244,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     /// Start the page: its header and footer, then the body at its top.
-    fn open_page(&mut self) -> Result<()> {
+    fn open_page(&mut self, blank: bool) -> Result<()> {
         self.sink.page(&PageStart {
             number: self.page,
             section: self.section(),
@@ -1240,7 +1253,18 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             page: self.page,
             section: self.section(),
             first: self.page == self.section_first_page,
+            blank,
         };
+        let share = match self.model.sections[at.section].valign {
+            VAlign::Top => None,
+            VAlign::Center => Some(0.5),
+            VAlign::Bottom => Some(1.0),
+        };
+        self.held = share.map(|share| Held {
+            share,
+            items: Vec::new(),
+            end: None,
+        });
         let Flow {
             furniture,
             sink,
@@ -1261,20 +1285,61 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     /// Close the page with its notes and open the next one with room for
     /// the body.
     fn new_page(&mut self) -> Result<()> {
+        self.break_page(false)
+    }
+
+    /// Close the page and open the next, blank when `blank`, until one has
+    /// room for the body.
+    fn break_page(&mut self, blank: bool) -> Result<()> {
+        let mut blank = blank;
         loop {
-            self.finish_notes()?;
-            self.turn_page()?;
+            self.close_page()?;
+            self.turn_page(blank)?;
+            blank = false;
             if !self.open_notes()? {
                 return Ok(());
             }
         }
     }
 
-    fn turn_page(&mut self) -> Result<()> {
+    /// The page's body, moved down when centred or bottom-aligned, then its
+    /// notes, which do not move.
+    fn close_page(&mut self) -> Result<()> {
+        self.release_held()?;
+        self.finish_notes()
+    }
+
+    fn turn_page(&mut self, blank: bool) -> Result<()> {
         self.page += 1;
         self.at_top = true;
         self.previous = None;
-        self.open_page()
+        self.open_page(blank)
+    }
+
+    /// Send a centred or bottom-aligned page's body, moved down.
+    fn release_held(&mut self) -> Result<()> {
+        let Some(held) = self.held.take() else {
+            return Ok(());
+        };
+        let end = held.end.unwrap_or(self.y);
+        let shift = (self.bottom - end).max(0.0) * held.share;
+        let down = |at: Point| Point {
+            y: at.y + shift,
+            ..at
+        };
+        for item in held.items {
+            match item {
+                HeldItem::Line(at, para, line) => self.sink.line(down(at), para, &line)?,
+                HeldItem::Row(at, table, row, slice) => {
+                    self.sink.row(down(at), table, row, &slice)?
+                }
+                HeldItem::Placed(placed) => self.sink.placed(Placed {
+                    y: placed.y + shift,
+                    ..placed
+                })?,
+            }
+        }
+        Ok(())
     }
 
     fn body_height(&self) -> f64 {
@@ -1283,10 +1348,19 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 
     fn emit(&mut self, placed: Placed) -> Result<()> {
         self.last = Some((placed.page, placed.y));
-        if self.notes.in_endnotes {
+        if self.notes.in_endnotes || self.hold(|| HeldItem::Placed(placed.clone())) {
             return Ok(());
         }
         self.sink.placed(placed)
+    }
+
+    /// Keep `item` for a centred or bottom-aligned page; false on others.
+    fn hold(&mut self, item: impl FnOnce() -> HeldItem<'m>) -> bool {
+        let Some(held) = &mut self.held else {
+            return false;
+        };
+        held.items.push(item());
+        true
     }
 
     /// Place `para` at its offset below the current position.
@@ -1312,13 +1386,19 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         page.left + page.gutter
     }
 
-    fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
+    fn line(&mut self, at: Point, para: &'m Para, line: &Line) -> Result<()> {
         self.charge(1)?;
+        if self.hold(|| HeldItem::Line(at, para, line.clone())) {
+            return Ok(());
+        }
         self.sink.line(at, para, line)
     }
 
-    fn row(&mut self, origin: Point, table: &Table, row: usize, slice: &RowSlice) -> Result<()> {
+    fn row(&mut self, origin: Point, table: &'m Table, row: usize, slice: &RowSlice) -> Result<()> {
         self.charge(1)?;
+        if self.hold(|| HeldItem::Row(origin, table, row, slice.clone())) {
+            return Ok(());
+        }
         self.sink.row(origin, table, row, slice)
     }
 
@@ -1383,20 +1463,21 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     fn next_section(&mut self, next: usize) -> Result<()> {
         let next = next.min(self.model.sections.len() - 1);
         let section = &self.model.sections[next];
-        if section.start == SectionStart::Continuous {
-            if same_paper(section, &self.model.sections[self.section()]) {
-                self.section = next;
-                self.section_notes();
-                return Ok(());
-            }
-            self.furniture.warn(SECTION_LAYOUT_UNSUPPORTED, self.page);
+        if section.start == SectionStart::Continuous
+            && same_paper(section, &self.model.sections[self.section()])
+        {
+            self.section = next;
+            self.section_notes();
+            return Ok(());
         }
         self.section_end = self.previous;
-        if self.needs_blank_page(section) {
-            self.new_page()?;
-        }
+        let blank = self.needs_blank_page(section);
+        self.close_page()?;
         self.section = next;
         self.section_notes();
+        if blank {
+            self.break_page(true)?;
+        }
         self.section_first_page = self.page + 1;
         self.new_page()?;
         self.at_section_start = true;
@@ -1524,6 +1605,12 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
         self.at_start = false;
         if let Some(next) = para.section_break {
+            // Word gives an empty section-break paragraph no height here.
+            if let (true, Some(held), Some(line)) =
+                (para.pieces.is_empty(), &mut self.held, lines.last())
+            {
+                held.end = Some(self.y - line.height);
+            }
             self.next_section(next)?;
         }
         Ok(())
@@ -1676,13 +1763,14 @@ fn paginate_within<S: Sink>(
         at_start: true,
         at_section_start: true,
         section_end: None,
+        held: None,
         previous: None,
         last: None,
         work: 0,
         budget,
         notes: notes::Notes::new(model),
     };
-    flow.open_page()?;
+    flow.open_page(false)?;
     flow.open_notes()?;
     flow.place_blocks(&model.blocks)?;
     flow.endnotes()?;
@@ -1814,6 +1902,7 @@ mod tests {
                 number_format: NumberFormat::Arabic,
                 notes: NoteSettings::default(),
                 start: SectionStart::NewPage,
+                valign: VAlign::Top,
             }],
             blocks,
             stories: Vec::new(),

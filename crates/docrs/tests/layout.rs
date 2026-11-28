@@ -595,6 +595,24 @@ fn refresh_writes_roman_and_restarted_page_numbers() {
 }
 
 #[test]
+fn refresh_leaves_entries_that_do_not_show_a_page_number() {
+    let toc = word_toc(&[
+        word_entry("_Toc1", "One", "above", "\\h"),
+        word_entry("_Toc2", "Two", "Ab", "\\h"),
+        word_entry("_Toc3", "Three", "cc", "\\h"),
+    ]);
+    let body = format!(
+        "{toc}{}{}{}<w:sectPr>{SECT_PR}</w:sectPr>",
+        heading("_Toc1", "One", ""),
+        heading("_Toc2", "Two", ""),
+        heading("_Toc3", "Three", "")
+    );
+    let mut doc = open(&package_with(&body, "", None));
+    assert_eq!(refresh(&mut doc), 1);
+    assert_eq!(entry_numbers(&doc), ["above", "Ab", "4"]);
+}
+
+#[test]
 fn an_unclosed_entry_field_does_not_keep_the_contents_open() {
     let unclosed = "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGEREF _Toc1 \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>6</w:t></w:r>";
     let toc = word_toc(&[
@@ -1818,8 +1836,9 @@ fn converted_math_is_laid_out_as_its_linear_text() {
 }
 
 /// Each page of `template` with `memo.md` appended to its sections: its
-/// label, its body's right edge, and its header and footer text.
-fn appended_pages(template: &str) -> Vec<(String, f64, String)> {
+/// label, its body's right edge, its header and footer text, and the
+/// baseline of its first body line with text.
+fn appended_pages(template: &str) -> Vec<(String, f64, String, f64)> {
     use docrs::markdown::{InputFormat, MarkdownOptions, Placement, insert_source_with};
     let root = repo_root();
     let mut doc = Document::open_path(root.join(template), &Limits::default()).unwrap();
@@ -1834,8 +1853,8 @@ fn appended_pages(template: &str) -> Vec<(String, f64, String)> {
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
     let layout = docrs::layout::layout_with(&txn, &main, &fonts).unwrap();
-    let mut pages: Vec<(String, f64, String)> = (1..=layout.pages)
-        .map(|page| (layout.page_label(page).unwrap(), 0.0, String::new()))
+    let mut pages: Vec<(String, f64, String, f64)> = (1..=layout.pages)
+        .map(|page| (layout.page_label(page).unwrap(), 0.0, String::new(), 0.0))
         .collect();
     docrs::layout::records_with(
         &txn,
@@ -1849,6 +1868,9 @@ fn appended_pages(template: &str) -> Vec<(String, f64, String)> {
             let page = &mut pages[line.page as usize - 1];
             if line.story == "body" {
                 page.1 = page.1.max(line.x + line.width);
+                if page.3 == 0.0 && !line.text.is_empty() {
+                    page.3 = line.baseline;
+                }
             } else if line.story.starts_with("header") || line.story.starts_with("footer") {
                 page.2 += &line.text;
             }
@@ -1882,6 +1904,9 @@ fn conversions_appended_to_a_template_keep_its_sections() {
             ("2", "Statement of Advice2")
         ]
     );
+    // The cover section is centred (`w:vAlign`): Word puts its title's
+    // baseline at 504.72.
+    assert!((cover[0].3 - 504.72).abs() < 1.0, "{}", cover[0].3);
 
     let title =
         appended_pages("tests/fixtures/markdown/templates/title-page-only-in-last-section.docx");

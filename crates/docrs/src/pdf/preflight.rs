@@ -466,8 +466,8 @@ impl<'s, 'd> Scan<'s, 'd> {
             "cols" if columns(tree, node) > 1 => self.note(COLUMNS, "multi-column section"),
             "lnNumType" => self.note(LAYOUT, "line numbers"),
             "pgBorders" => self.note(LAYOUT, "page borders"),
-            "vAlign" if parent == Some("sectPr") && !matches!(val, None | Some("top")) => {
-                self.note(LAYOUT, "vertical page alignment")
+            "vAlign" if parent == Some("sectPr") && val == Some("both") => {
+                self.note(LAYOUT, "vertical page justification")
             }
             "delText" | "delInstrText" => return false,
             _ => {}

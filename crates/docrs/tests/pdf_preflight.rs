@@ -1332,3 +1332,18 @@ fn conversions_that_keep_a_template_s_sections_report_only_its_content() {
         );
     }
 }
+
+#[test]
+fn only_justified_vertical_page_alignment_is_reported() {
+    let aligned = |value: &str| {
+        let body = para(&run("Cover")) + &section(&format!(r#"<w:vAlign w:val="{value}"/>"#));
+        report(&docx(&body, &[], &[]))
+    };
+    for value in ["top", "center", "bottom"] {
+        assert!(aligned(value).warnings.is_empty(), "{value}");
+    }
+    assert_eq!(
+        subjects(&aligned("both"), "pdf_layout_feature_ignored"),
+        [("vertical page justification", 1)]
+    );
+}

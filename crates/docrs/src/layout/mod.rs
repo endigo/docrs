@@ -642,16 +642,25 @@ fn close_field(tree: &XmlTree, open: &mut Vec<OpenField>, out: &mut Vec<(NodeId,
         .iter()
         .any(|outer| !outer.in_code && !outer.deleted && is_command(&outer.instruction, "TOC"));
     let [t] = field.texts.as_slice() else { return };
-    let shows_number = tree
-        .text_content(*t)
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric());
-    if !in_toc || field.deleted || !shows_number {
+    if !in_toc || field.deleted || !shows_page_number(&tree.text_content(*t)) {
         return;
     }
     if let Some(bookmark) = page_ref_bookmark(&field.instruction) {
         out.push((*t, bookmark));
     }
+}
+
+/// Whether `text` reads as a page number: digits, roman numerals or one
+/// letter repeated, in one case.
+fn shows_page_number(text: &str) -> bool {
+    let one_case = text.chars().all(|c| c.is_ascii_lowercase())
+        || text.chars().all(|c| c.is_ascii_uppercase());
+    let roman = || {
+        text.chars()
+            .all(|c| "ivxlcdm".contains(c.to_ascii_lowercase()))
+    };
+    let repeated = || text.chars().all(|c| text.starts_with(c));
+    text.chars().all(|c| c.is_ascii_digit()) || one_case && (roman() || repeated())
 }
 
 /// A PAGEREF begins and ends in one paragraph: one still open when an end

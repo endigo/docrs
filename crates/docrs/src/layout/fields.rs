@@ -44,10 +44,6 @@ pub(crate) const WARNING_CODES: &[(&str, &str)] = &[
         super::furniture::STORY_OVERFLOW,
         "a header or footer reaching past the middle of the page is cut off",
     ),
-    (
-        super::flow::SECTION_LAYOUT_UNSUPPORTED,
-        "a continuous section break between different paper sizes starts a new page",
-    ),
 ];
 
 /// Letters are written up to this many repeats (zz…z, 780), arabic past it.
@@ -356,7 +352,8 @@ impl Values {
     ) -> Values {
         let number = |page: u32| pages.numbers.get(page as usize - 1).copied();
         let mut section_pages = Vec::new();
-        for page in &pages.numbers {
+        let counted = (1..).zip(&pages.numbers);
+        for (_, page) in counted.filter(|(n, _)| !pages.blank.contains(n)) {
             if section_pages.len() <= page.section {
                 section_pages.resize(page.section + 1, 0);
             }

@@ -205,6 +205,31 @@ fn a_note_that_fits_sits_on_the_body_bottom_below_its_separator() {
     );
 }
 
+#[test]
+fn a_centred_section_centres_its_body_above_the_notes_which_stay_at_the_foot() {
+    let centred = SECT
+        .replace("{footer}", "")
+        .replace("</w:sectPr>", r#"<w:vAlign w:val="center"/></w:sectPr>"#);
+    let body = cited("Text", &[1]) + &format!("<w:p><w:pPr>{centred}</w:pPr></w:p>");
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &footnote(1, &["Note one."]),
+        ..NONE
+    });
+    let records = records(&doc);
+    let text = find(&records, "Text1");
+    let notes = of_story(&records, "footnotes");
+    let [separator, note] = notes[..] else {
+        panic!("{notes:#?}")
+    };
+    assert_eq!((text.page, separator.page, note.page), (1, 1, 1));
+    assert!(close(note.y + note.height, BODY_BOTTOM), "{note:?}");
+    assert!(
+        close(text.y - 36.0, separator.y - (text.y + text.height)),
+        "{text:?} {separator:?}"
+    );
+}
+
 fn estimate(doc: &Document) -> Layout {
     let txn = Txn::new(doc);
     layout(&txn, doc.package().main_part_name(), Vec::new()).unwrap()

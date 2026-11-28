@@ -7,7 +7,7 @@ use std::collections::hash_map::Entry;
 
 use super::fields::{self, Context, LayoutWarning, Number, Values};
 use super::flow::{CellLayout, Drawn, EPSILON, Item, Point, Sink, story_layout};
-use super::model::{Model, Section, Slots, StoryId};
+use super::model::{Model, Section, Slots};
 use crate::Result;
 
 /// A story overflows its half of the page.
@@ -26,6 +26,8 @@ pub(super) struct PageAt {
     pub section: usize,
     /// The section's first page.
     pub first: bool,
+    /// Added before an odd or even section start: Word draws nothing on it.
+    pub blank: bool,
 }
 
 /// The page's body area, from the page top.
@@ -40,6 +42,8 @@ pub(super) struct Body {
 pub(crate) struct Pages {
     pub count: u32,
     pub numbers: Vec<Number>,
+    /// Blank pages added before odd and even starts, which no section counts.
+    pub blank: Vec<u32>,
     pub warnings: Vec<LayoutWarning>,
 }
 
@@ -49,6 +53,7 @@ pub(super) struct Furniture<'m> {
     /// Stories without live fields, laid out once per text width.
     laid_out: HashMap<(usize, u64), CellLayout<'m>>,
     numbers: Vec<Number>,
+    blank: Vec<u32>,
     warnings: Vec<LayoutWarning>,
 }
 
@@ -59,6 +64,7 @@ impl<'m> Furniture<'m> {
             values,
             laid_out: HashMap::new(),
             numbers: Vec::new(),
+            blank: Vec::new(),
             warnings: model.warnings.clone(),
         }
     }
@@ -67,6 +73,7 @@ impl<'m> Furniture<'m> {
         Pages {
             count: self.numbers.len() as u32,
             numbers: self.numbers,
+            blank: self.blank,
             warnings: self.warnings,
         }
     }
@@ -82,6 +89,9 @@ impl<'m> Furniture<'m> {
         let section = &self.model.sections[at.section];
         let number = self.number(at, section);
         self.numbers.push(number);
+        if at.blank {
+            self.blank.push(at.page);
+        }
         let page = &section.page;
         let context = Context {
             values: self.values,
@@ -121,20 +131,14 @@ impl<'m> Furniture<'m> {
         }
     }
 
-    pub(super) fn warn(&mut self, code: &'static str, page: u32) {
-        self.warnings.push(LayoutWarning {
-            code,
-            story: StoryId::Body,
-            page: Some(page),
-        });
-    }
-
     /// The first page's story with a distinct first page, an even page's
     /// with distinct even pages, else the default; none when the section
     /// and those before it name none of that type.
     fn pick(&self, slots: Slots, at: PageAt, number: Number) -> Option<usize> {
         let section = &self.model.sections[at.section];
-        if at.first && section.title_page {
+        if at.blank {
+            None
+        } else if at.first && section.title_page {
             slots.first
         } else if self.model.even_and_odd && number.shown % 2 == 0 {
             slots.even

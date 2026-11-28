@@ -106,7 +106,7 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     ),
     (
         "pdf_layout_feature_ignored",
-        "a layout feature (page borders, line numbers, frames, drop caps, floating tables, rotated text, vertical page alignment, automatic hyphenation) is ignored",
+        "a layout feature (page borders, line numbers, frames, drop caps, floating tables, rotated text, vertical page justification, automatic hyphenation) is ignored",
     ),
     (
         "pdf_revisions_flattened",

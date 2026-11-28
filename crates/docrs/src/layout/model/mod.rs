@@ -43,8 +43,9 @@ pub use colour::{Colour, Rgb};
 pub(crate) use formatting::Formatting;
 #[cfg(feature = "pdf")]
 pub(crate) use formatting::ParaFormat;
+pub(crate) use look::VAlign;
 pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
-use look::{CellBorders, ParaBorders, VAlign};
+use look::{CellBorders, ParaBorders};
 #[cfg(feature = "pdf")]
 pub(crate) use marks::any_border;
 pub(crate) use math::MathScripts;
@@ -441,6 +442,8 @@ pub struct Section {
     pub notes: NoteSettings,
     /// `w:type`; a column break starts a page, as one column is laid out.
     pub start: SectionStart,
+    /// `w:vAlign`: where the body sits between the margins; `both` is top.
+    pub valign: VAlign,
 }
 
 /// A face a run asks for, and the face that measures it.
@@ -635,6 +638,9 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 .unwrap_or(NumberFormat::Arabic),
             start: section_start(tree, *sect),
             notes: notes.clone(),
+            valign: w_child(tree, *sect, "vAlign")
+                .and_then(|v| VAlign::read(w_attr(tree, v, "val")))
+                .unwrap_or_default(),
         });
     }
     if sections.is_empty() {
@@ -647,6 +653,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             number_format: NumberFormat::Arabic,
             start: SectionStart::NewPage,
             notes: section_notes[0].clone(),
+            valign: VAlign::Top,
         });
     }
     builder.story = StoryId::Body;
