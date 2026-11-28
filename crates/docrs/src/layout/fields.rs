@@ -343,6 +343,12 @@ fn cached(command: &str) -> Option<&'static str> {
     .find(|known| *known == command)
 }
 
+/// Whether the field begun by `node` (`w:fldChar` or `w:fldSimple`) is
+/// locked: Word keeps its result and does not update it.
+pub(crate) fn locked(tree: &crate::xml::XmlTree, node: NodeId) -> bool {
+    crate::wml::w_attr(tree, node, "fldLock").is_some_and(crate::styles::on_off)
+}
+
 /// How a PDF shows a field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Shown {
@@ -495,17 +501,30 @@ pub(crate) struct Values {
     pub pages: Option<u32>,
     pub section_pages: Vec<u32>,
     pub bookmarks: HashMap<String, Number>,
-    /// The page of each body paragraph holding a page field.
-    pub paragraphs: HashMap<NodeId, Number>,
+    /// The pages of each body paragraph holding a page field: each line's
+    /// first piece and its page, in order.
+    pub paragraphs: HashMap<NodeId, Vec<(u32, Number)>>,
+}
+
+/// The page of each line of the body's paragraphs: the line's first piece
+/// and its physical page, in order.
+pub(crate) type LinePages = HashMap<NodeId, Vec<(u32, u32)>>;
+
+/// The entry of the line holding piece `at`: the last starting at or
+/// before it, else the first.
+pub(crate) fn line_at<T: Copy>(lines: &[(u32, T)], at: u32) -> Option<T> {
+    let holding = lines.partition_point(|(start, _)| *start <= at);
+    lines.get(holding.saturating_sub(1)).map(|(_, page)| *page)
 }
 
 impl Values {
     /// What a pass gave: its page count and numbers, each bookmark's page
-    /// and the page of each body paragraph in `page_fields`.
+    /// and the page of each line of the body paragraphs in `page_fields`.
     pub(crate) fn of(
         pages: &Pages,
         bookmarks: &HashMap<String, u32>,
         placed: &[Placed],
+        lines: &LinePages,
         page_fields: &HashSet<NodeId>,
     ) -> Values {
         let number = |page: u32| pages.numbers.get(page as usize - 1).copied();
@@ -520,9 +539,19 @@ impl Values {
         let mut paragraphs = HashMap::new();
         for entry in placed {
             if let Some(node) = entry.node.filter(|n| page_fields.contains(n))
-                && let Some(number) = number(entry.page)
+                && let Some(first) = number(entry.page)
             {
-                paragraphs.entry(node).or_insert(number);
+                paragraphs.entry(node).or_insert_with(|| {
+                    let by_line = lines.get(&node).into_iter().flatten();
+                    let by_line: Vec<(u32, Number)> = by_line
+                        .filter_map(|(start, page)| Some((*start, number(*page)?)))
+                        .collect();
+                    if by_line.is_empty() {
+                        vec![(0, first)]
+                    } else {
+                        by_line
+                    }
+                });
             }
         }
         Values {
@@ -596,12 +625,15 @@ pub(crate) struct Context<'v> {
 }
 
 impl Context<'_> {
-    /// `None` keeps the stored result.
-    fn value(&self, kind: &FieldKind, node: Option<NodeId>) -> Option<String> {
+    /// The value of a field at piece `at` of its paragraph `node`, as the
+    /// previous pass laid it out; `None` keeps the stored result.
+    fn value(&self, kind: &FieldKind, node: Option<NodeId>, at: u32) -> Option<String> {
         let values = self.values;
         let page = || {
-            self.page
-                .or_else(|| node.and_then(|n| values.paragraphs.get(&n).copied()))
+            self.page.or_else(|| {
+                let lines = values.paragraphs.get(&node?)?;
+                line_at(lines, at)
+            })
         };
         match kind {
             FieldKind::Page(format) => page().map(|p| p.write(*format)),
@@ -647,10 +679,12 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
         if start < done || end < start || end > para.pieces.len() as i64 {
             continue;
         }
+        // Where the previous pass laid the field out.
+        let laid = span.pieces.start;
         let (start, end) = (start as u32, end as u32);
         span.pieces = start..end;
         done = i64::from(end);
-        let Some(text) = context.value(&span.kind, para.node) else {
+        let Some(text) = context.value(&span.kind, para.node, laid) else {
             continue;
         };
         let text = span.case.apply(text);
@@ -665,6 +699,9 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
         {
             let by = |at: usize| (at as i64 + moved) as usize;
             equation.pieces = by(equation.pieces.start)..by(equation.pieces.end);
+        }
+        for bookmark in para.bookmarks.iter_mut().filter(|b| b.piece >= end) {
+            bookmark.piece = (i64::from(bookmark.piece) + moved) as u32;
         }
         shift += moved;
         span.pieces = start..start + added;
@@ -699,6 +736,12 @@ pub(crate) fn takes_section_format(blocks: &[Block]) -> bool {
                 }
         )
     })
+}
+
+/// Whether `blocks` have a page number or page reference field, in any
+/// format.
+pub(crate) fn takes_page_number(blocks: &[Block]) -> bool {
+    spans(blocks).any(|span| matches!(span.kind, FieldKind::Page(_) | FieldKind::PageRef { .. }))
 }
 
 /// A page reference whose bookmark `values` do not place keeps its saved

@@ -10,7 +10,7 @@ use super::{
     RunFace,
 };
 use crate::fields::fieldcode;
-use crate::layout::fields::{Case, FieldKind, FieldSpan, LayoutWarning, instruction};
+use crate::layout::fields::{Case, FieldKind, FieldSpan, LayoutWarning, instruction, locked};
 use crate::layout::fonts::{Face, FaceSource, FontKind, Resolved};
 use crate::layout::variation::Style;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
@@ -40,6 +40,8 @@ struct Field {
     /// A HYPERLINK field's target, for its result.
     link: Option<u32>,
     live: Option<LiveField>,
+    /// `w:fldLock`: it keeps its result.
+    locked: bool,
 }
 
 /// A field layout computes, open: where its result starts in its
@@ -598,7 +600,9 @@ impl Builder<'_> {
                     };
                     let shown = !fields.iter().any(|f| f.part == FieldPart::Code);
                     let live = match w_attr(tree, child, "instr") {
-                        Some(code) if name == "fldSimple" && shown => self.field_kind(code),
+                        Some(code) if name == "fldSimple" && shown && !locked(tree, child) => {
+                            self.field_kind(code)
+                        }
                         _ => None,
                     };
                     let outer = self.link;
@@ -671,6 +675,7 @@ impl Builder<'_> {
                         code: String::new(),
                         link: None,
                         live: None,
+                        locked: locked(tree, child),
                     }),
                     Some("separate") => {
                         let Some((last, outer)) = fields.split_last_mut() else {
@@ -679,7 +684,7 @@ impl Builder<'_> {
                         last.part = FieldPart::Result;
                         let target = field_link(&last.code);
                         last.link = target.map(|t| self.link(t));
-                        if outer.iter().any(|f| f.part == FieldPart::Code) {
+                        if last.locked || outer.iter().any(|f| f.part == FieldPart::Code) {
                             continue;
                         }
                         let code = std::mem::take(&mut last.code);
@@ -695,7 +700,7 @@ impl Builder<'_> {
                         let outer_code = fields.iter().any(|f| f.part == FieldPart::Code);
                         let live = match field.part {
                             // No result: Word shows the value where the field ends.
-                            FieldPart::Code if !outer_code => {
+                            FieldPart::Code if !outer_code && !field.locked => {
                                 self.field_kind(&field.code).map(|kind| {
                                     let pen = self.field_pen(&kind, &rpr, link);
                                     LiveField::new(kind, para, pen)

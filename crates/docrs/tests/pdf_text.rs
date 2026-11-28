@@ -1444,6 +1444,37 @@ enum Expect {
     Warned(&'static str, &'static str, &'static str),
 }
 
+/// A contents of `entries` (text and tabs, `\t`), each followed by a
+/// field of `code` saved as 99 when `code` is not empty.
+fn contents(entries: &[&str], code: &str) -> String {
+    let char = |kind: &str| serif(&format!(r#"<w:fldChar w:fldCharType="{kind}"/>"#));
+    let mut out = String::new();
+    for (at, entry) in entries.iter().enumerate() {
+        let mut runs: String = entry
+            .split('\t')
+            .map(text)
+            .collect::<Vec<_>>()
+            .join(&serif(TAB));
+        if !code.is_empty() {
+            runs += &serif_field(code, "99");
+        }
+        let begin = if at == 0 {
+            char("begin")
+                + &serif(r#"<w:instrText xml:space="preserve"> TOC \o "1-3" </w:instrText>"#)
+                + &char("separate")
+        } else {
+            String::new()
+        };
+        let end = if at + 1 == entries.len() {
+            char("end")
+        } else {
+            String::new()
+        };
+        out += &format!("<w:p>{begin}{runs}{end}</w:p>");
+    }
+    out
+}
+
 /// A one-page body of `body` under a footer of `footer` (none when empty),
 /// in a section with `extra`.
 fn probe(body: &str, footer: &str, extra: &str) -> Document {
@@ -1552,6 +1583,48 @@ fn strict_never_accepts_a_field_drawn_other_than_as_computed() {
             ),
             Warned("1", "pdf_field_format_approximated", "page number"),
         ),
+        (
+            "chapter numbers with an arabic switch",
+            footed(
+                serif_field("PAGE \\* Arabic", "1-1"),
+                r#"<w:pgNumType w:chapStyle="1" w:chapSep="hyphen"/>"#,
+            ),
+            Warned("1", "pdf_field_format_approximated", "page number"),
+        ),
+        (
+            "locked",
+            footed(
+                page("PAGE", "7").replace(
+                    r#"w:fldCharType="begin""#,
+                    r#"w:fldCharType="begin" w:fldLock="1""#,
+                ),
+                "",
+            ),
+            Drawn("Page 7"),
+        ),
+        (
+            "no end",
+            footed(
+                text("Page ") + &field_of("PAGE", None).replace(r#"w:fldCharType="end""#, ""),
+                "",
+            ),
+            Warned("Page ", "pdf_field_cached", "field without an end"),
+        ),
+        (
+            "contents of plain numbers",
+            probe(&contents(&["Alpha\t99", "Beta\t98"], ""), "", ""),
+            Warned("Alpha99", "pdf_field_cached", "TOC"),
+        ),
+        (
+            "contents of page references",
+            probe(
+                &(contents(&["Alpha\t", "Beta\t"], "PAGEREF here")
+                    + r#"<w:p><w:bookmarkStart w:id="0" w:name="here"/><w:bookmarkEnd w:id="0"/></w:p>"#),
+                "",
+                "",
+            ),
+            Drawn("Alpha1"),
+        ),
     ];
     let mut options = PdfOptions::default();
     options.fonts = fonts();
@@ -1581,6 +1654,36 @@ fn strict_never_accepts_a_field_drawn_other_than_as_computed() {
         };
         assert!(lines.iter().any(|l| l == line), "{name}: {lines:?}");
     }
+}
+
+/// A page number, and a page reference to a bookmark, in a paragraph that
+/// runs on over pages show the page of the line holding them, not the
+/// paragraph's first.
+#[test]
+fn a_page_field_and_a_bookmark_take_the_page_of_their_line() {
+    let words = "word ".repeat(1500);
+    let body = format!(
+        r#"<w:p>{}{}{}<w:bookmarkStart w:id="0" w:name="end"/>{}<w:bookmarkEnd w:id="0"/></w:p><w:p>{}{}</w:p>"#,
+        text(&words),
+        text("PAGE="),
+        serif_field("PAGE", "9"),
+        text("."),
+        text("See "),
+        serif_field("PAGEREF end", "9"),
+    );
+    let document = probe(&body, "", "");
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    options.strict = true;
+    let (bytes, report) = render(&document, &options).unwrap();
+    assert_eq!(report.warnings, []);
+    let pages = page_lines(&bytes);
+    let last = pages.len();
+    assert!(last > 1, "{last}");
+    let lines = pages.last().unwrap();
+    let ending = lines.iter().find(|l| l.contains("PAGE=")).unwrap();
+    assert!(ending.ends_with(&format!("PAGE={last}.")), "{lines:?}");
+    assert!(lines.contains(&format!("See {last}")), "{lines:?}");
 }
 
 #[test]

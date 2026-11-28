@@ -375,10 +375,6 @@ pub struct Para {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bookmark {
     pub name: String,
-    #[cfg_attr(
-        not(feature = "pdf"),
-        allow(dead_code, reason = "the PDF painter reads it")
-    )]
     pub piece: u32,
 }
 
@@ -542,6 +538,9 @@ pub struct Section {
     /// Page numbers are written otherwise than Word writes them: a
     /// format layout does not write, or chapter numbers (`w:chapStyle`).
     pub number_approximated: bool,
+    /// `w:chapStyle`: Word prefixes a chapter number to every page number,
+    /// whatever its format.
+    pub chapter_numbers: bool,
 }
 
 /// A face a run asks for, and the face that measures it.
@@ -741,6 +740,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         }
         let numbering = w_child(tree, *sect, "pgNumType");
         let format = NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt")));
+        let chapters = numbering.is_some_and(|n| w_attr(tree, n, "chapStyle").is_some());
         sections.push(Section {
             page: page_of(tree, Some(*sect)),
             headers,
@@ -751,8 +751,8 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|start| start.clamp(0, MAX_PAGE_START)),
             number_format: format.unwrap_or(NumberFormat::Arabic),
-            number_approximated: format.is_none()
-                || numbering.is_some_and(|n| w_attr(tree, n, "chapStyle").is_some()),
+            number_approximated: format.is_none() || chapters,
+            chapter_numbers: chapters,
             start: section_start(tree, *sect),
             notes: notes.clone(),
             valign: w_child(tree, *sect, "vAlign")
@@ -772,6 +772,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             notes: section_notes[0].clone(),
             valign: VAlign::Top,
             number_approximated: false,
+            chapter_numbers: false,
         });
     }
     builder.story = StoryId::Body;
@@ -784,9 +785,12 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     let notes = builder.note_stories();
     let mut warnings = builder.warnings;
     if sections.iter().any(|s| s.number_approximated) {
+        let chapters = sections.iter().any(|s| s.chapter_numbers);
         let stories = stories.iter().map(|s| (s.id, s.blocks.as_slice()));
         for (story, blocks) in std::iter::once((StoryId::Body, blocks.as_slice())).chain(stories) {
-            if super::fields::takes_section_format(blocks) {
+            if super::fields::takes_section_format(blocks)
+                || chapters && super::fields::takes_page_number(blocks)
+            {
                 warnings.push(LayoutWarning {
                     code: super::fields::FIELD_FORMAT_APPROXIMATED,
                     subject: "page number",

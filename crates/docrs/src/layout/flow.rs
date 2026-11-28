@@ -2045,6 +2045,7 @@ mod tests {
                 start: SectionStart::NewPage,
                 valign: VAlign::Top,
                 number_approximated: false,
+                chapter_numbers: false,
             }],
             blocks,
             stories: Vec::new(),
