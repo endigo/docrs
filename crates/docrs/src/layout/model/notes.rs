@@ -261,14 +261,14 @@ impl<'t> NotePart<'t> {
 pub(super) struct NoteState<'t> {
     parts: [Option<NotePart<'t>>; 2],
     /// Each section's numbering, in body order.
-    pub(super) sections: Vec<NoteSettings>,
+    sections: Vec<NoteSettings>,
     counter: NoteCounter,
     counted_section: usize,
     /// Each note's mark, from its number in document order.
     marks: [Vec<Option<String>>; 2],
     custom: [Vec<bool>; 2],
     /// The note being read.
-    pub(super) current: Option<NoteId>,
+    current: Option<NoteId>,
 }
 
 impl<'t> NoteState<'t> {

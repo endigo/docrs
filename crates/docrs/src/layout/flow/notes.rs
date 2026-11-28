@@ -44,15 +44,9 @@ impl Laid<'_> {
         self.layout.lines.len()
     }
 
+    /// A note's first line starts at its top, space before included.
     fn start(&self, line: usize) -> f64 {
-        match line {
-            0 => 0.0,
-            _ => self
-                .layout
-                .lines
-                .get(line)
-                .map_or(self.layout.content, |l| l.offset),
-        }
+        if line == 0 { 0.0 } else { self.end(line) }
     }
 
     fn end(&self, line: usize) -> f64 {
@@ -134,10 +128,6 @@ impl<'m> Notes<'m> {
 }
 
 impl Area {
-    fn body_bottom(&self, page_bottom: f64) -> f64 {
-        self.full_at.unwrap_or(page_bottom - self.height)
-    }
-
     fn holds(&self, note: NoteId) -> bool {
         self.parts.iter().chain(&self.carry).any(|p| p.note == note)
     }
@@ -218,21 +208,19 @@ impl Area {
     /// Lines `from..from + fit` of `note` here, the rest on the next page.
     fn split(&mut self, note: NoteId, laid: &Laid<'_>, from: usize, fit: usize, line_bottom: f64) {
         let to = from + fit;
-        if to >= laid.len() {
-            self.parts.push(Part { note, from, to });
-            self.height += laid.height(from, to);
-            return;
-        }
-        if fit > 0 {
+        let rest = to < laid.len();
+        if fit > 0 || !rest {
             self.parts.push(Part { note, from, to });
             self.height += laid.height(from, to);
         }
-        self.carry.push(Part {
-            note,
-            from: to,
-            to: laid.len(),
-        });
-        self.full_at = Some(line_bottom);
+        if rest {
+            self.carry.push(Part {
+                note,
+                from: to,
+                to: laid.len(),
+            });
+            self.full_at = Some(line_bottom);
+        }
     }
 }
 
@@ -328,9 +316,6 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         line_bottom: f64,
     ) -> Result<bool> {
         let footnotes = self.new_footnotes(refs, area)?;
-        if footnotes.is_empty() && area.full_at.is_none() {
-            return Ok(line_bottom <= area.body_bottom(self.notes.page_bottom) + EPSILON);
-        }
         Ok(area.admit(&self.notes, &footnotes, line_bottom))
     }
 
@@ -403,7 +388,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.sink.note(note, &mark)
     }
 
-    /// A note holding a table is cut only where Word would: never.
+    /// Word never splits a note holding a table: report one going on.
     fn report_split_tables(&mut self) -> Result<()> {
         let split: Vec<NoteId> = self
             .notes
@@ -471,27 +456,34 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         if parts.is_empty() {
             return Ok(());
         }
+        let laid = std::mem::take(&mut self.notes.laid);
+        let slot = usize::from(self.notes.area.continued);
+        let separator = self.notes.separators[slot].take();
+        let drawn = self.draw_notes(&laid, separator.as_ref(), &parts);
+        self.notes.laid = laid;
+        self.notes.separators[slot] = separator;
+        drawn
+    }
+
+    fn draw_notes(
+        &mut self,
+        laid: &HashMap<NoteId, Laid<'m>>,
+        separator: Option<&CellLayout<'m>>,
+        parts: &[Part],
+    ) -> Result<()> {
         let left = self.column_left();
         // A line taller than the page runs past its bottom, not its top.
         let mut y = (self.notes.page_bottom - self.notes.area.height).max(self.top);
-        let laid = std::mem::take(&mut self.notes.laid);
-        let separator = self.notes.separators[usize::from(self.notes.area.continued)].take();
-        let mut result = Ok(());
-        if let Some(separator) = &separator {
-            result = self.draw_separator(separator, left, y);
+        if let Some(separator) = separator {
+            self.draw_separator(separator, left, y)?;
             y += separator.content;
         }
-        for part in &parts {
-            if result.is_err() {
-                break;
-            }
+        for part in parts {
             let note = &laid[&part.note];
-            result = self.draw_note_part(note, part, left, y);
+            self.draw_note_part(note, part, left, y)?;
             y += note.height(part.from, part.to);
         }
-        self.notes.laid = laid;
-        self.notes.separators[usize::from(self.notes.area.continued)] = separator;
-        result
+        Ok(())
     }
 
     fn draw_separator(&mut self, separator: &CellLayout<'m>, left: f64, y: f64) -> Result<()> {
