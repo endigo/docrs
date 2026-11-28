@@ -690,23 +690,21 @@ fn below_mode_15_a_separator_s_spacing_counts_only_above_a_note_going_on() {
     };
     let mode_15 = r#"<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#;
     // A whole one-line note ends at 180: its 12.65-point separator line
-    // sits above it, with its 12 points after only in mode 15.
-    let (_, separator, note) = tops("", 1);
-    assert!(
-        close(note, 168.5) && close(separator, 155.85),
-        "{separator} {note}"
-    );
-    let (_, separator, note) = tops(mode_15, 1);
-    assert!(
-        close(note, 168.5) && close(separator, 143.85),
-        "{separator} {note}"
-    );
+    // sits straight above it, its 12 points after counting above the line
+    // only in mode 15.
+    for settings in ["", mode_15] {
+        let (_, separator, note) = tops(settings, 1);
+        assert!(
+            close(note, 168.5) && close(separator, 155.85),
+            "{separator} {note}"
+        );
+    }
     // Above a note going on, the separator's spacing counts in either
-    // mode.
+    // mode, above its line.
     for settings in ["", mode_15] {
         let (page, separator, note) = tops(settings, 20);
         assert_eq!(page, 1);
-        assert!(close(note - separator, 24.65), "{separator} {note}");
+        assert!(close(note - separator, 12.65), "{separator} {note}");
     }
 }
 

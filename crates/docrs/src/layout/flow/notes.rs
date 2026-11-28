@@ -553,7 +553,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         // A line taller than the page runs past its bottom, not its top.
         let mut y = (self.notes.page_bottom - self.notes.area.height).max(self.top);
         if let Some(separator) = separator {
-            self.draw_separator(separator, left, y)?;
+            // Word puts the separator's counted spacing above its rule.
+            let lines = separator.lines.last().map_or(0.0, |l| l.offset + l.height);
+            let above = (self.notes.area.separator - lines).max(0.0);
+            self.draw_separator(separator, left, y + above)?;
             y += self.notes.area.separator;
         }
         for part in parts {

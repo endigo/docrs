@@ -126,6 +126,13 @@ const MAX_CONTENT_RATIO: u64 = 16;
 /// Word for Mac strokes a bar tab 0.24 pt wide, its left edge at the stop.
 const BAR_WIDTH: f64 = 0.24;
 
+/// Word for Mac's note separator: a 2-inch rule 0.48 pt thick, its top
+/// this share of its line's height down (corpus and long-note PDFs, within
+/// 0.6 pt); the continuation separator spans the line.
+const SEPARATOR_LENGTH: f64 = 144.0;
+const SEPARATOR_THICKNESS: f64 = 0.48;
+const SEPARATOR_DROP: f64 = 0.61;
+
 /// Glyphs of one font and look, drawn with one `TJ`.
 struct Run<'a> {
     font: PdfFont,
@@ -456,6 +463,43 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
         Ok(())
     }
 
+    /// The rule of each note separator on `line`, in its run's colour.
+    fn separators(&mut self, at: Point, para: &Para, line: &Line, origins: &[f64]) -> Result<()> {
+        let height = self.page_height()?;
+        let end = line.start + line.width + line.slack.max(0.0);
+        for (piece, x) in line_pieces(para, line).iter().zip(origins) {
+            let Piece::Separator {
+                continuation, look, ..
+            } = piece
+            else {
+                continue;
+            };
+            let room = (end - x).max(0.0);
+            let length = if *continuation {
+                room
+            } else {
+                SEPARATOR_LENGTH.min(room)
+            };
+            let look = &self.model.looks[*look as usize];
+            let top = at.y + line.height * SEPARATOR_DROP;
+            let out = &mut self.content;
+            out.extend_from_slice(b"q ");
+            decorate::colour(out, decorate::ink(look.colour, look, para.shade))?;
+            out.extend_from_slice(b"rg ");
+            for value in [
+                at.x + x,
+                height - top - SEPARATOR_THICKNESS,
+                length,
+                SEPARATOR_THICKNESS,
+            ] {
+                write_number(out, value)?;
+                out.push(b' ');
+            }
+            out.extend_from_slice(b"re f Q\n");
+        }
+        Ok(())
+    }
+
     fn check_drawn(&self) -> Result<()> {
         let cells: usize = self.cells.iter().map(Vec::len).sum();
         let open = cells + self.fills.len() + self.content.len() + self.pictures.layered();
@@ -710,6 +754,7 @@ impl Sink for Painter<'_, '_, '_, '_> {
         self.places.line(self.model, &painted);
         self.check_drawn()?;
         let (origins, _) = line.origins(para);
+        self.separators(at, para, line, &origins)?;
         self.objects(line_pieces(para, line), &origins, at.x, baseline)?;
         self.anchors(at, para, line, &origins)?;
         self.check_drawn()

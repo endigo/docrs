@@ -1583,7 +1583,12 @@ fn footnotes_hold_destinations_and_links_but_no_headings() {
     ]
     .concat();
     let document = raw_with_notes(&body, Some(&note));
-    let bytes = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap();
+    let mut fonts = FontSet::builder();
+    fonts.add(font(LIBERATION)).unwrap();
+    fonts.alias("Times New Roman", "Liberation Serif");
+    let mut options = options();
+    options.fonts = fonts.build();
+    let bytes = render(&document, &options).unwrap().0;
     let pdf = Pdf::parse(&bytes).unwrap();
     let mut landed = landings(&pdf);
     landed.sort();

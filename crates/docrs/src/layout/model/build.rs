@@ -783,6 +783,7 @@ impl Builder<'_> {
                     para.pieces.push(Piece::Separator {
                         continuation: name == "continuationSeparator",
                         metric: pen.measurer.metric,
+                        look: pen.look,
                     });
                 }
                 "sym" => {

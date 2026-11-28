@@ -257,11 +257,12 @@ impl<'s, 'd> Scan<'s, 'd> {
         Ok(())
     }
 
-    /// Footnotes and endnotes, without the separators Word draws itself.
+    /// Footnotes, endnotes and their separators; the continuation notice
+    /// is not drawn.
     fn notes(&mut self, part: &str, kind: &'static str, tree: &XmlTree) -> Result<()> {
         self.enter(part, kind)?;
         for note in tree.child_elements(tree.root()) {
-            if w_attr(tree, note, "type").is_none_or(|t| t == "normal") {
+            if w_attr(tree, note, "type") != Some("continuationNotice") {
                 self.walk(tree, note)?;
             }
         }
@@ -491,8 +492,6 @@ impl<'s, 'd> Scan<'s, 'd> {
                     self.bookmarks.insert(bookmark_key(name));
                 }
             }
-            "footnoteReference" | "footnoteRef" => self.note(NOT_YET_DRAWN, "footnote"),
-            "endnoteReference" | "endnoteRef" => self.note(NOT_YET_DRAWN, "endnote"),
             "fldSimple" => {
                 let instruction = w_attr(tree, node, "instr").unwrap_or("");
                 self.field(instruction, field_locked(tree, node), true)

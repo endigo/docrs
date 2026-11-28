@@ -636,19 +636,16 @@ fn a_converted_document_is_only_not_yet_drawn() {
         "{codes:?}"
     );
     let subjects: Vec<_> = report.warnings.iter().map(|w| w.subject).collect();
-    assert!(subjects.contains(&"footnote"), "{subjects:?}");
-    for drawn in ["text", "list", "link", "table", "border", "shading"] {
+    for drawn in [
+        "text", "list", "link", "table", "border", "shading", "footnote",
+    ] {
         assert!(!subjects.contains(&drawn), "{drawn}: {subjects:?}");
     }
-    let footnote = report
-        .warnings
-        .iter()
-        .find(|w| w.subject == "footnote")
-        .unwrap();
     assert!(
-        footnote
-            .locations
+        report
+            .warnings
             .iter()
+            .flat_map(|w| &w.locations)
             .all(|l| l.page.is_none() && l.ordinal >= 1)
     );
 }
