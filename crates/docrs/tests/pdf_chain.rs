@@ -200,7 +200,7 @@ fn a_tested_pair_declared_as_an_alias_is_silent_but_where_it_differs_from_words_
         assert!(
             report.warnings[0]
                 .message
-                .contains("Times New Roman Regular (drawn in Liberation Serif)"),
+                .contains("Times New Roman Regular (drawn in Liberation Serif, whose U+2010 is another width than Word's)"),
             "{}",
             report.warnings[0].message
         );

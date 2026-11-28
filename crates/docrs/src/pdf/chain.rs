@@ -301,10 +301,18 @@ impl<'b> Chain<'b> {
         let (source, warning) = match run.source {
             FaceSource::Document => ("document", None),
             FaceSource::Supplied => ("supplied", None),
-            FaceSource::Alias { tested } => {
-                let silent = tested && !run.restricted && !metric_alias_differs(&run.family, drawn);
-                ("alias", substituted().filter(|_| !silent))
+            FaceSource::Alias { tested } if tested && !run.restricted => {
+                let item = format!(
+                    "{} {style} (drawn in {}, whose U+{:04X} is another width than Word's)",
+                    run.family, face.family, drawn as u32
+                );
+                let differs = metric_alias_differs(&run.family, drawn);
+                (
+                    "alias",
+                    differs.then_some(("pdf_font_substituted", "font", item)),
+                )
             }
+            FaceSource::Alias { .. } => ("alias", substituted()),
             FaceSource::Fallback => ("fallback", substituted()),
             FaceSource::Glyph => {
                 let item = format!(
