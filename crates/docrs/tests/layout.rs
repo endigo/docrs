@@ -817,8 +817,9 @@ fn a_header_shared_by_many_sections_is_measured_once() {
     let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
-    // Measuring the header once per section would take 3,000 times this.
-    docrs::layout::set_test_layout_work(Some(100_000));
+    // Each page draws the header's lines that fit, about 26; laying it out
+    // once per section would take 3,000 times its 21,000.
+    docrs::layout::set_test_layout_work(Some(200_000));
     let estimate = layout(&txn, &main, Vec::new());
     docrs::layout::set_test_layout_work(None);
     assert_eq!(estimate.unwrap().pages, 3001);
@@ -1152,4 +1153,81 @@ fn each_line_rule_puts_the_baseline_where_word_does() {
             ours.1
         );
     }
+}
+
+/// `(bookmark, number shown)` of each contents entry: a hyperlink to the
+/// bookmark holding a PAGEREF field, its number the last text in it.
+fn toc_entries(doc: &Document) -> Vec<(String, String)> {
+    let xml = document_xml(doc);
+    xml.split("<w:hyperlink w:anchor=\"")
+        .skip(1)
+        .filter_map(|chunk| {
+            let chunk = &chunk[..chunk.find("</w:hyperlink>")?];
+            chunk.contains("PAGEREF").then_some(())?;
+            let bookmark = chunk[..chunk.find('"')?].to_string();
+            let last = &chunk[chunk.rfind("<w:t>")? + 5..];
+            Some((bookmark, last[..last.find('<')?].to_string()))
+        })
+        .collect()
+}
+
+#[test]
+fn contents_page_numbers_are_the_layout_s_on_every_contents_fixture() {
+    use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
+    let root = repo_root();
+    let tsv = |path: &str| {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        text.lines()
+            .skip(1)
+            .map(|l| l.split('\t').map(str::to_string).collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    };
+    let mut cases: Vec<(String, String, Option<String>)> = tsv("tools/pdf/corpus.tsv")
+        .into_iter()
+        .map(|row| (row[1].clone(), row[3].clone(), None))
+        .collect();
+    cases.extend(
+        tsv("tests/fixtures/pdf/cases.tsv")
+            .into_iter()
+            .filter(|row| row[1].ends_with("toc.md"))
+            .map(|row| {
+                let font = Some(row[3].clone()).filter(|font| font != "-");
+                (row[2].clone(), row[1].clone(), font)
+            }),
+    );
+    let mut checked = 0;
+    for (reference, input, font) in &cases {
+        let fonts = match font {
+            Some(font) => {
+                let mut builder = docrs::layout::FontSet::builder();
+                builder
+                    .add(std::fs::read(root.join(font)).unwrap())
+                    .unwrap();
+                builder.build()
+            }
+            None => docrs::layout::FontSet::default(),
+        };
+        let format = match input.rsplit('.').next() {
+            Some("html") => InputFormat::Html,
+            Some("json") => InputFormat::Tiptap,
+            _ => InputFormat::Markdown,
+        };
+        let source = std::fs::read_to_string(root.join(input)).unwrap();
+        let mut doc = Document::open_path(root.join(reference), &Limits::default()).unwrap();
+        let options = MarkdownOptions {
+            toc: Some(true),
+            ..MarkdownOptions::default()
+        };
+        insert_source_with(&mut doc, &source, format, &options, &fonts).unwrap();
+        let txn = Txn::new(&doc);
+        let main = doc.package().main_part_name().to_string();
+        let estimate = docrs::layout::layout_with(&txn, &main, &fonts).unwrap();
+        for (bookmark, shown) in toc_entries(&doc) {
+            let page = estimate.bookmark_page(&bookmark).unwrap();
+            let expected = estimate.page_number(page).to_string();
+            assert_eq!(shown, expected, "{reference} {input} {bookmark}");
+            checked += 1;
+        }
+    }
+    assert!(checked >= 300, "{checked}");
 }

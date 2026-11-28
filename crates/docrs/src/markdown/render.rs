@@ -3153,19 +3153,11 @@ impl<'p> Renderer<'_, '_, 'p> {
         Ok(vec![sdt])
     }
 
-    /// Write each contents entry's page number: lay the finished document
-    /// out (layout::layout, Word for Mac's line and page breaking from font
-    /// metrics), and repeat while the numbers change the contents' own
-    /// length.
+    /// Write each contents entry's page number: settle the finished
+    /// document's layout (Word for Mac's line and page breaking from font
+    /// metrics), the numbers included, then write them. When the layout
+    /// does not settle within its bounds, Word is asked to number them.
     fn toc_page_numbers(&mut self, main: &str) -> Result<()> {
-        let unwritten: Vec<String> = {
-            let tree = self.txn.tree(main)?;
-            self.toc
-                .numbers
-                .iter()
-                .map(|(number, _)| tree.text_content(*number))
-                .collect()
-        };
         let layout = match crate::layout::write_page_numbers(
             self.txn,
             main,
@@ -3173,11 +3165,12 @@ impl<'p> Renderer<'_, '_, 'p> {
             true,
             self.fonts,
         ) {
-            Err(error) if error.reason() == "max_layout_work" => {
-                let tree = self.txn.tree_mut(main)?;
-                for ((number, _), text) in self.toc.numbers.iter().zip(&unwritten) {
-                    crate::wml::set_leading_text(tree, *number, text)?;
-                }
+            Err(error)
+                if matches!(
+                    error.reason(),
+                    "max_layout_work" | crate::layout::NOT_CONVERGED
+                ) =>
+            {
                 set_update_fields_on_open(self.txn)?;
                 self.warn(
                     "toc_page_numbers_skipped",

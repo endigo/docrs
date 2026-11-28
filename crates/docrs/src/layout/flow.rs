@@ -11,6 +11,8 @@
 
 use std::ops::Range;
 
+use super::fields::Values;
+use super::furniture::{Furniture, PageAt, Pages};
 use super::model::{Align, Block, LineSpacing, Metric, Model, Para, Piece, Row, TabKind, Table};
 use crate::xml::NodeId;
 use crate::{Error, Result};
@@ -57,7 +59,7 @@ pub(super) struct Line {
     pub last: bool,
 }
 
-const EPSILON: f64 = 0.01;
+pub(super) const EPSILON: f64 = 0.01;
 
 /// How much of its width each space of a justified line may give up for
 /// the line to fit (Word for Mac, measured between 0.235 and 0.240).
@@ -519,16 +521,14 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
     b.out
 }
 
-/// Total height of blocks stacked in `width` (headers, footers), and the
-/// work it took.
-pub(super) fn stack_height(
-    blocks: &[Block],
+/// Blocks stacked in `width`: a header or footer.
+pub(super) fn story_layout<'m>(
+    blocks: &'m [Block],
     metrics: &[Metric],
     width: f64,
     default_tab: f64,
-) -> (f64, u64) {
-    let layout = cell_layout(blocks, metrics, width, default_tab, false);
-    (layout.content, layout.work)
+) -> CellLayout<'m> {
+    cell_layout(blocks, metrics, width, default_tab, false)
 }
 
 impl Para {
@@ -593,26 +593,26 @@ impl ParaOffset {
 }
 
 /// What a cell draws: a paragraph's line or a nested table's row.
-enum Item<'m> {
+pub(super) enum Item<'m> {
     Line(&'m Para, Line),
     Row(&'m Table, usize, f64),
 }
 
 /// An item, its top from the top of the content holding it and its x from
 /// the content's left edge.
-struct Drawn<'m> {
-    offset: f64,
-    x: f64,
-    item: Item<'m>,
+pub(super) struct Drawn<'m> {
+    pub offset: f64,
+    pub x: f64,
+    pub item: Item<'m>,
 }
 
-struct CellLayout<'m> {
+pub(super) struct CellLayout<'m> {
     lines: Vec<CellLine>,
     /// Paragraphs (and nested row ends) with their offsets.
     paras: Vec<ParaOffset>,
-    drawn: Vec<Drawn<'m>>,
-    content: f64,
-    work: u64,
+    pub drawn: Vec<Drawn<'m>>,
+    pub content: f64,
+    pub work: u64,
 }
 
 /// Lay out blocks as one column (a cell when `cell`: automatic spacing at
@@ -818,7 +818,7 @@ pub(super) struct RowSlice {
 }
 
 impl RowSlice {
-    fn whole(height: f64) -> RowSlice {
+    pub(super) fn whole(height: f64) -> RowSlice {
         RowSlice {
             height,
             first: true,
@@ -886,25 +886,10 @@ pub(super) fn layout_work() -> u64 {
     MAX_LAYOUT_WORK
 }
 
-fn bounds(model: &Model, section: usize, first: bool) -> (f64, f64) {
-    let s = &model.sections[section.min(model.sections.len() - 1)];
-    let p = &s.page;
-    let (header, footer) = if first {
-        (
-            s.first_header_height.unwrap_or(s.header_height),
-            s.first_footer_height.unwrap_or(s.footer_height),
-        )
-    } else {
-        (s.header_height, s.footer_height)
-    };
-    let top = p.top.max(p.header + header);
-    let bottom = p.height - p.bottom.max(p.footer + footer);
-    (top, bottom.max(top + 36.0))
-}
-
 struct Flow<'m, 's, S: Sink> {
     model: &'m Model,
     sink: &'s mut S,
+    furniture: Furniture<'m>,
     section: usize,
     /// The physical page the current section started on.
     section_first_page: u32,
@@ -952,17 +937,33 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.section.min(self.model.sections.len() - 1)
     }
 
+    /// Start the page: its header and footer, then the body at its top.
     fn open_page(&mut self) -> Result<()> {
-        self.sink.page(&PageStart { number: self.page })
+        self.sink.page(&PageStart { number: self.page })?;
+        let at = PageAt {
+            page: self.page,
+            section: self.section(),
+            first: self.page == self.section_first_page,
+        };
+        let Flow {
+            furniture,
+            sink,
+            work,
+            budget,
+            ..
+        } = self;
+        let body = furniture.page(at, *sink, &mut |cost| {
+            *work = work.saturating_add(cost);
+            within(*work, *budget)
+        })?;
+        self.top = body.top;
+        self.bottom = body.bottom;
+        self.y = body.top;
+        Ok(())
     }
 
     fn new_page(&mut self) -> Result<()> {
         self.page += 1;
-        let first = self.page == self.section_first_page;
-        let (top, bottom) = bounds(self.model, self.section, first);
-        self.top = top;
-        self.bottom = bottom;
-        self.y = top;
         self.at_top = true;
         self.previous = None;
         self.open_page()
@@ -1404,22 +1405,27 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 }
 
-/// Paginate the model into `sink`; the page count.
-pub(super) fn paginate<S: Sink>(model: &Model, sink: &mut S) -> Result<u32> {
-    paginate_within(model, sink, layout_work())
+/// Paginate the model into `sink`, headers and footers showing `values`.
+pub(super) fn paginate<S: Sink>(model: &Model, values: &Values, sink: &mut S) -> Result<Pages> {
+    paginate_within(model, values, sink, layout_work())
 }
 
-fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<u32> {
-    let (top, bottom) = bounds(model, 0, true);
+fn paginate_within<S: Sink>(
+    model: &Model,
+    values: &Values,
+    sink: &mut S,
+    budget: u64,
+) -> Result<Pages> {
     let mut flow = Flow {
         model,
         sink,
+        furniture: Furniture::new(model, values),
         section: 0,
         section_first_page: 1,
         page: 1,
-        y: top,
-        top,
-        bottom,
+        y: 0.0,
+        top: 0.0,
+        bottom: 0.0,
         at_top: true,
         at_start: true,
         at_section_start: true,
@@ -1428,7 +1434,6 @@ fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<
         work: 0,
         budget,
     };
-    flow.charge(model.work)?;
     flow.open_page()?;
     let mut chain_until = 0;
     for (index, block) in model.blocks.iter().enumerate() {
@@ -1447,13 +1452,14 @@ fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<
             Block::Table(table) => flow.place_table(table)?,
         }
     }
-    Ok(flow.page)
+    Ok(flow.furniture.finish())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::model::{Label, Page, Section};
+    use crate::layout::fields::NumberFormat;
+    use crate::layout::model::{Label, Page, Section, Slots};
 
     const METRICS: [Metric; 1] = [Metric {
         height: 10.0,
@@ -1504,26 +1510,28 @@ mod tests {
                     gutter: 0.0,
                     text_width: 100.0,
                 },
-                header_height: 0.0,
-                footer_height: 0.0,
-                first_header_height: None,
-                first_footer_height: None,
+                headers: Slots::default(),
+                footers: Slots::default(),
+                title_page: false,
                 page_start: None,
+                number_format: NumberFormat::Arabic,
                 continuous: false,
             }],
             blocks,
+            stories: Vec::new(),
+            even_and_odd: false,
             metrics: METRICS.to_vec(),
             looks: Vec::new(),
             links: Vec::new(),
             default_tab: 36.0,
-            work: 0,
+            warnings: Vec::new(),
         }
     }
 
     fn run(model: &Model) -> (Vec<Placed>, u32) {
         let mut placed = Vec::new();
-        let pages = paginate(model, &mut placed).unwrap();
-        (placed, pages)
+        let pages = paginate(model, &Values::default(), &mut placed).unwrap();
+        (placed, pages.count)
     }
 
     fn text(text: &str, width: f64) -> Vec<Piece> {
@@ -1884,7 +1892,7 @@ mod tests {
             pages: 0,
             placed: 0,
         };
-        let error = paginate(&model, &mut sink).unwrap_err();
+        let error = paginate(&model, &Values::default(), &mut sink).unwrap_err();
         assert_eq!(error.reason(), "sink_failed");
         assert_eq!((sink.lines, sink.placed, sink.pages), (15, 15, 2));
         assert_eq!(run(&model).1, 3);
@@ -1895,9 +1903,9 @@ mod tests {
         // Ten paragraphs of 49 pieces and two lines, each line drawn: 530.
         let blocks: Vec<Block> = (0..10).map(|_| Block::Para(para(10, 18.0))).collect();
         let model = model(blocks, 120.0);
-        let error = paginate_within(&model, &mut Vec::new(), 529).unwrap_err();
+        let error = paginate_within(&model, &Values::default(), &mut Vec::new(), 529).unwrap_err();
         assert_eq!(error.reason(), "max_layout_work");
-        assert!(paginate_within(&model, &mut Vec::new(), 530).is_ok());
+        assert!(paginate_within(&model, &Values::default(), &mut Vec::new(), 530).is_ok());
     }
 
     fn header_table(header_lines: usize, rows: usize) -> Table {
@@ -1912,6 +1920,7 @@ mod tests {
                 header: true,
                 ..Row::default()
             }],
+            ..Table::default()
         };
         table.rows.extend((0..rows).map(|_| Row {
             cells: vec![cell(1)],
@@ -1928,7 +1937,9 @@ mod tests {
         let need = |table: Table| {
             let model = model(vec![Block::Table(table)], 120.0);
             (1..)
-                .find(|budget| paginate_within(&model, &mut Vec::new(), *budget).is_ok())
+                .find(|budget| {
+                    paginate_within(&model, &Values::default(), &mut Vec::new(), *budget).is_ok()
+                })
                 .unwrap()
         };
         let repeated = header_table(5, 20);
@@ -1969,7 +1980,13 @@ mod tests {
             ..Row::default()
         });
         let mut sink = Slices::default();
-        let pages = paginate(&model(vec![Block::Table(table)], 120.0), &mut sink).unwrap();
+        let pages = paginate(
+            &model(vec![Block::Table(table)], 120.0),
+            &Values::default(),
+            &mut sink,
+        )
+        .unwrap()
+        .count;
         assert_eq!(pages, 2);
         assert!(
             sink.0
@@ -1982,7 +1999,7 @@ mod tests {
     fn a_header_taller_than_the_page_is_not_repeated() {
         // 3,000 header lines over 3,000 rows: drawn once, not 3,000 times.
         let large = model(vec![Block::Table(header_table(3000, 3000))], 120.0);
-        assert!(paginate_within(&large, &mut Vec::new(), 100_000).is_ok());
+        assert!(paginate_within(&large, &Values::default(), &mut Vec::new(), 100_000).is_ok());
     }
 
     #[test]
@@ -2087,9 +2104,12 @@ mod tests {
             ..Row::default()
         };
         let mut blocks: Vec<Block> = (0..8).map(|_| Block::Para(para(1, 10.0))).collect();
-        blocks.push(Block::Table(Table { rows: vec![row] }));
+        blocks.push(Block::Table(Table {
+            rows: vec![row],
+            ..Table::default()
+        }));
         let mut sink = Lines::default();
-        paginate(&model(blocks, 120.0), &mut sink).unwrap();
+        paginate(&model(blocks, 120.0), &Values::default(), &mut sink).unwrap();
         let cells = &sink.0[8..];
         assert_eq!(cells.len(), 13);
         assert_eq!((cells[0].0, cells[0].1), (1, Point { x: 15.0, y: 91.0 }));

@@ -2,8 +2,9 @@ use super::formatting::ParaFormat;
 use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign};
 use super::props::{FontRef, RPr, length, number, read_rpr};
 use super::table::TableCtx;
-use super::{Block, Builder, Label, LineRule, LineSpacing, Metric, Para, Piece};
+use super::{Block, Builder, FieldPen, Label, LineRule, LineSpacing, Metric, Para, Piece};
 use crate::fields::fieldcode;
+use crate::layout::fields::{FieldKind, FieldSpan, LayoutWarning, instruction};
 use crate::layout::fonts::{Face, FontKind};
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
 use crate::wml::{R, W, w_attr, w_child};
@@ -28,6 +29,38 @@ struct Field {
     code: String,
     /// A HYPERLINK field's target, for its result.
     link: Option<u32>,
+    live: Option<LiveField>,
+}
+
+/// A field layout computes, open: where its result starts in its
+/// paragraph's pieces and fields.
+struct LiveField {
+    kind: FieldKind,
+    piece: u32,
+    span: usize,
+    pen: FieldPen,
+}
+
+impl LiveField {
+    fn new(kind: FieldKind, para: &Para, pen: FieldPen) -> LiveField {
+        LiveField {
+            kind,
+            piece: para.pieces.len() as u32,
+            span: para.fields.len(),
+            pen,
+        }
+    }
+
+    /// Close it at the paragraph's last piece, in place of the fields
+    /// nested in its result.
+    fn close(self, para: &mut Para) {
+        para.fields.truncate(self.span);
+        para.fields.push(FieldSpan {
+            kind: self.kind,
+            pieces: self.piece..para.pieces.len() as u32,
+            pen: self.pen,
+        });
+    }
 }
 
 /// A run's size and drawn baseline shift under `w:vertAlign` in `face`.
@@ -107,6 +140,23 @@ impl Builder<'_> {
         index
     }
 
+    /// Reads a field's instruction where its result shows: its warning,
+    /// and its kind when layout computes it.
+    fn field_kind(&mut self, code: &str) -> Option<FieldKind> {
+        let read = instruction(code, &self.properties);
+        if let Some(code) = read.warning {
+            let warning = LayoutWarning {
+                code,
+                story: self.story,
+                page: None,
+            };
+            if !self.warnings.contains(&warning) {
+                self.warnings.push(warning);
+            }
+        }
+        read.kind
+    }
+
     /// `w:hyperlink`'s target: its relationship's, with its bookmark as the
     /// fragment, else the bookmark.
     fn hyperlink_target(&self, tree: &XmlTree, hyperlink: NodeId) -> Option<Link> {
@@ -119,6 +169,12 @@ impl Builder<'_> {
             (Some(uri), None) => Some(Link::Uri(uri.clone())),
             (None, anchor) => anchor.map(|a| Link::Anchor(a.to_string())),
         }
+    }
+
+    fn field_pen(&mut self, rpr: &RPr, link: Option<u32>) -> FieldPen {
+        let measurer = self.measurer(rpr);
+        let look = self.look(rpr, &measurer, link);
+        FieldPen { measurer, look }
     }
 
     /// The pen for `rpr`, made on first use and given the look for `link`.
@@ -353,9 +409,24 @@ impl Builder<'_> {
                     } else {
                         w_attr(tree, child, "instr").and_then(field_link)
                     };
+                    let shown = !fields.iter().any(|f| f.part == FieldPart::Code);
+                    let live = match w_attr(tree, child, "instr") {
+                        Some(code) if name == "fldSimple" && shown => self.field_kind(code),
+                        _ => None,
+                    };
                     let outer = self.link;
                     self.link = target.map(|t| self.link(t)).or(outer);
+                    let live = live.map(|kind| {
+                        let rpr = match w_child(tree, child, "r") {
+                            Some(r) => self.fmt.run(tree, r, para_rpr),
+                            None => para_rpr.clone(),
+                        };
+                        LiveField::new(kind, para, self.field_pen(&rpr, self.link))
+                    });
                     self.inline(tree, child, para_rpr, para, fields);
+                    if let Some(live) = live {
+                        live.close(para);
+                    }
                     self.link = outer;
                 }
                 "smartTag" | "customXml" | "ins" | "moveTo" | "dir" | "bdo" => {
@@ -427,16 +498,28 @@ impl Builder<'_> {
                         part: FieldPart::Code,
                         code: String::new(),
                         link: None,
+                        live: None,
                     }),
                     Some("separate") => {
-                        if let Some(last) = fields.last_mut() {
-                            last.part = FieldPart::Result;
-                            let target = field_link(&last.code);
-                            last.link = target.map(|t| self.link(t));
+                        let Some((last, outer)) = fields.split_last_mut() else {
+                            continue;
+                        };
+                        last.part = FieldPart::Result;
+                        let target = field_link(&last.code);
+                        last.link = target.map(|t| self.link(t));
+                        if outer.iter().any(|f| f.part == FieldPart::Code) {
+                            continue;
+                        }
+                        let code = std::mem::take(&mut last.code);
+                        if let Some(kind) = self.field_kind(&code) {
+                            let pen = self.field_pen(&rpr, link);
+                            last.live = Some(LiveField::new(kind, para, pen));
                         }
                     }
                     Some("end") => {
-                        fields.pop();
+                        if let Some(live) = fields.pop().and_then(|f| f.live) {
+                            live.close(para);
+                        }
                     }
                     _ => {}
                 },
@@ -470,6 +553,10 @@ impl Builder<'_> {
                             }
                         }
                     }
+                }
+                "pgNum" => {
+                    let pen = self.field_pen(&rpr, link);
+                    LiveField::new(FieldKind::Page(Default::default()), para, pen).close(para);
                 }
                 "tab" | "ptab" => {
                     let pen = self.pen(&mut pen, &rpr, link);
@@ -625,7 +712,8 @@ fn vml_size(style: &str) -> (f64, f64) {
     (width, height)
 }
 
-pub(super) struct Measurer {
+#[derive(Debug, Clone)]
+pub(crate) struct Measurer {
     ascii: std::sync::Arc<crate::layout::fonts::Face>,
     hansi: std::sync::Arc<crate::layout::fonts::Face>,
     size: f64,
@@ -639,7 +727,7 @@ pub(super) struct Measurer {
 }
 
 impl Measurer {
-    pub(super) fn width(&self, ch: char) -> f64 {
+    pub(crate) fn width(&self, ch: char) -> f64 {
         let face = if (ch as u32) < 0x80 {
             &self.ascii
         } else {
