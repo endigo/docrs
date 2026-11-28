@@ -7,13 +7,14 @@ use std::sync::Arc;
 use super::chain::{Chain, Draw};
 use super::decorate::{self, Span};
 use super::font::{FaceRef, FontResources, PdfFont};
+use super::picture::{Pictures, Spot, inline_rect};
 use super::places::{Painted, Places};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
 use crate::layout::flow::{Line, PageStart, ParaBox, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
 use crate::layout::mark_characters;
-use crate::layout::model::{Appearance, Model, NoteId, Para, Piece, Rgb, TabKind};
+use crate::layout::model::{self, Appearance, Model, NoteId, Para, Piece, Rgb, StoryId, TabKind};
 use crate::txn::Txn;
 use crate::{Error, Result};
 
@@ -40,12 +41,19 @@ pub(super) struct Painter<'m, 't, 'c, 'b> {
     faces: HashMap<usize, FaceRef>,
     /// Font programs read from the document's parts, by face file.
     programs: HashMap<usize, Arc<[u8]>>,
+    pub pictures: Pictures,
     pub pages: Vec<Page>,
     pub places: Places,
-    page: Option<(f64, f64)>,
-    /// Drawn first, behind the page's text.
+    page: Option<PageStart>,
+    /// Paragraph boxes' shading, drawn under the body's text (and over its
+    /// behind-text pictures).
     fills: Vec<u8>,
     content: Vec<u8>,
+    /// Where the body's text starts in `content`, after the headers' and
+    /// footers'.
+    body_at: Option<usize>,
+    /// The paragraph last drawn on the page, and its first line's top.
+    para_top: Option<(*const Para, f64)>,
     state: TextState,
     max_pages: u32,
     /// Content-stream bytes of the closed pages before compression, and
@@ -124,11 +132,14 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
             fonts: FontResources::default(),
             faces: HashMap::new(),
             programs: HashMap::new(),
+            pictures: Pictures::new(*limits),
             pages: Vec::new(),
             places,
             page: None,
             fills: Vec::new(),
             content: Vec::new(),
+            body_at: None,
+            para_top: None,
             state: PAGE_START,
             max_pages: limits.max_pages,
             drawn: 0,
@@ -140,15 +151,94 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
 
     /// Writes the open page's content stream.
     pub(super) fn close_page(&mut self) -> Result<()> {
-        let Some(size) = self.page.take() else {
+        let Some(page) = self.page.take() else {
             return Ok(());
         };
-        let mut stream = std::mem::take(&mut self.fills);
-        stream.append(&mut self.content);
+        let geometry = self.geometry(&page);
+        let size = (geometry.width, geometry.height);
+        let content = std::mem::take(&mut self.content);
+        let mut fills = std::mem::take(&mut self.fills);
+        self.drawn += (content.len() + fills.len()) as u64;
+        let (furniture, body) = content.split_at(self.body_at.take().unwrap_or(content.len()));
+        fills.extend_from_slice(body);
+        let stream = self.pictures.page_stream(furniture, &fills);
         let contents = super::page_content(&mut self.writer, &stream)?;
-        self.drawn += stream.len() as u64;
         self.pages.push(Page { size, contents });
         Ok(())
+    }
+
+    fn geometry(&self, page: &PageStart) -> &'m model::Page {
+        &self.model.sections[page.section].page
+    }
+
+    /// The line's inline objects at their origins, `left` from the page's
+    /// left edge.
+    fn objects(
+        &mut self,
+        pieces: &[Piece],
+        origins: &[f64],
+        left: f64,
+        baseline: f64,
+    ) -> Result<()> {
+        let height = self.page_height()?;
+        for (piece, x) in pieces.iter().zip(origins) {
+            if let Piece::Object { object, .. } = piece {
+                let object = &self.model.objects[*object as usize];
+                let rect = inline_rect(object, left + x, baseline);
+                self.pictures.draw(
+                    &mut self.writer,
+                    self.txn,
+                    object,
+                    rect,
+                    height,
+                    &mut self.content,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The paragraph's anchors whose piece is on `line`.
+    fn anchors(&mut self, at: Point, para: &Para, line: &Line, origins: &[f64]) -> Result<()> {
+        let Some(page) = self.page else {
+            return Err(no_page());
+        };
+        let para_key = para as *const Para;
+        let para_top = match self.para_top {
+            Some((key, top)) if key == para_key => top,
+            _ => {
+                self.para_top = Some((para_key, at.y));
+                at.y
+            }
+        };
+        let (start, end) = (line.pieces.start, line.pieces.end);
+        let last = end as usize >= para.pieces.len();
+        for anchor in &para.anchors {
+            if anchor.piece < start || (anchor.piece >= end && !last) {
+                continue;
+            }
+            let character = origins
+                .get((anchor.piece - start) as usize)
+                .map_or(line.start + line.width, |x| *x);
+            let spot = Spot {
+                page: self.geometry(&page),
+                number: page.number,
+                para_top,
+                line_top: at.y,
+                line_height: line.height,
+                character: at.x + character,
+            };
+            let object = &self.model.objects[anchor.object as usize];
+            let furniture = is_furniture(para.story);
+            self.pictures
+                .anchored(&mut self.writer, self.txn, object, anchor, &spot, furniture)?;
+        }
+        Ok(())
+    }
+
+    fn page_height(&self) -> Result<f64> {
+        let page = self.page.as_ref().ok_or_else(no_page)?;
+        Ok(self.geometry(page).height)
     }
 
     /// The face whose metrics decorate `model.faces[index]`.
@@ -301,9 +391,7 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
     /// its bottom, and on the paragraph's last line through its space after
     /// (Word for Mac, measured).
     fn bars(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
-        let Some((_, height)) = self.page else {
-            return Ok(());
-        };
+        let height = self.page_height()?;
         let after = if line.pieces.end as usize >= para.pieces.len() {
             para.after_spacing()
         } else {
@@ -334,12 +422,6 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
             return Err(Error::limit("max_pdf_content_bytes", self.max_drawn, drawn));
         }
         Ok(())
-    }
-
-    fn page_height(&self) -> Result<f64> {
-        self.page
-            .map(|(_, height)| height)
-            .ok_or_else(|| Error::internal("pdf_no_page", "a line before the first page"))
     }
 
     /// The decorations' view of `pieces` at `origins`, `left` from the
@@ -406,10 +488,7 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
             spans = self.spans(&label.pieces, &label_origins, left, |_| None);
         }
         let first = line.pieces.start as usize;
-        let pieces = para
-            .pieces
-            .get(first..line.pieces.end as usize)
-            .unwrap_or_default();
+        let pieces = line_pieces(para, line);
         spans.extend(self.spans(pieces, &origins, left, |at| {
             let tab = line
                 .tabs
@@ -514,6 +593,10 @@ fn tj(out: &mut Vec<u8>, glyphs: &[Glyph], em: f64, bytes: usize) -> Result<()> 
     Ok(())
 }
 
+fn no_page() -> Error {
+    Error::internal("pdf_no_page", "a line before the first page")
+}
+
 /// A number as [`write_number`] writes it.
 fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
@@ -530,14 +613,16 @@ impl Sink for Painter<'_, '_, '_, '_> {
                 observed,
             ));
         }
-        let geometry = &self.model.sections[page.section].page;
-        let size = (geometry.width, geometry.height);
-        check_page(size.0, size.1)?;
+        let geometry = self.geometry(page);
+        check_page(geometry.width, geometry.height)?;
         if self.pages.is_empty() {
-            self.places
-                .first_page(geometry.left + geometry.gutter, size.1 - geometry.top);
+            self.places.first_page(
+                geometry.left + geometry.gutter,
+                geometry.height - geometry.top,
+            );
         }
-        self.page = Some(size);
+        self.page = Some(*page);
+        self.para_top = None;
         self.state = PAGE_START;
         Ok(())
     }
@@ -564,6 +649,9 @@ impl Sink for Painter<'_, '_, '_, '_> {
         let spans = self.line_spans(at.x, para, line);
         let height = self.page_height()?;
         let baseline = at.y + line.baseline;
+        if !is_furniture(para.story) && self.body_at.is_none() {
+            self.body_at = Some(self.content.len());
+        }
         decorate::backgrounds(&mut self.content, &spans, height, at.y, line.height)?;
         for run in &runs {
             self.draw(run, baseline, para.shade)?;
@@ -578,7 +666,10 @@ impl Sink for Painter<'_, '_, '_, '_> {
             line,
         };
         self.places.line(self.model, &painted);
-        self.check_drawn()
+        self.check_drawn()?;
+        let (origins, _) = line.origins(para);
+        self.objects(line_pieces(para, line), &origins, at.x, baseline)?;
+        self.anchors(at, para, line, &origins)
     }
 
     fn para_box(&mut self, boxed: &ParaBox) -> Result<()> {
@@ -587,6 +678,18 @@ impl Sink for Painter<'_, '_, '_, '_> {
         super::boxes::lines(&mut self.content, boxed, height)?;
         self.check_drawn()
     }
+}
+
+/// Headers and footers, drawn in their own layers under the main text's;
+/// notes are main text.
+fn is_furniture(story: StoryId) -> bool {
+    matches!(story, StoryId::Header(_) | StoryId::Footer(_))
+}
+
+fn line_pieces<'p>(para: &'p Para, line: &Line) -> &'p [Piece] {
+    para.pieces
+        .get(line.pieces.start as usize..line.pieces.end as usize)
+        .unwrap_or_default()
 }
 
 /// What `line` draws, in reading order: its label, then its characters,
@@ -622,10 +725,7 @@ fn marks(
         out.push(None);
     }
     let first = line.pieces.start;
-    let pieces = para
-        .pieces
-        .get(first as usize..line.pieces.end as usize)
-        .unwrap_or_default();
+    let pieces = line_pieces(para, line);
     for (at, (piece, x)) in pieces.iter().zip(&origins).enumerate() {
         match piece {
             Piece::NoteRef {

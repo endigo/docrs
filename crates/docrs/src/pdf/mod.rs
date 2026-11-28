@@ -19,6 +19,7 @@ mod limits;
 mod meta;
 mod nav;
 mod paint;
+mod picture;
 mod places;
 mod preflight;
 mod symbols;
@@ -93,6 +94,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_wrap_ignored",
         "text does not wrap around a floating object",
+    ),
+    (
+        "pdf_drawing_fallback_used",
+        "a chart or SmartArt graphic is drawn as the picture its document keeps in its place",
     ),
     (
         "pdf_equation_linearized",
@@ -402,7 +407,9 @@ pub fn render(document: &Document, options: &PdfOptions) -> Result<(Vec<u8>, Pdf
     let mut report = preflight(document)?;
     report.check(options.strict)?;
     let (bytes, pages) = paint(document, options, None, &mut report)?;
-    // A link navigation left out that the preflight did not count.
+    // A link navigation left out, or what only drawing finds (an image's
+    // profile, animation or unreadable data), that the preflight did not
+    // count.
     report.check(options.strict)?;
     report.pages = Some(pages);
     Ok((bytes, report))
@@ -455,9 +462,10 @@ fn layout_warnings(
     Ok(tally.finish())
 }
 
-/// Lays out and draws `document`, adding what its fonts change and what
-/// navigation leaves out to `report`, and refusing as [`PdfReport::check`]
-/// does before drawing; `stand_in` draws what nothing else does.
+/// Lays out and draws `document`, adding what its fonts change, what
+/// navigation leaves out and what only drawing finds to `report`, and
+/// refusing as [`PdfReport::check`] does before drawing; `stand_in` draws
+/// what nothing else does.
 fn paint(
     document: &Document,
     options: &PdfOptions,
@@ -493,16 +501,22 @@ fn paint(
         .iter()
         .map(|page| (page.size, page.contents))
         .collect();
+    let mut resources = Dict::new().with("Font", fonts);
+    if let Some(images) = painter.pictures.resources() {
+        resources.set("XObject", images);
+    }
+    let warnings = painter.pictures.tally.finish();
     let info = info(document)?;
     let (bytes, navigation) = write_document(
         writer,
         &sizes,
-        Dict::new().with("Font", fonts),
+        resources,
         painter.places.navigation,
         &info,
         PRODUCER,
     )?;
     report.add_navigation(navigation);
+    report.warnings.extend(warnings);
     Ok((bytes, pages))
 }
 

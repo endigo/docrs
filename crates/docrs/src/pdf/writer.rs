@@ -62,6 +62,10 @@ impl Dict {
         }
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Adds a key the writer owns, refusing one the caller already set.
     fn reserve(mut self, key: &str, value: impl Into<Object>) -> Result<Self> {
         if self.0.iter().any(|(existing, _)| existing == key) {

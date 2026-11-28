@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::numbering::format_number;
-use super::{Block, Builder, StoryId, hyperlinks};
+use super::{Block, Builder, StoryId, hyperlinks, related_parts};
 use crate::package::rels::rt;
 use crate::txn::Txn;
 use crate::wml::{w_attr, w_child};
@@ -224,6 +224,8 @@ impl Notes {
 pub(super) struct NotePart<'t> {
     tree: &'t XmlTree,
     hyperlinks: HashMap<String, String>,
+    /// The parts its relationships name, which its pictures draw.
+    parts: HashMap<String, String>,
     ids: HashMap<String, u32>,
     notes: Vec<NodeId>,
     separator: Option<NodeId>,
@@ -231,10 +233,15 @@ pub(super) struct NotePart<'t> {
 }
 
 impl<'t> NotePart<'t> {
-    fn read(tree: &'t XmlTree, hyperlinks: HashMap<String, String>) -> NotePart<'t> {
+    fn read(
+        tree: &'t XmlTree,
+        hyperlinks: HashMap<String, String>,
+        parts: HashMap<String, String>,
+    ) -> NotePart<'t> {
         let mut part = NotePart {
             tree,
             hyperlinks,
+            parts,
             ids: HashMap::new(),
             notes: Vec::new(),
             separator: None,
@@ -276,7 +283,11 @@ impl<'t> NoteState<'t> {
         let read = |rel: &str| {
             let name = txn.part_related_by(main, rel).ok().flatten()?;
             let tree = txn.tree(&name).ok()?;
-            Some(NotePart::read(tree, hyperlinks(txn, &name)))
+            Some(NotePart::read(
+                tree,
+                hyperlinks(txn, &name),
+                related_parts(txn, &name),
+            ))
         };
         let parts = [read(rt::FOOTNOTES), read(rt::ENDNOTES)];
         let sized = |slot: usize| parts[slot].as_ref().map_or(0, |p| p.notes.len());
@@ -373,6 +384,7 @@ impl Builder<'_> {
             };
             self.story = kind.story();
             self.hyperlinks = part.hyperlinks;
+            self.parts = part.parts;
             let tree = part.tree;
             let story = &mut stories[slot];
             story.separator = self.note_blocks(tree, part.separator);

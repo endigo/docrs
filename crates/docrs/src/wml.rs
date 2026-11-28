@@ -142,24 +142,28 @@ pub fn first_choice_children(tree: &XmlTree, id: NodeId) -> Vec<NodeId> {
 fn collect_choice_children(tree: &XmlTree, id: NodeId, out: &mut Vec<NodeId>) {
     for child in node_children(tree, id) {
         if tree.is(child, MC, "AlternateContent") {
-            let mut selected = None;
-            let mut fallback = None;
-            for alternative in node_children(tree, child) {
-                if tree.is(alternative, MC, "Choice") && choice_is_supported(tree, alternative) {
-                    selected = Some(alternative);
-                    break;
-                }
-                if tree.is(alternative, MC, "Fallback") && fallback.is_none() {
-                    fallback = Some(alternative);
-                }
-            }
-            if let Some(branch) = selected.or(fallback) {
+            if let Some(branch) = chosen_alternative(tree, child) {
                 collect_choice_children(tree, branch, out);
             }
         } else {
             out.push(child);
         }
     }
+}
+
+/// The branch of `alternate` (`mc:AlternateContent`) that is read: its
+/// first supported `mc:Choice`, else its first `mc:Fallback`.
+pub fn chosen_alternative(tree: &XmlTree, alternate: NodeId) -> Option<NodeId> {
+    let mut fallback = None;
+    for alternative in node_children(tree, alternate) {
+        if tree.is(alternative, MC, "Choice") && choice_is_supported(tree, alternative) {
+            return Some(alternative);
+        }
+        if tree.is(alternative, MC, "Fallback") && fallback.is_none() {
+            fallback = Some(alternative);
+        }
+    }
+    fallback
 }
 
 fn choice_is_supported(tree: &XmlTree, choice: NodeId) -> bool {
