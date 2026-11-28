@@ -159,6 +159,18 @@ pub fn file_mode(path: &Path) -> Option<u32> {
     fs::metadata(path).ok().and_then(|meta| mode_of(&meta))
 }
 
+/// The file [`write_atomic`] replaces for `path`: the end of its symlink
+/// chain, which need not exist, else `path` itself.
+pub fn destination(path: &Path) -> Result<PathBuf> {
+    resolve_link(path).map_err(|err| {
+        io(
+            "symlink_resolution",
+            format!("cannot resolve symlink {}", path.display()),
+            err,
+        )
+    })
+}
+
 /// Atomically replace `path` with `data`.
 ///
 /// An existing destination keeps its permission bits; a new one receives
@@ -166,14 +178,7 @@ pub fn file_mode(path: &Path) -> Option<u32> {
 pub fn write_atomic(path: &Path, data: &[u8], new_file_mode: Option<u32>) -> Result<()> {
     let link_state = match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            let destination = resolve_link(path).map_err(|err| {
-                io(
-                    "symlink_resolution",
-                    format!("cannot resolve symlink {}", path.display()),
-                    err,
-                )
-            })?;
-            Some((link_identity(&meta), destination))
+            Some((link_identity(&meta), destination(path)?))
         }
         _ => None,
     };

@@ -713,20 +713,10 @@ fn write_pdf(
 }
 
 /// Refuses an output that is one of `inputs`, through a symbolic or hard
-/// link too.
+/// link, or a directory the write would create, too. Creates nothing.
 fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
-    // The write creates the output's directory; made first, a path through
-    // it (`new/../input.docx`) resolves now as the write will resolve it.
-    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            Error::io(
-                "create_directory",
-                format!("cannot create {}", parent.display()),
-                err,
-            )
-        })?;
-    }
-    let Ok(target) = std::fs::metadata(out) else {
+    let destination = docrs::package::save::destination(out)?;
+    let Some(target) = landing(&destination).and_then(|path| std::fs::metadata(path).ok()) else {
         return Ok(());
     };
     for input in inputs {
@@ -742,6 +732,36 @@ fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Where a write to `path` lands once it has created the directories it
+/// needs: its longest existing ancestor resolved, then the rest applied
+/// as names, since a directory the write creates is no symbolic link.
+fn landing(path: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).ok()?;
+    let mut components = absolute.components();
+    let mut existing = std::path::PathBuf::new();
+    let mut missing = None;
+    for component in components.by_ref() {
+        let next = existing.join(component);
+        if std::fs::metadata(&next).is_err() {
+            missing = Some(component);
+            break;
+        }
+        existing = next;
+    }
+    let mut out = existing.canonicalize().ok()?;
+    for component in missing.into_iter().chain(components) {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(name) => out.push(name),
+            _ => {}
+        }
+    }
+    Some(out)
 }
 
 #[cfg(unix)]

@@ -985,6 +985,10 @@ fn pdf_refuses_to_write_over_its_input() {
         let soft = dir.path().join("soft.pdf");
         std::os::unix::fs::symlink(&docx, &soft).unwrap();
         outs.push(soft);
+        // Dangling until the write would create `nodir`.
+        let dangling = dir.path().join("dangling.pdf");
+        std::os::unix::fs::symlink("nodir/../memo.docx", &dangling).unwrap();
+        outs.push(dangling);
     }
     for out in outs {
         let output = bin()
@@ -1017,6 +1021,9 @@ fn pdf_refuses_to_write_over_its_input() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(json_of(&output)["error"]["reason"], "output_is_input");
     assert_eq!(std::fs::read(&reference).unwrap(), kept);
+    for made in ["new", "nodir", "other"] {
+        assert!(!dir.path().join(made).exists(), "a refusal left {made}/");
+    }
 }
 
 #[test]
