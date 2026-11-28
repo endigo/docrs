@@ -206,7 +206,6 @@ impl Writer {
     /// Writes `data` as it is. `Some(filter)` names its encoding; with `None`,
     /// a `/Filter` already in `dict` is kept, which is how to write a filter
     /// array.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn stream_raw(
         &mut self,
         at: Ref,

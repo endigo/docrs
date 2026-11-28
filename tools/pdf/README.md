@@ -76,3 +76,14 @@ The share per document is agreeing paragraphs over compared ones, `n/a` when non
 **pdflines.** `swiftc -O tools/pdf/pdflines.swift -o pdflines && ./pdflines FILE.pdf` prints, per page, its size and its lines. Each line has its text, `x`, `top`, `width` and `height` (PDFKit's line selection bounds), `baseline` and `page`. All values are points from the page's top-left corner, rounded to 0.01. The baseline comes from the content stream's text matrix: the commonest text origin in the lower half of the line's box, the lowest on a tie. It is null when the line's text is drawn from a form XObject. When several origins fall in the box, `baselines` lists them all, top down: PDFKit sometimes merges lines into one (a `cupsfilter` page comes back as one 723 pt line).
 
 `tools/pdf/checks/run.sh` checks `compare.py` (unit tests) and `pdflines` (Core Text lines 20 pt apart, a paragraph at 0.8 line height, a `cupsfilter` page at a 12 pt pitch). It needs macOS, swiftc and jq.
+
+## Images against PDFKit (macOS; not in CI)
+
+`crates/docrs/tests/pdf_images.rs` writes one page per image case, the image at its pixel size. To compare each page as PDFKit draws it with its source as ImageIO decodes it:
+
+```
+DOCRS_IMAGE_CASES=OUT cargo test -p docrs --test pdf_images
+swift tools/pdf/image_check.swift OUT
+```
+
+Each line gives the largest channel difference, the mean and the share of pixels differing by more than 2 levels. A profiled or CMYK case may differ (the profile is not drawn); any other case that differs fails. `image_fixtures.swift` makes the encoder fixtures in `tests/fixtures/pdf/images` (`PROVENANCE.md` there).

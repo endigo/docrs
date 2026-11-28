@@ -9,11 +9,14 @@
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
 
 mod font;
+mod image;
+mod limits;
 mod meta;
 mod nav;
 mod preflight;
 mod writer;
 
+pub use limits::PdfLimits;
 pub use preflight::preflight;
 #[cfg(feature = "test-support")]
 pub use preflight::preflight_work_for_tests;
@@ -74,8 +77,16 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "an equation is drawn as a line of text",
     ),
     (
-        "pdf_image_unsupported",
-        "a TIFF, EMF or WMF image is left out of the PDF",
+        image::UNSUPPORTED,
+        "an image in a format the PDF engine does not draw (TIFF, EMF, WMF, a compressed bitmap, …) is left out of the PDF",
+    ),
+    (
+        image::PROFILE_IGNORED,
+        "an image's embedded colour profile is ignored: its colours are drawn as plain RGB, grey or CMYK",
+    ),
+    (
+        image::ANIMATED,
+        "an animated image is drawn as its first frame",
     ),
     (
         "pdf_text_unsupported",
@@ -461,6 +472,18 @@ pub fn text_document_for_tests(
     limits: &Limits,
 ) -> Result<Vec<u8>> {
     font::text_document(lines, info, producer, limits)
+}
+
+/// [`image::image_document`] for tests only (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn image_document_for_tests(
+    images: &[(&str, &[u8])],
+    info: &Info,
+    producer: &str,
+    limits: &PdfLimits,
+) -> Result<(Vec<u8>, Vec<Vec<&'static str>>)> {
+    image::image_document(images, info, producer, limits)
 }
 
 /// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).
