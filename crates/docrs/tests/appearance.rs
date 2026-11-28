@@ -5,7 +5,7 @@
 
 mod support;
 
-use docrs::layout::{Appearance, Caps, Colour, Link, Rgb, Strike, line_records};
+use docrs::layout::{Appearance, Caps, Colour, FontSet, Link, Rgb, Strike, line_records_with};
 use docrs::txn::Txn;
 use docrs::{Document, Limits};
 use support::*;
@@ -349,10 +349,19 @@ fn script_letters(size: u32) -> String {
     ('a'..='z').cycle().take(count as usize).collect()
 }
 
+/// `superscript.docx`: every `SCRIPT_FONTS` at every `SCRIPT_SIZES`.
+fn script_fixture() -> Vec<u8> {
+    let groups: Vec<_> = SCRIPT_FONTS
+        .iter()
+        .flat_map(|font| SCRIPT_SIZES.map(|size| (*font, size)))
+        .collect();
+    script_groups(&groups)
+}
+
 /// For each font and size: a heading in the default font, the
 /// `SCRIPT_RUNS`, then the same letters plain, as superscript and as
 /// subscript, each in a paragraph of its own.
-fn script_fixture() -> Vec<u8> {
+fn script_groups(groups: &[(&str, u32)]) -> Vec<u8> {
     let group = |font: &str, size: u32| {
         let rpr = |extra: &str| {
             format!(
@@ -371,24 +380,28 @@ fn script_fixture() -> Vec<u8> {
             .concat();
         heading + &para("", &markers) + &long
     };
-    let body: String = SCRIPT_FONTS
+    let body: String = groups
         .iter()
-        .flat_map(|font| SCRIPT_SIZES.map(|size| group(font, size)))
+        .map(|(font, size)| group(font, *size))
         .collect();
     package(&body, "")
 }
 
 /// Each run's text with its look and link.
 fn runs(bytes: &[u8]) -> Vec<(String, Appearance, Option<Link>)> {
+    runs_with(bytes, &FontSet::default())
+}
+
+fn runs_with(bytes: &[u8], fonts: &FontSet) -> Vec<(String, Appearance, Option<Link>)> {
     let doc = Document::open_bytes(bytes, &Limits::default()).unwrap();
     let txn = Txn::new(&doc);
     let main = doc.package().main_part_name().to_string();
     let mut table = (Vec::new(), Vec::new());
     let mut out = Vec::new();
-    line_records(
+    line_records_with(
         &txn,
         &main,
-        Vec::new(),
+        fonts,
         |looks, links| {
             table = (looks.to_vec(), links.to_vec());
             Ok(())
@@ -572,17 +585,48 @@ fn caps_spacing_scale_and_shading_are_kept() {
     assert_eq!(look(&runs, "rgb-red").shade, None);
 }
 
-/// Word 16.115.2's script size, from 60 raised letters' width over the plain ones'.
-fn word_script_size(size: f64) -> f64 {
-    match size as u32 {
-        8 => 5.0,
-        10 => 6.5,
-        11 => 7.0,
-        12 => 8.0,
-        24 => 15.5,
-        72 => 47.0,
-        _ => unreachable!("{size} pt was not measured"),
+/// Word 16.115.2's script size: 60 raised letters' width over the plain
+/// ones', times the size (Inter's 11 pt from its `Tf`).
+fn word_script_size(font: &str, size: u32) -> f64 {
+    match (font, size) {
+        ("Inter", 11) => 6.5,
+        ("Inter", 24) => 14.5,
+        (_, 5) => 3.0,
+        (_, 8) => 5.0,
+        (_, 10) => 6.5,
+        (_, 11) => 7.0,
+        (_, 12) => 8.0,
+        (_, 15) => 9.5,
+        (_, 24) => 15.5,
+        (_, 25) => 16.0,
+        (_, 72) => 47.0,
+        _ => unreachable!("{font} {size} pt was not measured"),
     }
+}
+
+/// The runs after the heading `{font} {size} pt`, up to the next heading.
+fn script_group<'r>(
+    runs: &'r [(String, Appearance, Option<Link>)],
+    font: &str,
+    size: u32,
+) -> &'r [(String, Appearance, Option<Link>)] {
+    let heading = format!("{font} {size} pt");
+    let at = runs.iter().position(|r| r.0 == heading).unwrap() + 1;
+    let end = runs[at..]
+        .iter()
+        .position(|r| r.0.ends_with(" pt"))
+        .map_or(runs.len(), |n| at + n);
+    &runs[at..end]
+}
+
+/// The plain, superscript and subscript letter runs' sizes.
+fn script_sizes(group: &[(String, Appearance, Option<Link>)], size: u32) -> Vec<f64> {
+    let letters = script_letters(size);
+    group
+        .iter()
+        .filter(|r| r.0 == letters)
+        .map(|r| r.1.size)
+        .collect()
 }
 
 #[test]
@@ -590,28 +634,40 @@ fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
     let runs = runs(&script_fixture());
     for font in SCRIPT_FONTS {
         for size in SCRIPT_SIZES {
-            let heading = format!("{font} {size} pt");
-            let at = runs.iter().position(|r| r.0 == heading).unwrap() + 1;
-            let end = runs[at..]
-                .iter()
-                .position(|r| r.0.ends_with(" pt"))
-                .map_or(runs.len(), |n| at + n);
-            let group = &runs[at..end];
+            let group = script_group(&runs, font, size);
             let marker = |text: &str| look(group, text);
-            let size = f64::from(size);
-            assert_eq!(marker("sup").rise, size * 0.41, "{heading} sup");
-            assert_eq!(marker("sub").rise, -size * 0.087, "{heading} sub");
+            let (heading, plain) = (format!("{font} {size} pt"), f64::from(size));
+            assert_eq!(marker("sup").rise, plain * 0.41, "{heading} sup");
+            assert_eq!(marker("sub").rise, -plain * 0.087, "{heading} sub");
             assert_eq!(marker("up3").rise, 3.0, "{heading} up3");
             assert_eq!(marker("down3").rise, -3.0, "{heading} down3");
-            let letters = script_letters(size as u32);
-            let sizes: Vec<f64> = group
-                .iter()
-                .filter(|r| r.0 == letters)
-                .map(|r| r.1.size)
-                .collect();
-            let small = word_script_size(size);
-            assert_eq!(sizes, [size, small, small], "{heading}");
+            let small = word_script_size(font, size);
+            assert_eq!(
+                script_sizes(group, size),
+                [plain, small, small],
+                "{heading}"
+            );
         }
+    }
+}
+
+#[test]
+fn a_script_is_the_font_s_os2_size_to_the_nearest_half_point() {
+    let groups = [
+        ("Inter", 11),
+        ("Inter", 24),
+        ("Arial", 5),
+        ("Arial", 15),
+        ("Arial", 25),
+    ];
+    let path = repo_root().join("tests/fixtures/fonts/inter/Inter[opsz,wght].ttf");
+    let mut inter = FontSet::builder();
+    inter.add(std::fs::read(path).unwrap()).unwrap();
+    let runs = runs_with(&script_groups(&groups), &inter.build());
+    for (font, size) in groups {
+        let small = word_script_size(font, size);
+        let sizes = script_sizes(script_group(&runs, font, size), size);
+        assert_eq!(sizes, [f64::from(size), small, small], "{font} {size} pt");
     }
 }
 
