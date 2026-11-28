@@ -57,10 +57,22 @@ impl Joins {
         para.borders.as_deref().filter(|_| !self.next)?.bottom
     }
 
+    /// The room the line above `para`'s text takes, and where in it the
+    /// line starts. Word gives `between` its space both above and below
+    /// (measured: Times New Roman 12 pt, ½ pt line, space 4, after 6:
+    /// pitch 28.32 for a 13.8 pt line).
+    fn lead(self, para: &Para) -> (f64, f64) {
+        match self.top(para) {
+            Some(border) if self.previous => (border.extent() + border.space, border.space),
+            Some(border) => (border.extent(), 0.0),
+            None => (0.0, 0.0),
+        }
+    }
+
     /// The room the borders take above and below `para`'s text.
     pub(super) fn extents(self, para: &Para) -> (f64, f64) {
-        let extent = |border: Option<Border>| border.map_or(0.0, |b| b.extent());
-        (extent(self.top(para)), extent(self.bottom(para)))
+        let bottom = self.bottom(para).map_or(0.0, |b| b.extent());
+        (self.lead(para).0, bottom)
     }
 }
 
@@ -80,20 +92,32 @@ pub(crate) struct ParaBox {
     /// Where the side lines start and end: Word runs them through the
     /// spacing the paragraph shares with its neighbours (measured).
     pub sides: (f64, f64),
-    /// The fill and where it ends: at the box, or at the next box when the
-    /// next paragraph joins this one and is shaded too.
-    pub fill: Option<(Rgb, f64)>,
+    pub fill: Option<Fill>,
+}
+
+/// A paragraph's shading: its colour, its left and right edges, and its
+/// bottom, which reaches the next box when the next paragraph joins this
+/// one and is shaded too.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Fill {
+    pub colour: Rgb,
+    pub left: f64,
+    pub right: f64,
+    pub bottom: f64,
 }
 
 impl ParaBox {
     /// The box of `para`'s lines from `top` to `bottom`, the room its
-    /// `top_line` and `bottom_line` take included; `column`: the column's
-    /// left edge and width. `None` when it has no borders and no shading.
+    /// lines above and below take included: the top or between line when
+    /// `opening` its first line, the bottom line when `closing` its last.
+    /// `column`: the column's left edge and width. `None` when it has no
+    /// borders and no shading.
     pub(super) fn new(
         para: &Para,
         column: (f64, f64),
         (top, bottom): (f64, f64),
-        (top_line, bottom_line): (Option<Border>, Option<Border>),
+        joins: Joins,
+        (opening, closing): (bool, bool),
     ) -> Option<ParaBox> {
         if para.borders.is_none() && para.shade.is_none() {
             return None;
@@ -101,19 +125,40 @@ impl ParaBox {
         let borders = para.borders.as_deref();
         let left_line = borders.and_then(|b| b.left);
         let right_line = borders.and_then(|b| b.right);
-        let side = |line: Option<Border>| OUTSET + line.map_or(0.0, |b| b.extent());
         let (x, width) = column;
-        Some(ParaBox {
-            left: x + para.left + para.first.min(0.0) - side(left_line),
-            right: x + width - para.right + side(right_line),
-            top,
+        let text = (x + para.left + para.first.min(0.0), x + width - para.right);
+        let side = |line: Option<Border>| OUTSET + line.map_or(0.0, |b| b.extent());
+        let (left, right) = (text.0 - side(left_line), text.1 + side(right_line));
+        // Word fills up to the side lines in a box closed above or below,
+        // else only to the outset (measured).
+        let closed = borders.is_some_and(|b| b.top.is_some() || b.bottom.is_some());
+        let inner = |line: Option<Border>| line.map_or(0.0, |b| b.thickness());
+        let fill = para.shade.map(|colour| Fill {
+            colour,
+            left: if closed {
+                left + inner(left_line)
+            } else {
+                text.0 - OUTSET
+            },
+            right: if closed {
+                right - inner(right_line)
+            } else {
+                text.1 + OUTSET
+            },
             bottom,
-            top_line,
-            bottom_line,
+        });
+        let offset = if opening { joins.lead(para).1 } else { 0.0 };
+        Some(ParaBox {
+            left,
+            right,
+            top: top + offset,
+            bottom,
+            top_line: joins.top(para).filter(|_| opening),
+            bottom_line: joins.bottom(para).filter(|_| closing),
             left_line,
             right_line,
             sides: (top, bottom),
-            fill: para.shade.map(|fill| (fill, bottom)),
+            fill,
         })
     }
 
@@ -126,16 +171,18 @@ impl ParaBox {
     }
 
     /// The paragraph that follows on this page, `gap` below this box, of
-    /// which `after` is this paragraph's space after: the side lines run
-    /// through it, and the fill reaches a shaded paragraph that joins.
+    /// which `after` is this paragraph's space after. The fill reaches a
+    /// shaded paragraph that joins, down to its between line; the side lines
+    /// run through `after` unshaded, else end with the fill (measured).
     pub(super) fn reach_down(&mut self, after: f64, gap: f64, next: Option<&Para>) {
-        if self.bottom_line.is_none() {
-            self.sides.1 += after;
-        }
-        if let (Some((_, bottom)), Some(next)) = (&mut self.fill, next)
-            && next.shade.is_some()
-        {
-            *bottom += gap;
+        match (&mut self.fill, next) {
+            (Some(fill), Some(next)) if next.shade.is_some() => {
+                let between = next.borders.as_deref().and_then(|b| b.between);
+                fill.bottom += gap + between.map_or(0.0, |b| b.space);
+                self.sides.1 = self.bottom + gap;
+            }
+            (None, _) if self.bottom_line.is_none() => self.sides.1 += after,
+            _ => {}
         }
     }
 }
@@ -228,7 +275,7 @@ mod tests {
                 Block::Table(_) => unreachable!(),
             })
             .collect();
-        assert_eq!(extents, [(3.0, 0.0), (1.25, 0.0), (1.25, 4.5)]);
+        assert_eq!(extents, [(3.0, 0.0), (2.25, 0.0), (2.25, 4.5)]);
     }
 
     #[test]
@@ -262,11 +309,27 @@ mod tests {
             })),
             ..Para::default()
         };
-        let boxed = ParaBox::new(&para, (60.0, 400.0), (100.0, 120.0), (None, None)).unwrap();
+        let boxed = ParaBox::new(
+            &para,
+            (60.0, 400.0),
+            (100.0, 120.0),
+            Joins::default(),
+            (true, true),
+        )
+        .unwrap();
         assert!((boxed.left - (60.0 + 24.0 - 8.0 - 2.25 - OUTSET)).abs() < 1e-9);
         assert!((boxed.right - (460.0 - 12.0 + OUTSET)).abs() < 1e-9);
         assert_eq!((boxed.top, boxed.sides), (100.0, (100.0, 120.0)));
-        assert!(ParaBox::new(&Para::default(), (0.0, 100.0), (0.0, 1.0), (None, None)).is_none());
+        assert!(
+            ParaBox::new(
+                &Para::default(),
+                (0.0, 100.0),
+                (0.0, 1.0),
+                Joins::default(),
+                (true, true)
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -311,10 +374,10 @@ mod tests {
             )
         };
         let drawn = draw(vec![member(), member(), member()], 100.0);
-        assert_eq!(drawn.lines, [(1, 13.0), (1, 28.5), (1, 44.0)]);
+        assert_eq!(drawn.lines, [(1, 13.0), (1, 29.5), (1, 46.0)]);
         assert_eq!(
             spans(&drawn),
-            [(1, 10.0, 23.0), (1, 27.0, 38.5), (1, 42.5, 57.0)]
+            [(1, 10.0, 23.0), (1, 28.0, 39.5), (1, 44.5, 59.0)]
         );
         let lines: Vec<_> = drawn
             .boxes
@@ -330,7 +393,7 @@ mod tests {
             ]
         );
         let sides: Vec<_> = drawn.boxes.iter().map(|(_, b)| b.sides).collect();
-        assert_eq!(sides, [(10.0, 27.0), (27.0, 42.5), (42.5, 57.0)]);
+        assert_eq!(sides, [(10.0, 27.0), (27.0, 43.5), (43.5, 59.0)]);
     }
 
     #[test]
@@ -373,8 +436,8 @@ mod tests {
             vec![with(boxed, para(6, 45.0)), with(boxed, para(2, 45.0))],
             60.0,
         );
-        assert_eq!(drawn.lines, [(1, 13.0), (1, 23.0), (1, 33.0), (2, 11.5)]);
-        assert_eq!(spans(&drawn), [(1, 10.0, 43.0), (2, 10.0, 24.5)]);
+        assert_eq!(drawn.lines, [(1, 13.0), (1, 23.0), (1, 33.0), (2, 12.5)]);
+        assert_eq!(spans(&drawn), [(1, 10.0, 43.0), (2, 11.0, 25.5)]);
         assert_eq!(drawn.boxes[1].1.top_line, boxed.between);
     }
 
@@ -391,7 +454,11 @@ mod tests {
             ..para(1, 20.0)
         };
         let drawn = draw(vec![code(), code(), para(1, 20.0)], 60.0);
-        let fills: Vec<_> = drawn.boxes.iter().map(|(_, b)| b.fill).collect();
+        let fills: Vec<_> = drawn
+            .boxes
+            .iter()
+            .map(|(_, b)| b.fill.map(|f| (f.colour, f.bottom)))
+            .collect();
         assert_eq!(fills, [Some((grey, 30.0)), Some((grey, 40.0))]);
         assert_eq!(spans(&drawn), [(1, 10.0, 20.0), (1, 30.0, 40.0)]);
     }

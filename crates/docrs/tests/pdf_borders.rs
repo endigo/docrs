@@ -491,3 +491,49 @@ fn a_templates_bordered_title_and_heading_are_drawn_below_their_text() {
         "{rule:?} {text:?}"
     );
 }
+
+/// Word for Mac places lines and text on a 1/300-inch grid.
+const GRID: f64 = 0.24;
+
+#[test]
+fn a_between_line_has_its_space_above_and_below_as_in_word() {
+    let document = open_bytes(&fixture());
+    let records = records(&document);
+    let first = line(&records, "The first paragraph").baseline;
+    let second = line(&records, "The second paragraph").baseline;
+    let lines: Vec<_> = coloured(&fixture_shapes()[0], 0x1F4E79)
+        .into_iter()
+        .filter(|s| s.horizontal())
+        .collect();
+    let [top, between, bottom] = lines[..] else {
+        panic!("{lines:?}");
+    };
+    // Word for Mac 16.115.2, Times New Roman 12 pt, ½ pt lines, space 4,
+    // 6 pt after: box top to the first baseline, that baseline to the
+    // between line, the line to the second baseline, that baseline to the
+    // bottom line, and the pitch (PR #69's Word check).
+    let ours = [
+        first - top.top,
+        between.top - first,
+        second - between.bottom,
+        bottom.top - second,
+        second - first,
+    ];
+    let word = [15.60, 12.48, 15.36, 6.48, 28.32];
+    for (ours, word) in ours.iter().zip(word) {
+        assert!((ours - word).abs() <= GRID, "{ours:?} {word}");
+    }
+}
+
+#[test]
+fn a_fill_beside_a_side_line_starts_at_the_outset_and_the_line_ends_with_it() {
+    let page = &fixture_shapes()[0];
+    let fills = coloured(page, 0xDEEAF6);
+    let lines = coloured(page, 0x2E75B6);
+    // Word: the callout (text at 90 pt, a 3 pt line 6 pt from it) is filled
+    // from 88.56; its line, 79.68–82.56, ends where the fill does.
+    assert!(fills.iter().all(|f| close(f.left, 88.56)), "{fills:?}");
+    assert!(lines.iter().all(|l| close(l.right, 90.0 - 6.0 - OUTSET)));
+    let (fill, line) = (fills.last().unwrap(), lines.last().unwrap());
+    assert!(close(fill.bottom, line.bottom), "{fill:?} {line:?}");
+}
