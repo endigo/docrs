@@ -5,6 +5,7 @@ use super::ImageResources;
 use crate::Result;
 use crate::pdf::limits::PdfLimits;
 use crate::pdf::meta::Info;
+use crate::pdf::nav::Navigation;
 use crate::pdf::writer::{Dict, Writer, write_name, write_number};
 
 /// One page per `(part, bytes)`, an image written once per part, and each
@@ -33,6 +34,13 @@ pub(crate) fn image_document(
         warnings.push(placed.warnings.clone());
     }
     let resources = Dict::new().with("XObject", resources.resources());
-    let pdf = crate::pdf::write_document(writer, &pages, resources, info, producer)?;
+    let (pdf, _) = crate::pdf::write_document(
+        writer,
+        &pages,
+        resources,
+        Navigation::default(),
+        info,
+        producer,
+    )?;
     Ok((pdf, warnings))
 }
