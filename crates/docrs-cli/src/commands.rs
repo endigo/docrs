@@ -694,11 +694,11 @@ fn write_pdf(
 /// link, or a directory the write would create, too. Creates nothing.
 fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
     let destination = docrs::package::save::destination(out)?;
-    let Some(target) = landing(&destination).and_then(|path| std::fs::metadata(path).ok()) else {
+    let Some(target) = landing(&destination) else {
         return Ok(());
     };
     for input in inputs {
-        if std::fs::metadata(input).is_ok_and(|source| same_file(&source, &target, input, out)) {
+        if same_file::is_same_file(input, &target).unwrap_or(false) {
             return Err(Error::invalid_argument(
                 "output_is_input",
                 format!(
@@ -740,17 +740,6 @@ fn landing(path: &Path) -> Option<std::path::PathBuf> {
         }
     }
     Some(out)
-}
-
-#[cfg(unix)]
-fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata, _: &Path, _: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    (a.dev(), a.ino()) == (b.dev(), b.ino())
-}
-
-#[cfg(not(unix))]
-fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata, a: &Path, b: &Path) -> bool {
-    matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }
 
 fn pdf_text(report: &docrs::pdf::PdfReport, out: &Path) -> String {
