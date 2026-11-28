@@ -1104,7 +1104,12 @@ fn fields_and_drawing_links_are_classified() {
         .collect();
     assert!(messages[0].starts_with("DATE (1): a date or time field"));
     assert!(messages[2].starts_with("field without an end (1): a field without an end"));
-    assert_eq!(subjects(&report, "pdf_link_scheme_skipped"), [("link", 2)]);
+    // A picture link is counted apart, so it cannot hide a text link that
+    // only navigation drops.
+    assert_eq!(
+        subjects(&report, "pdf_link_scheme_skipped"),
+        [("link", 1), ("picture link", 1)]
+    );
     assert_eq!(subjects(&report, "pdf_link_target_missing"), [("link", 1)]);
     // The picture names no image: drawn as a placeholder.
     assert_eq!(
@@ -1237,16 +1242,19 @@ fn row_shading_vml_links_and_computed_hyperlinks_are_checked() {
         "{:?}",
         subjects(&found, NOT_YET_DRAWN)
     );
-    assert_eq!(subjects(&found, "pdf_link_scheme_skipped"), [("link", 2)]);
-    let message = &found
+    assert_eq!(
+        subjects(&found, "pdf_link_scheme_skipped"),
+        [("picture link", 1), ("link", 1)]
+    );
+    let messages: Vec<&str> = found
         .warnings
         .iter()
-        .find(|w| w.code == "pdf_link_scheme_skipped")
-        .unwrap()
-        .message;
+        .filter(|w| w.code == "pdf_link_scheme_skipped")
+        .map(|w| w.message.as_str())
+        .collect();
     assert!(
-        message.contains("\"javascript:\"") && message.contains("\"computed\""),
-        "{message}"
+        messages[0].contains("\"javascript:\"") && messages[1].contains("\"computed\""),
+        "{messages:?}"
     );
 }
 
@@ -1274,7 +1282,10 @@ fn a_link_on_a_shape_in_a_vml_group_is_checked() {
         r#"</v:group></w:pict>"#
     )));
     let found = report(&docx(&body, &[], &[]));
-    assert_eq!(subjects(&found, "pdf_link_scheme_skipped"), [("link", 1)]);
+    assert_eq!(
+        subjects(&found, "pdf_link_scheme_skipped"),
+        [("picture link", 1)]
+    );
     assert_eq!(subjects(&found, "pdf_shape_skipped"), [("shape", 1)]);
 }
 

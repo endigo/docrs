@@ -207,8 +207,9 @@ struct Scan<'s, 'd> {
     toc_entry: TocEntry,
     /// By [`bookmark_key`].
     bookmarks: HashSet<String>,
-    /// Links to bookmarks, checked once every story is read.
-    anchors: Vec<(String, PdfLocation)>,
+    /// Links to bookmarks with their subject, checked once every story is
+    /// read.
+    anchors: Vec<(String, &'static str, PdfLocation)>,
     /// The first page number or page reference field Word computes.
     page_field: Option<PdfLocation>,
     /// A section numbers its pages with chapter numbers (`w:chapStyle`).
@@ -669,7 +670,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             }
             scheme => {
                 let sample = scheme.map_or_else(|| "relative".to_string(), |s| format!("{s}:"));
-                self.note_with(LINK, TEXT_LINK, sample);
+                self.note_with(LINK, subject, sample);
             }
         }
     }
@@ -677,7 +678,7 @@ impl<'s, 'd> Scan<'s, 'd> {
     fn anchor(&mut self, anchor: &str, subject: &'static str) {
         self.note(NOT_YET_DRAWN, subject);
         let location = self.location();
-        self.anchors.push((anchor.to_string(), location));
+        self.anchors.push((anchor.to_string(), subject, location));
     }
 
     /// `Some` in a contents' result: whether its contents has `\n`.
@@ -925,10 +926,10 @@ impl<'s, 'd> Scan<'s, 'd> {
                 None,
             );
         }
-        for (anchor, location) in std::mem::take(&mut self.anchors) {
+        for (anchor, subject, location) in std::mem::take(&mut self.anchors) {
             if !is_document_start(&anchor) && !self.bookmarks.contains(&bookmark_key(&anchor)) {
                 self.tally
-                    .note(LINK_TARGET, "link", Some(location), Some(anchor));
+                    .note(LINK_TARGET, subject, Some(location), Some(anchor));
             }
         }
         PdfReport {

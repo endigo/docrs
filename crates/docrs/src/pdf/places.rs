@@ -1,7 +1,7 @@
 //! Where the painted lines put links, bookmarks and headings, for
 //! [`Navigation`].
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::nav::{LinkId, Navigation, Rect};
 use crate::layout::flow::{Line, Point};
@@ -19,7 +19,9 @@ pub(super) struct Places {
     pub(super) navigation: Navigation,
     /// The hyperlink the last linked piece painted belongs to.
     open: Option<Occurrence>,
-    occurrences: usize,
+    /// Each hyperlink's id by its paragraph and first piece, so a repeated
+    /// header row's links keep theirs.
+    occurrences: HashMap<(*const Para, u32), LinkId>,
     lines: usize,
     /// A repeated header row paints its paragraphs again.
     outlined: HashSet<*const Para>,
@@ -147,8 +149,8 @@ impl Places {
             open.piece = piece;
             return open.id;
         }
-        let id = LinkId(self.occurrences);
-        self.occurrences += 1;
+        let next = LinkId(self.occurrences.len());
+        let id = *self.occurrences.entry((para, piece)).or_insert(next);
         self.open = Some(Occurrence {
             para,
             piece,
