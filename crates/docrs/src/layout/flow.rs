@@ -536,7 +536,7 @@ impl Para {
         if self.before_auto { 14.0 } else { self.before }
     }
 
-    fn after_spacing(&self) -> f64 {
+    pub(super) fn after_spacing(&self) -> f64 {
         if self.after_auto { 14.0 } else { self.after }
     }
 }

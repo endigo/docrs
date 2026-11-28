@@ -78,7 +78,13 @@ struct Doc<'a> {
 
 impl Doc<'_> {
     fn with<T>(&self, f: impl FnOnce(&Txn<'_>, &str) -> T) -> T {
-        let doc = Document::new();
+        let doc = self.document();
+        let main = doc.package().main_part_name().to_string();
+        f(&Txn::new(&doc), &main)
+    }
+
+    fn document(&self) -> Document {
+        let mut doc = Document::new();
         let mut txn = Txn::new(&doc);
         let main = doc.package().main_part_name().to_string();
         let mut body = self.body.clone();
@@ -110,7 +116,9 @@ impl Doc<'_> {
             "<w:settings xmlns:w=\"{W_NS}\">{even}</w:settings>"
         ))
         .unwrap();
-        f(&txn, &main)
+        let staged = txn.finish().unwrap();
+        doc.commit(staged).unwrap();
+        doc
     }
 
     fn settle(&self) -> Result<Settled> {
@@ -292,26 +300,68 @@ fn a_footer_taller_than_the_bottom_margin_pushes_the_body_up() {
     );
 }
 
-#[test]
-fn a_story_past_its_half_of_the_page_is_clipped_and_warned() {
+/// A 60-line story on paper `height` twips tall: its lines drawn, the
+/// body's first and last line tops, and the warnings.
+fn oversized(kind: &str, height: &str) -> (Vec<f64>, (f64, f64), Vec<LayoutWarning>) {
+    let page = PAGE.replace(r#"w:h="15840""#, &format!(r#"w:h="{height}""#));
+    let sect_pr = format!(
+        r#"<w:sectPr><w:{kind}Reference w:type="default" r:id="{{s1}}"/>{page}</w:sectPr>"#
+    );
+    let stem = if kind == "header" { "h1" } else { "f1" };
     let doc = Doc {
-        body: body(lines(1), sect(&["header:default:h1"], "")),
-        stories: vec![("h1", lines(60))],
+        body: body(
+            lines(LINES_PER_PAGE),
+            sect_pr.replace("{s1}", &format!("{{{stem}}}")),
+        ),
+        stories: vec![(stem, lines(60))],
         even_and_odd: false,
     };
-    // Its half: from 36 pt to 378, a page's half less 18 pt: 28 lines.
     let lines = doc.lines();
-    assert_eq!(lines.iter().filter(|l| l.1 == "header1").count(), 28);
-    assert_eq!(lines.iter().find(|l| l.1 == "body").unwrap().2, 372.0);
-    let settled = doc.settle().unwrap();
+    let story: Vec<f64> = lines
+        .iter()
+        .filter(|l| l.0 == 1 && l.1.starts_with(kind))
+        .map(|l| l.2)
+        .collect();
+    let body: Vec<f64> = lines
+        .iter()
+        .filter(|l| l.0 == 1 && l.1 == "body")
+        .map(|l| l.2)
+        .collect();
+    let warnings = doc.settle().unwrap().warnings;
+    (story, (body[0], *body.last().unwrap()), warnings)
+}
+
+#[test]
+fn a_story_past_half_the_page_is_clipped_and_warned() {
+    // Word for Mac draws a header's lines while their top is less than half
+    // the page less 10 pt below the header distance (36 pt here): on Letter
+    // (792 pt) tops up to 384 of 386, 33 lines; on A4 (841.9 pt) up to 408
+    // of 410.95, 35 lines. The body starts below the last.
+    let (header, body, warnings) = oversized("header", "15840");
     assert_eq!(
-        settled.warnings,
-        [LayoutWarning {
+        (header.len(), header[32], body.0),
+        (33, 36.0 + 384.0, 432.0)
+    );
+    assert_eq!(
+        warnings[0],
+        LayoutWarning {
             code: furniture::STORY_OVERFLOW,
             story: StoryId::Header(1),
             page: Some(1),
-        }]
+        }
     );
+    let (header, body, _) = oversized("header", "16838");
+    assert_eq!((header.len(), body.0), (35, 456.0));
+    // A footer keeps its first lines the same way, measured from its top,
+    // and ends 36 pt above the paper's edge.
+    let (footer, body, warnings) = oversized("footer", "15840");
+    assert_eq!(
+        (footer.len(), footer[0], body.1),
+        (33, 792.0 - 36.0 - 396.0, 348.0)
+    );
+    assert_eq!(warnings[0].story, StoryId::Footer(1));
+    let (footer, _, _) = oversized("footer", "16838");
+    assert_eq!(footer.len(), 35);
 }
 
 #[test]
@@ -419,16 +469,43 @@ fn a_footer_that_wraps_at_ten_pages_settles_where_its_numbers_hold() {
     assert_eq!(last.replace('|', ""), "Page 10 of 10");
 }
 
-#[test]
-fn page_numbers_that_change_their_own_layout_refuse() {
-    // IX wraps and gives ten pages; X does not and gives nine.
+/// IX wraps and gives ten pages; X does not and gives nine.
+fn roman_page_count_footer() -> Doc<'static> {
     let footer = para_with(
         &room_between("Total X", "Total IX"),
         &[run("Total "), field(r"NUMPAGES \* ROMAN", "I")].concat(),
     );
-    let error = wrapping_footer(footer).settle().err().unwrap();
+    wrapping_footer(footer)
+}
+
+#[test]
+fn page_numbers_that_change_their_own_layout_refuse() {
+    let error = roman_page_count_footer().settle().err().unwrap();
     assert_eq!(error.reason(), NOT_CONVERGED);
     assert!(error.message().contains("repeat"), "{}", error.message());
+}
+
+#[test]
+fn a_contents_refresh_keeps_numbers_that_do_not_settle_and_asks_word_to_update() {
+    let doc = roman_page_count_footer();
+    let mut document = doc.document();
+    let error = refresh_toc_page_numbers(&mut document, false)
+        .err()
+        .unwrap();
+    assert_eq!(error.reason(), NOT_CONVERGED);
+    let main = document.package().main_part_name().to_string();
+    let body = |document: &Document| crate::xml::serialize(document.package().xml(&main).unwrap());
+    let before = body(&document);
+    let refresh = refresh_toc_page_numbers_if_settled(&mut document, false).unwrap();
+    assert!(refresh.is_none());
+    assert_eq!(body(&document), before);
+    let settings = document
+        .package()
+        .part_related_by(&main, rt::SETTINGS)
+        .unwrap()
+        .unwrap();
+    let settings = document.package().xml(&settings).unwrap();
+    assert!(w_child(settings, settings.root(), "updateFields").is_some());
 }
 
 #[test]

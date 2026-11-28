@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 use super::fields::{self, Context, LayoutWarning, Number, Values};
-use super::flow::{CellLayout, Drawn, EPSILON, Item, Point, RowSlice, Sink, story_layout};
-use super::model::{Model, Page, Section, Slots};
+use super::flow::{CellLayout, Drawn, Item, Point, RowSlice, Sink, story_layout};
+use super::model::{Model, Section, Slots};
 use crate::Result;
 
 /// A story overflows its half of the page.
@@ -15,6 +15,9 @@ pub(crate) const STORY_OVERFLOW: &str = "pdf_story_overflow";
 
 /// The body keeps at least this much of the page's height.
 const MIN_BODY: f64 = 36.0;
+
+/// A story's lines start less than half the page less this from its edge.
+const STORY_CAP_MARGIN: f64 = 10.0;
 
 /// The page being opened.
 #[derive(Debug, Clone, Copy)]
@@ -125,9 +128,10 @@ impl<'m> Furniture<'m> {
         }
     }
 
-    /// Emit a story's lines and give its height. A story keeps to its half
-    /// of the page less half the body's least height: lines past that are
-    /// not drawn.
+    /// Emit a story's lines and give its height. Lines from half the page
+    /// less 10 pt past the story's edge on are not drawn: a header's below
+    /// the header distance, a footer's above its bottom (measured from its
+    /// top, as for a header).
     fn place<S: Sink>(
         &mut self,
         story: Option<usize>,
@@ -167,21 +171,27 @@ impl<'m> Furniture<'m> {
                 }
             }
         };
-        let room = (page.height / 2.0 - MIN_BODY / 2.0 - side.distance(page)).max(0.0);
-        let bottom = |drawn: &Drawn<'_>| {
-            drawn.offset
-                + match &drawn.item {
-                    Item::Line(_, line) => line.height,
-                    Item::Row(_, _, height) => *height,
-                }
-        };
-        let clipped = layout.content > room + EPSILON;
+        // Word for Mac draws a header's lines while their top is less than
+        // half the page less 10 pt below the header distance, whatever the
+        // margins; the body then starts below the last one's space after.
+        let cap = page.height / 2.0 - STORY_CAP_MARGIN;
+        let shown = |drawn: &&Drawn<'_>| drawn.offset < cap;
+        let clipped = layout.drawn.iter().any(|d| !shown(&d));
         let height = if clipped {
             layout
                 .drawn
                 .iter()
-                .map(bottom)
-                .filter(|b| *b <= room + EPSILON)
+                .filter(shown)
+                .map(|drawn| {
+                    drawn.offset
+                        + match &drawn.item {
+                            Item::Line(para, line) if line.last => {
+                                line.height + para.after_spacing()
+                            }
+                            Item::Line(_, line) => line.height,
+                            Item::Row(_, _, height) => *height,
+                        }
+                })
                 .fold(0.0, f64::max)
         } else {
             layout.content
@@ -191,11 +201,7 @@ impl<'m> Furniture<'m> {
             Side::Footer => page.height - page.footer - height,
         };
         let left = page.left + page.gutter;
-        for drawn in layout
-            .drawn
-            .iter()
-            .filter(|d| bottom(d) <= height + EPSILON)
-        {
+        for drawn in layout.drawn.iter().filter(shown) {
             let point = Point {
                 x: left + drawn.x,
                 y: top + drawn.offset,
@@ -223,14 +229,4 @@ impl<'m> Furniture<'m> {
 enum Side {
     Header,
     Footer,
-}
-
-impl Side {
-    /// The story's distance from the paper's edge.
-    fn distance(self, page: &Page) -> f64 {
-        match self {
-            Side::Header => page.header,
-            Side::Footer => page.footer,
-        }
-    }
 }
