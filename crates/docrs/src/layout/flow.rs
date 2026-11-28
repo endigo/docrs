@@ -15,25 +15,43 @@ use std::ops::Range;
 
 use super::fields::Values;
 use super::furniture::{Furniture, PageAt, Pages};
-use super::model::{Align, Block, LineSpacing, Metric, Model, Para, Piece, Row, TabKind, Table};
+use super::model::{
+    Align, Block, Leader, LineSpacing, Metric, Model, Para, Piece, Row, TabKind, TabStop, Table,
+};
 use crate::xml::NodeId;
 use crate::{Error, Result};
 
-/// A tab on a line: its piece, and the x it moves from and to. A left tab
-/// that would pass the right margin ends its line with no width.
+/// A tab on a line: its piece, the x it moves from and to, and its stop's
+/// leader. A left tab that would pass the right margin ends its line with
+/// no width.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct TabPlace {
     pub piece: u32,
     pub from: f64,
     pub to: f64,
+    pub leader: Leader,
 }
+
+/// A tab's leader as drawn: its character, in the tab's look, at each x
+/// from the page's left edge.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LeaderRun {
+    pub piece: u32,
+    pub ch: char,
+    pub look: u32,
+    pub origins: Vec<f64>,
+}
+
+/// Leader characters narrower than this are not drawn: it bounds the
+/// glyphs one tab draws.
+const MIN_LEADER_ADVANCE: f64 = 0.25;
 
 /// One laid-out line. x values are points from the column's left edge.
 ///
 /// Left, centred and right-aligned lines start where their text is drawn.
 /// A justified line starts at the left, and the painter spreads `slack`
-/// over its `gaps`; a negative `slack` shrinks them, and can be left on a
-/// justified paragraph's last line too.
+/// over its `gaps` when `justified`; a negative `slack` shrinks them, and
+/// can be left on a justified paragraph's last line too.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Line {
     pub height: f64,
@@ -59,6 +77,8 @@ pub(crate) struct Line {
     pub tabs: Vec<TabPlace>,
     /// Ends the paragraph, or in a line or page break.
     pub last: bool,
+    /// Its slack is spread over its gaps.
+    pub justified: bool,
     /// Where the list label starts, on a paragraph's first line.
     pub label: Option<f64>,
 }
@@ -83,8 +103,7 @@ impl Line {
             .last()
             .map_or(0, |tab| tab.piece as usize + 1 - first);
         let gaps = gap_pieces(pieces, after_tab);
-        let justify = para.align.justified() && (!self.last || self.slack < 0.0);
-        let share = if justify && self.gaps > 0 {
+        let share = if self.justified && self.gaps > 0 {
             self.slack / f64::from(self.gaps)
         } else {
             0.0
@@ -101,6 +120,39 @@ impl Line {
             }
         });
         (origins, label)
+    }
+
+    /// Each tab's leader, `left` the column's x on the page. Word for Mac
+    /// sets leader characters at whole multiples of their advance from the
+    /// page's left edge, each one that fits between the tab's ends
+    /// (measured in 60 of its PDFs).
+    pub(crate) fn leaders(&self, para: &Para, model: &Model, left: f64) -> Vec<LeaderRun> {
+        self.tabs
+            .iter()
+            .filter_map(|tab| {
+                let ch = tab.leader.char()?;
+                let Some(Piece::Tab { look, .. }) = para.pieces.get(tab.piece as usize) else {
+                    return None;
+                };
+                let appearance = model.looks.get(*look as usize)?;
+                let face = &model.faces.get(appearance.face(ch) as usize)?.face;
+                let advance = face.advance(ch) * appearance.size * appearance.scale;
+                if advance < MIN_LEADER_ADVANCE {
+                    return None;
+                }
+                let first = ((left + tab.from) / advance - 1e-6).ceil();
+                let end = ((left + tab.to) / advance + 1e-6).floor();
+                let origins = (first as i64..end as i64)
+                    .map(|cell| cell as f64 * advance)
+                    .collect();
+                Some(LeaderRun {
+                    piece: tab.piece,
+                    ch,
+                    look: *look,
+                    origins,
+                })
+            })
+            .collect()
     }
 }
 
@@ -250,21 +302,28 @@ fn baseline(para: &Para, height: f64, heights: &Heights, object: f64) -> f64 {
     }
 }
 
-/// Next tab stop after `x` (points from the text-area left edge).
-fn tab_stop(para: &Para, x: f64, first_line: bool, default_tab: f64) -> (f64, TabKind) {
+/// Next tab stop after `x` (points from the text-area left edge). Bar
+/// tabs are not stops.
+fn tab_stop(para: &Para, x: f64, first_line: bool, default_tab: f64) -> TabStop {
+    let left = |pos| TabStop {
+        pos,
+        kind: TabKind::Left,
+        leader: Leader::None,
+    };
+    let mut stops = para
+        .tabs
+        .iter()
+        .filter(|stop| stop.kind != TabKind::Bar && stop.pos > x + EPSILON);
     if first_line && para.first < 0.0 && x + EPSILON < para.left {
         // The hanging indent is a tab stop on the first line.
-        let custom = para
-            .tabs
-            .iter()
-            .find(|(pos, _)| *pos > x + EPSILON && *pos < para.left);
-        return custom.copied().unwrap_or((para.left, TabKind::Left));
+        let custom = stops.find(|stop| stop.pos < para.left);
+        return custom.copied().unwrap_or(left(para.left));
     }
-    if let Some(stop) = para.tabs.iter().find(|(pos, _)| *pos > x + EPSILON) {
+    if let Some(stop) = stops.next() {
         return *stop;
     }
     let step = if default_tab > 1.0 { default_tab } else { 36.0 };
-    ((((x + EPSILON) / step).floor() + 1.0) * step, TabKind::Left)
+    left((((x + EPSILON) / step).floor() + 1.0) * step)
 }
 
 /// Width of `pieces` up to the next tab or break, or up to the decimal
@@ -372,11 +431,12 @@ impl Open {
         self.words = true;
     }
 
-    fn tab(&mut self, piece: usize, to: f64) {
+    fn tab(&mut self, piece: usize, to: f64, leader: Leader) {
         self.tabs.push(TabPlace {
             piece: piece as u32,
             from: self.x,
             to,
+            leader,
         });
         self.x = to;
         self.content = to;
@@ -446,6 +506,11 @@ impl Breaker<'_> {
         let open = std::mem::replace(&mut self.line, Open::new(next_piece, para.left));
         let height = line_height(para, heights.text, open.object);
         let slack = self.right_limit - end.content;
+        let spread = match ending {
+            Ending::Wrap => true,
+            Ending::LineBreak => para.spread_breaks,
+            _ => false,
+        };
         let offset = match para.align {
             Align::Center => slack.max(0.0) / 2.0,
             Align::Right => slack.max(0.0),
@@ -470,7 +535,12 @@ impl Breaker<'_> {
             gaps: end.gaps,
             tabs,
             last: ending != Ending::Wrap,
-            label: (first_line && para.label.is_some()).then_some(para.left + para.first + offset),
+            justified: para.align.justified() && (spread || slack < 0.0),
+            label: para
+                .label
+                .as_ref()
+                .filter(|_| first_line)
+                .map(|label| para.left + para.first - label.lead() + offset),
         });
         self.first_line = false;
     }
@@ -527,13 +597,18 @@ impl Breaker<'_> {
 
     fn tab(&mut self, index: usize, metric: u32) {
         let x = self.line.x;
-        let (stop, kind) = tab_stop(self.para, x, self.first_line, self.default_tab);
+        let stop = tab_stop(self.para, x, self.first_line, self.default_tab);
+        let kind = stop.kind;
         let pieces = &self.para.pieces[index + 1..];
         let target = match kind {
-            TabKind::Right => (stop - segment_width(pieces, false)).max(x),
-            TabKind::Decimal => (stop - segment_width(pieces, true)).max(x),
-            TabKind::Center => (stop - segment_width(pieces, false) / 2.0).max(x),
-            _ => stop,
+            // Word for Mac ends the text of a right tab past the margin at
+            // the margin.
+            TabKind::Right => {
+                (stop.pos.min(self.right_limit) - segment_width(pieces, false)).max(x)
+            }
+            TabKind::Decimal => (stop.pos - segment_width(pieces, true)).max(x),
+            TabKind::Center => (stop.pos - segment_width(pieces, false) / 2.0).max(x),
+            _ => stop.pos,
         };
         self.line.text.add(self.metrics, metric, self.extra);
         if target > self.right_limit + EPSILON && self.line.has_content && kind == TabKind::Left {
@@ -541,10 +616,11 @@ impl Breaker<'_> {
                 piece: index as u32,
                 from: x,
                 to: x,
+                leader: Leader::None,
             });
             self.close(Ending::Wrap, index + 1, self.line.end());
         } else {
-            self.line.tab(index, target);
+            self.line.tab(index, target, stop.leader);
         }
     }
 
@@ -576,9 +652,9 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
     if let Some(label) = &para.label {
         let line = &mut b.line;
         line.text.add_label(metrics, label.metric);
-        line.x += label.width + label.space;
+        line.x += label.width - label.lead() + label.space;
         if label.tab {
-            line.x = tab_stop(para, line.x, true, default_tab).0;
+            line.x = tab_stop(para, line.x, true, default_tab).pos;
         }
         line.has_content = true;
         line.start = line.x;
@@ -633,7 +709,7 @@ impl Para {
         if self.before_auto { 14.0 } else { self.before }
     }
 
-    pub(super) fn after_spacing(&self) -> f64 {
+    pub(crate) fn after_spacing(&self) -> f64 {
         if self.after_auto { 14.0 } else { self.after }
     }
 }
@@ -1562,6 +1638,14 @@ mod tests {
         assert_eq!(space_after_break(Some(&contextual), &contextual), 0.0);
     }
 
+    fn stop(pos: f64, kind: TabKind) -> TabStop {
+        TabStop {
+            pos,
+            kind,
+            leader: Leader::None,
+        }
+    }
+
     const METRICS: [Metric; 1] = [Metric {
         height: 10.0,
         ascent: 8.0,
@@ -1725,6 +1809,7 @@ mod tests {
             space: 0.0,
             tab: false,
             metric: 1,
+            align: Align::Left,
         });
         assert_eq!(lines(&p, &metrics, 100.0, 36.0)[0].height, 10.0);
     }
@@ -1878,6 +1963,7 @@ mod tests {
             space: 0.0,
             tab: false,
             metric: 2,
+            align: Align::Left,
         });
         assert_eq!(line(&p), (19.0, 12.0, 2.0));
         // An object taller than the text sits on the baseline.
@@ -1916,7 +2002,7 @@ mod tests {
         // 15 wide, so the tab moves from 15 to 75; one gap after the tab.
         let p = Para {
             pieces: text("a b\tc d", 5.0),
-            tabs: vec![(90.0, TabKind::Right)],
+            tabs: vec![stop(90.0, TabKind::Right)],
             ..Para::default()
         };
         let lines = lines(&p, &METRICS, 100.0, 36.0);
@@ -1927,7 +2013,8 @@ mod tests {
             [TabPlace {
                 piece: 3,
                 from: 15.0,
-                to: 75.0
+                to: 75.0,
+                leader: Leader::None
             }]
         );
         assert_eq!(
@@ -1943,7 +2030,7 @@ mod tests {
         for (number, to) in [("12.50", 50.0), ("1250", 40.0)] {
             let p = Para {
                 pieces: text(&format!("a\t{number}"), 5.0),
-                tabs: vec![(60.0, TabKind::Decimal)],
+                tabs: vec![stop(60.0, TabKind::Decimal)],
                 ..Para::default()
             };
             let line = lines(&p, &METRICS, 100.0, 36.0).remove(0);
@@ -1965,6 +2052,7 @@ mod tests {
                 space: 0.0,
                 tab: true,
                 metric: 0,
+                align: Align::Left,
             }),
             ..Para::default()
         };
@@ -2162,11 +2250,46 @@ mod tests {
                 space: 0.0,
                 tab: false,
                 metric: 0,
+                align: Align::Left,
             }),
             ..Para::default()
         };
         let line = lines(&p, &METRICS, 100.0, 36.0).remove(0);
         assert_eq!(line.baseline, line.height - 2.0);
+    }
+
+    #[test]
+    fn a_right_tab_past_the_margin_ends_its_text_at_the_margin() {
+        // A right stop at 150 on a 100-wide line: "bb" ends at 100, on the line.
+        let p = Para {
+            pieces: text("a\tbb", 5.0),
+            tabs: vec![stop(150.0, TabKind::Right)],
+            ..Para::default()
+        };
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].tabs[0].to, 90.0);
+    }
+
+    #[test]
+    fn a_centred_label_is_centred_with_its_suffix_space() {
+        // A 10-wide label and a 4-wide space centred on the indent at 10.
+        let p = Para {
+            pieces: text("a", 5.0),
+            left: 20.0,
+            first: -10.0,
+            label: Some(Label {
+                pieces: Vec::new(),
+                width: 10.0,
+                space: 4.0,
+                tab: false,
+                metric: 0,
+                align: Align::Center,
+            }),
+            ..Para::default()
+        };
+        let line = lines(&p, &METRICS, 100.0, 36.0).remove(0);
+        assert_eq!((line.label, line.start), (Some(3.0), 17.0));
     }
 
     #[test]
@@ -2183,7 +2306,8 @@ mod tests {
             [TabPlace {
                 piece: 4,
                 from: 96.0,
-                to: 96.0
+                to: 96.0,
+                leader: Leader::None
             }]
         );
         assert_eq!((lines[0].pieces.clone(), lines[0].width), (0..5, 96.0));

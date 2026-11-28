@@ -1075,6 +1075,11 @@ fn record_json(record: &docrs::layout::Record, round: impl Fn(f64) -> f64) -> se
                 "height": round(line.height),
                 "baseline": round(line.baseline),
                 "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                "leaders": line.leaders.iter().map(|leader| leader.as_ref().map(|run| json!({
+                    "text": run.text.chars().next().map(String::from),
+                    "x": run.origins.first().map(|x| round(*x)),
+                    "count": run.origins.len(),
+                }))).collect::<Vec<_>>(),
                 "slack": round(line.slack),
                 "gaps": line.gaps,
                 "last": line.last,

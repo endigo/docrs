@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use super::Align;
 use super::colour::Palette;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
 use crate::wml::{w_attr, w_child, w_children};
@@ -12,6 +13,7 @@ pub(super) struct Level {
     pub(super) ppr: PPr,
     pub(super) rpr: RPr,
     pub(super) suffix: String,
+    pub(super) align: Align,
 }
 
 /// A `w:num`: its abstractNumId, level overrides and start overrides.
@@ -35,6 +37,11 @@ fn read_level(tree: &XmlTree, lvl: NodeId, palette: &Palette) -> Level {
         ppr: read_ppr(tree, w_child(tree, lvl, "pPr"), palette),
         rpr: read_rpr(tree, w_child(tree, lvl, "rPr"), palette),
         suffix: val("suff").unwrap_or("tab").to_string(),
+        align: match val("lvlJc") {
+            Some("center") => Align::Center,
+            Some("right" | "end") => Align::Right,
+            _ => Align::Left,
+        },
     }
 }
 

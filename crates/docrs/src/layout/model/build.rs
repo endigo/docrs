@@ -4,7 +4,9 @@ use std::sync::Arc;
 use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign, is_ascii_slot};
 use super::props::{FontRef, RPr, length, number, read_rpr};
 use super::table::TableCtx;
-use super::{Block, Builder, FieldPen, Label, LineRule, LineSpacing, Metric, Para, Piece, RunFace};
+use super::{
+    Align, Block, Builder, FieldPen, Label, LineRule, LineSpacing, Metric, Para, Piece, RunFace,
+};
 use crate::fields::fieldcode;
 use crate::layout::fields::{FieldKind, FieldSpan, LayoutWarning, instruction};
 use crate::layout::fonts::{Face, FontKind};
@@ -371,6 +373,7 @@ impl Builder<'_> {
             widow_control: ppr.widow_control.unwrap_or(true),
             contextual: ppr.contextual.unwrap_or(false),
             align: ppr.align.unwrap_or_default(),
+            spread_breaks: self.spread_breaks,
             style: style.clone(),
             tabs: ppr.tabs.clone(),
             mark,
@@ -379,13 +382,14 @@ impl Builder<'_> {
             borders: ParaBorders::from_sides(ppr.borders.map(Option::flatten)),
             ..Para::default()
         };
-        para.tabs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        para.tabs.sort_by(|a, b| a.pos.total_cmp(&b.pos));
         let num = direct.num.clone().or_else(|| ppr.num.clone());
         if let Some((id, ilvl)) = num.filter(|(id, _)| id != "0") {
             let ilvl = direct.ilvl.or(ilvl).or(ppr.ilvl).unwrap_or(0);
             if let Some(text) = self.fmt.numbering.label(&id, ilvl) {
                 let level = self.fmt.numbering.level(&id, ilvl);
                 let suffix = level.map_or("tab".to_string(), |l| l.suffix.clone());
+                let align = level.map_or(Align::Left, |l| l.align);
                 let level_rpr = level.map(|l| l.rpr.clone()).unwrap_or_default();
                 let mut label_rpr = mark_rpr.clone();
                 label_rpr.merge(&level_rpr);
@@ -418,6 +422,7 @@ impl Builder<'_> {
                     metric: measurer.metric,
                     tab: suffix == "tab",
                     space,
+                    align,
                 });
             }
         }
@@ -789,8 +794,7 @@ impl Measurer {
 
     pub(crate) fn width(&self, ch: char) -> f64 {
         let face = self.face(ch);
-        let (ch, share) = self.caps.apply(ch);
-        let size = self.size * share;
+        let (ch, size) = self.caps.apply(ch, self.size);
         let emboldened = if self.bold && !face.bold {
             size * SYNTHETIC_BOLD_ADVANCE
         } else {
