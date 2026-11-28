@@ -123,9 +123,13 @@ fn run(content: &str) -> String {
 }
 
 fn graphic(uri: &str, inner: &str) -> String {
-    run(&format!(
+    run(&drawing(uri, inner))
+}
+
+fn drawing(uri: &str, inner: &str) -> String {
+    format!(
         r#"<w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" name="Graphic"/><a:graphic><a:graphicData uri="{uri}">{inner}</a:graphicData></a:graphic></wp:inline></w:drawing>"#
-    ))
+    )
 }
 
 fn picture(rel: &str) -> String {
@@ -334,6 +338,23 @@ fn cases() -> Vec<Case> {
                 &para(&run(&format!(
                     r#"<w:drawing><wp:anchor><wp:extent cx="914400" cy="914400"/><wp:wrapSquare wrapText="bothSides"/><wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="{PICTURE_URI}">{}</a:graphicData></a:graphic></wp:anchor></w:drawing>"#,
                     picture("rId1")
+                ))),
+                &[image_part("word/media/image1.png", "image/png")],
+                &[],
+            ),
+        ),
+        case(
+            "pdf_drawing_fallback_used",
+            "chart",
+            1,
+            docx(
+                &para(&run(&format!(
+                    r#"<mc:AlternateContent><mc:Choice xmlns:cx1="http://schemas.microsoft.com/office/drawing/2015/9/8/chartex" Requires="cx1">{}</mc:Choice><mc:Fallback>{}</mc:Fallback></mc:AlternateContent>"#,
+                    drawing(
+                        "http://schemas.microsoft.com/office/drawing/2014/chartex",
+                        "<cx/>"
+                    ),
+                    drawing(PICTURE_URI, &picture("rId1")),
                 ))),
                 &[image_part("word/media/image1.png", "image/png")],
                 &[],
@@ -916,8 +937,9 @@ fn pictures(count: usize) -> Objects {
     let body: String = (0..count)
         .map(|_| para(&graphic(PICTURE_URI, &picture("rId1"))))
         .collect();
-    let parts = [image_part("word/media/image1.png", "image/png")];
-    (NOT_YET_DRAWN, "image", count, docx(&body, &parts, &[]))
+    let parts = [image_part("word/media/image1.emf", "image/x-emf")];
+    let document = docx(&body, &parts, &[]);
+    ("pdf_image_unsupported", "EMF image", count, document)
 }
 
 fn links(count: usize) -> Objects {
@@ -1076,7 +1098,11 @@ fn fields_and_drawing_links_are_classified() {
     );
     assert_eq!(subjects(&report, "pdf_link_scheme_skipped"), [("link", 2)]);
     assert_eq!(subjects(&report, "pdf_link_target_missing"), [("link", 1)]);
-    assert_eq!(subjects(&report, NOT_YET_DRAWN), [("image", 1)]);
+    // The picture names no image: drawn as a placeholder.
+    assert_eq!(
+        subjects(&report, "pdf_image_unsupported"),
+        [("missing image", 1)]
+    );
 }
 
 #[test]
@@ -1467,4 +1493,16 @@ fn table_layout_features_the_pdf_ignores_are_reported() {
             ("rotated cell text", 1)
         ]
     );
+}
+
+#[test]
+fn a_vml_picture_naming_no_part_is_not_yet_drawn() {
+    // VML pictures are not drawn at all, so a missing part is no
+    // placeholder: the picture is reported as not drawn.
+    let body = para(&run(
+        r#"<w:pict><v:shape style="width:20pt;height:20pt"><v:imagedata r:id="rIdNone"/></v:shape></w:pict>"#,
+    ));
+    let report = report(&docx(&body, &[], &[]));
+    assert_eq!(subjects(&report, NOT_YET_DRAWN), [("image", 1)]);
+    assert!(subjects(&report, "pdf_image_unsupported").is_empty());
 }

@@ -24,6 +24,8 @@ pub(crate) use self::sample::image_document;
 
 /// A format the engine does not draw, or a variant of one it does.
 pub(crate) const UNSUPPORTED: &str = "pdf_image_unsupported";
+/// Image data that does not read as its format.
+pub(crate) const MALFORMED: &str = "pdf_image_malformed";
 /// An embedded colour profile, which the image is drawn without.
 pub(crate) const PROFILE_IGNORED: &str = "pdf_image_profile_ignored";
 /// An animation, drawn as its first frame.
@@ -345,7 +347,7 @@ fn too_large() -> Error {
 }
 
 fn malformed(what: impl std::fmt::Display) -> Error {
-    Error::malformed("pdf_image_malformed", format!("malformed image: {what}"))
+    Error::malformed(MALFORMED, format!("malformed image: {what}"))
 }
 
 fn unsupported(what: impl std::fmt::Display) -> Error {

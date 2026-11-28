@@ -3,21 +3,21 @@ use super::formatting::ParaFormat;
 use std::sync::Arc;
 
 use super::look::{Appearance, Caps, Link, ParaBorders, Strike, VertAlign, is_ascii_slot};
+use super::object::{self, Drawing, Placement};
 use super::props::{BODY_TEXT, FontRef, RPr, length, number, read_rpr};
 use super::table::TableCtx;
 use super::{
-    Align, Block, Bookmark, Builder, FieldPen, Label, LineRule, LineSpacing, Metric, Para, Piece,
-    RunFace,
+    Align, Anchor, Block, Bookmark, Builder, FieldPen, Label, LineRule, LineSpacing, Metric,
+    Object, ObjectKind, Para, Piece, RunFace,
 };
 use crate::fields::fieldcode;
 use crate::layout::fields::{Case, FieldKind, FieldSpan, LayoutWarning, instruction, locked};
 use crate::layout::fonts::{Face, FaceSource, FontKind, Resolved};
 use crate::layout::variation::Style;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
-use crate::wml::{M, R, W, w_attr, w_child};
+use crate::wml::{M, R, W, first_choice_children, w_attr, w_child};
 use crate::xml::{NodeData, NodeId, XmlTree};
 
-const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const VML: &str = "urn:schemas-microsoft-com:vml";
 
 /// Tables nested deeper are laid out as their paragraphs.
@@ -655,12 +655,8 @@ impl Builder<'_> {
         }
         let mut pen: Option<Pen> = None;
         let mut previous: Option<char> = None;
-        for child in tree.child_elements(r) {
+        for child in first_choice_children(tree, r) {
             if tree.ns_uri(child) != Some(W) {
-                if tree.local_name(child) == Some("AlternateContent") {
-                    // Choose the fallback's VML size if any; inline content
-                    // rarely uses this.
-                }
                 continue;
             }
             let in_instruction = fields.iter().any(|f| f.part == FieldPart::Code);
@@ -813,26 +809,7 @@ impl Builder<'_> {
                         look: pen.look,
                     });
                 }
-                "drawing" => {
-                    for node in tree.descendants(child) {
-                        if tree.is(node, DRAWINGML_WP, "inline") {
-                            if let Some(extent) =
-                                tree.first_child_named(node, DRAWINGML_WP, "extent")
-                            {
-                                let emu = |name: &str| {
-                                    tree.attr(extent, None, name)
-                                        .and_then(number)
-                                        .map_or(0.0, |emu| length(emu / EMU_PER_PT as f64))
-                                };
-                                para.pieces.push(Piece::Object {
-                                    width: emu("cx"),
-                                    height: emu("cy"),
-                                });
-                            }
-                            break;
-                        }
-                    }
-                }
+                "drawing" => self.drawing(tree, child, para),
                 "pict" | "object" => {
                     // VML: the horizontal rule and sized shapes.
                     for node in tree.descendants(child) {
@@ -846,9 +823,21 @@ impl Builder<'_> {
                                     Some("urn:schemas-microsoft-com:office:office"),
                                     "hr",
                                 ) == Some("t");
-                                para.pieces.push(Piece::Object {
-                                    width: if hr { 0.0 } else { width },
+                                let (width, kind) = if hr {
+                                    (0.0, ObjectKind::Rule)
+                                } else {
+                                    (width, ObjectKind::Unsupported)
+                                };
+                                let object = self.object(Object {
+                                    width,
                                     height,
+                                    effect: [0.0; 4],
+                                    kind,
+                                });
+                                para.pieces.push(Piece::Object {
+                                    width,
+                                    height,
+                                    object,
                                 });
                                 break;
                             }
@@ -857,6 +846,44 @@ impl Builder<'_> {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn object(&mut self, object: Object) -> u32 {
+        self.objects.push(object);
+        self.objects.len() as u32 - 1
+    }
+
+    /// An inline drawing's box in the line, or an anchored one's place.
+    fn drawing(&mut self, tree: &XmlTree, node: NodeId, para: &mut Para) {
+        let Some(Drawing { object, anchor }) = object::read(tree, node, &self.parts) else {
+            return;
+        };
+        let [left, top, right, bottom] = object.effect;
+        let (width, height) = (
+            length(object.width + left + right).max(0.0),
+            length(object.height + top + bottom).max(0.0),
+        );
+        let index = self.object(object);
+        match anchor {
+            None => para.pieces.push(Piece::Object {
+                width,
+                height,
+                object: index,
+            }),
+            Some(Placement {
+                x,
+                y,
+                behind,
+                order,
+            }) => para.anchors.push(Anchor {
+                object: index,
+                piece: para.pieces.len() as u32,
+                x,
+                y,
+                behind,
+                order,
+            }),
         }
     }
 }

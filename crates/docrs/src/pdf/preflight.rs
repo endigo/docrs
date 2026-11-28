@@ -8,14 +8,17 @@ use std::collections::{HashMap, HashSet};
 use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
 use super::{FOOTNOTE_LAYOUT_UNSUPPORTED, NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
-    CAMBRIA_MATH, Formatting, Frame, Link, NoteKind, NotePosition, NoteSettings, ParaFormat, Parts,
-    RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize, on_off,
-    section_properties, shaded, story_references,
+    self, CAMBRIA_MATH, Formatting, Frame, Link, NoteKind, NotePosition, NoteSettings, ParaFormat,
+    Parts, RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize,
+    on_off, section_properties, shaded, story_references,
 };
 use crate::layout::{FieldShown, field_locked, field_shown};
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
-use crate::wml::{A, M, PIC, R, W, WP, first_choice_children, paragraph_text, w_attr, w_child};
+use crate::wml::{
+    A, M, MC, PIC, R, W, WP, chosen_alternative, first_choice_children, paragraph_text, w_attr,
+    w_child,
+};
 use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Result};
 
@@ -31,8 +34,6 @@ const CHART_URIS: &[&str] = &[
     "http://schemas.microsoft.com/office/drawing/2014/chartex",
 ];
 const DIAGRAM_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
-/// Word names its watermark shapes with these prefixes.
-const WATERMARK_PREFIXES: &[&str] = &["PowerPlusWaterMarkObject", "WordPictureWatermark"];
 
 const CHART: &str = "pdf_chart_skipped";
 const SMARTART: &str = "pdf_smartart_skipped";
@@ -52,6 +53,7 @@ const LINK: &str = "pdf_link_scheme_skipped";
 const LINK_TARGET: &str = "pdf_link_target_missing";
 const JUSTIFY: &str = "pdf_justification_unsupported";
 const APPROXIMATED: &str = "pdf_decoration_approximated";
+const FALLBACK: &str = "pdf_drawing_fallback_used";
 
 const RTL: &str = "right-to-left text";
 
@@ -343,6 +345,11 @@ impl<'s, 'd> Scan<'s, 'd> {
     }
 
     fn walk(&mut self, tree: &XmlTree, node: NodeId) -> Result<()> {
+        for alternate in tree.child_elements(node) {
+            if let Some(subject) = drawing_fallback(tree, alternate) {
+                self.note(FALLBACK, subject);
+            }
+        }
         for child in first_choice_children(tree, node) {
             if self.visit(tree, child)? {
                 self.walk(tree, child)?;
@@ -377,7 +384,7 @@ impl<'s, 'd> Scan<'s, 'd> {
                     .descendants(node)
                     .find(|&n| tree.is(n, A, "blip"))
                     .and_then(|blip| tree.attr(blip, Some(R), "embed"));
-                self.image(blip);
+                self.image(blip, true);
                 false
             }
             Some(WPS) if local == "wsp" => {
@@ -801,7 +808,7 @@ impl<'s, 'd> Scan<'s, 'd> {
         } else if let Some(text_box) = find("textbox") {
             self.text_box(tree, text_box);
         } else if let Some(data) = find("imagedata") {
-            self.image(tree.attr(data, Some(R), "id"));
+            self.image(tree.attr(data, Some(R), "id"), false);
         } else if tree.attr(node, Some(OFFICE), "hr") == Some("t") {
             self.note(NOT_YET_DRAWN, "horizontal rule");
         } else {
@@ -819,21 +826,28 @@ impl<'s, 'd> Scan<'s, 'd> {
         self.note_with(TEXT_BOX, "text box", text.join(" "));
     }
 
-    /// A picture by its relationship: TIFF, EMF and WMF are unsupported.
-    fn image(&mut self, id: Option<&str>) {
+    /// A picture by its relationship: TIFF, EMF and WMF are unsupported,
+    /// and one the package does not hold is a placeholder. A DrawingML
+    /// picture is `drawn`; a VML one is not yet, whatever its part.
+    fn image(&mut self, id: Option<&str>, drawn: bool) {
         let source = source_part_name(&self.part);
         let base = base_uri(&source);
-        let format = id
+        let part = id
             .and_then(|id| self.rels.get(id))
             .filter(|rel| !rel.external)
-            .and_then(|rel| self.txn.resolve(&rel.target_part_name(base)))
-            .and_then(|part| {
-                let content_type = self.txn.content_type(&part).unwrap_or_default();
-                unsupported_image(&content_type, &part)
-            });
-        match format {
+            .and_then(|rel| self.txn.resolve(&rel.target_part_name(base)));
+        let Some(part) = part else {
+            return if drawn {
+                self.note(IMAGE, "missing image")
+            } else {
+                self.note(NOT_YET_DRAWN, "image")
+            };
+        };
+        let content_type = self.txn.content_type(&part).unwrap_or_default();
+        match unsupported_image(&content_type, &part) {
             Some(format) => self.note(IMAGE, format),
-            None => self.note(NOT_YET_DRAWN, "image"),
+            None if !drawn => self.note(NOT_YET_DRAWN, "image"),
+            None => {}
         }
     }
 
@@ -905,8 +919,26 @@ fn deleted(tree: &XmlTree, node: NodeId) -> bool {
         .any(|n| tree.is(n, W, "del") || tree.is(n, W, "moveFrom"))
 }
 
+/// The chart or SmartArt `alternate` holds when it is an
+/// `mc:AlternateContent` read through a fallback that holds a picture.
+fn drawing_fallback(tree: &XmlTree, alternate: NodeId) -> Option<&'static str> {
+    if !tree.is(alternate, MC, "AlternateContent") {
+        return None;
+    }
+    let fallback = chosen_alternative(tree, alternate).filter(|&b| tree.is(b, MC, "Fallback"))?;
+    tree.descendants(fallback)
+        .find(|&n| tree.is(n, PIC, "pic"))?;
+    tree.descendants(alternate)
+        .filter(|&n| tree.is(n, A, "graphicData"))
+        .find_map(|data| match tree.attr(data, None, "uri") {
+            Some(uri) if CHART_URIS.contains(&uri) => Some("chart"),
+            Some(DIAGRAM_URI) => Some("SmartArt"),
+            _ => None,
+        })
+}
+
 fn is_watermark(name: Option<&str>) -> bool {
-    name.is_some_and(|name| WATERMARK_PREFIXES.iter().any(|p| name.starts_with(p)))
+    name.is_some_and(model::is_watermark)
 }
 
 /// `w15:footnoteColumns`.
@@ -935,7 +967,7 @@ fn columns(tree: &XmlTree, cols: NodeId) -> usize {
     declared.max(listed)
 }
 
-fn unsupported_image(content_type: &str, part: &str) -> Option<&'static str> {
+pub(super) fn unsupported_image(content_type: &str, part: &str) -> Option<&'static str> {
     let extension = part
         .rsplit_once('.')
         .map_or("", |(_, e)| e)
