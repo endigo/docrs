@@ -3,7 +3,10 @@
 mod support;
 
 use docrs::markdown::{MarkdownOptions, insert_markdown};
-use docrs::pdf::{NOT_YET_DRAWN, PdfReport, WARNING_CODES, preflight, preflight_work_for_tests};
+use docrs::pdf::{
+    FOOTNOTE_LAYOUT_UNSUPPORTED, NOT_YET_DRAWN, PdfReport, WARNING_CODES, preflight,
+    preflight_work_for_tests,
+};
 use docrs::{Document, Limits, RefusalKind};
 use support::{ROOT_RELS, RawMember, build_zip, png_150dpi, snapshot};
 
@@ -37,6 +40,9 @@ fn xml_part(name: &'static str, kind: &'static str, root: &str, content: &str) -
         name,
         content_type: match kind {
             "header" => "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml",
+            "footnotes" => {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+            }
             "settings" => {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
             }
@@ -152,6 +158,8 @@ struct Case {
     subject: &'static str,
     count: usize,
     document: Document,
+    /// Document-wide settings have no location.
+    located: bool,
 }
 
 fn case(code: &'static str, subject: &'static str, count: usize, document: Document) -> Case {
@@ -160,6 +168,16 @@ fn case(code: &'static str, subject: &'static str, count: usize, document: Docum
         subject,
         count,
         document,
+        located: true,
+    }
+}
+
+impl Case {
+    fn unlocated(self) -> Case {
+        Case {
+            located: false,
+            ..self
+        }
     }
 }
 
@@ -416,6 +434,22 @@ fn cases() -> Vec<Case> {
             ),
         ),
         case(
+            FOOTNOTE_LAYOUT_UNSUPPORTED,
+            "footnotes beneath the text",
+            1,
+            docx(
+                &para(FOOTNOTE_REF),
+                &[xml_part(
+                    "word/settings.xml",
+                    "settings",
+                    "settings",
+                    r#"<w:footnotePr><w:pos w:val="beneathText"/></w:footnotePr>"#,
+                )],
+                &[],
+            ),
+        )
+        .unlocated(),
+        case(
             "pdf_link_target_missing",
             "link",
             2,
@@ -442,6 +476,8 @@ fn cases() -> Vec<Case> {
     ]
 }
 
+const FOOTNOTE_REF: &str = r#"<w:r><w:footnoteReference w:id="1"/></w:r>"#;
+
 fn report(document: &Document) -> PdfReport {
     preflight(document).unwrap()
 }
@@ -457,9 +493,10 @@ fn each_fixture_reports_its_code_and_count() {
             .collect();
         assert_eq!(found.len(), 1, "{}: {report:#?}", case.code);
         assert_eq!(found[0].count, case.count, "{}: {report:#?}", case.code);
+        let located = if case.located { case.count } else { 0 };
         assert_eq!(
             found[0].locations.len(),
-            case.count.min(docrs::pdf::MAX_LOCATIONS)
+            located.min(docrs::pdf::MAX_LOCATIONS)
         );
         let others: Vec<_> = report
             .warnings
@@ -620,6 +657,64 @@ fn not_yet_drawn_refuses_even_without_strict() {
         NOT_YET_DRAWN
     );
     assert_eq!(json["error"]["details"]["warnings"][0]["count"], 1);
+}
+
+#[test]
+fn notes_the_layout_cannot_place_refuse_even_without_strict() {
+    let endnote = r#"<w:r><w:endnoteReference w:id="1"/></w:r>"#;
+    let section_end = section(r#"<w:endnotePr><w:pos w:val="sectEnd"/></w:endnotePr>"#);
+    let body = para(&(FOOTNOTE_REF.to_string() + endnote))
+        + &para(&format!("<w:pPr>{section_end}</w:pPr>"))
+        + &section(
+            r#"<w15:footnoteColumns xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" w:val="2"/>"#,
+        );
+    let mut report = report(&docx(&body, &[], &[]));
+    report
+        .warnings
+        .retain(|w| w.code == FOOTNOTE_LAYOUT_UNSUPPORTED);
+    let subjects: Vec<&str> = report.warnings.iter().map(|w| w.subject).collect();
+    assert_eq!(subjects, ["footnote columns", "endnotes at section ends"]);
+    let err = report.check(false).unwrap_err();
+    assert_eq!(err.reason(), FOOTNOTE_LAYOUT_UNSUPPORTED);
+    assert!(
+        err.message()
+            .contains("footnote columns, endnotes at section ends"),
+        "{}",
+        err.message()
+    );
+    let one_section = para(&(FOOTNOTE_REF.to_string() + endnote)) + &section_end;
+    assert!(
+        preflight(&docx(&one_section, &[], &[]))
+            .unwrap()
+            .warnings
+            .iter()
+            .all(|w| w.code != FOOTNOTE_LAYOUT_UNSUPPORTED),
+        "one section's end is the document's"
+    );
+}
+
+#[test]
+fn a_note_referenced_only_from_a_note_refuses() {
+    let notes = xml_part(
+        "word/footnotes.xml",
+        "footnotes",
+        "footnotes",
+        &(r#"<w:footnote w:id="1">"#.to_string()
+            + &para(r#"<w:r><w:footnoteReference w:id="2"/></w:r>"#)
+            + r#"</w:footnote><w:footnote w:id="2">"#
+            + &para(&run("<w:t>Nested.</w:t>"))
+            + "</w:footnote>"),
+    );
+    let mut report = report(&docx(&para(FOOTNOTE_REF), &[notes], &[]));
+    report
+        .warnings
+        .retain(|w| w.code == FOOTNOTE_LAYOUT_UNSUPPORTED);
+    assert_eq!(report.warnings.len(), 1, "{report:#?}");
+    assert_eq!(
+        report.warnings[0].subject,
+        "notes referenced only from a note"
+    );
+    assert_eq!(report.warnings[0].count, 1);
 }
 
 #[test]

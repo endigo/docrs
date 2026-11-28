@@ -1,10 +1,13 @@
 //! Rows across pages: each cell continues from its own cut, page after
 //! page, and a nested table splits with the cell holding it.
 
-use super::{CellPart, EPSILON, Flow, Headers, Item, ParaOffset, Placed, Point, RowLayout, Sink};
+use super::{
+    CellPart, EPSILON, Flow, Headers, Item, ParaOffset, Placed, Point, RowLayout, Sink, notes,
+};
 use super::{RowSlice, Table};
 use crate::Result;
 use crate::layout::model::Cell;
+use crate::layout::model::NoteId;
 
 /// What is left of a cell's content: from `start`, the content offset at
 /// the top of this page's part.
@@ -97,6 +100,20 @@ impl<'a, 'm> Rest<'a, 'm> {
         (self.line + 1..lines.len()).find(|&k| lines[k].cut > from + EPSILON)
     }
 
+    /// The bottom of the last line kept above `cut` when this part's top is
+    /// `top`; none when no line is kept.
+    fn kept_bottom(&self, top: f64, cut: Option<usize>) -> Option<f64> {
+        let lines = &self.part.layout.lines;
+        let end = cut.unwrap_or(lines.len());
+        let line = lines.get(self.line..end)?.last().filter(|_| !self.done)?;
+        Some(top - self.start + line.offset + line.height)
+    }
+
+    /// Whether a drawn item at `offset` is in this page's part up to `cut`.
+    fn holds(&self, offset: f64, cut: Option<usize>) -> bool {
+        !self.done && offset >= self.start - EPSILON && offset < self.end(cut) - EPSILON
+    }
+
     fn end(&self, cut: Option<usize>) -> f64 {
         cut.map_or(self.part.layout.content, |k| self.part.layout.lines[k].cut)
     }
@@ -145,12 +162,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         let mut first = true;
         loop {
             let available = self.bottom - self.y;
-            let mut cuts = Vec::with_capacity(rests.len());
-            for rest in &rests {
-                let (cut, looked) = rest.cut(rest.top(first), available);
-                self.charge(looked)?;
-                cuts.push(cut);
-            }
+            let mut cuts = self.cuts_with_notes(layout, &rests, first, available)?;
             if self.at_top {
                 // Headers and footers leave each page its own room. A line
                 // taller than any page's room is placed now; else, as a
@@ -183,6 +195,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 // row whole.
                 return Ok(false);
             }
+            let refs =
+                notes::row_refs(layout, |cell, offset| rests[cell].holds(offset, cuts[cell]));
+            let kept = slice_bottom(layout, &rests, &cuts, first);
+            self.reserve(&refs, self.y + kept)?;
             let height = if last {
                 rests
                     .iter()
@@ -191,7 +207,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     .map(|(rest, cell)| rest.height(cell))
                     .fold(0.0, f64::max)
             } else {
-                available
+                self.bottom - self.y
             };
             let slice = RowSlice {
                 height,
@@ -256,6 +272,52 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(true)
     }
 
+    /// Each cell's cut for a slice of `available` points, moved up until
+    /// the notes of what it keeps fit: each retry drops the deepest kept
+    /// line, until none is kept. When a note goes on to the next page, the
+    /// slice ends at the line citing it, as a paragraph's page does.
+    fn cuts_with_notes(
+        &mut self,
+        layout: &RowLayout<'m>,
+        rests: &[Rest<'_, 'm>],
+        first: bool,
+        mut available: f64,
+    ) -> Result<Vec<Option<usize>>> {
+        loop {
+            let mut cuts = Vec::with_capacity(rests.len());
+            for rest in rests {
+                let (cut, looked) = rest.cut(rest.top(first), available);
+                self.charge(looked)?;
+                cuts.push(cut);
+            }
+            let refs =
+                notes::row_refs(layout, |cell, offset| rests[cell].holds(offset, cuts[cell]));
+            let Some(kept) = kept_bottom(rests, &cuts, first) else {
+                return Ok(cuts);
+            };
+            if refs.is_empty() {
+                return Ok(cuts);
+            }
+            let mut area = self.notes.area.clone();
+            let bottom = slice_bottom(layout, rests, &cuts, first);
+            if !self.admit(&mut area, &refs, self.y + bottom)? {
+                available = kept - 2.0 * EPSILON;
+                continue;
+            }
+            let citing = area.going_on().and_then(|going_on| {
+                citations(layout, rests, &cuts, first)
+                    .into_iter()
+                    .filter(|(_, note)| *note == going_on)
+                    .map(|(bottom, _)| bottom)
+                    .reduce(f64::min)
+            });
+            match citing {
+                Some(bottom) if bottom < kept - EPSILON => available = bottom,
+                _ => return Ok(cuts),
+            }
+        }
+    }
+
     /// Draw a cell's items from `rest.start` to `end`, the content offset 0
     /// at `origin`: nested rows begun above first, as parts.
     fn draw_rest(&mut self, rest: &mut Rest<'_, 'm>, origin: Point, end: f64) -> Result<()> {
@@ -303,4 +365,51 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
         Ok(())
     }
+}
+
+/// Where the slice ends above its notes: its deepest kept line, or a line
+/// citing a footnote with its paragraph's space after.
+fn slice_bottom(
+    layout: &RowLayout<'_>,
+    rests: &[Rest<'_, '_>],
+    cuts: &[Option<usize>],
+    first: bool,
+) -> f64 {
+    citations(layout, rests, cuts, first)
+        .into_iter()
+        .map(|(bottom, _)| bottom)
+        .chain(kept_bottom(rests, cuts, first))
+        .fold(0.0, f64::max)
+}
+
+/// The bottom of the deepest line the cells keep above their cuts, from
+/// the slice's top; none when no cell keeps one.
+fn kept_bottom(rests: &[Rest<'_, '_>], cuts: &[Option<usize>], first: bool) -> Option<f64> {
+    rests
+        .iter()
+        .zip(cuts)
+        .filter_map(|(rest, cut)| rest.kept_bottom(rest.top(first), *cut))
+        .reduce(f64::max)
+}
+
+/// The footnotes the kept lines cite, each with its line's bottom above the
+/// notes, from the slice's top.
+fn citations(
+    layout: &RowLayout<'_>,
+    rests: &[Rest<'_, '_>],
+    cuts: &[Option<usize>],
+    first: bool,
+) -> Vec<(f64, NoteId)> {
+    let mut out = Vec::new();
+    for ((rest, part), cut) in rests.iter().zip(&layout.cells).zip(cuts) {
+        for drawn in &part.layout.drawn {
+            if let Item::Line(para, line) = &drawn.item
+                && rest.holds(drawn.offset, *cut)
+            {
+                let top = rest.top(first) - rest.start + drawn.offset;
+                out.extend(notes::citations(para, line, top));
+            }
+        }
+    }
+    out
 }

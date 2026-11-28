@@ -164,8 +164,13 @@ fn level_in<'a>(
         .or_else(|| abstracts.get(abs).and_then(|levels| levels.get(&ilvl)))
 }
 
-fn format_number(value: i64, format: &str) -> String {
+pub(super) fn format_number(value: i64, format: &str) -> String {
     match format {
+        "chicago" => {
+            let n = value.max(1) - 1;
+            let symbol = ['*', '\u{2020}', '\u{2021}', '\u{00A7}'][(n % 4) as usize];
+            std::iter::repeat_n(symbol, (n / 4 + 1) as usize).collect()
+        }
         "lowerLetter" | "upperLetter" => {
             let n = value.max(1) - 1;
             let letter = (b'a' + (n % 26) as u8) as char;

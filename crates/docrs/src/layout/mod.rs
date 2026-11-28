@@ -6,18 +6,21 @@
 //! labels and line spacing), paragraph spacing with contextual spacing,
 //! page breaks, keep-with-next, keep-lines, widow/orphan control, tables
 //! (rows as tall as their tallest cell, split between lines, repeated
-//! header rows), inline pictures, and each page's header and footer (first,
-//! even or default), which push the body down when taller than the margin.
+//! header rows), inline pictures, each page's header and footer (first,
+//! even or default), which push the body down when taller than the margin,
+//! footnotes at the foot of their page and endnotes after the last block.
 //! Page numbers, page counts, page references and document properties are
 //! computed; other fields show their stored result. Floating objects,
-//! footnotes, columns and multiple sections with different page setups are
-//! not modelled.
+//! columns and multiple sections with different page setups are not
+//! modelled.
 
 mod fields;
 pub(crate) mod flow;
 pub mod fonts;
 mod furniture;
 pub(crate) mod model;
+#[cfg(test)]
+mod note_tests;
 pub(crate) mod variation;
 
 use std::collections::{HashMap, HashSet};
@@ -818,6 +821,7 @@ pub fn records_with(
     settled.paginate(&mut LineDump {
         model: &settled.model,
         page: 0,
+        marks: HashMap::new(),
         each,
     })
 }
@@ -825,6 +829,7 @@ pub fn records_with(
 struct LineDump<'m, F> {
     model: &'m model::Model,
     page: u32,
+    marks: HashMap<model::NoteId, String>,
     each: F,
 }
 
@@ -833,6 +838,8 @@ fn story_name(story: StoryId) -> String {
         StoryId::Body => "body".to_string(),
         StoryId::Header(n) => format!("header{n}"),
         StoryId::Footer(n) => format!("footer{n}"),
+        StoryId::Footnotes => "footnotes".to_string(),
+        StoryId::Endnotes => "endnotes".to_string(),
     }
 }
 
@@ -842,18 +849,23 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
         Ok(())
     }
 
+    fn note(&mut self, note: model::NoteId, mark: &str) -> Result<()> {
+        self.marks.insert(note, mark.to_string());
+        Ok(())
+    }
+
     fn line(&mut self, at: flow::Point, para: &model::Para, line: &flow::Line) -> Result<()> {
         let pieces = para
             .pieces
             .get(line.pieces.start as usize..line.pieces.end as usize)
             .unwrap_or_default();
         let (origins, label_origins) = line.origins(para);
-        let runs = by_look(pieces, &origins, at.x);
+        let runs = by_look(pieces, &origins, at.x, &self.marks);
         let label = para
             .label
             .as_ref()
             .filter(|_| line.label.is_some())
-            .and_then(|label| by_look(&label.pieces, &label_origins, at.x).pop());
+            .and_then(|label| by_look(&label.pieces, &label_origins, at.x, &self.marks).pop());
         let mut leaders = line.leaders(para, self.model, at.x).into_iter().peekable();
         let leaders = line
             .tabs
@@ -934,24 +946,47 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
 
 /// `pieces` by look, their characters at `origins` from `left`; a tab is
 /// `\t`.
-fn by_look(pieces: &[model::Piece], origins: &[f64], left: f64) -> Vec<RunRecord> {
+/// A note's mark, each character at its x: spread evenly over the mark's
+/// width, which layout measured with the mark's number in document order.
+pub(crate) fn mark_characters(mark: &str, width: f64, x: f64) -> impl Iterator<Item = (char, f64)> {
+    let step = width / mark.chars().count().max(1) as f64;
+    mark.chars()
+        .enumerate()
+        .map(move |(i, ch)| (ch, x + step * i as f64))
+}
+
+/// A line's text by look, each character at its origin.
+fn by_look(
+    pieces: &[model::Piece],
+    origins: &[f64],
+    left: f64,
+    marks: &HashMap<model::NoteId, String>,
+) -> Vec<RunRecord> {
     let mut runs: Vec<RunRecord> = Vec::new();
     for (piece, origin) in pieces.iter().zip(origins) {
-        let (ch, look) = match piece {
-            model::Piece::Char { ch, look, .. } => (*ch, *look),
-            model::Piece::Tab { look, .. } => ('\t', *look),
-            _ => continue,
-        };
-        match runs.last_mut() {
+        let mut push = |ch: char, look: u32, x: f64| match runs.last_mut() {
             Some(run) if run.look == look => {
                 run.text.push(ch);
-                run.origins.push(left + origin);
+                run.origins.push(x);
             }
             _ => runs.push(RunRecord {
                 text: ch.to_string(),
                 look,
-                origins: vec![left + origin],
+                origins: vec![x],
             }),
+        };
+        match piece {
+            model::Piece::Char { ch, look, .. } => push(*ch, *look, left + origin),
+            model::Piece::Tab { look, .. } => push('\t', *look, left + origin),
+            model::Piece::NoteRef {
+                note, width, look, ..
+            } => {
+                let mark = marks.get(note).map_or("", String::as_str);
+                for (ch, x) in mark_characters(mark, *width, left + origin) {
+                    push(ch, *look, x);
+                }
+            }
+            _ => {}
         }
     }
     runs

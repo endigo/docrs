@@ -10,7 +10,8 @@ use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
 use crate::layout::flow::{Line, PageStart, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
-use crate::layout::model::{Appearance, Block, Model, Para, Piece, Rgb, TabKind};
+use crate::layout::mark_characters;
+use crate::layout::model::{Appearance, Block, Model, NoteId, Para, Piece, Rgb, TabKind};
 use crate::txn::Txn;
 use crate::{Error, ErrorDetails, MissingFont, Result};
 
@@ -48,6 +49,8 @@ pub(super) struct Painter<'m, 't> {
     /// Draws, for tests, what no font program draws (a space for what it
     /// lacks), at the positions layout gives.
     stand_in: Option<Arc<Face>>,
+    /// Each note's mark, as pagination numbers it.
+    note_marks: HashMap<NoteId, String>,
 }
 
 /// The text and graphics state a content stream carries between runs.
@@ -118,6 +121,7 @@ impl<'m, 't> Painter<'m, 't> {
             drawn: 0,
             max_drawn: limits.max_output_bytes.saturating_mul(MAX_CONTENT_RATIO),
             stand_in,
+            note_marks: HashMap::new(),
         })
     }
 
@@ -302,8 +306,8 @@ impl<'m, 't> Painter<'m, 't> {
         }
         let visible = pieces.iter().rposition(|piece| match piece {
             Piece::Char { ch, .. } => *ch != ' ',
-            Piece::Tab { .. } | Piece::Object { .. } => true,
-            Piece::LineBreak { .. } | Piece::PageBreak => false,
+            Piece::Tab { .. } | Piece::Object { .. } | Piece::NoteRef { .. } => true,
+            Piece::LineBreak { .. } | Piece::PageBreak | Piece::Separator { .. } => false,
         });
         let mut spans = Vec::new();
         for (at, (piece, x)) in pieces.iter().zip(origins).enumerate() {
@@ -469,8 +473,24 @@ impl Sink for Painter<'_, '_> {
         Ok(())
     }
 
+    fn note(&mut self, note: NoteId, mark: &str) -> Result<()> {
+        self.note_marks.insert(note, mark.to_string());
+        Ok(())
+    }
+
+    /// Word never splits a note holding a table across pages.
+    fn note_unplaced(&mut self, note: NoteId) -> Result<()> {
+        Err(Error::unsupported(
+            super::FOOTNOTE_LAYOUT_UNSUPPORTED,
+            format!(
+                "footnote {} holds a table that would go on to the next page",
+                note.index + 1
+            ),
+        ))
+    }
+
     fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
-        let marks = marks(self.model, at.x, para, line);
+        let marks = marks(self.model, &self.note_marks, at.x, para, line);
         let runs = self.runs(&marks)?;
         let spans = self.line_spans(at.x, para, line);
         let height = self.page_height()?;
@@ -490,8 +510,15 @@ impl Sink for Painter<'_, '_> {
 }
 
 /// What `line` draws, in reading order: its label, then its characters,
-/// each tab's leader in its place. A tab ends a run, as the label does.
-fn marks(model: &Model, left: f64, para: &Para, line: &Line) -> Vec<Option<Mark>> {
+/// each note's mark as `layout --lines` places it, and each tab's leader in
+/// its place. A tab ends a run, as the label does.
+fn marks(
+    model: &Model,
+    note_marks: &HashMap<NoteId, String>,
+    left: f64,
+    para: &Para,
+    line: &Line,
+) -> Vec<Option<Mark>> {
     let (origins, label_origins) = line.origins(para);
     let mut leaders = line.leaders(para, model, left).into_iter().peekable();
     let char_mark = |piece: &Piece, x: f64| match piece {
@@ -519,7 +546,18 @@ fn marks(model: &Model, left: f64, para: &Para, line: &Line) -> Vec<Option<Mark>
         .get(first as usize..line.pieces.end as usize)
         .unwrap_or_default();
     for (at, (piece, x)) in pieces.iter().zip(&origins).enumerate() {
-        out.push(char_mark(piece, *x));
+        match piece {
+            Piece::NoteRef {
+                note, width, look, ..
+            } => {
+                let mark = note_marks.get(note).map_or("", String::as_str);
+                out.extend(
+                    mark_characters(mark, *width, left + x)
+                        .map(|(ch, x)| Some(Mark { ch, look: *look, x })),
+                );
+            }
+            _ => out.push(char_mark(piece, *x)),
+        }
         let piece = first + at as u32;
         let Some(leader) = leaders.next_if(|leader| leader.piece == piece) else {
             continue;
@@ -544,6 +582,8 @@ pub(super) fn check_programs(model: &Model) -> Result<()> {
         for piece in pieces {
             let (chars, look) = match piece {
                 Piece::Char { ch, look, .. } => (std::slice::from_ref(ch), look),
+                // A mark's digits are in the reference run's ASCII face.
+                Piece::NoteRef { look, .. } => (&['0'][..], look),
                 Piece::Tab { look, .. } => (leaders, look),
                 _ => continue,
             };

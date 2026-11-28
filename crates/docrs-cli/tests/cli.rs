@@ -797,6 +797,140 @@ fn layout_lines_shows_repeated_headers_and_continued_rows() {
 }
 
 #[test]
+fn layout_lines_puts_the_showcase_footnotes_where_word_does() {
+    let lines = lines_through_reference(&examples("showcase.md"), true);
+    let cited = lines
+        .iter()
+        .find(|l| l["text"] == "Footnotes work too.1 A second reference uses another note.2")
+        .unwrap();
+    assert_eq!(cited["page"], 2);
+    let notes: Vec<(&str, f64)> = lines
+        .iter()
+        .filter(|l| l["story"] == "footnotes" && l["text"] != "")
+        .map(|l| (l["text"].as_str().unwrap(), l["baseline"].as_f64().unwrap()))
+        .collect();
+    // Word for Mac 16.115 draws them on page 2 at these baselines
+    // (pr-proof/corpus/reference.showcase-md).
+    let word = [
+        ("1 A short footnote with formatting and a link.", 746.16),
+        ("2 A footnote with two paragraphs.", 757.44),
+        (
+            "Its second paragraph is indented in the Markdown source.",
+            768.72,
+        ),
+    ];
+    assert_eq!(notes.len(), word.len(), "{notes:?}");
+    for ((text, baseline), (word_text, word_baseline)) in notes.iter().zip(word) {
+        assert_eq!(*text, word_text);
+        assert!(near(*baseline, word_baseline), "{text}: {baseline}");
+    }
+    assert!(
+        lines
+            .iter()
+            .filter(|l| l["story"] == "footnotes")
+            .all(|l| l["page"] == 2)
+    );
+}
+
+/// `docrs layout --lines` of `source` converted through the example
+/// reference, one JSON object per line.
+fn lines_through_reference(source: &std::path::Path, toc: bool) -> Vec<serde_json::Value> {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.docx");
+    let mut convert = bin();
+    convert
+        .args(["--json", "from-markdown"])
+        .arg(source)
+        .arg("--reference")
+        .arg(examples("reference.docx"))
+        .arg("--out")
+        .arg(&out);
+    if toc {
+        convert.arg("--toc");
+    }
+    assert!(convert.output().unwrap().status.success());
+    let output = bin()
+        .args(["layout", "--lines"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// The baselines of a page's note lines with text.
+fn note_baselines(lines: &[serde_json::Value], page: u64) -> Vec<f64> {
+    lines
+        .iter()
+        .filter(|l| l["story"] == "footnotes" && l["page"] == page && l["text"] != "")
+        .map(|l| l["baseline"].as_f64().unwrap())
+        .collect()
+}
+
+fn near(ours: f64, word: f64) -> bool {
+    (ours - word).abs() < 0.5
+}
+
+#[test]
+fn layout_lines_continue_a_long_note_where_word_does() {
+    let mut markdown = String::from(
+        "# A note over three pages\n\nThis paragraph cites a long note.[^long] The body goes on after it.\n",
+    );
+    for n in 1..25 {
+        markdown += &format!(
+            "\nBody paragraph {n} keeps the text flowing so that the pages fill with ordinary lines of prose around the note.\n"
+        );
+    }
+    markdown += "\n[^long]: The note starts on the page of its reference.\n";
+    for n in 1..70 {
+        markdown += &format!(
+            "\n    Note paragraph {n}: a note this long cannot fit on one page, so Word continues it under the continuation separator.\n"
+        );
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("long-note.md");
+    std::fs::write(&source, markdown).unwrap();
+    let lines = lines_through_reference(&source, false);
+    // Word for Mac 16.115's PDF of the same DOCX (pr-proof/pr68/word).
+    let cited = lines
+        .iter()
+        .find(|l| l["text"] == "This paragraph cites a long note.1 The body goes on after it.")
+        .unwrap();
+    assert!(near(cited["baseline"].as_f64().unwrap(), 127.68), "{cited}");
+    let first = note_baselines(&lines, 1);
+    assert_eq!(first.len(), 53);
+    assert!(
+        near(first[0], 178.08) && near(first[52], 768.72),
+        "{first:?}"
+    );
+    let second = note_baselines(&lines, 2);
+    assert!(near(second[0], 98.40), "{second:?}");
+    assert!(near(*second.last().unwrap(), 768.72), "{second:?}");
+    let rule = lines
+        .iter()
+        .find(|l| l["story"] == "footnotes" && l["page"] == 2)
+        .unwrap();
+    assert_eq!(
+        rule["text"], "",
+        "page 2 opens with the continuation separator"
+    );
+    assert!(near(note_baselines(&lines, 3)[0], 484.80));
+    assert!(
+        !lines.iter().any(|l| l["story"] == "body" && l["page"] == 2),
+        "the body resumes on page 3"
+    );
+    assert_eq!(
+        lines.iter().map(|l| l["page"].as_u64().unwrap()).max(),
+        Some(4)
+    );
+}
+
+#[test]
 fn layout_lines_ends_quietly_when_its_reader_stops() {
     use std::io::{BufRead, BufReader};
     let dir = tempfile::tempdir().unwrap();

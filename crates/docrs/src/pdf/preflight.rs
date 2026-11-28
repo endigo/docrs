@@ -6,11 +6,11 @@
 use std::collections::{HashMap, HashSet};
 
 use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
-use super::{NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
+use super::{FOOTNOTE_LAYOUT_UNSUPPORTED, NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
-    CAMBRIA_MATH, Formatting, Frame, Link, ParaFormat, RPr, StoryRef, TableCtx, any_border,
-    field_link, horizontal, linear_text, linearize, on_off, section_properties, shaded,
-    story_references,
+    CAMBRIA_MATH, Formatting, Frame, Link, NoteKind, NotePosition, NoteSettings, ParaFormat, RPr,
+    StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize, on_off,
+    section_properties, shaded, story_references,
 };
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
@@ -19,6 +19,7 @@ use crate::xml::{NodeData, NodeId, XmlTree};
 use crate::{Document, Result};
 
 const VML: &str = "urn:schemas-microsoft-com:vml";
+const W15: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 const OFFICE: &str = "urn:schemas-microsoft-com:office:office";
 const WPS: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 const WPG: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup";
@@ -85,6 +86,10 @@ pub fn preflight(document: &Document) -> Result<PdfReport> {
     }
     if setting("autoHyphenation") {
         scan.note_at(LAYOUT, "automatic hyphenation", false, None);
+    }
+    if let Some(body) = body {
+        scan.note_placement(tree, body, settings);
+        scan.nested_notes(&txn, main, tree, body)?;
     }
     Ok(scan.finish())
 }
@@ -219,6 +224,79 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
         self.close_fields();
         Ok(())
+    }
+
+    /// Notes the layout puts only at the foot of the page or after the last
+    /// block, in one column.
+    /// Notes referenced only from another note: layout lays out the notes
+    /// the body refers to.
+    fn nested_notes(
+        &mut self,
+        txn: &Txn<'_>,
+        main: &str,
+        tree: &XmlTree,
+        body: NodeId,
+    ) -> Result<()> {
+        let kinds = ["footnoteReference", "endnoteReference"];
+        let references = |tree: &XmlTree, root: NodeId| -> Vec<(&'static str, String)> {
+            tree.descendants(root)
+                .filter_map(|n| {
+                    let kind = kinds.into_iter().find(|k| tree.is(n, W, k))?;
+                    Some((kind, w_attr(tree, n, "id")?.to_string()))
+                })
+                .collect()
+        };
+        let cited = references(tree, body);
+        for rel in [rt::FOOTNOTES, rt::ENDNOTES] {
+            let Some(notes) = related(txn, main, rel)? else {
+                continue;
+            };
+            let nested = references(notes, notes.root())
+                .into_iter()
+                .filter(|reference| !cited.contains(reference))
+                .count();
+            for _ in 0..nested {
+                self.note_at(
+                    FOOTNOTE_LAYOUT_UNSUPPORTED,
+                    "notes referenced only from a note",
+                    false,
+                    None,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn note_placement(&mut self, tree: &XmlTree, body: NodeId, settings: Option<&XmlTree>) {
+        let referenced = |local: &str| tree.descendants(body).any(|n| tree.is(n, W, local));
+        let document = NoteSettings::document(settings);
+        let sects = section_properties(tree, body);
+        let mut sections: Vec<NoteSettings> =
+            sects.iter().map(|s| document.section(tree, *s)).collect();
+        if sections.is_empty() {
+            sections.push(document);
+        }
+        let placed = |kind: NoteKind, position: NotePosition| {
+            sections.iter().any(|s| s.get(kind).position == position)
+        };
+        let mut misplaced = Vec::new();
+        if referenced("footnoteReference") {
+            if placed(NoteKind::Footnote, NotePosition::BeneathText) {
+                misplaced.push("footnotes beneath the text");
+            }
+            if sects.iter().any(|s| footnote_columns(tree, *s) > 1) {
+                misplaced.push("footnote columns");
+            }
+        }
+        if referenced("endnoteReference")
+            && sects.len() > 1
+            && placed(NoteKind::Endnote, NotePosition::SectionEnd)
+        {
+            misplaced.push("endnotes at section ends");
+        }
+        for subject in misplaced {
+            self.note_at(FOOTNOTE_LAYOUT_UNSUPPORTED, subject, false, None);
+        }
     }
 
     fn enter(&mut self, part: &str, kind: &'static str) -> Result<()> {
@@ -757,6 +835,14 @@ fn deleted(tree: &XmlTree, node: NodeId) -> bool {
 
 fn is_watermark(name: Option<&str>) -> bool {
     name.is_some_and(|name| WATERMARK_PREFIXES.iter().any(|p| name.starts_with(p)))
+}
+
+/// `w15:footnoteColumns`.
+fn footnote_columns(tree: &XmlTree, sect: NodeId) -> u32 {
+    tree.first_child_named(sect, W15, "footnoteColumns")
+        .and_then(|c| tree.attr(c, Some(W), "val"))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
 }
 
 fn columns(tree: &XmlTree, cols: NodeId) -> usize {
