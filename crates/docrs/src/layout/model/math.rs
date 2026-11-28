@@ -40,7 +40,8 @@ pub(crate) const CAMBRIA_MATH: MathScripts = MathScripts {
 
 impl MathScripts {
     /// A font's MATH table (OpenType `MathConstants`), when its script
-    /// sizes are percentages.
+    /// sizes are percentages, its shifts within an em and its space after a
+    /// script within half an em.
     pub(crate) fn read(table: &[u8], units_per_em: f64) -> Option<MathScripts> {
         let constants = usize::from(be16(table, 4)?);
         let value = |at: usize| be16(table, constants + at).map(|v| f64::from(v as i16));
@@ -50,13 +51,17 @@ impl MathScripts {
                 .map(|p| p / 100.0)
         };
         // The value records after the four header fields: 4 bytes each.
-        let record = |index: usize| value(8 + 4 * index).map(|v| v / units_per_em);
+        let record = |index: usize, most: f64| {
+            value(8 + 4 * index)
+                .map(|v| v / units_per_em)
+                .filter(|ems| (0.0..=most).contains(ems))
+        };
         Some(MathScripts {
             script: percent(0)?,
             script_script: percent(2)?,
-            down: record(4)?,
-            up: record(7)?,
-            after: record(13)?,
+            down: record(4, 1.0)?,
+            up: record(7, 1.0)?,
+            after: record(13, 0.5)?,
         })
     }
 
@@ -866,23 +871,45 @@ mod tests {
         assert_eq!(levels_with(&sum, geometry), 1.0 + 2.0 * 0.5);
     }
 
-    #[test]
-    fn a_math_table_gives_its_script_geometry() {
+    /// A MATH table with these constants: script sizes, then the
+    /// subscript drop, superscript rise and space after, in font units.
+    fn math_table(values: [i16; 5]) -> Vec<u8> {
         let mut table = vec![0, 1, 0, 0, 0, 10, 0, 0, 0, 0];
         let mut constants = vec![0u8; 8 + 4 * 14];
-        let mut set = |at: usize, value: i16| {
+        for (at, value) in [0, 2, 8 + 4 * 4, 8 + 4 * 7, 8 + 4 * 13]
+            .into_iter()
+            .zip(values)
+        {
             constants[at..at + 2].copy_from_slice(&value.to_be_bytes());
-        };
-        set(0, 73);
-        set(2, 60);
-        set(8 + 4 * 4, 418);
-        set(8 + 4 * 7, 750);
-        set(8 + 4 * 13, 85);
+        }
         table.extend(&constants);
+        table
+    }
+
+    #[test]
+    fn a_math_table_gives_its_script_geometry() {
+        let table = math_table([73, 60, 418, 750, 85]);
         assert_eq!(MathScripts::read(&table, 2048.0), Some(CAMBRIA_MATH));
         assert_eq!(MathScripts::read(&table[..40], 2048.0), None, "cut short");
-        table[10..12].copy_from_slice(&0i16.to_be_bytes());
-        assert_eq!(MathScripts::read(&table, 2048.0), None, "not a percentage");
+        let read = |values| MathScripts::read(&math_table(values), 2048.0);
+        assert_eq!(read([0, 60, 418, 750, 85]), None, "not a percentage");
+    }
+
+    #[test]
+    fn a_hostile_math_table_is_not_read() {
+        let read = |values| MathScripts::read(&math_table(values), 2048.0);
+        assert_eq!(read([73, 60, 418, i16::MAX, 85]), None, "a rise of 16 ems");
+        assert_eq!(read([73, 60, -418, 750, 85]), None, "a negative drop");
+        assert_eq!(
+            read([73, 60, 418, 750, 1100]),
+            None,
+            "over half an em after"
+        );
+        assert_eq!(read([73, 101, 418, 750, 85]), None);
+        assert!(
+            read([73, 60, 2048, 2048, 1024]).is_some(),
+            "the bounds hold"
+        );
     }
 
     #[test]
