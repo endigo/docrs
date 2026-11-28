@@ -418,6 +418,27 @@ pub fn refresh_toc_page_numbers_with(
     Ok(TocRefresh { changed, layout })
 }
 
+/// [`refresh_toc_page_numbers`], except that page numbers which do not
+/// settle (`pdf_layout_not_converged`) keep their stored values, Word is
+/// asked to update fields when it opens the document, and `None` is
+/// returned. Internal to docrs-wasm, not covered by semver.
+#[doc(hidden)]
+pub fn refresh_toc_page_numbers_if_settled(
+    document: &mut Document,
+    converted_only: bool,
+) -> Result<Option<TocRefresh>> {
+    match refresh_toc_page_numbers(document, converted_only) {
+        Err(error) if error.reason() == NOT_CONVERGED => {
+            let mut txn = Txn::new(document);
+            crate::fields::set_update_fields_on_open(&mut txn)?;
+            let staged = txn.finish()?;
+            document.commit(staged)?;
+            Ok(None)
+        }
+        result => result.map(Some),
+    }
+}
+
 /// Bookmarks in decimal sections with no restart after the first section.
 fn decimal_bookmarks(tree: &XmlTree) -> HashSet<String> {
     let mut sections = Sections {
