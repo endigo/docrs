@@ -424,6 +424,9 @@ impl<'s, 'd> Scan<'s, 'd> {
         if ppr.rotated == Some(true) {
             self.note(LAYOUT, "rotated text");
         }
+        if ppr.mirror == Some(true) {
+            self.note(LAYOUT, "mirrored indents");
+        }
         if ppr.justified_otherwise() {
             self.note(JUSTIFY, "distributed justification");
         }
@@ -573,6 +576,9 @@ impl<'s, 'd> Scan<'s, 'd> {
             "DATE" => self.note(FIELD, "DATE"),
             "TIME" => self.note(FIELD, "TIME"),
             "PRINTDATE" => self.note(FIELD, "PRINTDATE"),
+            // Drawn as saved until the PDF computes its own page numbers.
+            "TOC" => self.note(FIELD, "TOC"),
+            "PAGEREF" => self.note(FIELD, "PAGEREF"),
             "HYPERLINK" => {
                 self.note(NOT_YET_DRAWN, "field");
                 match field_link(instruction) {

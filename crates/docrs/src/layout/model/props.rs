@@ -1,6 +1,6 @@
 use super::colour::{Colour, Palette, Rgb, highlight};
 use super::look::{Border, ParaBorders, Underline, VertAlign, read_border, read_underline};
-use super::{Align, LineRule, TabKind};
+use super::{Align, Leader, LineRule, TabKind, TabStop};
 use crate::units::TWIPS_PER_PT;
 use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
@@ -37,7 +37,7 @@ pub(crate) struct PPr {
     pub(super) widow_control: Option<bool>,
     pub(super) contextual: Option<bool>,
     pub(super) align: Option<Align>,
-    pub(super) tabs: Vec<(f64, TabKind)>,
+    pub(super) tabs: Vec<TabStop>,
     pub(crate) num: Option<(String, Option<u8>)>,
     pub(super) ilvl: Option<u8>,
     /// `Some(None)`: no fill.
@@ -53,6 +53,8 @@ pub(crate) struct PPr {
     pub(crate) bidi: Option<bool>,
     /// Text not laid out left to right, top to bottom (`w:textDirection`).
     pub(crate) rotated: Option<bool>,
+    /// `w:mirrorIndents`, read for the PDF preflight only.
+    pub(crate) mirror: Option<bool>,
 }
 
 impl PPr {
@@ -82,13 +84,14 @@ impl PPr {
             shaded,
             frame,
             bidi,
-            rotated
+            rotated,
+            mirror
         );
         merge_sides(&mut self.borders, &other.borders);
-        for (pos, kind) in &other.tabs {
-            self.tabs.retain(|(p, _)| (p - pos).abs() > 0.01);
-            if *kind != TabKind::Clear {
-                self.tabs.push((*pos, *kind));
+        for tab in &other.tabs {
+            self.tabs.retain(|t| (t.pos - tab.pos).abs() > 0.01);
+            if tab.kind != TabKind::Clear {
+                self.tabs.push(*tab);
             }
         }
     }
@@ -318,10 +321,12 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -
                         Some("right" | "end") => TabKind::Right,
                         Some("center") => TabKind::Center,
                         Some("decimal") => TabKind::Decimal,
+                        Some("bar") => TabKind::Bar,
                         Some("clear") => TabKind::Clear,
                         _ => TabKind::Left,
                     };
-                    out.tabs.push((pos, kind));
+                    let leader = Leader::read(w_attr(tree, tab, "leader"));
+                    out.tabs.push(TabStop { pos, kind, leader });
                 }
             }
             "numPr" => {
@@ -345,6 +350,7 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -
                 })
             }
             "bidi" => out.bidi = Some(on_off(tree, child)),
+            "mirrorIndents" => out.mirror = Some(on_off(tree, child)),
             "textDirection" => out.rotated = Some(!horizontal(w_attr(tree, child, "val"))),
             "pBdr" => {
                 for (slot, names) in out.borders.iter_mut().zip(ParaBorders::SIDES) {

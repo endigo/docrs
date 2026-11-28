@@ -718,6 +718,8 @@ pub struct LineRecord {
     pub runs: Vec<RunRecord>,
     /// A list label, on its paragraph's first line.
     pub label: Option<RunRecord>,
+    /// Each tab's leader, in the order of `tabs`; `None` without one.
+    pub leaders: Vec<Option<RunRecord>>,
 }
 
 /// Text of a line in one look. Experimental.
@@ -813,10 +815,15 @@ pub fn records_with(
 ) -> Result<()> {
     let settled = settle(txn, main, fonts)?;
     looks(&settled.model.looks, &settled.model.links)?;
-    settled.paginate(&mut LineDump { page: 0, each })
+    settled.paginate(&mut LineDump {
+        model: &settled.model,
+        page: 0,
+        each,
+    })
 }
 
-struct LineDump<F> {
+struct LineDump<'m, F> {
+    model: &'m model::Model,
     page: u32,
     each: F,
 }
@@ -829,7 +836,7 @@ fn story_name(story: StoryId) -> String {
     }
 }
 
-impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<F> {
+impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
     fn page(&mut self, page: &flow::PageStart) -> Result<()> {
         self.page = page.number;
         Ok(())
@@ -847,6 +854,20 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<F> {
             .as_ref()
             .filter(|_| line.label.is_some())
             .and_then(|label| by_look(&label.pieces, &label_origins, at.x).pop());
+        let mut leaders = line.leaders(para, self.model, at.x).into_iter().peekable();
+        let leaders = line
+            .tabs
+            .iter()
+            .map(|tab| {
+                leaders
+                    .next_if(|leader| leader.piece == tab.piece)
+                    .map(|leader| RunRecord {
+                        text: std::iter::repeat_n(leader.ch, leader.origins.len()).collect(),
+                        look: leader.look,
+                        origins: leader.origins,
+                    })
+            })
+            .collect();
         let text = runs.iter().map(|run| run.text.as_str()).collect();
         (self.each)(Record::Line(LineRecord {
             page: self.page,
@@ -868,6 +889,7 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<F> {
             text,
             runs,
             label,
+            leaders,
         }))
     }
 

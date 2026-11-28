@@ -173,7 +173,8 @@ pub enum Caps {
     #[default]
     None,
     All,
-    /// Lower case drawn as capitals at 80 % of the size.
+    /// Lower case drawn as capitals, and spaces set, at 80 % of the size
+    /// rounded to a half point.
     Small,
 }
 
@@ -188,13 +189,16 @@ impl Caps {
         }
     }
 
-    /// The character drawn for `ch`, and its share of the font size.
-    pub fn apply(self, ch: char) -> (char, f64) {
+    /// The character drawn for `ch` in a run of `size` points, and its size
+    /// (Word for Mac, measured: 9 pt small capitals at 11 pt).
+    pub fn apply(self, ch: char, size: f64) -> (char, f64) {
         let upper = || ch.to_uppercase().next().unwrap_or(ch);
         match self {
-            Caps::All => (upper(), 1.0),
-            Caps::Small if ch.is_lowercase() => (upper(), 0.8),
-            _ => (ch, 1.0),
+            Caps::All => (upper(), size),
+            Caps::Small if ch.is_lowercase() || ch == ' ' => {
+                (upper(), (size * 0.8 * 2.0).round() / 2.0)
+            }
+            _ => (ch, size),
         }
     }
 

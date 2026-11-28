@@ -159,7 +159,54 @@ pub enum TabKind {
     Right,
     Center,
     Decimal,
+    /// Not a stop: a vertical rule on every line.
+    Bar,
     Clear,
+}
+
+/// What fills the space a tab moves over (`w:leader`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Leader {
+    #[default]
+    None,
+    Dot,
+    Hyphen,
+    Underscore,
+    Heavy,
+    MiddleDot,
+}
+
+impl Leader {
+    fn read(value: Option<&str>) -> Leader {
+        match value {
+            Some("dot") => Leader::Dot,
+            Some("hyphen") => Leader::Hyphen,
+            Some("underscore") => Leader::Underscore,
+            Some("heavy") => Leader::Heavy,
+            Some("middleDot") => Leader::MiddleDot,
+            _ => Leader::None,
+        }
+    }
+
+    /// The character repeated: a heavy leader is the plain underscore, as in
+    /// Word for Mac.
+    pub fn char(self) -> Option<char> {
+        match self {
+            Leader::None => None,
+            Leader::Dot => Some('.'),
+            Leader::Hyphen => Some('-'),
+            Leader::Underscore | Leader::Heavy => Some('_'),
+            Leader::MiddleDot => Some('\u{B7}'),
+        }
+    }
+}
+
+/// A tab stop (`w:tab`), points from the text area's left edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TabStop {
+    pub pos: f64,
+    pub kind: TabKind,
+    pub leader: Leader,
 }
 
 /// Font metrics of a text piece, shared by index.
@@ -205,6 +252,22 @@ pub struct Label {
     /// What follows the label: a tab (true) or a space/nothing.
     pub tab: bool,
     pub space: f64,
+    /// `w:lvlJc`: the label and its suffix space start at, are centred on,
+    /// or end at the first-line indent.
+    pub align: Align,
+}
+
+impl Label {
+    /// How far the label starts before the first-line indent. Word for Mac
+    /// centres the label with its suffix space, measured at the label's size.
+    pub(crate) fn lead(&self) -> f64 {
+        let extent = self.width + self.space;
+        match self.align {
+            Align::Center => extent / 2.0,
+            Align::Right => extent,
+            _ => 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -227,8 +290,11 @@ pub struct Para {
     pub widow_control: bool,
     pub contextual: bool,
     pub align: Align,
+    /// A justified line ending in a line break is spread too, unless the
+    /// document sets `w:doNotExpandShiftReturn`.
+    pub spread_breaks: bool,
     pub style: String,
-    pub tabs: Vec<(f64, TabKind)>,
+    pub tabs: Vec<TabStop>,
     pub label: Option<Label>,
     /// The paragraph mark's metric (empty paragraphs, the last line).
     pub mark: u32,
@@ -397,6 +463,7 @@ pub(super) struct Builder<'a> {
     /// Before Word 2013 (compatibility mode under 15, or none), a table
     /// not nested in another moves left by its first cell's left margin.
     outdent_tables: bool,
+    spread_breaks: bool,
 }
 
 fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
@@ -407,6 +474,13 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
     let settings = part(txn, main, rt::SETTINGS);
+    let compat = |name: &str| {
+        settings.is_some_and(|s| {
+            w_child(s, s.root(), "compat")
+                .and_then(|c| w_child(s, c, name))
+                .is_some_and(|n| on_off(s, n))
+        })
+    };
     let mut builder = Builder {
         fmt: Formatting::read(
             part(txn, main, rt::STYLES),
@@ -432,6 +506,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         outdent_tables: settings
             .and_then(crate::wml::compatibility_mode)
             .is_none_or(|mode| mode < 15),
+        spread_breaks: !compat("doNotExpandShiftReturn"),
     };
     let default_tab = settings
         .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))

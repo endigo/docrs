@@ -162,3 +162,13 @@ fn cells_keep_their_fill_alignment_and_borders_with_where_they_came_from() {
         Some((Some(0.25), BorderSource::Direct))
     );
 }
+
+#[test]
+fn small_capitals_and_their_spaces_are_four_fifths_rounded_to_a_half_point() {
+    use super::look::Caps;
+    assert_eq!(Caps::Small.apply('a', 11.0), ('A', 9.0));
+    assert_eq!(Caps::Small.apply(' ', 11.0), (' ', 9.0));
+    assert_eq!(Caps::Small.apply('a', 12.0), ('A', 9.5));
+    assert_eq!(Caps::Small.apply('A', 11.0), ('A', 11.0));
+    assert_eq!(Caps::All.apply('a', 11.0), ('A', 11.0));
+}

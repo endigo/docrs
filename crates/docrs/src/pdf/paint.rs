@@ -9,7 +9,7 @@ use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
 use crate::layout::flow::{Line, PageStart, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
-use crate::layout::model::{Appearance, Block, Colour, Model, Para, Piece};
+use crate::layout::model::{Appearance, Block, Colour, Model, Para, Piece, TabKind};
 use crate::txn::Txn;
 use crate::{Error, ErrorDetails, MissingFont, Result};
 
@@ -40,6 +40,10 @@ pub(super) struct Painter<'m, 't> {
     content: Vec<u8>,
     state: TextState,
     max_pages: u32,
+    /// Content-stream bytes of the closed pages before compression, and
+    /// their cap: a leader draws many glyphs for one tab.
+    drawn: u64,
+    max_drawn: u64,
     /// Draws, for tests, what no font program draws (a space for what it
     /// lacks), at the positions layout gives.
     stand_in: Option<Arc<Face>>,
@@ -66,6 +70,21 @@ struct Glyph {
     /// Its advance in the embedded font, in thousandths of an em.
     advance: f64,
 }
+
+/// A character to draw in a look, `x` from the page's left edge.
+#[derive(Clone, Copy)]
+struct Mark {
+    ch: char,
+    look: u32,
+    x: f64,
+}
+
+/// Content streams compress well; uncompressed, they may be this many times
+/// the output's byte cap.
+const MAX_CONTENT_RATIO: u64 = 16;
+
+/// Word for Mac strokes a bar tab 0.24 pt wide, its left edge at the stop.
+const BAR_WIDTH: f64 = 0.24;
 
 /// Glyphs of one face and look, drawn with one `TJ`.
 struct Run<'a> {
@@ -95,6 +114,8 @@ impl<'m, 't> Painter<'m, 't> {
             content: Vec::new(),
             state: PAGE_START,
             max_pages: limits.max_pages,
+            drawn: 0,
+            max_drawn: limits.max_output_bytes.saturating_mul(MAX_CONTENT_RATIO),
             stand_in,
         })
     }
@@ -105,6 +126,7 @@ impl<'m, 't> Painter<'m, 't> {
             return Ok(());
         };
         let contents = super::page_content(&mut self.writer, &self.content)?;
+        self.drawn += self.content.len() as u64;
         self.content.clear();
         self.pages.push(Page { size, contents });
         Ok(())
@@ -158,21 +180,20 @@ impl<'m, 't> Painter<'m, 't> {
         Ok(data)
     }
 
-    /// The glyphs of `pieces` at `origins`, `left` from the page's left
-    /// edge, grouped into runs.
-    fn runs(&mut self, pieces: &[Piece], origins: &[f64], left: f64) -> Result<Vec<Run<'m>>> {
+    /// The glyphs of `marks` grouped into runs; `None` ends a run.
+    fn runs(&mut self, marks: &[Option<Mark>]) -> Result<Vec<Run<'m>>> {
         let model = self.model;
         let mut runs: Vec<Run<'m>> = Vec::new();
         let mut open = false;
-        for (piece, x) in pieces.iter().zip(origins) {
-            let Piece::Char { ch, look, .. } = piece else {
+        for mark in marks {
+            let Some(Mark { ch, look, x }) = *mark else {
                 open = false;
                 continue;
             };
-            let look = &model.looks[*look as usize];
-            let index = look.face(*ch);
+            let look = &model.looks[look as usize];
+            let index = look.face(ch);
             let drawing = self.drawing(index).clone();
-            let (mut drawn, share) = look.caps.apply(*ch);
+            let (mut drawn, size) = look.caps.apply(ch, look.size);
             if self.stand_in.is_some() && drawing.glyph(drawn).is_none() {
                 drawn = ' ';
             }
@@ -190,11 +211,10 @@ impl<'m, 't> Painter<'m, 't> {
             };
             let face = self.face(index)?;
             let cid = self.fonts.use_glyph(face, glyph, &ch.to_string())?;
-            let size = look.size * share;
             let synthetic = (look.bold && !drawing.bold, look.italic && !drawing.italic);
             let glyph = Glyph {
                 cid,
-                x: left + x,
+                x,
                 advance: drawing.advance(drawn) * 1000.0,
             };
             match runs.last_mut() {
@@ -202,7 +222,8 @@ impl<'m, 't> Painter<'m, 't> {
                     if open
                         && run.face == face
                         && std::ptr::eq(run.look, look)
-                        && run.size == size =>
+                        && run.size == size
+                        && run.synthetic == synthetic =>
                 {
                     run.glyphs.push(glyph);
                 }
@@ -217,6 +238,37 @@ impl<'m, 't> Painter<'m, 't> {
             open = true;
         }
         Ok(runs)
+    }
+
+    /// A vertical rule for each bar tab of `para`, from the line's top to
+    /// its bottom, and on the paragraph's last line through its space after
+    /// (Word for Mac, measured).
+    fn bars(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
+        let Some((_, height)) = self.page else {
+            return Ok(());
+        };
+        let after = if line.pieces.end as usize >= para.pieces.len() {
+            para.after_spacing()
+        } else {
+            0.0
+        };
+        for stop in para.tabs.iter().filter(|stop| stop.kind == TabKind::Bar) {
+            let x = at.x + stop.pos + BAR_WIDTH / 2.0;
+            let out = &mut self.content;
+            out.extend_from_slice(b"q 0 0 0 RG ");
+            write_number(out, BAR_WIDTH)?;
+            out.extend_from_slice(b" w ");
+            for (y, operator) in [(at.y, "m"), (at.y + line.height + after, "l")] {
+                write_number(out, x)?;
+                out.push(b' ');
+                write_number(out, height - y)?;
+                out.push(b' ');
+                out.extend_from_slice(operator.as_bytes());
+                out.push(b' ');
+            }
+            out.extend_from_slice(b"S Q\n");
+        }
+        Ok(())
     }
 
     fn draw(&mut self, run: &Run, baseline: f64) -> Result<()> {
@@ -349,32 +401,78 @@ impl Sink for Painter<'_, '_> {
     }
 
     fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
-        let (origins, label_origins) = line.origins(para);
-        let baseline = at.y + line.baseline;
-        let label = para.label.as_ref().filter(|_| line.label.is_some());
-        let pieces = para
-            .pieces
-            .get(line.pieces.start as usize..line.pieces.end as usize)
-            .unwrap_or_default();
-        let mut runs = match label {
-            Some(label) => self.runs(&label.pieces, &label_origins, at.x)?,
-            None => Vec::new(),
-        };
-        runs.extend(self.runs(pieces, &origins, at.x)?);
-        for run in &runs {
-            self.draw(run, baseline)?;
+        let marks = marks(self.model, at.x, para, line);
+        for run in &self.runs(&marks)? {
+            self.draw(run, at.y + line.baseline)?;
+        }
+        self.bars(at, para, line)?;
+        let drawn = self.drawn + self.content.len() as u64;
+        if drawn > self.max_drawn {
+            return Err(Error::limit("max_pdf_content_bytes", self.max_drawn, drawn));
         }
         Ok(())
     }
+}
+
+/// What `line` draws, in reading order: its label, then its characters,
+/// each tab's leader in its place. A tab ends a run, as the label does.
+fn marks(model: &Model, left: f64, para: &Para, line: &Line) -> Vec<Option<Mark>> {
+    let (origins, label_origins) = line.origins(para);
+    let mut leaders = line.leaders(para, model, left).into_iter().peekable();
+    let char_mark = |piece: &Piece, x: f64| match piece {
+        Piece::Char { ch, look, .. } => Some(Mark {
+            ch: *ch,
+            look: *look,
+            x: left + x,
+        }),
+        _ => None,
+    };
+    let mut out = Vec::new();
+    if let Some(label) = para.label.as_ref().filter(|_| line.label.is_some()) {
+        out.extend(
+            label
+                .pieces
+                .iter()
+                .zip(&label_origins)
+                .map(|(p, x)| char_mark(p, *x)),
+        );
+        out.push(None);
+    }
+    let first = line.pieces.start;
+    let pieces = para
+        .pieces
+        .get(first as usize..line.pieces.end as usize)
+        .unwrap_or_default();
+    for (at, (piece, x)) in pieces.iter().zip(&origins).enumerate() {
+        out.push(char_mark(piece, *x));
+        let piece = first + at as u32;
+        let Some(leader) = leaders.next_if(|leader| leader.piece == piece) else {
+            continue;
+        };
+        out.extend(leader.origins.iter().map(|x| {
+            Some(Mark {
+                ch: leader.ch,
+                look: leader.look,
+                x: *x,
+            })
+        }));
+        out.push(None);
+    }
+    out
 }
 
 /// Refuses a model with characters whose face has no font program, naming
 /// every family and style that lacks one.
 pub(super) fn check_programs(model: &Model) -> Result<()> {
     let mut missing = BTreeSet::new();
-    let mut visit = |pieces: &[Piece]| {
+    let mut visit = |pieces: &[Piece], leaders: &[char]| {
         for piece in pieces {
-            if let Piece::Char { ch, look, .. } = piece {
+            let (chars, look) = match piece {
+                Piece::Char { ch, look, .. } => (std::slice::from_ref(ch), look),
+                Piece::Tab { look, .. } => (leaders, look),
+                _ => continue,
+            };
+            for ch in chars {
                 let face = &model.faces[model.looks[*look as usize].face(*ch) as usize];
                 if face.face.file().is_none() {
                     missing.insert((face.family.clone(), face.bold, face.italic));
@@ -384,9 +482,10 @@ pub(super) fn check_programs(model: &Model) -> Result<()> {
     };
     each_para(&model.blocks, &mut |para| {
         if let Some(label) = &para.label {
-            visit(&label.pieces);
+            visit(&label.pieces, &[]);
         }
-        visit(&para.pieces);
+        let leaders: Vec<char> = para.tabs.iter().filter_map(|t| t.leader.char()).collect();
+        visit(&para.pieces, &leaders);
     });
     if missing.is_empty() {
         return Ok(());

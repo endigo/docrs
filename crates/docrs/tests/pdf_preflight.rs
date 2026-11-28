@@ -1062,3 +1062,37 @@ fn a_link_on_a_shape_in_a_vml_group_is_checked() {
     assert_eq!(subjects(&found, "pdf_link_scheme_skipped"), [("link", 1)]);
     assert_eq!(subjects(&found, "pdf_shape_skipped"), [("shape", 1)]);
 }
+
+#[test]
+fn contents_fields_show_their_saved_results_and_mirrored_indents_are_ignored() {
+    let field = |instruction: &str| {
+        run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+            + &run(&format!("<w:instrText>{instruction}</w:instrText>"))
+            + &run(r#"<w:fldChar w:fldCharType="separate"/>"#)
+            + &run("<w:t>2</w:t>")
+            + &run(r#"<w:fldChar w:fldCharType="end"/>"#)
+    };
+    let mirrored = r#"<w:pPr><w:mirrorIndents/><w:ind w:left="720"/></w:pPr>"#;
+    let body = para(&field(r#" TOC \o "1-3" \h "#))
+        + &para(&field(r#" PAGEREF _Toc1 \h "#))
+        + &para(&(mirrored.to_string() + &run("<w:t>mirrored</w:t>")))
+        + &para(
+            &(r#"<w:pPr><w:pStyle w:val="Facing"/></w:pPr>"#.to_string()
+                + &run("<w:t>by style</w:t>")),
+        );
+    let styles = r#"<w:style w:type="paragraph" w:styleId="Facing"><w:pPr><w:mirrorIndents/></w:pPr></w:style>"#;
+    let report = report(&docx(
+        &body,
+        &[xml_part("word/styles.xml", "styles", "styles", styles)],
+        &[],
+    ));
+    assert_eq!(subjects(&report, NOT_YET_DRAWN), []);
+    assert_eq!(
+        subjects(&report, "pdf_field_cached"),
+        [("TOC", 1), ("PAGEREF", 1)]
+    );
+    assert_eq!(
+        subjects(&report, "pdf_layout_feature_ignored"),
+        [("mirrored indents", 2)]
+    );
+}

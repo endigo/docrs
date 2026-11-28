@@ -264,7 +264,8 @@ enum Command {
         fonts: FontArgs,
         /// Print every line instead, one JSON object a line: page, story,
         /// x, y, width, height, baseline, tabs (points from the page's top-left
-        /// corner), slack, gaps, last, align, text and runs (text by look),
+        /// corner), each tab's leader (its character, first x and count),
+        /// slack, gaps, last, align, text and runs (text by look),
         /// after one object with the looks and links. Each table row part
         /// on a page is an object with `row` (its index), page, story, x, y,
         /// width, height, first, last, repeat (a repeated header) and cells

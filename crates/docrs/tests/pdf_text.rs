@@ -4,18 +4,20 @@
 #[allow(dead_code)]
 #[path = "support/pdf.rs"]
 mod reader;
+mod support;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use docrs::clock::Timestamp;
-use docrs::layout::{FontSet, LineRecord};
+use docrs::layout::{FontSet, LineRecord, RunRecord};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{PdfOptions, paint_for_tests, render};
 use docrs::txn::Txn;
 use docrs::{Document, Limits, Tolerance};
 use reader::{Dict, Pdf, Value, tokenize_content};
+use support::{RawMember, build_zip};
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
@@ -233,20 +235,29 @@ fn records(document: &Document, fonts: &FontSet) -> (Vec<LineRecord>, Vec<f64>) 
 }
 
 /// The glyphs each page should draw, as layout records them: each line's
-/// label, then its characters other than tabs, on its baseline raised by
-/// the run's rise.
+/// label, then its characters, each tab replaced by its leader, on its
+/// baseline raised by the run's rise.
 fn expected((records, rises): &(Vec<LineRecord>, Vec<f64>)) -> Vec<Vec<Glyph>> {
     let pages = records.iter().map(|line| line.page).max().unwrap_or(0) as usize;
     let mut out = vec![Vec::new(); pages];
     for line in records {
+        let page = &mut out[line.page as usize - 1];
+        let mut leaders = line.leaders.iter();
+        let mut push = |run: &RunRecord, ch: char, x: f64| {
+            page.push(Glyph {
+                text: ch.to_string(),
+                x,
+                y: line.baseline - rises[run.look as usize],
+            })
+        };
         for run in line.label.iter().chain(&line.runs) {
             for (ch, x) in run.text.chars().zip(&run.origins) {
                 if ch != '\t' {
-                    out[line.page as usize - 1].push(Glyph {
-                        text: ch.to_string(),
-                        x: *x,
-                        y: line.baseline - rises[run.look as usize],
-                    });
+                    push(run, ch, *x);
+                } else if let Some(Some(leader)) = leaders.next() {
+                    for (ch, x) in leader.text.chars().zip(&leader.origins) {
+                        push(leader, ch, *x);
+                    }
                 }
             }
         }
@@ -590,5 +601,283 @@ fn a_synthesized_bold_is_measured_wider() {
     assert!(
         content.contains("2 Tr") && content.contains(" 1 0 0 0.98 "),
         "{content}"
+    );
+}
+
+const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+/// A package whose body is `body`, with `numbering` and `settings` parts
+/// when they are not empty, on a Letter page with 1-inch margins.
+fn raw(body: &str, numbering: &str, settings: &str) -> Document {
+    let part = |root: &str, content: &str| {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:{root} xmlns:w="{W_NS}">{content}</w:{root}>"#
+        )
+    };
+    let mut types = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>"#,
+    );
+    let mut rels = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+    );
+    let section = r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#;
+    let mut members = vec![
+        RawMember::new("_rels/.rels", support::ROOT_RELS.as_bytes()),
+        RawMember::new(
+            "word/document.xml",
+            part("document", &format!("<w:body>{body}{section}</w:body>")).as_bytes(),
+        ),
+    ];
+    for (name, kind, root, content) in [
+        ("numbering", "numbering", "numbering", numbering),
+        ("settings", "settings", "settings", settings),
+    ] {
+        if content.is_empty() {
+            continue;
+        }
+        types.push_str(&format!(
+            r#"<Override PartName="/word/{name}.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"/>"#
+        ));
+        rels.push_str(&format!(
+            r#"<Relationship Id="r{name}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/{kind}" Target="{name}.xml"/>"#
+        ));
+        members.push(RawMember::new(
+            &format!("word/{name}.xml"),
+            part(root, content).as_bytes(),
+        ));
+    }
+    types.push_str("</Types>");
+    rels.push_str("</Relationships>");
+    members.push(RawMember::new("[Content_Types].xml", types.as_bytes()));
+    members.push(RawMember::new(
+        "word/_rels/document.xml.rels",
+        rels.as_bytes(),
+    ));
+    support::open_bytes(&build_zip(&members))
+}
+
+/// A run of `content` in 11 pt Liberation Serif.
+fn serif(content: &str) -> String {
+    format!(
+        r#"<w:r><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/><w:sz w:val="22"/></w:rPr>{content}</w:r>"#
+    )
+}
+
+fn text(text: &str) -> String {
+    serif(&format!(r#"<w:t xml:space="preserve">{text}</w:t>"#))
+}
+
+const TAB: &str = "<w:tab/>";
+
+/// A paragraph with `ppr` of text and tabs (`\t`).
+fn tabbed(ppr: &str, content: &str) -> String {
+    let runs: Vec<String> = content.split('\t').map(text).collect();
+    format!("<w:p><w:pPr>{ppr}</w:pPr>{}</w:p>", runs.join(&serif(TAB)))
+}
+
+fn content_of(bytes: &[u8]) -> String {
+    let pdf = Pdf::parse(bytes).unwrap();
+    let page = pdf.pages().unwrap()[0];
+    String::from_utf8_lossy(&pdf.stream_data(pdf.get(page, "Contents")).unwrap()).into_owned()
+}
+
+/// Word for Mac sets leader characters at whole multiples of their advance
+/// from the page's left edge, every one that fits between the tab's ends.
+#[test]
+fn leaders_repeat_their_character_on_a_grid_from_the_page_edge() {
+    let source = std::fs::read_to_string(fixtures().join("pdf/sources/toc.md")).unwrap();
+    let document = markdown(&source);
+    let (lines, _) = records(&document, &fonts());
+    let mut leaders = 0;
+    for line in &lines {
+        for (tab, leader) in line.tabs.iter().zip(&line.leaders) {
+            let Some(leader) = leader else { continue };
+            leaders += 1;
+            assert!(leader.text.chars().all(|ch| ch == '.'), "{leader:?}");
+            let step = leader.origins[1] - leader.origins[0];
+            let (first, last) = (leader.origins[0], *leader.origins.last().unwrap());
+            for x in &leader.origins {
+                let cells = x / step;
+                assert!((cells - cells.round()).abs() < 1e-6, "{x} is off the grid");
+            }
+            assert!(
+                first >= tab.0 && first - step < tab.0,
+                "{first} after {tab:?}"
+            );
+            assert!(
+                last + step <= tab.1 && last + 2.0 * step > tab.1,
+                "{last} before {tab:?}"
+            );
+        }
+    }
+    assert!(leaders >= 15, "{leaders}");
+    let bytes = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap();
+    let drawn = page_texts(&glyphs(&Pdf::parse(&bytes).unwrap()));
+    assert!(drawn[0].contains("Introduction....."), "{drawn:?}");
+    assert_eq!(
+        drawn,
+        page_texts(&expected(&records(&document, &fonts()))),
+        "the leaders' dots stand where the tabs were"
+    );
+}
+
+/// Word for Mac draws a heavy leader as the plain underscore, at the run's
+/// size, as an underscore leader.
+#[test]
+fn a_heavy_leader_is_a_plain_underscore_and_its_face_must_be_supplied() {
+    let stops = |leader: &str| {
+        format!(r#"<w:tabs><w:tab w:val="right" w:leader="{leader}" w:pos="5760"/></w:tabs>"#)
+    };
+    let drawn =
+        |leader: &str| content_of(&pdf_of(&raw(&tabbed(&stops(leader), "Total\t12"), "", "")));
+    let heavy = drawn("heavy");
+    assert!(
+        !heavy.contains("2 Tr") && !heavy.contains(" 0.98 "),
+        "{heavy}"
+    );
+    assert_eq!(heavy, drawn("underscore"));
+    // The leader is drawn in the tab's font, which may be one the text
+    // does not use.
+    let absent = r#"<w:r><w:rPr><w:rFonts w:ascii="Absent Sans" w:hAnsi="Absent Sans"/></w:rPr><w:tab/></w:r>"#;
+    let body = |leader: &str| {
+        format!(
+            "<w:p><w:pPr>{}</w:pPr>{}{absent}{}</w:p>",
+            stops(leader),
+            text("Total"),
+            text("12")
+        )
+    };
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    let err = render(&raw(&body("dot"), "", ""), &options).unwrap_err();
+    assert!(err.to_string().contains("Absent Sans"), "{err}");
+    render(&raw(&body("none"), "", ""), &options).unwrap();
+}
+
+/// A bar tab is no stop: a tab after it goes on to the next. Word for Mac
+/// strokes it 0.24 pt wide, its left edge at the stop, from each line's top
+/// to its bottom, and on the paragraph's last line through its space after.
+#[test]
+fn a_bar_tab_is_a_rule_and_not_a_stop() {
+    let stops = r#"<w:spacing w:after="120"/><w:tabs><w:tab w:val="bar" w:pos="1440"/><w:tab w:val="left" w:pos="2880"/></w:tabs>"#;
+    let long = "a note long enough to wrap onto a second line of the paragraph, and then some";
+    let document = raw(&tabbed(stops, &format!("Item\t{long}")), "", "");
+    let (lines, _) = records(&document, &fonts());
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].tabs[0].1, 72.0 + 144.0);
+    let content = content_of(&pdf_of(&document));
+    let round = |value: f64| (value * 1000.0).round() / 1000.0;
+    for (line, after) in lines.iter().zip([0.0, 6.0]) {
+        let rule = format!(
+            "0.24 w 144.12 {} m 144.12 {} l S",
+            round(792.0 - line.y),
+            round(792.0 - line.y - line.height - after)
+        );
+        assert!(content.contains(&rule), "{rule} in {content}");
+    }
+}
+
+/// A decimal tab ends the text before the point at its stop.
+#[test]
+fn a_decimal_tab_aligns_the_point() {
+    let stops = r#"<w:tabs><w:tab w:val="decimal" w:pos="4320"/></w:tabs>"#;
+    let body = tabbed(stops, "Rent\t1,250.00")
+        + &tabbed(stops, "Water\t42.5")
+        + &tabbed(stops, "Count\t7");
+    let (lines, _) = records(&raw(&body, "", ""), &fonts());
+    let stop = 72.0 + 216.0;
+    for line in &lines[..2] {
+        let run = &line.runs[0];
+        let point = run
+            .text
+            .char_indices()
+            .filter(|(_, ch)| *ch == '.')
+            .map(|(at, _)| at)
+            .next()
+            .unwrap();
+        assert!(
+            (run.origins[run.text[..point].chars().count()] - stop).abs() < 1e-9,
+            "{line:?}"
+        );
+    }
+    assert!(
+        lines[2].tabs[0].1 < stop,
+        "a number without a point ends at the stop"
+    );
+}
+
+/// `w:lvlJc`: the label starts at, is centred on, or ends at the first-line
+/// indent; with no suffix the text follows it directly.
+#[test]
+fn a_label_aligns_on_the_first_line_indent() {
+    let level = |jc: &str| {
+        format!(
+            r#"<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="upperRoman"/><w:lvlText w:val="%1."/><w:suff w:val="nothing"/><w:lvlJc w:val="{jc}"/><w:pPr><w:ind w:left="1440" w:hanging="720"/></w:pPr><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/><w:b/><w:sz w:val="22"/></w:rPr></w:lvl>"#
+        )
+    };
+    let mut numbering = String::new();
+    let mut body = String::new();
+    for (id, jc) in ["left", "center", "right"].iter().enumerate() {
+        numbering.push_str(&format!(
+            r#"<w:abstractNum w:abstractNumId="{id}">{}</w:abstractNum>"#,
+            level(jc)
+        ));
+        body.push_str(&format!(
+            r#"<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="{}"/></w:numPr></w:pPr>{}</w:p>"#,
+            id + 1,
+            text("Item")
+        ));
+    }
+    for id in 0..3 {
+        numbering.push_str(&format!(
+            r#"<w:num w:numId="{}"><w:abstractNumId w:val="{id}"/></w:num>"#,
+            id + 1
+        ));
+    }
+    let document = raw(&body, &numbering, "");
+    let (lines, _) = records(&document, &fonts());
+    let indent = 72.0 + 36.0;
+    let starts: Vec<(f64, f64)> = lines
+        .iter()
+        .map(|line| {
+            (
+                line.label.as_ref().unwrap().origins[0],
+                line.runs[0].origins[0],
+            )
+        })
+        .collect();
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+    assert!(close(starts[0].0, indent), "{starts:?}");
+    assert!(
+        close((starts[1].0 + starts[1].1) / 2.0, indent),
+        "{starts:?}"
+    );
+    assert!(close(starts[2].1, indent), "{starts:?}");
+    assert_eq!(lines[0].label.as_ref().unwrap().text, "I.");
+    let drawn = page_texts(&glyphs(&Pdf::parse(&pdf_of(&document)).unwrap()));
+    assert_eq!(drawn[0], "I.ItemI.ItemI.Item");
+}
+
+/// Word spreads a justified line that ends in a line break, unless the
+/// document sets `w:doNotExpandShiftReturn`.
+#[test]
+fn a_justified_line_ending_in_a_break_is_spread() {
+    let body = format!(
+        r#"<w:p><w:pPr><w:jc w:val="both"/></w:pPr>{}{}{}</w:p>"#,
+        text("A short line"),
+        serif("<w:br/>"),
+        text("and the last line of the paragraph")
+    );
+    let ends = |settings: &str| {
+        let (lines, _) = records(&raw(&body, "", settings), &fonts());
+        let run = &lines[0].runs[0];
+        (*run.origins.last().unwrap(), lines[0].slack)
+    };
+    let (spread, slack) = ends("");
+    let (kept, _) = ends("<w:compat><w:doNotExpandShiftReturn/></w:compat>");
+    assert!(slack > 100.0, "{slack}");
+    assert!(
+        (spread - kept - slack).abs() < 1e-9,
+        "{spread} {kept} {slack}"
     );
 }
