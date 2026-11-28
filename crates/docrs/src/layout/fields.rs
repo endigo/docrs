@@ -44,6 +44,10 @@ pub(crate) const WARNING_CODES: &[(&str, &str)] = &[
         super::furniture::STORY_OVERFLOW,
         "a header or footer reaching past the middle of the page is cut off",
     ),
+    (
+        super::flow::SECTION_LAYOUT_UNSUPPORTED,
+        "a continuous section break between different paper sizes starts a new page",
+    ),
 ];
 
 /// Letters are written up to this many repeats (zz…z, 780), arabic past it.
@@ -63,15 +67,16 @@ pub(crate) enum NumberFormat {
 }
 
 impl NumberFormat {
-    /// `w:pgNumType w:fmt`; formats layout does not write are arabic.
-    pub(crate) fn of_section(fmt: Option<&str>) -> NumberFormat {
-        match fmt {
+    /// `w:pgNumType w:fmt`; `None` for a format layout does not write.
+    pub(crate) fn of_section(fmt: Option<&str>) -> Option<NumberFormat> {
+        Some(match fmt {
+            None | Some("decimal") => NumberFormat::Arabic,
             Some("lowerRoman") => NumberFormat::LowerRoman,
             Some("upperRoman") => NumberFormat::UpperRoman,
             Some("lowerLetter") => NumberFormat::LowerLetter,
             Some("upperLetter") => NumberFormat::UpperLetter,
-            _ => NumberFormat::Arabic,
-        }
+            Some(_) => return None,
+        })
     }
 
     /// A `\*` switch's format; `Err` for a number format layout does not

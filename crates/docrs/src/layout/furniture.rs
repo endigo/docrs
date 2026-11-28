@@ -7,7 +7,7 @@ use std::collections::hash_map::Entry;
 
 use super::fields::{self, Context, LayoutWarning, Number, Values};
 use super::flow::{CellLayout, Drawn, EPSILON, Item, Point, Sink, story_layout};
-use super::model::{Model, Section, Slots};
+use super::model::{Model, Section, Slots, StoryId};
 use crate::Result;
 
 /// A story overflows its half of the page.
@@ -104,16 +104,29 @@ impl<'m> Furniture<'m> {
     }
 
     fn number(&self, at: PageAt, section: &Section) -> Number {
-        let shown = match (self.numbers.last(), at.first, section.page_start) {
-            (_, true, Some(start)) | (None, _, Some(start)) => start,
-            (Some(previous), ..) => previous.shown.saturating_add(1),
-            (None, ..) => 1,
-        };
         Number {
-            shown,
+            shown: self.next_number(at.first, section),
             format: section.number_format,
             section: at.section,
         }
+    }
+
+    /// The number the next page shows: its section's start on the
+    /// section's `first` page, else one more than the page before.
+    pub(super) fn next_number(&self, first: bool, section: &Section) -> i64 {
+        match (self.numbers.last(), first, section.page_start) {
+            (_, true, Some(start)) | (None, _, Some(start)) => start,
+            (Some(previous), ..) => previous.shown.saturating_add(1),
+            (None, ..) => 1,
+        }
+    }
+
+    pub(super) fn warn(&mut self, code: &'static str, page: u32) {
+        self.warnings.push(LayoutWarning {
+            code,
+            story: StoryId::Body,
+            page: Some(page),
+        });
     }
 
     /// The first page's story with a distinct first page, an even page's

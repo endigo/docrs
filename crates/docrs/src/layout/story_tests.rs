@@ -14,11 +14,11 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 const PPR: &str = r#"<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="exact"/>"#;
 const RPR: &str = r#"<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr>"#;
 
-fn run(text: &str) -> String {
+pub(super) fn run(text: &str) -> String {
     format!(r#"<w:r>{RPR}<w:t xml:space="preserve">{text}</w:t></w:r>"#)
 }
 
-fn field(code: &str, cached: &str) -> String {
+pub(super) fn field(code: &str, cached: &str) -> String {
     let char = |kind: &str| format!(r#"<w:r>{RPR}<w:fldChar w:fldCharType="{kind}"/></w:r>"#);
     format!(
         r#"{}<w:r>{RPR}<w:instrText xml:space="preserve"> {code} </w:instrText></w:r>{}{}{}"#,
@@ -29,15 +29,15 @@ fn field(code: &str, cached: &str) -> String {
     )
 }
 
-fn para(content: &str) -> String {
+pub(super) fn para(content: &str) -> String {
     para_with("", content)
 }
 
-fn para_with(ppr: &str, content: &str) -> String {
+pub(super) fn para_with(ppr: &str, content: &str) -> String {
     format!("<w:p><w:pPr>{PPR}{ppr}</w:pPr>{content}</w:p>")
 }
 
-fn lines(count: usize) -> String {
+pub(super) fn lines(count: usize) -> String {
     (1..=count)
         .map(|n| para(&run(&format!("Line {n}"))))
         .collect()
@@ -45,12 +45,12 @@ fn lines(count: usize) -> String {
 
 /// Letter paper, 1-inch margins, headers and footers half an inch from
 /// the edge: 54 body lines a page.
-const PAGE: &str = r#"<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>"#;
-const LINES_PER_PAGE: usize = 54;
+pub(super) const PAGE: &str = r#"<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>"#;
+pub(super) const LINES_PER_PAGE: usize = 54;
 
 /// A section's properties: `PAGE`, `refs` (`header:default:h1`…) and
 /// `extra` (`w:titlePg`, `w:pgNumType`).
-fn sect(refs: &[&str], extra: &str) -> String {
+pub(super) fn sect(refs: &[&str], extra: &str) -> String {
     let refs: String = refs
         .iter()
         .map(|r| {
@@ -64,26 +64,26 @@ fn sect(refs: &[&str], extra: &str) -> String {
 }
 
 /// A section break paragraph ending a section with `sect_pr`.
-fn break_para(sect_pr: &str) -> String {
+pub(super) fn break_para(sect_pr: &str) -> String {
     format!("<w:p><w:pPr>{PPR}{sect_pr}</w:pPr></w:p>")
 }
 
-struct Doc<'a> {
-    body: String,
+pub(super) struct Doc<'a> {
+    pub body: String,
     /// Part stem (`h1`, `f1`…), its paragraphs. Stems starting with `h`
     /// are headers.
-    stories: Vec<(&'a str, String)>,
-    even_and_odd: bool,
+    pub stories: Vec<(&'a str, String)>,
+    pub even_and_odd: bool,
 }
 
 impl Doc<'_> {
-    fn with<T>(&self, f: impl FnOnce(&Txn<'_>, &str) -> T) -> T {
+    pub(super) fn with<T>(&self, f: impl FnOnce(&Txn<'_>, &str) -> T) -> T {
         let doc = self.document();
         let main = doc.package().main_part_name().to_string();
         f(&Txn::new(&doc), &main)
     }
 
-    fn document(&self) -> Document {
+    pub(super) fn document(&self) -> Document {
         let mut doc = Document::new();
         let mut txn = Txn::new(&doc);
         let main = doc.package().main_part_name().to_string();
@@ -121,12 +121,12 @@ impl Doc<'_> {
         doc
     }
 
-    fn settle(&self) -> Result<Settled> {
+    pub(super) fn settle(&self) -> Result<Settled> {
         self.with(|txn, main| settle(txn, main, &FontSet::default()))
     }
 
     /// Each line: page, story, top, text.
-    fn lines(&self) -> Vec<(u32, String, f64, String)> {
+    pub(super) fn lines(&self) -> Vec<(u32, String, f64, String)> {
         let mut out = Vec::new();
         self.with(|txn, main| {
             records_with(
@@ -147,7 +147,7 @@ impl Doc<'_> {
     }
 
     /// Each page's lines of `story` (`header`, `footer`), joined.
-    fn story_text(&self, story: &str) -> Vec<String> {
+    pub(super) fn story_text(&self, story: &str) -> Vec<String> {
         let lines = self.lines();
         let pages = lines.iter().map(|l| l.0).max().unwrap_or(0);
         (1..=pages)
@@ -163,7 +163,7 @@ impl Doc<'_> {
     }
 }
 
-fn body(content: String, sect_pr: String) -> String {
+pub(super) fn body(content: String, sect_pr: String) -> String {
     content + &sect_pr
 }
 

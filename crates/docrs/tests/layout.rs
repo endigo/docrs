@@ -479,13 +479,14 @@ fn entry_numbers(doc: &Document) -> Vec<String> {
     xml.split("<w:hyperlink ")
         .skip(1)
         .map(|chunk| {
-            let mut chunk = &chunk[..chunk.find("</w:hyperlink>").unwrap()];
+            let entry = &chunk[..chunk.find("</w:hyperlink>").unwrap()];
+            let mut chunk = &entry[entry.find("<w:tab/>").unwrap()..];
             let mut text = String::new();
             while let Some(open) = chunk.find("<w:t>") {
                 chunk = &chunk[open + 5..];
                 text.push_str(&chunk[..chunk.find('<').unwrap()]);
             }
-            text.trim_start_matches(char::is_alphabetic).to_string()
+            text
         })
         .collect()
 }
@@ -554,7 +555,7 @@ fn refresh_leaves_page_numbers_it_cannot_read_whole() {
 }
 
 #[test]
-fn refresh_leaves_roman_and_restarted_page_numbers() {
+fn refresh_writes_roman_and_restarted_page_numbers() {
     let toc = word_toc(&[
         word_entry("_Toc1", "One", "7", "\\h"),
         word_entry("_Toc2", "Two", "9", "\\h"),
@@ -565,8 +566,9 @@ fn refresh_leaves_roman_and_restarted_page_numbers() {
         heading("_Toc2", "Two", "")
     );
     let mut doc = open(&package_with(&roman, "", None));
+    assert_eq!(refresh(&mut doc), 2);
+    assert_eq!(entry_numbers(&doc), ["ii", "iii"]);
     assert_eq!(refresh(&mut doc), 0);
-    assert_eq!(entry_numbers(&doc), ["7", "9"]);
 
     let restarted = format!(
         "{toc}{}{}<w:sectPr>{SECT_PR}<w:pgNumType w:start=\"1\"/></w:sectPr>",
@@ -574,8 +576,8 @@ fn refresh_leaves_roman_and_restarted_page_numbers() {
         heading("_Toc2", "Two", "")
     );
     let mut doc = open(&package_with(&restarted, "", None));
-    assert_eq!(refresh(&mut doc), 1);
-    assert_eq!(entry_numbers(&doc), ["2", "9"]);
+    assert_eq!(refresh(&mut doc), 2);
+    assert_eq!(entry_numbers(&doc), ["2", "1"]);
 
     let break_in_sdt = format!(
         "{toc}{}<w:sdt><w:sdtContent><w:p><w:pPr><w:sectPr>{SECT_PR}</w:sectPr></w:pPr></w:p></w:sdtContent></w:sdt>{}<w:sectPr>{SECT_PR}<w:pgNumType w:start=\"1\"/></w:sectPr>",
@@ -583,8 +585,13 @@ fn refresh_leaves_roman_and_restarted_page_numbers() {
         heading("_Toc2", "Two", "")
     );
     let mut doc = open(&package_with(&break_in_sdt, "", None));
-    assert_eq!(refresh(&mut doc), 1);
-    assert_eq!(entry_numbers(&doc), ["2", "9"]);
+    assert_eq!(refresh(&mut doc), 2);
+    assert_eq!(entry_numbers(&doc), ["2", "1"]);
+
+    let decimal_zero = roman.replace("lowerRoman", "decimalZero");
+    let mut doc = open(&package_with(&decimal_zero, "", None));
+    assert_eq!(refresh(&mut doc), 0);
+    assert_eq!(entry_numbers(&doc), ["7", "9"]);
 }
 
 #[test]

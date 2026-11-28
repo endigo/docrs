@@ -17,9 +17,10 @@ use std::ops::Range;
 use super::fields::Values;
 use super::furniture::{Furniture, PageAt, Pages};
 use super::model::{
-    Align, Block, Leader, LineSpacing, Metric, Model, NoteId, Para, Piece, Row, TabKind, TabStop,
-    Table,
+    Align, Block, Leader, LineSpacing, Metric, Model, NoteId, Para, Piece, Row, Section, TabKind,
+    TabStop, Table,
 };
+use crate::authoring::SectionStart;
 use crate::xml::NodeId;
 use crate::{Error, Result};
 
@@ -1168,6 +1169,13 @@ pub(super) fn layout_work() -> u64 {
 /// A table's header rows and their height.
 type Headers<'a, 'm> = (&'a [RowLayout<'m>], f64);
 
+/// A continuous section break between different paper sizes starts a page.
+pub(crate) const SECTION_LAYOUT_UNSUPPORTED: &str = "pdf_section_layout_unsupported";
+
+fn same_paper(a: &Section, b: &Section) -> bool {
+    (a.page.width, a.page.height) == (b.page.width, b.page.height)
+}
+
 struct Flow<'m, 's, S: Sink> {
     model: &'m Model,
     sink: &'s mut S,
@@ -1369,18 +1377,41 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(())
     }
 
-    /// Start section `next` after the current paragraph.
+    /// Start section `next` after the current paragraph: on this page when
+    /// it is continuous on paper of the same size, else on a new page, after
+    /// a blank one when an even or odd start needs it.
     fn next_section(&mut self, next: usize) -> Result<()> {
-        self.section = next.min(self.model.sections.len() - 1);
-        self.section_notes();
-        if self.model.sections[self.section].continuous {
-            return Ok(());
+        let next = next.min(self.model.sections.len() - 1);
+        let section = &self.model.sections[next];
+        if section.start == SectionStart::Continuous {
+            if same_paper(section, &self.model.sections[self.section()]) {
+                self.section = next;
+                self.section_notes();
+                return Ok(());
+            }
+            self.furniture.warn(SECTION_LAYOUT_UNSUPPORTED, self.page);
         }
-        self.section_first_page = self.page + 1;
         self.section_end = self.previous;
+        if self.needs_blank_page(section) {
+            self.new_page()?;
+        }
+        self.section = next;
+        self.section_notes();
+        self.section_first_page = self.page + 1;
         self.new_page()?;
         self.at_section_start = true;
         Ok(())
+    }
+
+    /// Word gives an even or odd start the parity of the number its first
+    /// page shows, not of the physical page.
+    fn needs_blank_page(&self, section: &Section) -> bool {
+        let odd = self.furniture.next_number(true, section).rem_euclid(2) == 1;
+        match section.start {
+            SectionStart::EvenPage => odd,
+            SectionStart::OddPage => !odd,
+            _ => false,
+        }
     }
 
     /// The space above `para` here: none at the top of a page (but the
@@ -1662,6 +1693,7 @@ fn paginate_within<S: Sink>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authoring::SectionStart;
     use crate::layout::fields::NumberFormat;
     use crate::layout::model::{Label, NoteSettings, Notes, Page, Section, Slots};
 
@@ -1780,8 +1812,8 @@ mod tests {
                 title_page: false,
                 page_start: None,
                 number_format: NumberFormat::Arabic,
-                continuous: false,
                 notes: NoteSettings::default(),
+                start: SectionStart::NewPage,
             }],
             blocks,
             stories: Vec::new(),
