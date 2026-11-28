@@ -946,8 +946,16 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
 
 /// `pieces` by look, their characters at `origins` from `left`; a tab is
 /// `\t`.
-/// A line's text by look, each character at its origin; a note's mark is
-/// its digits spread over the mark's width.
+/// A note's mark, each character at its x: spread evenly over the mark's
+/// width, which layout measured with the mark's number in document order.
+pub(crate) fn mark_characters(mark: &str, width: f64, x: f64) -> impl Iterator<Item = (char, f64)> {
+    let step = width / mark.chars().count().max(1) as f64;
+    mark.chars()
+        .enumerate()
+        .map(move |(i, ch)| (ch, x + step * i as f64))
+}
+
+/// A line's text by look, each character at its origin.
 fn by_look(
     pieces: &[model::Piece],
     origins: &[f64],
@@ -974,9 +982,8 @@ fn by_look(
                 note, width, look, ..
             } => {
                 let mark = marks.get(note).map_or("", String::as_str);
-                let step = width / mark.chars().count().max(1) as f64;
-                for (i, ch) in mark.chars().enumerate() {
-                    push(ch, *look, left + origin + step * i as f64);
+                for (ch, x) in mark_characters(mark, *width, left + origin) {
+                    push(ch, *look, x);
                 }
             }
             _ => {}

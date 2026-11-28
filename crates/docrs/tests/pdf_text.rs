@@ -1269,3 +1269,16 @@ fn auto_text_is_white_on_a_dark_fill_and_hidden_text_is_not_drawn() {
         "{text}"
     );
 }
+
+#[test]
+fn a_note_whose_table_goes_on_is_refused() {
+    let rows: String = (0..80)
+        .map(|n| format!("    | row {n} | value |\n"))
+        .collect();
+    let source = format!("Cited.[^t]\n\n[^t]: A table:\n\n    | a | b |\n    |---|---|\n{rows}");
+    let document = convert(&source, InputFormat::Markdown, None);
+    let err = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap_err();
+    assert_eq!(err.reason(), docrs::pdf::FOOTNOTE_LAYOUT_UNSUPPORTED);
+    let fits = convert("Cited.[^t]\n\n[^t]: A note.\n", InputFormat::Markdown, None);
+    paint_for_tests(&fits, &fonts(), &font(LIBERATION)).unwrap();
+}
