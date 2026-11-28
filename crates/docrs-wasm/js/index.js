@@ -36,6 +36,8 @@ const GLUE = [
   "referenceDocument",
   "registerFonts",
   "start",
+  "toPdf",
+  "usedFonts",
   "version",
 ];
 
@@ -132,13 +134,13 @@ function guarded(name) {
   return call;
 }
 
-// `name` with its options (argument `at`) refusing `fonts`, which only
-// conversions take.
-function fontless(name, at) {
+// `name` with its options (each argument of `at`) refusing `fonts`, which
+// only conversions and `toPdf` take.
+function fontless(name, ...at) {
   const inner = guarded(name);
   const call = (...args) => {
-    const fonts = args[at]?.fonts;
-    if (fonts !== undefined && fonts !== null) throw invalid("invalid_options", `${name} takes no fonts`);
+    const fonts = at.map((i) => args[i]?.fonts).find((fonts) => fonts !== undefined && fonts !== null);
+    if (fonts !== undefined) throw invalid("invalid_options", `${name} takes no fonts`);
     return inner(...args);
   };
   Object.defineProperty(call, "name", { value: name });
@@ -550,6 +552,8 @@ exports.loadFonts = loadFonts;
 exports.markdownStyles = fontless("markdownStyles", 2);
 exports.referenceDocument = guarded("referenceDocument");
 exports.start = guarded("start");
+exports.toPdf = converting("toPdf");
+exports.usedFonts = fontless("usedFonts", 0, 1);
 exports.version = guarded("version");
 
 // For tests and diagnostics; not part of the documented interface.

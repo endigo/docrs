@@ -429,15 +429,17 @@ test("a few hundred traps leave memory flat and the replaced instances unreachab
 });
 
 test("the WebAssembly module stays within its 3.9 MB budget", () => {
-  const size = readFileSync(join(pkg, "docrs_bg.wasm")).length;
-  assert.ok(size <= 3_900_000, `docrs_bg.wasm is ${size} bytes`);
+  const wasm = readFileSync(join(pkg, "docrs_bg.wasm"));
+  const gzip = require("node:zlib").gzipSync(wasm, { level: 9 }).length;
+  assert.ok(wasm.length <= 3_900_000, `docrs_bg.wasm is ${wasm.length} bytes (${gzip} gzipped)`);
 });
 
 test("the entry point exports every function the typings declare, to ESM by name too", async () => {
   const declared = [...readFileSync(join(pkg, "docrs.d.ts"), "utf8").matchAll(/^export function (\w+)\(/gm)]
     .map((m) => m[1])
+    .filter((name, at, names) => names.indexOf(name) === at)
     .sort();
-  assert.ok(declared.includes("fromHtml") && declared.includes("fromJson"));
+  assert.ok(declared.includes("fromHtml") && declared.includes("toPdf"));
   assert.deepEqual(Object.keys(lib).sort(), declared);
   const esm = await import(pathToFileURL(require.resolve(pkg)).href);
   assert.deepEqual(Object.keys(esm).filter((key) => key !== "default" && key !== "module.exports").sort(), declared);
@@ -854,6 +856,199 @@ test("a manifest's data is copied, and its file must hold the declared family an
   );
 });
 
+// PDF output (experimental).
+const NOW = 1_700_000_000_000;
+// Inter from the template, and Times New Roman spans in Liberation Serif.
+const ADVICE =
+  "<h1>Statement of Advice</h1><p>Prepared for <strong>Jo Citizen</strong> on 28 November 2026.</p>" +
+  "<ol><li><p>Consolidate your super into one fund.</p></li><li><p>Increase your contributions.</p></li></ol>" +
+  '<p><span style="font-family: &quot;Times New Roman&quot;">This advice is general in nature.</span></p>';
+const ADVICE_JSON = JSON.stringify({
+  type: "doc",
+  content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Statement of Advice" }] },
+    { type: "paragraph", content: [{ type: "text", text: "Prepared for " }, { type: "text", marks: [{ type: "bold" }], text: "Jo Citizen" }] },
+  ],
+});
+const SERIF_ALIAS = { "Times New Roman": "Liberation Serif" };
+const tenantFonts = () => lib.loadFonts([INTER, SERIF], { aliases: SERIF_ALIAS });
+const isPdf = (bytes) => bytes instanceof Uint8Array && Buffer.from(bytes.subarray(0, 5)).toString("latin1") === "%PDF-";
+const face = (family, bold = false, italic = false) => ({ family, bold, italic });
+const ADVICE_FACES = [face("Inter"), face("Inter", true), face("Times New Roman")];
+const sorted = (result) => Object.keys(result).sort();
+
+test("toPdf and every conversion with pdf draw a PDF, with or without the docx", () => {
+  const fonts = tenantFonts();
+  const options = { reference: INTER_REFERENCE, fonts, now: NOW };
+  const plain = lib.fromHtml(ADVICE, options);
+  assert.deepEqual(sorted(plain), ["docx", "referenceSetAside", "report"]);
+  const both = lib.fromHtml(ADVICE, { ...options, pdf: true });
+  assert.deepEqual(sorted(both), ["docx", "pdf", "pdfReport", "referenceSetAside", "report"]);
+  assert.deepEqual(both.docx, plain.docx);
+  assert.deepEqual(both.report, plain.report);
+  assert.ok(isPdf(both.pdf));
+  assert.deepEqual(both.pdfReport, { schema_version: 1, warnings: [], pages: 1 });
+  const only = lib.fromHtml(ADVICE, { ...options, pdf: { strict: true }, docx: false });
+  assert.deepEqual(sorted(only), ["pdf", "pdfReport", "referenceSetAside", "report"]);
+  assert.deepEqual(only.pdf, both.pdf);
+  const drawn = lib.toPdf(plain.docx, { fonts });
+  assert.deepEqual(sorted(drawn), ["pdf", "pdfReport", "referenceSetAside"]);
+  assert.deepEqual(drawn.pdfReport, both.pdfReport);
+  for (const result of [
+    lib.fromMarkdown("# Advice\n\nFor **Jo**.\n", { ...options, pdf: true }),
+    lib.fromJson(JSON.parse(ADVICE_JSON), { ...options, pdf: true, docx: false }),
+    lib.fromTiptap(ADVICE_JSON, { ...options, pdf: true }),
+  ]) {
+    assert.ok(isPdf(result.pdf));
+    assert.equal(result.pdfReport.pages, 1);
+  }
+  const invalid = (err) => err.code === "invalid_argument" && err.reason === "invalid_options";
+  assert.throws(() => lib.fromHtml(ADVICE, { ...options, docx: false }), invalid);
+  assert.throws(() => lib.fromHtml(ADVICE, { ...options, pdf: false, docx: false }), invalid);
+  assert.throws(() => lib.fromHtml(ADVICE, { ...options, pdf: { nonsense: 1 } }), invalid);
+  assert.throws(() => lib.fromHtml(ADVICE, { ...options, pdf: { maxPages: -1 } }), invalid);
+  assert.throws(() => lib.toPdf(plain.docx, { nonsense: 1 }), (err) => /unknown option "nonsense"/.test(err.message));
+  assert.throws(() => lib.toPdf("not bytes", { fonts }), invalid);
+  fonts.free();
+});
+
+test("usedFonts lists the faces a PDF needs, from a docx or a source and its options", () => {
+  const { docx } = lib.fromHtml(ADVICE, { reference: INTER_REFERENCE });
+  assert.deepEqual(lib.usedFonts(docx), ADVICE_FACES);
+  assert.deepEqual(lib.usedFonts({ html: ADVICE, reference: INTER_REFERENCE }), ADVICE_FACES);
+  assert.deepEqual(lib.usedFonts({ json: JSON.parse(ADVICE_JSON), reference: INTER_REFERENCE }), [face("Inter"), face("Inter", true)]);
+  assert.deepEqual(lib.usedFonts({ markdown: "plain *text*\n", limits: "serverless" }), [face("Cambria"), face("Cambria", false, true)]);
+  const fonts = tenantFonts();
+  const refused = (pattern) => (err) => err.code === "invalid_argument" && pattern.test(err.message);
+  assert.throws(() => lib.usedFonts(docx, { fonts }), refused(/takes no fonts/));
+  assert.throws(() => lib.usedFonts({ html: ADVICE, fonts }), refused(/takes no fonts/));
+  assert.throws(() => lib.usedFonts({ html: ADVICE, pdf: true }), refused(/no fonts, pdf or docx/));
+  assert.throws(() => lib.usedFonts({ html: ADVICE, markdown: "x" }), refused(/exactly one of html, json and markdown/));
+  assert.throws(() => lib.usedFonts({ html: ADVICE }, {}), refused(/inside its object/));
+  assert.throws(() => lib.usedFonts(docx, { nonsense: true }), refused(/unknown option/));
+  assert.throws(() => lib.usedFonts({ html: OVER_BUDGET, limits: "serverless" }), limited("max_source_bytes"));
+  fonts.free();
+});
+
+test("a missing font refuses with each family and style in details, and the instance stays", () => {
+  const serif = lib.loadFonts([SERIF]);
+  const instance = lib.__wasm;
+  const missing = (faces) => (err) =>
+    err.refusal === true && err.reason === "pdf_font_program_missing" && assert.deepEqual(err.details.missing_fonts, faces) === undefined;
+  assert.throws(() => lib.fromHtml(ADVICE, { reference: INTER_REFERENCE, fonts: serif, pdf: true }), missing(ADVICE_FACES));
+  const { docx } = lib.fromHtml(ADVICE, { reference: INTER_REFERENCE });
+  assert.throws(() => lib.toPdf(docx), missing(ADVICE_FACES));
+  assert.throws(() => lib.toPdf(docx, { fonts: serif, redact: true }), missing(ADVICE_FACES));
+  assert.equal(lib.__wasm, instance, "a refusal leaves the instance in place");
+  assert.ok(isPdf(lib.toPdf(docx, { fonts: lib.loadFonts([INTER, SERIF], { aliases: SERIF_ALIAS }) }).pdf));
+  serif.free();
+});
+
+test("two tenants' font sets draw their own PDFs in alternating calls, across a reset", () => {
+  const serif = tenantFonts();
+  const sans = lib.loadFonts([INTER], { aliases: { "Times New Roman": "Inter" } });
+  const draw = (fonts) => lib.fromHtml(ADVICE, { reference: INTER_REFERENCE, fonts, pdf: true, docx: false, now: NOW }).pdf;
+  const first = { serif: draw(serif), sans: draw(sans) };
+  assert.notDeepEqual(first.serif, first.sans);
+  for (let round = 0; round < 4; round++) {
+    assert.deepEqual(draw(sans), first.sans);
+    assert.deepEqual(draw(serif), first.serif);
+    if (round === 1) assert.throws(trapInside, WebAssembly.RuntimeError);
+  }
+  serif.free();
+  assert.throws(() => draw(serif), disposed);
+  assert.deepEqual(draw(sans), first.sans);
+  sans.free();
+});
+
+test("a freed font set cannot draw a PDF, after a reset too", () => {
+  const fonts = tenantFonts();
+  const { docx } = lib.fromHtml(ADVICE, { reference: INTER_REFERENCE });
+  assert.ok(isPdf(lib.toPdf(docx, { fonts }).pdf));
+  fonts.free();
+  assert.throws(() => lib.toPdf(docx, { fonts }), disposed);
+  assert.throws(trapInside, WebAssembly.RuntimeError);
+  assert.throws(() => lib.toPdf(docx, { fonts }), disposed);
+  assert.throws(() => lib.fromHtml(ADVICE, { reference: INTER_REFERENCE, fonts, pdf: true }), disposed);
+});
+
+// Each section about one page in Inter.
+const SECTION =
+  "<h2>Section</h2>" +
+  "<p>Prepared for <strong>Jo Citizen</strong>, this advice sets out our recommendations on superannuation, insurance and the home loan, and the reasons for them, in the detail the law requires.</p>".repeat(12);
+const sections = (count) => SECTION.repeat(count);
+
+test("the serverless profile caps a PDF, and an option's cap only lowers it", () => {
+  const fonts = tenantFonts();
+  const draw = (source, options) => lib.fromHtml(source, { reference: INTER_REFERENCE, fonts, pdf: options, docx: false, ...options.call });
+  assert.throws(() => draw(sections(3), { maxPages: 1 }), (err) => limited("max_pdf_pages")(err) && err.limit.allowed === 1);
+  // The output cap bounds the content streams before they are compressed too.
+  assert.throws(() => draw(sections(3), { maxOutputBytes: 1000 }), limited("max_pdf_content_bytes"));
+  const { docx } = lib.fromHtml(sections(560), { reference: INTER_REFERENCE });
+  const serverless = { fonts, limits: "serverless", maxPages: 100_000 };
+  assert.throws(() => lib.toPdf(docx, serverless), (err) => limited("max_pdf_pages")(err) && err.limit.allowed === 500);
+  assert.ok(lib.toPdf(docx, { fonts, maxPages: 100_000 }).pdfReport.pages > 500);
+  const many = lib.loadFonts(Array(25).fill(SERIF));
+  assert.throws(() => lib.toPdf(docx, { fonts: many, limits: "serverless" }), limited("max_font_faces"));
+  assert.throws(() => lib.fromHtml(ADVICE, { fonts: many, pdf: true, limits: "serverless" }), limited("max_font_faces"));
+  many.free();
+  fonts.free();
+});
+
+test("a large PDF is followed by a fresh instance, and small PDFs after it keep memory flat and identical", () => {
+  const fonts = [tenantFonts(), lib.loadFonts([INTER], { aliases: { "Times New Roman": "Inter" } })];
+  const small = (i) => lib.fromHtml(ADVICE, { reference: INTER_REFERENCE, fonts: fonts[i % 2], pdf: true, docx: false, now: NOW }).pdf;
+  const before = [small(0), small(1)];
+  const instance = lib.__wasm;
+  // About 1,000 pages: past the high-water mark.
+  const large = lib.fromHtml(sections(1000), { reference: INTER_REFERENCE, fonts: fonts[0], pdf: true, docx: false });
+  assert.ok(large.pdfReport.pages > 900);
+  assert.notEqual(lib.__wasm, instance, "the instance past the high-water mark was replaced");
+  assert.ok(lib.__wasm.memory.buffer.byteLength < 32 << 20);
+  for (let i = 0; i < 50; i++) assert.deepEqual(small(i), before[i % 2], `call ${i}`);
+  const settled = { wasm: lib.__wasm.memory.buffer.byteLength, rss: process.memoryUsage().rss };
+  for (let i = 50; i < 500; i++) assert.deepEqual(small(i), before[i % 2], `call ${i}`);
+  assert.equal(lib.__wasm.memory.buffer.byteLength, settled.wasm);
+  assert.ok(process.memoryUsage().rss - settled.rss < 64 << 20, "resident memory grew over 500 PDFs");
+  for (const set of fonts) set.free();
+});
+
+// Tools that read a PDF as others will: qpdf, and PDFKit on macOS.
+const { execFileSync } = require("node:child_process");
+const has = (tool) => {
+  try {
+    execFileSync("which", [tool], { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+};
+const PDFKIT_TEXT = `import PDFKit
+let pdf = PDFDocument(url: URL(fileURLWithPath: CommandLine.arguments[1]))!
+print(pdf.pageCount)
+print(pdf.string ?? "")
+`;
+const reader = { skip: has("qpdf") ? false : "needs qpdf" };
+
+test("the PDF passes qpdf --check and its text extracts", reader, async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "docrs-pdf-"));
+  const fonts = tenantFonts();
+  const file = join(dir, "advice.pdf");
+  writeFileSync(file, lib.fromHtml(ADVICE, { reference: INTER_REFERENCE, fonts, pdf: true }).pdf);
+  fonts.free();
+  assert.match(execFileSync("qpdf", ["--check", file], { encoding: "utf8" }), /No syntax or stream encoding errors found/);
+  if (process.platform !== "darwin" || !has("swift")) return;
+  writeFileSync(join(dir, "text.swift"), PDFKIT_TEXT);
+  const [pages, ...text] = execFileSync("swift", [join(dir, "text.swift"), file], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).split("\n");
+  assert.equal(pages, "1");
+  const extracted = text.join(" ").replace(/\s+/g, " ");
+  for (const line of ["Statement of Advice", "Prepared for Jo Citizen on 28 November 2026.", "Consolidate your super into one fund.", "This advice is general in nature."]) {
+    assert.ok(extracted.includes(line), `${line} in ${extracted}`);
+  }
+});
+
 // A consumer project around the installed package: `lib` its TypeScript libs.
 async function compile(name, lib, source) {
   const { mkdtempSync, writeFileSync, mkdirSync, symlinkSync } = await import("node:fs");
@@ -880,7 +1075,7 @@ test("the typings compile against a consumer", tsc, () =>
   compile(
     "consumer",
     ["es2022", "dom"],
-    `import { createFontCache, fromHtml, fromJson, fromMarkdown, fromTiptap, inspectReference, loadFontManifest, loadFonts, markdownStyles, type FontSet, type FromMarkdownResult } from "docrs-wasm";
+    `import { createFontCache, fromHtml, fromJson, fromMarkdown, fromTiptap, inspectReference, loadFontManifest, loadFonts, markdownStyles, toPdf, usedFonts, type FontSet, type FromMarkdownPdfResult, type FromMarkdownResult, type PdfOutput, type PdfReport, type ToPdfResult, type UsedFont } from "docrs-wasm";
 const fonts: FontSet = loadFonts([new Uint8Array(4)], { limits: "serverless", aliases: { Brand: "Inter" } });
 const family: string = fonts.faces[0].family;
 const plain: FromMarkdownResult = fromMarkdown("# A", { fonts, toc: true });
@@ -890,6 +1085,28 @@ fromTiptap("{}", { fonts });
 inspectReference(new Uint8Array(4), { limits: "serverless" });
 // @ts-expect-error a conversion without pdf has no pdf
 plain.pdf;
+const both: FromMarkdownResult & PdfOutput = fromHtml("<p>x</p>", { fonts, pdf: true });
+const report: PdfReport = both.pdfReport;
+const pages: number = report.pages;
+const bytes: Uint8Array = fromMarkdown("# A", { pdf: { strict: true, maxPages: 50 } }).pdf;
+const only: FromMarkdownPdfResult = fromJson({ type: "doc" }, { pdf: true, docx: false });
+// @ts-expect-error a PDF-only conversion has no docx
+only.docx;
+fromTiptap("{}", { pdf: true }).pdf;
+declare const maybe: boolean;
+const either = fromHtml("<p>x</p>", { pdf: maybe });
+// @ts-expect-error pdf may be off
+either.pdf;
+const drawn: ToPdfResult = toPdf(new Uint8Array(4), { fonts, strict: true, limits: "serverless", maxOutputBytes: 1 << 20 });
+// @ts-expect-error toPdf has no docx
+drawn.docx;
+const used: UsedFont[] = usedFonts({ html: "<p>x</p>", reference: new Uint8Array(4) });
+usedFonts(new Uint8Array(4), { limits: "serverless" });
+// @ts-expect-error usedFonts needs a source
+usedFonts({ reference: new Uint8Array(4) });
+// @ts-expect-error usedFonts takes no fonts
+usedFonts({ html: "<p>x</p>", fonts });
+void bytes; void pages; void used;
 // @ts-expect-error only a handle from loadFonts or loadFontManifest
 fromMarkdown("x", { fonts: { faces: [], free() {} } });
 // @ts-expect-error inspectReference takes no fonts

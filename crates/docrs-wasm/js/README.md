@@ -83,8 +83,8 @@ will take from a template: role styles, lifted branding, the section kept,
 headers and footers, compatibility mode, plain-language problems),
 `markdownStyles(reference?, styles?, options?)` (which style each element
 takes), `referenceDocument()` (a starter template to restyle in Word) and
-`version()`. Errors are thrown as `Error`s with `code`, `reason`, `refusal`
-and `limit`; a refusal produces nothing.
+`version()`. Errors are thrown as `Error`s with `code`, `reason`, `refusal`,
+`limit` and `details`; a refusal produces nothing.
 
 `limits` applies to every function that takes options. Inputs over budget
 are refused by their size before they are copied into WebAssembly memory:
@@ -110,7 +110,7 @@ Contents page numbers are worked out by measuring the template's fonts: a
 font it embeds, else the package's own metrics for common fonts, else a
 substitute (listed in `report.toc.missing_fonts`). Load the font files your users upload once,
 and pass the set to every conversion so the contents page numbers are
-measured with them:
+measured, and a PDF drawn, with them:
 
 ```js
 const { loadFonts, loadFontManifest, fromHtml } = require("docrs-wasm");
@@ -168,6 +168,55 @@ keeps fetched files by entry `id`, never by URL, so an id must name one
 file: make one cache per tenant, and give each file an id that changes with
 its content (a tenant id and a content hash, for example).
 
+## PDF (experimental)
+
+Every conversion also draws its document as a PDF with `pdf`, and `toPdf`
+draws a `.docx` as `docrs pdf` does:
+
+```js
+const { fromHtml, toPdf } = require("docrs-wasm");
+
+const { docx, report, pdf, pdfReport } = fromHtml(html, { reference, fonts, pdf: true });
+const { pdf: only } = fromHtml(html, { reference, fonts, pdf: { strict: true }, docx: false });
+const { pdf: again } = toPdf(docx, { fonts, limits: "serverless" });
+// pdfReport: { schema_version: 1, pages, warnings: [{ code, subject, message, locations, count }] }
+```
+
+Without `pdf` a conversion's result and types are unchanged. `docx: false`
+leaves the `.docx` out (and needs `pdf`). `pdf` takes `strict` (refuse with
+`pdf_not_faithful` when the PDF would leave anything out or change it;
+default: the conversion's `strict`) and the caps `maxPages`,
+`maxOutputBytes`, `maxImagePixels` and `maxDocumentPixels`; `toPdf` takes
+them as options of its own. A cap only ever lowers the `limits` profile's:
+
+| | default | serverless |
+| -- | -- | -- |
+| pages | 2,000 | 500 |
+| output bytes | 256 MiB | 32 MiB |
+| decoded pixels per picture / per document | 32 M / 256 M | 4 M / 32 M |
+
+Each character is drawn in the face that measured it: a font the document
+embeds, else one of `fonts`. A family and style with neither refuses with
+`pdf_font_program_missing`, and `error.details.missing_fonts` lists each `{
+family, bold, italic }`. While the engine is incomplete, a construct it
+does not draw yet refuses with `pdf_not_yet_drawn` (`error.details.warnings`
+counts them), so a PDF never silently leaves something out.
+
+`usedFonts` lists the faces a PDF of a document needs and its template does
+not embed, so a server fetches only those from its font storage:
+
+```js
+usedFonts(docx); // [{ family: "Inter", bold: false, italic: false }, { family: "Inter", bold: true, ... }]
+usedFonts({ html, reference, styles }); // or { markdown } or { json }, with the conversion's options
+```
+
+A call that draws a PDF leaves the instance's memory where its peak was,
+like any other: the package replaces an instance past 128 MiB after the
+call and loads font sets into the next one when a call first uses them.
+Measured in Node 26: 130 pages of editor HTML (the most the `serverless`
+source budget allows) with a 24-face set leave 40 MiB; 770 pages under the
+default budgets leave 119 MiB.
+
 ## Next.js
 
 Use it from a Route Handler or Server Action on the Node.js runtime and keep
@@ -220,6 +269,54 @@ function tenantFonts(tenant: string, entries: FontManifestEntry[]): Promise<Font
   return fonts;
 }
 // When a tenant's fonts change: (await fontSets.get(tenant))?.free(); fontSets.delete(tenant);
+```
+
+A PDF in the tenant's fonts (experimental): the manifest lists every face
+the tenant uploaded, `usedFonts` says which ones the document draws, and
+only those are fetched (over https, capped in bytes and time, and cached
+by `id` across requests). The set is built for the request and freed after
+it, so live sets never pile up; the cache keeps the bytes:
+
+```ts
+// app/api/pdf/route.ts
+import { readFile } from "node:fs/promises";
+import { createFontCache, fromHtml, loadFontManifest, usedFonts, type FontCache, type FontManifestEntry, type UsedFont } from "docrs-wasm";
+export const runtime = "nodejs";
+
+const reference = new Uint8Array(await readFile("templates/advice.docx"));
+const caches = new Map<string, FontCache>();
+
+// Your storage: every face the tenant uploaded, each a signed https URL.
+declare function manifestOf(tenant: string): Promise<FontManifestEntry[]>;
+
+// Both weights of a style: a variable file declared regular draws bold too.
+const draws = (used: UsedFont[]) => (entry: FontManifestEntry) =>
+  used.some((face) => face.family.toLowerCase() === entry.family.toLowerCase() &&
+    face.italic === Boolean(entry.italic));
+
+export async function POST(request: Request) {
+  const tenant = request.headers.get("x-tenant") ?? "";
+  const html = await request.text();
+  const used = usedFonts({ html, reference, limits: "serverless" });
+  const entries = (await manifestOf(tenant)).filter(draws(used));
+  let cache = caches.get(tenant);
+  if (!cache) caches.set(tenant, (cache = createFontCache({ maxBytes: 32 << 20 })));
+  const fonts = await loadFontManifest(entries, {
+    cache, limits: "serverless", timeoutMs: 10_000, signal: request.signal,
+  });
+  try {
+    const { pdf } = fromHtml(html, { reference, fonts, pdf: true, docx: false, limits: "serverless", redact: true });
+    return new Response(pdf.slice(), {
+      headers: { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="advice.pdf"' },
+    });
+  } catch (error: any) {
+    if (error.reason !== "pdf_font_program_missing") throw error;
+    // A face the tenant never uploaded: ask for it by name.
+    return Response.json({ missing: error.details.missing_fonts }, { status: 422 });
+  } finally {
+    fonts.free();
+  }
+}
 ```
 
 For a TipTap editor, post `editor.getJSON()` as the request body and hand

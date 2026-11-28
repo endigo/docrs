@@ -333,6 +333,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_bytes",
  "serde_json",
+ "tempfile",
  "wasm-bindgen",
 ]
 
