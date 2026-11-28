@@ -1820,15 +1820,21 @@ mod tests {
         let markdown: String = (1..=8)
             .map(|i| format!("# Section {i}\n\n{}", paragraph.repeat(6)))
             .collect();
+        let markdown = format!("Dear {{{{Client}}}},\n\n{markdown}");
         let reference = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/fixtures/pdf/references/inter.docx"),
         )
         .unwrap();
-        let convert_with = |fonts: LoadedFonts| {
+        // A filled field makes the contents numbers measured a second time.
+        let convert_with = |fonts: LoadedFonts, client: Option<&str>| {
             let options = Options {
                 reference: Some(ByteBuf::from(reference.clone())),
                 toc: Some(true),
+                fields: client
+                    .map(|value| ("Client".to_string(), value.to_string()))
+                    .into_iter()
+                    .collect(),
                 fonts,
                 ..Options::default()
             };
@@ -1840,11 +1846,6 @@ mod tests {
             )
             .unwrap()
         };
-        let without = convert_with(LoadedFonts::default());
-        assert_eq!(
-            without.report["toc"]["missing_fonts"],
-            serde_json::json!(["Inter"])
-        );
         let inter = fonts::tests::font("inter/Inter[opsz,wght].ttf");
         let sizes = [inter.len() as u64];
         let (loaded, _) = fonts::load(
@@ -1854,12 +1855,19 @@ mod tests {
             &FontLimits::DEFAULT,
         )
         .unwrap();
-        let with = convert_with(loaded);
-        assert_eq!(with.report["toc"]["missing_fonts"], serde_json::json!([]));
-        assert_ne!(
-            contents_numbers(&without.docx),
-            contents_numbers(&with.docx)
-        );
+        for client in [None, Some("Jo")] {
+            let without = convert_with(LoadedFonts::default(), client);
+            assert_eq!(
+                without.report["toc"]["missing_fonts"],
+                serde_json::json!(["Inter"])
+            );
+            let with = convert_with(loaded.clone(), client);
+            assert_eq!(with.report["toc"]["missing_fonts"], serde_json::json!([]));
+            assert_ne!(
+                contents_numbers(&without.docx),
+                contents_numbers(&with.docx)
+            );
+        }
     }
 
     #[test]

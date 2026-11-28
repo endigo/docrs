@@ -540,6 +540,32 @@ fn a_contents_refresh_keeps_numbers_that_do_not_settle_and_asks_word_to_update()
     assert!(w_child(settings, settings.root(), "updateFields").is_some());
 }
 
+#[test]
+fn a_contents_refresh_with_supplied_fonts_also_keeps_numbers_that_do_not_settle() {
+    let inter = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/fonts/inter/Inter[opsz,wght].ttf"),
+    )
+    .unwrap();
+    let mut builder = FontSet::builder();
+    builder.add(inter).unwrap();
+    let fonts = builder.build();
+    let mut document = roman_page_count_footer().document();
+    let main = document.package().main_part_name().to_string();
+    let body = |document: &Document| crate::xml::serialize(document.package().xml(&main).unwrap());
+    let before = body(&document);
+    let refresh = refresh_toc_page_numbers_if_settled_with(&mut document, false, &fonts).unwrap();
+    assert!(refresh.is_none());
+    assert_eq!(body(&document), before);
+    let settings = document
+        .package()
+        .part_related_by(&main, rt::SETTINGS)
+        .unwrap()
+        .unwrap();
+    let settings = document.package().xml(&settings).unwrap();
+    assert!(w_child(settings, settings.root(), "updateFields").is_some());
+}
+
 fn footer_doc(footer: String, extra: &str) -> Doc<'static> {
     Doc {
         body: body(lines(1), sect(&["footer:default:f1"], extra)),
