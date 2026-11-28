@@ -694,11 +694,12 @@ fn write_pdf(
 /// link, or a directory the write would create, too. Creates nothing.
 fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
     let destination = docrs::package::save::destination(out)?;
-    let Some(target) = landing(&destination) else {
+    // `is_same_file` opens both paths, which blocks on a named pipe.
+    let Some(target) = landing(&destination).filter(|path| is_regular(path)) else {
         return Ok(());
     };
     for input in inputs {
-        if same_file::is_same_file(input, &target).unwrap_or(false) {
+        if is_regular(input) && same_file::is_same_file(input, &target).unwrap_or(false) {
             return Err(Error::invalid_argument(
                 "output_is_input",
                 format!(
@@ -710,6 +711,10 @@ fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn is_regular(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
 }
 
 /// Where a write to `path` lands once it has created the directories it

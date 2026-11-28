@@ -1079,6 +1079,44 @@ fn pdf_refuses_to_write_over_its_input() {
     }
 }
 
+/// A named pipe as the output is replaced by the PDF, without the guard
+/// blocking on opening it.
+#[cfg(unix)]
+#[test]
+fn pdf_replaces_a_named_pipe_output_without_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let docx = inter_memo(dir.path());
+    let fifo = dir.path().join("out.pdf");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+    if !made.is_ok_and(|status| status.success()) {
+        eprintln!("skipped: mkfifo is unavailable");
+        return;
+    }
+    let mut child = bin()
+        .args(["--json", "pdf"])
+        .arg(&docx)
+        .arg("--out")
+        .arg(&fifo)
+        .arg("--font-dir")
+        .arg(repo(INTER_DIR))
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(60) {
+            child.kill().unwrap();
+            panic!("docrs pdf blocked on the named pipe");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert!(status.success());
+    assert!(std::fs::read(&fifo).unwrap().starts_with(b"%PDF-"));
+}
+
 #[test]
 fn each_convert_command_writes_pdf_with_format_pdf() {
     let dir = tempfile::tempdir().unwrap();
