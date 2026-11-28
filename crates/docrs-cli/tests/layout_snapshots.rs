@@ -300,15 +300,49 @@ fn layout_matches_the_snapshots() {
 
 const BASELINE_TOLERANCE: f64 = 0.3;
 
-/// Fixtures whose lines Word places elsewhere for a reason other than the
-/// baseline: the residual allowed and the last page compared.
-const PLACEMENT_DRIFT: [(&str, f64, u32); 3] = [
+/// What a fixture's baselines are held to: the lines that must match one
+/// of Word's, the residual allowed and the last page compared.
+struct BaselineCheck {
+    case: &'static str,
+    matched: usize,
+    within: f64,
+    last_page: u32,
+}
+
+const fn check(case: &'static str, matched: usize) -> BaselineCheck {
+    BaselineCheck {
+        case,
+        matched,
+        within: BASELINE_TOLERANCE,
+        last_page: u32::MAX,
+    }
+}
+
+const BASELINE_CHECKS: [BaselineCheck; 9] = [
+    check("memo-arial", 47),
+    check("memo-times-new-roman", 44),
+    check("memo-inter", 49),
+    check("lists-arial", 24),
+    check("cover-page", 10),
+    check("memo-aptos", 46),
+    // Only a row's first cell matches Word's line, which joins the row.
     // Word's header row is 0.54 pt taller, which moves every line below it.
-    ("table-times-new-roman", 0.65, u32::MAX),
-    // From page 2, Word keeps the space before of the headings that break
-    // the page.
-    ("toc-arial", BASELINE_TOLERANCE, 1),
-    ("toc-inter", BASELINE_TOLERANCE, 1),
+    BaselineCheck {
+        within: 0.65,
+        ..check("table-times-new-roman", 15)
+    },
+    // From page 2, Word sets the first heading 19 pt lower (its 24 pt
+    // space before less the previous paragraph's 5 pt after; a separate
+    // PR). Seven of toc-inter's contents entries show other page numbers
+    // than Word's, so only 9 of its 16 page-1 lines match.
+    BaselineCheck {
+        last_page: 1,
+        ..check("toc-arial", 16)
+    },
+    BaselineCheck {
+        last_page: 1,
+        ..check("toc-inter", 9)
+    },
 ];
 
 fn letters(text: &str) -> String {
@@ -413,13 +447,11 @@ fn baselines_match_words() {
             }
         };
         let word = word_lines(&root.join(format!("tests/fixtures/pdf/{case}/word.lines.json")));
-        let (within, last_page) = PLACEMENT_DRIFT
-            .iter()
-            .find(|(drifting, ..)| *drifting == case)
-            .map_or((BASELINE_TOLERANCE, u32::MAX), |&(_, within, last)| {
-                (within, last)
-            });
-        let residuals = baseline_residuals(&ours, &word, last_page);
+        let Some(expected) = BASELINE_CHECKS.iter().find(|c| c.case == case) else {
+            failures.push(format!("{case}: not in BASELINE_CHECKS"));
+            continue;
+        };
+        let residuals = baseline_residuals(&ours, &word, expected.last_page);
         let worst = residuals
             .iter()
             .copied()
@@ -428,10 +460,17 @@ fn baselines_match_words() {
             "{case}: {} lines matched, worst residual {worst:.2} pt",
             residuals.len()
         );
-        if residuals.is_empty() || worst > within + 1e-9 {
+        if residuals.len() < expected.matched {
             failures.push(format!(
-                "{case}: {} lines matched, a baseline {worst:.2} pt from Word's (allowed {within})",
-                residuals.len()
+                "{case}: {} lines matched one of Word's, {} expected",
+                residuals.len(),
+                expected.matched
+            ));
+        }
+        if worst > expected.within + 1e-9 {
+            failures.push(format!(
+                "{case}: a baseline {worst:.2} pt from Word's (allowed {})",
+                expected.within
             ));
         }
     }
