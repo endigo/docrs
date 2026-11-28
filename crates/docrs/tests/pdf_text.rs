@@ -213,7 +213,7 @@ fn records(document: &Document, fonts: &FontSet) -> (Vec<LineRecord>, Vec<f64>) 
     let txn = Txn::new(document);
     let main = document.package().main_part_name().to_string();
     let (mut out, mut rises) = (Vec::new(), Vec::new());
-    docrs::layout::line_records_with(
+    docrs::layout::records_with(
         &txn,
         &main,
         fonts,
@@ -221,8 +221,10 @@ fn records(document: &Document, fonts: &FontSet) -> (Vec<LineRecord>, Vec<f64>) 
             rises = looks.iter().map(|look| look.rise).collect();
             Ok(())
         },
-        |line| {
-            out.push(line);
+        |record| {
+            if let docrs::layout::Record::Line(line) = record {
+                out.push(line);
+            }
             Ok(())
         },
     )
