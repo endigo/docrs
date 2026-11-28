@@ -11,7 +11,10 @@
 
 mod build;
 mod colour;
+mod formatting;
 mod look;
+#[cfg(feature = "pdf")]
+mod marks;
 mod numbering;
 mod props;
 mod styles;
@@ -22,17 +25,27 @@ use std::collections::HashMap;
 
 use super::fonts::{FontBook, FontKind};
 use crate::Result;
-use crate::package::rels::rt;
+use crate::package::rels::{Relationship, rt};
 use crate::txn::Txn;
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
+#[cfg(feature = "pdf")]
+pub(crate) use build::field_link;
 pub use colour::{Colour, Rgb};
+pub(crate) use formatting::Formatting;
+#[cfg(feature = "pdf")]
+pub(crate) use formatting::ParaFormat;
 pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
 use look::{CellBorders, ParaBorders, VAlign};
-use numbering::Numbering;
-use props::{on_off, twips};
-use styles::Styles;
-use theme::{Theme, read_font_kinds, read_theme};
+#[cfg(feature = "pdf")]
+pub(crate) use marks::any_border;
+pub(crate) use props::on_off;
+use props::twips;
+#[cfg(feature = "pdf")]
+pub(crate) use props::{Frame, RPr, horizontal, shaded};
+#[cfg(feature = "pdf")]
+pub(crate) use table::TableCtx;
+use theme::read_font_kinds;
 
 /// Page geometry in points.
 #[derive(Debug, Clone, Copy)]
@@ -297,9 +310,7 @@ pub struct Model {
 }
 
 pub(super) struct Builder<'a> {
-    styles: Styles,
-    numbering: Numbering,
-    theme: Theme,
+    fmt: Formatting,
     kinds: HashMap<String, FontKind>,
     pub fonts: &'a mut FontBook,
     pub metrics: Vec<Metric>,
@@ -324,11 +335,12 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
 
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
-    let theme = read_theme(part(txn, main, rt::THEME));
     let mut builder = Builder {
-        styles: Styles::read(part(txn, main, rt::STYLES), &theme.palette),
-        numbering: Numbering::read(part(txn, main, rt::NUMBERING), &theme.palette),
-        theme,
+        fmt: Formatting::read(
+            part(txn, main, rt::STYLES),
+            part(txn, main, rt::NUMBERING),
+            part(txn, main, rt::THEME),
+        ),
         kinds: read_font_kinds(part(txn, main, rt::FONT_TABLE)),
         fonts,
         metrics: Vec::new(),
@@ -346,20 +358,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))
         .unwrap_or(36.0);
     let body = w_child(tree, tree.root(), "body");
-    // Section properties in body order: those ending a section inside a
-    // paragraph, then the body's own (the last section).
-    let mut sects: Vec<NodeId> = Vec::new();
-    if let Some(body) = body {
-        for node in tree.descendants(body) {
-            if tree.is(node, W, "sectPr") {
-                let in_ppr = tree.parent(node).is_some_and(|p| tree.is(p, W, "pPr"));
-                let in_body = tree.parent(node) == Some(body);
-                if in_ppr || in_body {
-                    sects.push(node);
-                }
-            }
-        }
-    }
+    let sects = body.map_or_else(Vec::new, |body| section_properties(tree, body));
     let mut sections = Vec::new();
     let mut inherited: HashMap<(&'static str, String), f64> = HashMap::new();
     let rels = txn.resolved_relationships(main)?;
@@ -369,21 +368,12 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     let mut work = 0;
     for sect in &sects {
         let page = page_of(tree, Some(*sect));
-        for reference in tree.child_elements(*sect) {
-            let kind = match tree.local_name(reference) {
-                Some("headerReference") => "header",
-                Some("footerReference") => "footer",
-                _ => continue,
-            };
-            let which = w_attr(tree, reference, "type")
-                .unwrap_or("default")
-                .to_string();
-            let Some(id) = tree.attr(reference, Some(R), "id") else {
-                continue;
-            };
-            let Some((_, name)) = rels.iter().find(|(rel, _)| rel.id == id) else {
-                continue;
-            };
+        for StoryRef {
+            kind,
+            which,
+            part: name,
+        } in story_references(tree, *sect, &rels)
+        {
             let Ok(story) = txn.tree(name) else {
                 continue;
             };
@@ -470,6 +460,53 @@ fn hyperlinks(txn: &Txn<'_>, part: &str) -> HashMap<String, String> {
         .into_iter()
         .filter(|rel| rel.rel_type == rt::HYPERLINK)
         .map(|rel| (rel.id, rel.target))
+        .collect()
+}
+
+/// Section properties in body order: those ending a section inside a
+/// paragraph, then the body's own (the last section).
+pub(crate) fn section_properties(tree: &XmlTree, body: NodeId) -> Vec<NodeId> {
+    tree.descendants(body)
+        .filter(|&node| {
+            tree.is(node, W, "sectPr")
+                && tree
+                    .parent(node)
+                    .is_some_and(|p| p == body || tree.is(p, W, "pPr"))
+        })
+        .collect()
+}
+
+/// A section's header or footer reference that resolves to a part.
+pub(crate) struct StoryRef<'r> {
+    /// `header` or `footer`.
+    pub kind: &'static str,
+    /// `default`, `first` or `even`.
+    pub which: String,
+    pub part: &'r str,
+}
+
+pub(crate) fn story_references<'r>(
+    tree: &XmlTree,
+    sect: NodeId,
+    rels: &'r [(Relationship, String)],
+) -> Vec<StoryRef<'r>> {
+    tree.child_elements(sect)
+        .filter_map(|reference| {
+            let kind = match tree.local_name(reference) {
+                Some("headerReference") => "header",
+                Some("footerReference") => "footer",
+                _ => return None,
+            };
+            let id = tree.attr(reference, Some(R), "id")?;
+            let (_, part) = rels.iter().find(|(rel, _)| rel.id == id)?;
+            Some(StoryRef {
+                kind,
+                which: w_attr(tree, reference, "type")
+                    .unwrap_or("default")
+                    .to_string(),
+                part,
+            })
+        })
         .collect()
 }
 

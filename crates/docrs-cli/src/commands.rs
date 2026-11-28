@@ -586,6 +586,14 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             emit(json_mode, value, || fonts_text(&loaded));
             Ok(0)
         }
+        Command::Pdf { input, .. } => {
+            let (document, set_aside) = open_reference(Some(input), limits, false)?;
+            let report = docrs::pdf::preflight(&document)?;
+            let mut value = report.to_json();
+            value["set_aside"] = json!(set_aside);
+            emit(json_mode, value, || preflight_text(&report, &set_aside));
+            Ok(0)
+        }
         Command::MarkdownInspect {
             reference,
             styles,
@@ -661,6 +669,19 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             Ok(0)
         }
     }
+}
+
+fn preflight_text(report: &docrs::pdf::PdfReport, set_aside: &[String]) -> String {
+    let mut lines: Vec<String> = report
+        .warnings
+        .iter()
+        .map(|warning| format!("{}: {}", warning.code, warning.message))
+        .collect();
+    if lines.is_empty() {
+        lines.push("nothing a PDF would leave out".to_string());
+    }
+    lines.extend(set_aside.iter().map(|item| format!("  package: {item}")));
+    lines.join("\n")
 }
 
 /// The refusal for a `replace --all` that replaced nothing: no match, or

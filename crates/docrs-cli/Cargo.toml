@@ -17,7 +17,7 @@ name = "docrs"
 path = "src/main.rs"
 
 [dependencies]
-docrs = { workspace = true, features = ["markdown"] }
+docrs = { workspace = true, features = ["markdown", "pdf"] }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

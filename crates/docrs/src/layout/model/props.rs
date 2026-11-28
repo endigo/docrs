@@ -14,8 +14,15 @@ const FONT_SIZES: (f64, f64) = (1.0, 1638.0);
 /// Line spacing in 240ths of a line or twips: 132 lines, or 22 inches.
 const MAX_LINE: f64 = 31680.0;
 
+/// A paragraph frame (`w:framePr`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Frame {
+    Frame,
+    DropCap,
+}
+
 #[derive(Debug, Clone, Default)]
-pub(super) struct PPr {
+pub(crate) struct PPr {
     pub(super) before: Option<f64>,
     pub(super) after: Option<f64>,
     pub(super) before_auto: Option<bool>,
@@ -26,17 +33,26 @@ pub(super) struct PPr {
     pub(super) first: Option<f64>,
     pub(super) keep_next: Option<bool>,
     pub(super) keep_lines: Option<bool>,
-    pub(super) page_break_before: Option<bool>,
+    pub(crate) page_break_before: Option<bool>,
     pub(super) widow_control: Option<bool>,
     pub(super) contextual: Option<bool>,
     pub(super) align: Option<Align>,
     pub(super) tabs: Vec<(f64, TabKind)>,
-    pub(super) num: Option<(String, Option<u8>)>,
+    pub(crate) num: Option<(String, Option<u8>)>,
     pub(super) ilvl: Option<u8>,
     /// `Some(None)`: no fill.
     pub(super) shd: Option<Option<Rgb>>,
     /// `ParaBorders::SIDES`; `Some(None)`: `none` or `nil`.
     pub(super) borders: [Option<Option<Border>>; 5],
+    /// The bar beside facing pages (`w:bar`), read for the PDF preflight
+    /// only.
+    pub(super) bar: Option<Option<Border>>,
+    /// `w:shd` draws a fill or a pattern, automatic colours included.
+    pub(crate) shaded: Option<bool>,
+    pub(crate) frame: Option<Frame>,
+    pub(crate) bidi: Option<bool>,
+    /// Text not laid out left to right, top to bottom (`w:textDirection`).
+    pub(crate) rotated: Option<bool>,
 }
 
 impl PPr {
@@ -61,7 +77,12 @@ impl PPr {
             align,
             num,
             ilvl,
-            shd
+            shd,
+            bar,
+            shaded,
+            frame,
+            bidi,
+            rotated
         );
         merge_sides(&mut self.borders, &other.borders);
         for (pos, kind) in &other.tabs {
@@ -80,7 +101,7 @@ pub(super) enum FontRef {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct RPr {
+pub(crate) struct RPr {
     pub(super) ascii: Option<FontRef>,
     pub(super) hansi: Option<FontRef>,
     pub(super) size: Option<f64>,
@@ -105,6 +126,11 @@ pub(super) struct RPr {
     pub(super) shd: Option<Option<Rgb>>,
     /// Points raised (`w:position`).
     pub(super) position: Option<f64>,
+    /// `w:shd` draws a fill or a pattern, automatic colours included.
+    pub(crate) shaded: Option<bool>,
+    /// `w:bdr`; `Some(None)`: `none` or `nil`.
+    pub(super) bdr: Option<Option<Border>>,
+    pub(crate) rtl: Option<bool>,
 }
 
 impl RPr {
@@ -114,7 +140,7 @@ impl RPr {
         }
         take!(
             ascii, hansi, size, bold, italic, caps, small_caps, vanish, spacing, scale, vert, kern,
-            colour, underline, strike, dstrike, highlight, shd, position
+            colour, underline, strike, dstrike, highlight, shd, position, shaded, bdr, rtl
         );
     }
 
@@ -162,7 +188,40 @@ pub(super) fn side(tree: &XmlTree, borders: NodeId, [name, logical]: [&str; 2]) 
     w_child(tree, borders, name).or_else(|| w_child(tree, borders, logical))
 }
 
-pub(super) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
+#[cfg(feature = "pdf")]
+impl PPr {
+    /// Some edge draws a line, each edge inherited on its own.
+    pub(crate) fn bordered(&self) -> bool {
+        self.borders
+            .iter()
+            .chain([&self.bar])
+            .any(|side| matches!(side, Some(Some(_))))
+    }
+}
+
+#[cfg(feature = "pdf")]
+impl RPr {
+    pub(crate) fn bordered(&self) -> bool {
+        matches!(self.bdr, Some(Some(_)))
+    }
+
+    pub(crate) fn highlighted(&self) -> bool {
+        matches!(self.highlight, Some(Some(_)))
+    }
+}
+
+/// `w:shd` with a fill colour or a pattern, even in automatic colours.
+pub(crate) fn shaded(tree: &XmlTree, shd: NodeId) -> bool {
+    w_attr(tree, shd, "fill").is_some_and(|fill| fill != "auto")
+        || !matches!(w_attr(tree, shd, "val"), None | Some("clear" | "nil"))
+}
+
+/// `w:textDirection` values that keep text horizontal.
+pub(crate) fn horizontal(value: Option<&str>) -> bool {
+    matches!(value, None | Some("lrTb" | "tb" | "lrTbV" | "tbV"))
+}
+
+pub(crate) fn on_off(tree: &XmlTree, node: NodeId) -> bool {
     !matches!(
         w_attr(tree, node, "val"),
         Some("0" | "false" | "off" | "none")
@@ -261,11 +320,23 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -
                 }
                 out.ilvl = ilvl;
             }
-            "shd" => out.shd = Some(palette.shading(tree, child)),
+            "shd" => {
+                out.shd = Some(palette.shading(tree, child));
+                out.shaded = Some(shaded(tree, child));
+            }
+            "framePr" => {
+                out.frame = Some(match w_attr(tree, child, "dropCap") {
+                    Some("drop" | "margin") => Frame::DropCap,
+                    _ => Frame::Frame,
+                })
+            }
+            "bidi" => out.bidi = Some(on_off(tree, child)),
+            "textDirection" => out.rotated = Some(!horizontal(w_attr(tree, child, "val"))),
             "pBdr" => {
                 for (slot, names) in out.borders.iter_mut().zip(ParaBorders::SIDES) {
                     *slot = side(tree, child, names).map(|s| read_border(tree, s, palette));
                 }
+                out.bar = w_child(tree, child, "bar").map(|s| read_border(tree, s, palette));
             }
             _ => {}
         }
@@ -323,7 +394,12 @@ pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>, palette: &Palette) -
             "strike" => out.strike = Some(on_off(tree, child)),
             "dstrike" => out.dstrike = Some(on_off(tree, child)),
             "highlight" => out.highlight = w_attr(tree, child, "val").map(highlight),
-            "shd" => out.shd = Some(palette.shading(tree, child)),
+            "shd" => {
+                out.shd = Some(palette.shading(tree, child));
+                out.shaded = Some(shaded(tree, child));
+            }
+            "bdr" => out.bdr = Some(read_border(tree, child, palette)),
+            "rtl" => out.rtl = Some(on_off(tree, child)),
             "position" => {
                 out.position = w_attr(tree, child, "val")
                     .and_then(number)

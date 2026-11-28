@@ -300,6 +300,15 @@ enum Command {
         #[arg(long = "font-dir", value_name = "DIR")]
         font_dirs: Vec<std::path::PathBuf>,
     },
+    /// PDF export (experimental; only the preflight report so far).
+    #[command(hide = true)]
+    Pdf {
+        /// The .docx file.
+        input: std::path::PathBuf,
+        /// Report what a PDF would leave out or change, without writing one.
+        #[arg(long, required = true)]
+        preflight: bool,
+    },
     /// Open and patch-save without edits (byte-identical when unchanged).
     Roundtrip {
         /// Input package.
