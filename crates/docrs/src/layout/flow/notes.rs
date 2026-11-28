@@ -93,7 +93,9 @@ pub(super) struct Notes<'m> {
     /// Laying out the endnotes: their paragraphs are not body paragraphs.
     pub(super) in_endnotes: bool,
     /// Below compatibility mode 15, the separator's paragraph spacing
-    /// counts only above a note going on to the next page.
+    /// counts only above a note going on to the next page. The corpus's
+    /// reference and compat-word2003/2007 showcases need this; its mode-15
+    /// showcases (builtin-table-style-only and seven more) need the spacing.
     legacy: bool,
 }
 
