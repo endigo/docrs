@@ -12,10 +12,10 @@ case "$(wasm-bindgen --version 2>/dev/null)" in
   "wasm-bindgen $bindgen"*) ;;
   *) echo "needs wasm-bindgen-cli $bindgen: cargo install wasm-bindgen-cli --version $bindgen --locked" >&2; exit 1 ;;
 esac
-cargo build --manifest-path "$root/Cargo.toml" --locked --release -p docrs-wasm --target wasm32-unknown-unknown
+cargo build --manifest-path "$root/Cargo.toml" --locked --profile wasm -p docrs-wasm --target wasm32-unknown-unknown
 rm -rf "$here/pkg"
 wasm-bindgen --target nodejs --out-dir "$here/pkg" --out-name docrs \
-  "$root/target/wasm32-unknown-unknown/release/docrs_wasm.wasm"
+  "$root/target/wasm32-unknown-unknown/wasm/docrs_wasm.wasm"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
 node -e 'const [src, out, version] = process.argv.slice(1); const p = require(src);
   require("fs").writeFileSync(out, JSON.stringify({ name: p.name, version, ...p }, null, 2) + "\n");' \

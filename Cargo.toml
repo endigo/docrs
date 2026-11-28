@@ -36,12 +36,20 @@ wasm-bindgen = "=0.2.129"
 js-sys = "=0.3.106"
 serde-wasm-bindgen = "=0.6.5"
 serde_bytes = "=0.11.19"
+subsetter = "0.2.6"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# The npm package's build (crates/docrs-wasm/build.sh). LTO needs the
+# crate to be a cdylib only.
+[profile.wasm]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
 
 [profile.dev]
 # The parity and property suites parse thousands of packages; unoptimized

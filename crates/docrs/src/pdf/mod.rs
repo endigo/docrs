@@ -8,12 +8,16 @@
 
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
 
+mod font;
 mod meta;
 mod preflight;
 mod writer;
 
 pub use preflight::preflight;
 
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use font::{SampleLine, Style};
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use meta::Info;
@@ -235,15 +239,29 @@ pub(crate) fn blank_document(
     limits: &Limits,
 ) -> Result<Vec<u8>> {
     check_pages(pages)?;
-    let mut writer = Writer::new(limits.max_output_bytes)?;
+    let pages: Vec<((f64, f64), Vec<u8>)> = pages.iter().map(|&size| (size, Vec::new())).collect();
+    let writer = Writer::new(limits.max_output_bytes)?;
+    write_document(writer, &pages, Dict::new(), info, producer)
+}
+
+/// Writes the pages, each `(size, content stream)`, sharing `resources`,
+/// then the catalog, the `/Info` and the trailer.
+fn write_document(
+    mut writer: Writer,
+    pages: &[((f64, f64), Vec<u8>)],
+    resources: Dict,
+    info: &meta::Info,
+    producer: &str,
+) -> Result<Vec<u8>> {
     let catalog = writer.alloc()?;
     let tree = writer.alloc()?;
     let mut kids = Vec::with_capacity(pages.len());
-    for &(width, height) in pages {
+    for ((width, height), content) in pages {
         let page = writer.alloc()?;
         let contents = writer.alloc()?;
-        writer.stream(contents, Dict::new(), b"")?;
-        let media_box: Vec<Object> = vec![0.0.into(), 0.0.into(), width.into(), height.into()];
+        writer.stream(contents, Dict::new(), content)?;
+        let media_box: Vec<Object> =
+            vec![0.0.into(), 0.0.into(), (*width).into(), (*height).into()];
         writer.dict(
             page,
             Dict::new()
@@ -260,7 +278,7 @@ pub(crate) fn blank_document(
             .with("Type", name("Pages"))
             .with("Count", count(pages.len())?)
             .with("Kids", kids)
-            .with("Resources", Dict::new()),
+            .with("Resources", resources),
     )?;
     writer.dict(
         catalog,
@@ -311,4 +329,23 @@ pub fn blank_document_for_tests(
     limits: &Limits,
 ) -> Result<Vec<u8>> {
     blank_document(pages, info, producer, limits)
+}
+
+/// [`font::text_document`] for tests only (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn text_document_for_tests(
+    lines: &[SampleLine],
+    info: &Info,
+    producer: &str,
+    limits: &Limits,
+) -> Result<Vec<u8>> {
+    font::text_document(lines, info, producer, limits)
+}
+
+/// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn glyphs_for_tests(font: &[u8], index: u32, text: &str) -> Result<Vec<(u16, String)>> {
+    font::glyphs_by_cmap(font, index, text)
 }
