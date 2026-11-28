@@ -1171,6 +1171,48 @@ fn toc_entries(doc: &Document) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The page number at the end of each contents line, as the settled
+/// layout draws it: the text after the last tab of the body's first lines
+/// with a tab.
+fn drawn_contents_numbers(
+    doc: &Document,
+    fonts: &docrs::layout::FontSet,
+    count: usize,
+) -> Vec<String> {
+    let txn = Txn::new(doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut out = Vec::new();
+    docrs::layout::line_records_with(
+        &txn,
+        &main,
+        fonts,
+        |_, _| Ok(()),
+        |line| {
+            if line.story == "body" && !line.tabs.is_empty() && out.len() < count {
+                out.push(line.text.rsplit('\t').next().unwrap_or("").to_string());
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    out
+}
+
+/// `reference` with its last section numbered in `format`.
+fn numbered_in(reference: &std::path::Path, format: &str) -> Document {
+    let mut doc = Document::open_path(reference, &Limits::default()).unwrap();
+    let xml = document_xml(&doc).replacen(
+        "<w:docGrid ",
+        &format!("<w:pgNumType w:fmt=\"{format}\"/><w:docGrid "),
+        1,
+    );
+    let tree = docrs::xml::parse_str(&xml).unwrap();
+    doc.package_mut_for_tests()
+        .commit_tree("word/document.xml", tree)
+        .unwrap();
+    doc
+}
+
 #[test]
 fn contents_page_numbers_are_the_layout_s_on_every_contents_fixture() {
     use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
@@ -1182,21 +1224,29 @@ fn contents_page_numbers_are_the_layout_s_on_every_contents_fixture() {
             .map(|l| l.split('\t').map(str::to_string).collect::<Vec<_>>())
             .collect::<Vec<_>>()
     };
-    let mut cases: Vec<(String, String, Option<String>)> = tsv("tools/pdf/corpus.tsv")
-        .into_iter()
-        .map(|row| (row[1].clone(), row[3].clone(), None))
-        .collect();
+    // Reference, source, font, the last section's number format.
+    let mut cases: Vec<(String, String, Option<String>, Option<&str>)> =
+        tsv("tools/pdf/corpus.tsv")
+            .into_iter()
+            .map(|row| (row[1].clone(), row[3].clone(), None, None))
+            .collect();
     cases.extend(
         tsv("tests/fixtures/pdf/cases.tsv")
             .into_iter()
             .filter(|row| row[1].ends_with("toc.md"))
             .map(|row| {
                 let font = Some(row[3].clone()).filter(|font| font != "-");
-                (row[2].clone(), row[1].clone(), font)
+                (row[2].clone(), row[1].clone(), font, None)
             }),
     );
+    cases.push((
+        "tests/fixtures/pdf/references/arial.docx".to_string(),
+        "tests/fixtures/pdf/sources/toc.md".to_string(),
+        None,
+        Some("lowerRoman"),
+    ));
     let mut checked = 0;
-    for (reference, input, font) in &cases {
+    for (reference, input, font, format) in &cases {
         let fonts = match font {
             Some(font) => {
                 let mut builder = docrs::layout::FontSet::builder();
@@ -1207,25 +1257,39 @@ fn contents_page_numbers_are_the_layout_s_on_every_contents_fixture() {
             }
             None => docrs::layout::FontSet::default(),
         };
-        let format = match input.rsplit('.').next() {
+        let input_format = match input.rsplit('.').next() {
             Some("html") => InputFormat::Html,
             Some("json") => InputFormat::Tiptap,
             _ => InputFormat::Markdown,
         };
         let source = std::fs::read_to_string(root.join(input)).unwrap();
-        let mut doc = Document::open_path(root.join(reference), &Limits::default()).unwrap();
+        let mut doc = match format {
+            Some(format) => numbered_in(&root.join(reference), format),
+            None => Document::open_path(root.join(reference), &Limits::default()).unwrap(),
+        };
         let options = MarkdownOptions {
             toc: Some(true),
             ..MarkdownOptions::default()
         };
-        insert_source_with(&mut doc, &source, format, &options, &fonts).unwrap();
+        insert_source_with(&mut doc, &source, input_format, &options, &fonts).unwrap();
+        let entries = toc_entries(&doc);
+        let shown: Vec<String> = entries.iter().map(|(_, shown)| shown.clone()).collect();
+        let drawn = drawn_contents_numbers(&doc, &fonts, entries.len());
+        assert_eq!(shown, drawn, "{reference} {input}");
         let txn = Txn::new(&doc);
         let main = doc.package().main_part_name().to_string();
         let estimate = docrs::layout::layout_with(&txn, &main, &fonts).unwrap();
-        for (bookmark, shown) in toc_entries(&doc) {
+        for (bookmark, shown) in entries {
             let page = estimate.bookmark_page(&bookmark).unwrap();
-            let expected = estimate.page_number(page).to_string();
-            assert_eq!(shown, expected, "{reference} {input} {bookmark}");
+            let arabic = estimate.page_number(page).to_string();
+            if format.is_some() {
+                assert!(
+                    !shown.is_empty() && shown.chars().all(|c| "ivxlc".contains(c)),
+                    "{shown}"
+                );
+            } else {
+                assert_eq!(shown, arabic, "{reference} {input} {bookmark}");
+            }
             checked += 1;
         }
     }

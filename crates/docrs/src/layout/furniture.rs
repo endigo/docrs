@@ -37,7 +37,7 @@ pub(super) struct Body {
 
 /// What a pass gives the next: every page's number and the warnings.
 #[derive(Debug, Clone, Default)]
-pub(super) struct Pages {
+pub(crate) struct Pages {
     pub count: u32,
     pub numbers: Vec<Number>,
     pub warnings: Vec<LayoutWarning>,

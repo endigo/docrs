@@ -14,7 +14,7 @@
 //! not modelled.
 
 mod fields;
-mod flow;
+pub(crate) mod flow;
 pub mod fonts;
 mod furniture;
 pub(crate) mod model;
@@ -230,8 +230,23 @@ pub(crate) struct Settled {
 
 impl Settled {
     /// The settled layout again, into `sink`.
-    fn paginate<S: flow::Sink>(&self, sink: &mut S) -> Result<()> {
+    pub(crate) fn paginate<S: flow::Sink>(&self, sink: &mut S) -> Result<()> {
         flow::paginate(&self.model, &self.values, sink).map(|_| ())
+    }
+
+    /// The model laid out: body fields show their settled values.
+    #[allow(dead_code, reason = "the PDF painter reads it")]
+    pub(crate) fn model(&self) -> &model::Model {
+        &self.model
+    }
+
+    /// The page number a reference to `bookmark` shows, as its section
+    /// writes it.
+    fn bookmark_number(&self, bookmark: &str) -> Option<String> {
+        self.values
+            .bookmarks
+            .get(bookmark)
+            .map(|number| number.write(fields::NumberFormat::Section))
     }
 }
 
@@ -336,9 +351,9 @@ fn missing_fonts(substituted: &[String], unread: Vec<String>) -> Vec<String> {
 }
 
 /// Settle the layout (contents page numbers included) and write each of
-/// `numbers`' bookmark page numbers. Returns how many changed and the
-/// layout. With `blank_unplaced`, a bookmark the layout does not place
-/// gets no number.
+/// `numbers`' bookmark page numbers as the settled layout shows them, in
+/// their section's format. Returns how many changed and the layout. With
+/// `blank_unplaced`, a bookmark the layout does not place gets no number.
 pub(crate) fn write_page_numbers(
     txn: &mut Txn<'_>,
     main: &str,
@@ -346,12 +361,12 @@ pub(crate) fn write_page_numbers(
     blank_unplaced: bool,
     fonts: &FontSet,
 ) -> Result<(usize, Layout)> {
-    let layout = settle(txn, main, fonts)?.layout;
+    let settled = settle(txn, main, fonts)?;
     let tree = txn.tree_mut(main)?;
     let mut changed = 0;
     for (t, bookmark) in numbers {
-        let shown = match layout.bookmark_page(bookmark) {
-            Some(page) => layout.page_number(page).to_string(),
+        let shown = match settled.bookmark_number(bookmark) {
+            Some(shown) => shown,
             None if blank_unplaced => String::new(),
             None => continue,
         };
@@ -360,7 +375,7 @@ pub(crate) fn write_page_numbers(
             changed += 1;
         }
     }
-    Ok((changed, layout))
+    Ok((changed, settled.layout))
 }
 
 /// Internal to docrs-wasm.

@@ -508,6 +508,69 @@ fn a_contents_refresh_keeps_numbers_that_do_not_settle_and_asks_word_to_update()
     assert!(w_child(settings, settings.root(), "updateFields").is_some());
 }
 
+fn footer_doc(footer: String, extra: &str) -> Doc<'static> {
+    Doc {
+        body: body(lines(1), sect(&["footer:default:f1"], extra)),
+        stories: vec![("f1", footer)],
+        even_and_odd: false,
+    }
+}
+
+#[test]
+fn a_field_ending_inside_an_earlier_field_keeps_its_stored_result() {
+    // A complex PAGE begins inside a simple PAGE's result and ends after it.
+    let char = |kind: &str| format!(r#"<w:r>{RPR}<w:fldChar w:fldCharType="{kind}"/></w:r>"#);
+    let footer = para(&format!(
+        r#"<w:fldSimple w:instr=" PAGE "><w:r>{RPR}<w:pgNum/></w:r>{}{}<w:r>{RPR}<w:instrText> PAGE </w:instrText></w:r>{}{}</w:fldSimple>{}{}"#,
+        run("1234"),
+        char("begin"),
+        char("separate"),
+        run("yz"),
+        run("x"),
+        char("end"),
+    ));
+    assert_eq!(footer_doc(footer, "").story_text("footer"), ["1x"]);
+}
+
+#[test]
+fn letter_page_numbers_and_huge_starts_stay_small() {
+    let shown = |start: &str| {
+        let extra = format!(r#"<w:pgNumType w:fmt="lowerLetter" w:start="{start}"/>"#);
+        footer_doc(para(&field("PAGE", "1")), &extra).story_text("footer")
+    };
+    assert_eq!(shown("780"), ["z".repeat(30)]);
+    assert_eq!(shown("781"), ["781"]);
+    assert_eq!(shown("200000000"), ["200000000"]);
+    assert_eq!(shown("9223372036854775807"), ["2147483647"]);
+    assert_eq!(shown("-5"), ["0"]);
+}
+
+#[test]
+fn number_formats_layout_does_not_write_show_arabic_and_warn() {
+    let footer = para(
+        &[
+            field(r"PAGE \* Ordinal", "1st"),
+            run(" "),
+            field(r"NUMPAGES \* CardText", "three"),
+            run(" "),
+            field(r#"PAGE \# "000""#, "001"),
+            run(" "),
+            field(r"PAGE \* Upper", "1"),
+        ]
+        .concat(),
+    );
+    let doc = footer_doc(footer, "");
+    assert_eq!(doc.story_text("footer"), ["1 1 1 1"]);
+    assert_eq!(
+        doc.settle().unwrap().warnings,
+        [LayoutWarning {
+            code: fields::FIELD_FORMAT_APPROXIMATED,
+            story: StoryId::Footer(1),
+            page: None,
+        }]
+    );
+}
+
 #[test]
 fn page_references_and_body_page_fields_settle() {
     let content = [

@@ -20,7 +20,7 @@ use crate::{Error, Result};
 /// A tab on a line: its piece, and the x it moves from and to. A left tab
 /// that would pass the right margin ends its line with no width.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct TabPlace {
+pub(crate) struct TabPlace {
     pub piece: u32,
     pub from: f64,
     pub to: f64,
@@ -33,7 +33,7 @@ pub(super) struct TabPlace {
 /// over its `gaps`; a negative `slack` shrinks them, and can be left on a
 /// justified paragraph's last line too.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Line {
+pub(crate) struct Line {
     pub height: f64,
     /// The height that must fit above the bottom margin: Word lets the
     /// extra height of multiple line spacing overflow it.
@@ -799,19 +799,19 @@ pub struct Placed {
 
 /// Points from the page's top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Point {
+pub(crate) struct Point {
     pub x: f64,
     pub y: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct PageStart {
+pub(crate) struct PageStart {
     pub number: u32,
 }
 
 /// The part of a row on one page.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct RowSlice {
+pub(crate) struct RowSlice {
     pub height: f64,
     pub first: bool,
     pub last: bool,
@@ -828,7 +828,7 @@ impl RowSlice {
 }
 
 /// Each call comes once its placement is final; an `Err` stops pagination.
-pub(super) trait Sink {
+pub(crate) trait Sink {
     fn page(&mut self, _page: &PageStart) -> Result<()> {
         Ok(())
     }

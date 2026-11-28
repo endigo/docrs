@@ -33,11 +33,10 @@ struct Field {
 }
 
 /// A field layout computes, open: where its result starts in its
-/// paragraph's pieces and fields.
+/// paragraph's pieces.
 struct LiveField {
     kind: FieldKind,
     piece: u32,
-    span: usize,
     pen: FieldPen,
 }
 
@@ -46,15 +45,22 @@ impl LiveField {
         LiveField {
             kind,
             piece: para.pieces.len() as u32,
-            span: para.fields.len(),
             pen,
         }
     }
 
     /// Close it at the paragraph's last piece, in place of the fields
-    /// nested in its result.
+    /// nested in its result. One that ends inside an earlier field's result
+    /// (fields closed out of order) keeps its stored result.
     fn close(self, para: &mut Para) {
-        para.fields.truncate(self.span);
+        para.fields.retain(|span| span.pieces.start < self.piece);
+        if para
+            .fields
+            .last()
+            .is_some_and(|span| span.pieces.end > self.piece)
+        {
+            return;
+        }
         para.fields.push(FieldSpan {
             kind: self.kind,
             pieces: self.piece..para.pieces.len() as u32,
@@ -144,7 +150,7 @@ impl Builder<'_> {
     /// and its kind when layout computes it.
     fn field_kind(&mut self, code: &str) -> Option<FieldKind> {
         let read = instruction(code, &self.properties);
-        if let Some(code) = read.warning {
+        for code in read.warnings {
             let warning = LayoutWarning {
                 code,
                 story: self.story,

@@ -23,7 +23,7 @@ mod theme;
 
 use std::collections::HashMap;
 
-use super::fields::{FieldSpan, LayoutWarning, NumberFormat, Properties};
+use super::fields::{Context, FieldSpan, LayoutWarning, NumberFormat, Properties, Values};
 use super::fonts::{FontBook, FontKind};
 use crate::Result;
 use crate::package::rels::{Relationship, rt};
@@ -296,6 +296,10 @@ pub enum Block {
     Table(Table),
 }
 
+/// `w:pgNumType w:start` is kept within 0 and the largest 32-bit integer,
+/// so page numbers stay small to write.
+const MAX_PAGE_START: i64 = i32::MAX as i64;
+
 /// A section's headers or footers: indices into `Model.stories`, each
 /// inherited from the previous section when the section names none.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -309,7 +313,8 @@ pub struct Slots {
 pub struct Story {
     pub id: StoryId,
     pub blocks: Vec<Block>,
-    /// Holds a field layout computes, so it is laid out for each page.
+    /// Holds a field whose value depends on the page, so it is laid out
+    /// for each page; its property fields are shown already.
     pub fields: bool,
 }
 
@@ -428,9 +433,15 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 builder.hyperlinks = hyperlinks(txn, name);
                 let mut blocks = Vec::new();
                 builder.blocks(story, story.root(), None, &mut blocks);
+                let values = Values::default();
+                let properties = Context {
+                    values: &values,
+                    page: None,
+                };
+                super::fields::show(&mut blocks, &properties);
                 stories.push(Story {
                     id: builder.story,
-                    fields: super::fields::any(&blocks),
+                    fields: super::fields::per_page(&blocks),
                     blocks,
                 });
                 stories.len() - 1
@@ -454,7 +465,8 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             title_page: w_child(tree, *sect, "titlePg").is_some_and(|t| on_off(tree, t)),
             page_start: numbering
                 .and_then(|n| w_attr(tree, n, "start"))
-                .and_then(|v| v.parse().ok()),
+                .and_then(|v| v.parse::<i64>().ok())
+                .map(|start| start.clamp(0, MAX_PAGE_START)),
             number_format: NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt"))),
             continuous: w_child(tree, *sect, "type").and_then(|t| w_attr(tree, t, "val"))
                 == Some("continuous"),

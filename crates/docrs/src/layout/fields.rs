@@ -21,6 +21,33 @@ const CUSTOM_PROPERTIES: &str =
 pub(crate) const FIELD_CACHED: &str = "pdf_field_cached";
 /// A field switch layout does not apply.
 pub(crate) const FIELD_SWITCH_IGNORED: &str = "pdf_field_switch_ignored";
+/// A number format layout does not write is written in arabic.
+pub(crate) const FIELD_FORMAT_APPROXIMATED: &str = "pdf_field_format_approximated";
+
+/// Every warning code layout gives, with a fixed description that quotes
+/// nothing from the input, for the PDF report.
+#[allow(dead_code, reason = "the PDF painter reports them")]
+pub(crate) const WARNING_CODES: &[(&str, &str)] = &[
+    (
+        FIELD_CACHED,
+        "a date or time field shows the value saved in the document, not the current one",
+    ),
+    (
+        FIELD_SWITCH_IGNORED,
+        "a page reference's \\p switch is ignored: it shows the page number, not \"above\" or \"below\"",
+    ),
+    (
+        FIELD_FORMAT_APPROXIMATED,
+        "a page number asked in words, as an ordinal or through a numeric picture is shown in arabic digits",
+    ),
+    (
+        super::furniture::STORY_OVERFLOW,
+        "a header or footer reaching past the middle of the page is cut off",
+    ),
+];
+
+/// Letters are written up to this many repeats (zz…z, 780), arabic past it.
+const MAX_LETTER_REPEATS: i64 = 30;
 
 /// How a page number is written (`\*` switches, `w:pgNumType w:fmt`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -47,15 +74,30 @@ impl NumberFormat {
         }
     }
 
-    fn of_switch(value: &str) -> Option<NumberFormat> {
-        Some(match value {
+    /// A `\*` switch's format; `Err` for a number format layout does not
+    /// write, `Ok(None)` for a text one (case, `MERGEFORMAT`).
+    fn of_switch(value: &str) -> Result<Option<NumberFormat>, ()> {
+        Ok(Some(match value {
             "roman" => NumberFormat::LowerRoman,
             "ROMAN" => NumberFormat::UpperRoman,
             "alphabetic" => NumberFormat::LowerLetter,
             "ALPHABETIC" => NumberFormat::UpperLetter,
             _ if value.eq_ignore_ascii_case("arabic") => NumberFormat::Arabic,
-            _ => return None,
-        })
+            _ if [
+                "upper",
+                "lower",
+                "firstcap",
+                "caps",
+                "mergeformat",
+                "charformat",
+            ]
+            .iter()
+            .any(|text| value.eq_ignore_ascii_case(text)) =>
+            {
+                return Ok(None);
+            }
+            _ => return Err(()),
+        }))
     }
 
     fn or(self, fallback: NumberFormat) -> NumberFormat {
@@ -66,8 +108,8 @@ impl NumberFormat {
         }
     }
 
-    /// Roman numerals past 3999 and letters or numerals for 0 and below are
-    /// written in arabic.
+    /// Roman numerals past 3999, letters past 30 repeats, and letters or
+    /// numerals for 0 and below are written in arabic.
     pub(crate) fn write(self, n: i64) -> String {
         match self {
             NumberFormat::LowerRoman | NumberFormat::UpperRoman if (1..4000).contains(&n) => {
@@ -78,7 +120,9 @@ impl NumberFormat {
                     roman
                 }
             }
-            NumberFormat::LowerLetter | NumberFormat::UpperLetter if n >= 1 => {
+            NumberFormat::LowerLetter | NumberFormat::UpperLetter
+                if (1..=26 * MAX_LETTER_REPEATS).contains(&n) =>
+            {
                 let base = if self == NumberFormat::UpperLetter {
                     b'A'
                 } else {
@@ -138,7 +182,7 @@ pub(crate) enum FieldKind {
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Instruction {
     pub kind: Option<FieldKind>,
-    pub warning: Option<&'static str>,
+    pub warnings: Vec<&'static str>,
 }
 
 /// Reads `instruction` (a `w:instrText` run's text or `w:fldSimple`'s
@@ -153,7 +197,7 @@ pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
     let command = command.value.to_ascii_uppercase();
     let mut format = NumberFormat::Section;
     let mut operands = Vec::new();
-    let mut warning = None;
+    let mut warnings = Vec::new();
     let mut rest = rest.iter();
     while let Some(token) = rest.next() {
         if token.quoted || !token.value.starts_with('\\') {
@@ -161,15 +205,22 @@ pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
             continue;
         }
         match token.value.as_str() {
-            "\\*" => {
-                if let Some(f) = rest.next().and_then(|t| NumberFormat::of_switch(&t.value)) {
-                    format = f;
+            "\\*" => match rest.next().map(|t| NumberFormat::of_switch(&t.value)) {
+                Some(Ok(Some(f))) => format = f,
+                Some(Err(())) => {
+                    format = NumberFormat::Arabic;
+                    warnings.push(FIELD_FORMAT_APPROXIMATED);
                 }
+                _ => {}
+            },
+            "\\#" => {
+                rest.next();
+                warnings.push(FIELD_FORMAT_APPROXIMATED);
             }
-            "\\@" | "\\#" => {
+            "\\@" => {
                 rest.next();
             }
-            s if s.eq_ignore_ascii_case("\\p") => warning = Some(FIELD_SWITCH_IGNORED),
+            s if s.eq_ignore_ascii_case("\\p") => warnings.push(FIELD_SWITCH_IGNORED),
             _ => {}
         }
     }
@@ -184,7 +235,7 @@ pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
         ("DATE" | "TIME" | "PRINTDATE", _) => {
             return Instruction {
                 kind: None,
-                warning: Some(FIELD_CACHED),
+                warnings: vec![FIELD_CACHED],
             };
         }
         // With an operand, these set the property instead.
@@ -200,9 +251,12 @@ pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
         },
         _ => return Instruction::default(),
     };
+    if let FieldKind::Text(_) = kind {
+        warnings.clear();
+    }
     Instruction {
         kind: Some(kind),
-        warning,
+        warnings,
     }
 }
 
@@ -227,8 +281,19 @@ pub(crate) fn properties(txn: &Txn<'_>) -> Properties {
         }
     }
     if let Some(tree) = related(txn, CUSTOM_PROPERTIES) {
+        // Word formats dates, booleans and the like; only text and numbers
+        // are shown as written.
+        const PLAIN: &[&str] = &[
+            "lpwstr", "lpstr", "bstr", "i1", "i2", "i4", "i8", "int", "ui1", "ui2", "ui4", "ui8",
+            "uint", "r4", "r8", "decimal",
+        ];
         for property in tree.child_elements(tree.root()) {
-            if let Some(name) = tree.attr(property, None, "name") {
+            let plain = tree
+                .child_elements(property)
+                .next()
+                .and_then(|value| tree.local_name(value))
+                .is_some_and(|kind| PLAIN.contains(&kind));
+            if let (Some(name), true) = (tree.attr(property, None, "name"), plain) {
                 out.entry(name.to_lowercase())
                     .or_insert_with(|| tree.text_content(property));
             }
@@ -260,7 +325,7 @@ pub(crate) struct Number {
 }
 
 impl Number {
-    fn write(self, format: NumberFormat) -> String {
+    pub(crate) fn write(self, format: NumberFormat) -> String {
         format.or(self.format).write(self.shown)
     }
 }
@@ -412,10 +477,19 @@ pub(crate) fn show(blocks: &mut [Block], context: &Context<'_>) {
 
 fn show_para(para: &mut Para, context: &Context<'_>) {
     let mut shift: i64 = 0;
+    let mut done = 0;
     for span in &mut para.fields {
-        let start = (i64::from(span.pieces.start) + shift) as u32;
-        let end = (i64::from(span.pieces.end) + shift) as u32;
+        let (start, end) = (
+            i64::from(span.pieces.start) + shift,
+            i64::from(span.pieces.end) + shift,
+        );
+        // Spans are in order and apart; one that is not keeps its result.
+        if start < done || end < start || end > para.pieces.len() as i64 {
+            continue;
+        }
+        let (start, end) = (start as u32, end as u32);
         span.pieces = start..end;
+        done = i64::from(end);
         let Some(text) = context.value(&span.kind, para.node) else {
             continue;
         };
@@ -433,12 +507,13 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
         para.pieces.splice(start as usize..end as usize, pieces);
         shift += i64::from(added) - i64::from(end - start);
         span.pieces = start..start + added;
+        done = i64::from(start + added);
     }
 }
 
-/// Whether any of `blocks` has a field layout computes.
-pub(crate) fn any(blocks: &[Block]) -> bool {
-    spans(blocks).next().is_some()
+/// Whether any of `blocks` has a field whose value depends on the page.
+pub(crate) fn per_page(blocks: &[Block]) -> bool {
+    spans(blocks).any(|span| !matches!(span.kind, FieldKind::Text(_)))
 }
 
 /// A warning layout gives, and where.
@@ -504,8 +579,8 @@ mod tests {
                 format: NumberFormat::Section
             })
         );
-        assert_eq!(read.warning, Some(FIELD_SWITCH_IGNORED));
-        assert_eq!(kind(" PAGEREF _Toc1 \\h ").warning, None);
+        assert_eq!(read.warnings, [FIELD_SWITCH_IGNORED]);
+        assert!(kind(" PAGEREF _Toc1 \\h ").warnings.is_empty());
     }
 
     #[test]
@@ -515,7 +590,7 @@ mod tests {
                 kind(code),
                 Instruction {
                     kind: None,
-                    warning: Some(FIELD_CACHED)
+                    warnings: vec![FIELD_CACHED]
                 }
             );
         }
