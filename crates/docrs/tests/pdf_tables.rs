@@ -565,3 +565,48 @@ fn the_content_cap_counts_the_table_layer() {
     let err = render(&document, &options).unwrap_err();
     assert_eq!(err.limit_exceeded().unwrap().limit, "max_pdf_content_bytes");
 }
+
+#[test]
+fn a_tables_fill_in_a_header_is_under_the_headers_text() {
+    const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let header = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="{W}">{}</w:hdr>"#,
+        table(
+            &all_borders("single", 8, "404040"),
+            1,
+            &[row(
+                "",
+                &[cell(
+                    r#"<w:shd w:val="clear" w:fill="FFC000"/>"#,
+                    &para("Letterhead")
+                )]
+            )]
+        )
+    );
+    let document = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{W}" xmlns:r="{R}"><w:body>{}<w:sectPr><w:headerReference w:type="default" r:id="rId1"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#,
+        para("Body")
+    );
+    let types = CT_XML.replace(
+        "</Types>",
+        r#"<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>"#,
+    );
+    let rels = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="{R}/header" Target="header1.xml"/></Relationships>"#
+    );
+    let package = build_zip(&[
+        RawMember::new("[Content_Types].xml", types.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", document.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/header1.xml", header.as_bytes()),
+    ]);
+    let bytes = pdf(&open_bytes(&package));
+    let page = &shapes(&bytes)[0];
+    let fill = coloured(page, 0xFFC000);
+    assert_eq!(fill.len(), 1, "{page:?}");
+    assert!(!fill[0].over_text, "drawn before the header's text");
+    assert!(coloured(page, 0x404040).iter().all(|line| line.over_text));
+    assert_eq!(page_texts(&bytes)[0], "LetterheadBody");
+}
