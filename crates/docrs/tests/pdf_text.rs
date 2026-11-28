@@ -1479,6 +1479,36 @@ fn what_layout_changes_in_a_story_is_reported_with_its_page() {
     assert_eq!(refused.reason(), "pdf_not_faithful");
 }
 
+/// The preflight finds a PAGEREF without a bookmark in the body and layout
+/// one to a missing bookmark in the footer: one warning names both.
+#[test]
+fn a_layout_warning_the_preflight_gave_in_another_story_adds_its_story() {
+    let body = sectioned(
+        format!("<w:p>{}</w:p>", serif_field("PAGEREF", "9")),
+        r#"<w:footerReference w:type="default" r:id="rfooter1"/>"#,
+        "",
+    );
+    let footer = format!("<w:p>{}</w:p>", serif_field("PAGEREF nowhere", "9"));
+    let document = package(&body, &[("footer1", "footer", "ftr", &footer)]);
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    let (_, report) = render(&document, &options).unwrap();
+    let [cached] = report.warnings.as_slice() else {
+        panic!("{:?}", report.warnings);
+    };
+    let stories: Vec<_> = cached.locations.iter().map(|l| l.story.as_str()).collect();
+    assert_eq!(
+        (cached.code, cached.subject, cached.count),
+        ("pdf_field_cached", "PAGEREF", 2)
+    );
+    assert_eq!(stories, ["word/document.xml", "word/footer1.xml"]);
+    assert!(
+        cached.message.starts_with("PAGEREF (2): "),
+        "{}",
+        cached.message
+    );
+}
+
 /// What a PDF must do with a probe: draw a line, or, under `strict`,
 /// refuse it and otherwise draw a line with a warning of code and subject.
 enum Expect {
