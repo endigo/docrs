@@ -1469,6 +1469,15 @@ fn builtin_slots(key: &str) -> Option<Slots> {
     tagged(Source::Builtin, builtin_index().get(canonical(key)))
 }
 
+/// The document's faces, with the styles they lack filled from the
+/// supplied ones.
+fn merged(own: Option<Slots>, supplied: Option<Slots>) -> Option<Slots> {
+    match (own, supplied) {
+        (Some(own), Some(supplied)) => Some(std::array::from_fn(|at| own[at].or(supplied[at]))),
+        (own, supplied) => own.or(supplied),
+    }
+}
+
 /// The slot to draw `wanted` from: it, else the nearest style the family
 /// has (Word synthesizes the rest).
 fn pick(set: &Slots, wanted: usize) -> (Source, usize) {
@@ -1507,11 +1516,7 @@ impl FontBook {
     /// The faces of `key` itself: the document's, with the styles it lacks
     /// filled from the supplied ones.
     fn direct(&self, key: &str) -> Option<Slots> {
-        let own = self.drawable(self.own_slots(key));
-        match (own, self.supplied(key)) {
-            (Some(own), Some(supplied)) => Some(std::array::from_fn(|at| own[at].or(supplied[at]))),
-            (own, supplied) => own.or(supplied),
-        }
+        merged(self.drawable(self.own_slots(key)), self.supplied(key))
     }
 
     fn own_slots(&self, key: &str) -> Option<Slots> {
@@ -1549,21 +1554,18 @@ impl FontBook {
         face.file().is_some() && !face.embeddable()
     }
 
-    /// `key` has a face of its own that [`FontBook::drawable`] passes over.
-    fn restricted(&self, key: &str) -> bool {
-        let passed_over = |slots: Option<Slots>| {
-            slots.is_some_and(|slots| {
-                slots
-                    .iter()
-                    .flatten()
-                    .any(|(from, at)| self.forbids_embedding(*from, *at))
-            })
-        };
+    /// The face of `key` Word's layout takes for `wanted` is one
+    /// [`FontBook::drawable`] passes over.
+    fn restricted(&self, key: &str, wanted: usize) -> bool {
+        let own = merged(self.own_slots(key), self.supplied_slots(key));
         self.target
             == (LayoutTarget::Pdf {
                 allow_unembedded: false,
             })
-            && (passed_over(self.own_slots(key)) || passed_over(self.supplied_slots(key)))
+            && own.is_some_and(|slots| {
+                let (from, at) = pick(&slots, wanted);
+                self.forbids_embedding(from, at)
+            })
     }
 
     /// An alias's faces: supplied ones, else (an alias the caller set) the
@@ -1661,14 +1663,15 @@ impl FontBook {
         };
         let synthesized = slot(&face) != wanted;
         let key = family.trim().to_lowercase();
+        let restricted = self.restricted(&key, wanted);
         let style_missing = synthesized
             && matches!(found, Found::Direct | Found::Alias { .. })
-            && builtin_slots(&key).is_some_and(|slots| slots[wanted].is_some());
+            && (restricted || builtin_slots(&key).is_some_and(|slots| slots[wanted].is_some()));
         Resolved {
             face,
             source,
             style_missing,
-            restricted: self.restricted(&key),
+            restricted,
         }
     }
 
@@ -2713,6 +2716,27 @@ mod font_set {
             (brand.face.family.as_str(), brand.source),
             ("Brand", FaceSource::Supplied)
         );
+    }
+
+    #[test]
+    fn a_style_passed_over_for_its_licence_is_drawn_from_another_and_noted() {
+        let fonts = set_of(&[font("Regular", vec![]), font("Bold", vec![os2(4, 0x0002)])]);
+        let mut word = FontBook::with_fonts(Vec::new(), &fonts);
+        let bold = resolve(&mut word, "Brand", true, FontKind::Sans);
+        assert!(bold.face.bold && !bold.style_missing && !bold.restricted);
+        let mut pdf = FontBook::with_fonts(Vec::new(), &fonts).with_target(PDF);
+        let bold = resolve(&mut pdf, "Brand", true, FontKind::Sans);
+        assert_eq!(
+            (
+                bold.face.bold,
+                bold.source,
+                bold.style_missing,
+                bold.restricted
+            ),
+            (false, FaceSource::Supplied, true, true)
+        );
+        let regular = resolve(&mut pdf, "Brand", false, FontKind::Sans);
+        assert!(!regular.style_missing && !regular.restricted);
     }
 
     #[test]

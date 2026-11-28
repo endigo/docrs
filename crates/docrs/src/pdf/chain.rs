@@ -257,7 +257,7 @@ impl<'b> Chain<'b> {
         };
         let warning = warning.or_else(|| {
             let from = style_name(face.bold, face.italic);
-            let item = format!("{} {style} (drawn from {from})", run.family);
+            let item = format!("{} {style} ({licence}drawn from {from})", run.family);
             run.style_missing
                 .then_some(("pdf_font_substituted", "style", item))
         });

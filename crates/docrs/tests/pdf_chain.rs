@@ -301,6 +301,45 @@ fn with_fs_type(font: &[u8], fs_type: u16) -> Vec<u8> {
     out
 }
 
+/// `font` with its subfamily (name id 2) renamed Bold.
+fn as_bold(font: &[u8]) -> Vec<u8> {
+    let be = |at: usize, n: usize| font[at..at + n].iter().fold(0, |v, b| v << 8 | *b as usize);
+    let name = (0..be(4, 2))
+        .map(|index| 12 + 16 * index)
+        .find(|record| &font[*record..record + 4] == b"name")
+        .map(|record| be(record + 8, 4))
+        .unwrap();
+    let strings = name + be(name + 4, 2);
+    let mut out = font.to_vec();
+    for record in (0..be(name + 2, 2)).map(|index| name + 6 + 12 * index) {
+        if be(record + 6, 2) != 2 {
+            continue;
+        }
+        let text: Vec<u8> = if be(record, 2) == 1 {
+            b"Bold".to_vec()
+        } else {
+            "Bold".encode_utf16().flat_map(u16::to_be_bytes).collect()
+        };
+        let at = strings + be(record + 10, 2);
+        out[at..at + text.len()].copy_from_slice(&text);
+        out[record + 8..record + 10].copy_from_slice(&(text.len() as u16).to_be_bytes());
+    }
+    out
+}
+
+#[test]
+fn a_style_whose_licence_forbids_embedding_is_drawn_from_another_and_says_so() {
+    let bold = with_fs_type(&as_bold(&font(SERIF)), 0x0002);
+    let fonts = set(vec![font(SERIF), bold], |_| {});
+    assert!(fonts.faces().iter().any(|f| f.bold && !f.embeddable));
+    let document = html(&para("Liberation Serif", "Plain and <strong>bold</strong>"));
+    let (_, report, _) = pdf(&document, &options(&fonts));
+    assert_eq!(codes(&report), [("pdf_font_substituted", 4)]);
+    let message = &report.warnings[0].message;
+    let named = "Liberation Serif Bold (its licence forbids embedding; drawn from Regular)";
+    assert!(message.contains(named), "{message}");
+}
+
 fn serif_paragraph() -> Document {
     html(&para(
         "Liberation Serif",

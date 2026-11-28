@@ -247,7 +247,7 @@ impl FontResources {
 
     /// The index of `family` in a style, referenced by name and measured
     /// by `face` ([`PdfFont::Named`]); `program` (the face's file and
-    /// index) gives its descriptor.
+    /// index) gives its descriptor, else one estimated from `face`.
     pub(crate) fn named(
         &mut self,
         family: &str,
@@ -255,20 +255,18 @@ impl FontResources {
         italic: bool,
         face: &Arc<Face>,
         program: Option<(&[u8], u32)>,
-    ) -> Result<usize> {
+    ) -> usize {
         if let Some(at) = self
             .named
             .iter()
             .position(|font| font.is(family, bold, italic))
         {
-            return Ok(at);
+            return at;
         }
-        let info = program
-            .map(|(data, index)| FaceInfo::read(data, index))
-            .transpose()?;
+        let info = program.and_then(|(data, index)| FaceInfo::read(data, index).ok());
         let font = Unembedded::new(family, bold, italic, face.clone(), info);
         self.named.push(font);
-        Ok(self.named.len() - 1)
+        self.named.len() - 1
     }
 
     /// The width `code` is drawn with in a font referenced by name.
@@ -516,5 +514,21 @@ mod tests {
         assert_eq!((fonts.files.len(), fonts.seen.len()), (1, 1));
         assert!(Arc::ptr_eq(&fonts.files[0].data, &first));
         assert_eq!(fonts.add_face(first, 0, None).unwrap(), face);
+    }
+
+    #[test]
+    fn a_program_that_cannot_be_read_gives_a_named_font_estimated_metrics() {
+        use crate::layout::fonts::{FontBook, FontKind};
+        let arial = FontBook::default().face("Arial", false, false, FontKind::Sans);
+        let mut fonts = FontResources::default();
+        let at = fonts.named("Arial", false, false, &arial, Some((b"not a font", 0)));
+        assert_eq!(fonts.named_width(at, b'a'), 556.0);
+        let mut writer = Writer::new(1 << 20).unwrap();
+        let written = fonts.finish(&mut writer).unwrap();
+        assert_eq!(written[0].0, "N1");
+        let body = String::from_utf8_lossy(writer.body()).into_owned();
+        assert!(body.contains("/BaseFont /Arial"), "{body}");
+        // Estimated from the measured face: its ascent and descent, no bbox.
+        assert!(body.contains("/FontBBox [0 -212 1000 938]"), "{body}");
     }
 }

@@ -210,14 +210,14 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
             }
             Draw::Named(code) => {
                 let run = &self.model.faces[look.face(ch) as usize];
-                let program = match run.face.file() {
-                    Some(file) => Some((self.program(file, &run.face.family)?, file.index())),
-                    None => None,
-                };
+                let program = run.face.file().and_then(|file| {
+                    let data = self.program(file, &run.face.family).ok()?;
+                    Some((data, file.index()))
+                });
                 let program = program.as_ref().map(|(data, index)| (&data[..], *index));
                 let at = self
                     .fonts
-                    .named(&run.family, run.bold, run.italic, &run.face, program)?;
+                    .named(&run.family, run.bold, run.italic, &run.face, program);
                 let advance = self.fonts.named_width(at, code);
                 return Ok((PdfFont::Named(at), u16::from(code), advance, (false, false)));
             }
