@@ -30,13 +30,13 @@ struct Field {
 }
 
 /// A run's drawn size and baseline shift under `w:vertAlign`. Word for Mac
-/// 16.115 at Arial 11 pt raises 0.41 em and lowers 0.087 em, not Arial's
-/// OS/2 offsets (0.477 and 0.138 em).
+/// 16.115 at Arial 11 pt draws 0.64 of the size, raised 0.41 em or lowered
+/// 0.087 em, not Arial's OS/2 values (0.65, 0.477 and 0.138 em).
 fn script(size: f64, vert: Option<VertAlign>) -> (f64, f64) {
     match vert.unwrap_or_default() {
         VertAlign::Baseline => (size, 0.0),
-        VertAlign::Superscript => (size * 2.0 / 3.0, size * 0.41),
-        VertAlign::Subscript => (size * 2.0 / 3.0, -size * 0.087),
+        VertAlign::Superscript => (size * 0.64, size * 0.41),
+        VertAlign::Subscript => (size * 0.64, -size * 0.087),
     }
 }
 
