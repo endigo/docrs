@@ -715,6 +715,17 @@ fn write_pdf(
 /// Refuses an output that is one of `inputs`, through a symbolic or hard
 /// link too.
 fn refuse_overwriting(out: &Path, inputs: &[&Path]) -> Result<()> {
+    // The write creates the output's directory; made first, a path through
+    // it (`new/../input.docx`) resolves now as the write will resolve it.
+    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            Error::io(
+                "create_directory",
+                format!("cannot create {}", parent.display()),
+                err,
+            )
+        })?;
+    }
     let Ok(target) = std::fs::metadata(out) else {
         return Ok(());
     };

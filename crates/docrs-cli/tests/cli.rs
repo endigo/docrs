@@ -978,7 +978,8 @@ fn pdf_refuses_to_write_over_its_input() {
     let before = std::fs::read(&docx).unwrap();
     let hard = dir.path().join("hard.pdf");
     std::fs::hard_link(&docx, &hard).unwrap();
-    let mut outs = vec![docx.clone(), hard];
+    let through_new_directory = dir.path().join("new").join("..").join("memo.docx");
+    let mut outs = vec![docx.clone(), hard, through_new_directory];
     #[cfg(unix)]
     {
         let soft = dir.path().join("soft.pdf");
@@ -999,6 +1000,23 @@ fn pdf_refuses_to_write_over_its_input() {
         assert_eq!(json_of(&output)["error"]["reason"], "output_is_input");
         assert_eq!(std::fs::read(&docx).unwrap(), before);
     }
+    let reference = dir.path().join("reference.docx");
+    std::fs::copy(repo("tests/fixtures/pdf/references/inter.docx"), &reference).unwrap();
+    let kept = std::fs::read(&reference).unwrap();
+    let output = bin()
+        .args(["--json", "from-markdown"])
+        .arg(repo("tests/fixtures/pdf/sources/memo.md"))
+        .arg("--reference")
+        .arg(&reference)
+        .args(["--format", "pdf", "--out"])
+        .arg(dir.path().join("other").join("..").join("reference.docx"))
+        .arg("--font-dir")
+        .arg(repo(INTER_DIR))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(json_of(&output)["error"]["reason"], "output_is_input");
+    assert_eq!(std::fs::read(&reference).unwrap(), kept);
 }
 
 #[test]
