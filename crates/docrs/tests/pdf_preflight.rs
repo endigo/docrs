@@ -135,6 +135,12 @@ fn alternate_shape(inner: &str) -> String {
     ))
 }
 
+fn underlined(text: &str) -> String {
+    para(&run(&format!(
+        r#"<w:rPr><w:u w:val="single"/></w:rPr><w:t>{text}</w:t>"#
+    )))
+}
+
 fn section(content: &str) -> String {
     format!("<w:sectPr>{content}</w:sectPr>")
 }
@@ -162,9 +168,26 @@ fn cases() -> Vec<Case> {
     vec![
         case(
             NOT_YET_DRAWN,
-            "text",
+            "underline",
             2,
-            docx(&(text("One") + &text("Two") + &para("")), &[], &[]),
+            docx(
+                &(underlined("One") + &underlined("Two") + &text("Three") + &para("")),
+                &[],
+                &[],
+            ),
+        ),
+        case(
+            "pdf_justification_unsupported",
+            "distributed justification",
+            1,
+            docx(
+                &para(
+                    &(r#"<w:pPr><w:jc w:val="distribute"/></w:pPr>"#.to_string()
+                        + &run("<w:t>spread</w:t>")),
+                ),
+                &[],
+                &[],
+            ),
         ),
         case(
             "pdf_chart_skipped",
@@ -487,16 +510,20 @@ fn a_converted_document_is_only_not_yet_drawn() {
         "{codes:?}"
     );
     let subjects: Vec<_> = report.warnings.iter().map(|w| w.subject).collect();
-    for subject in ["text", "list", "table", "link", "footnote"] {
+    for subject in ["table", "link", "footnote"] {
         assert!(subjects.contains(&subject), "{subject}: {subjects:?}");
     }
-    let text = report
+    for drawn in ["text", "list"] {
+        assert!(!subjects.contains(&drawn), "{drawn}: {subjects:?}");
+    }
+    let table = report
         .warnings
         .iter()
-        .find(|w| w.subject == "text")
+        .find(|w| w.subject == "table")
         .unwrap();
     assert!(
-        text.locations
+        table
+            .locations
             .iter()
             .all(|l| l.page.is_none() && l.ordinal >= 1)
     );
@@ -550,11 +577,11 @@ fn redact_keeps_codes_and_counts_only() {
 
 #[test]
 fn not_yet_drawn_refuses_even_without_strict() {
-    let document = docx(&para(&run("<w:t>Words</w:t>")), &[], &[]);
+    let document = docx(&underlined("Words"), &[], &[]);
     let err = report(&document).check(false).unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::UnsupportedStructure));
     assert_eq!(err.reason(), NOT_YET_DRAWN);
-    assert!(err.message().contains("text"), "{}", err.message());
+    assert!(err.message().contains("underline"), "{}", err.message());
     let json = err.to_json();
     assert_eq!(
         json["error"]["details"]["warnings"][0]["code"],
@@ -652,13 +679,7 @@ fn constructs_set_through_styles_are_reported() {
         + "</w:tc></w:tr></w:tbl>";
     let report = report(&styled(&body));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    for expected in [
-        ("page break", 1),
-        ("list", 1),
-        ("border", 2),
-        ("shading", 3),
-        ("table", 1),
-    ] {
+    for expected in [("border", 2), ("shading", 3), ("table", 1)] {
         assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
     }
     assert_eq!(
@@ -782,7 +803,7 @@ fn constructs_word_draws_are_not_skipped_silently() {
         + &section(r#"<w:textDirection w:val="tbRl"/>"#);
     let report = report(&docx(&body, &[], &[]));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    for expected in [("tab", 1), ("line break", 1), ("text", 3)] {
+    for expected in [("positional tab", 1), ("no-break hyphen", 1)] {
         assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
     }
     assert_eq!(subjects(&report, "pdf_shape_skipped"), [("drawing", 1)]);
@@ -798,6 +819,33 @@ fn constructs_word_draws_are_not_skipped_silently() {
         subjects(&report, "pdf_object_skipped"),
         [("imported document", 1)]
     );
+}
+
+#[test]
+fn what_the_painter_does_not_draw_yet_stays_refused() {
+    let body = para(&run(r#"<w:sym w:font="Wingdings" w:char="F04A"/>"#))
+        + &para(&run(r#"<w:rPr><w:dstrike/></w:rPr><w:t>gone</w:t>"#))
+        + &para(&(r#"<w:pPr><w:sectPr/></w:pPr>"#.to_string() + &run("<w:t>end</w:t>")))
+        + &text_para("next section")
+        + &section(r#"<w:headerReference w:type="default" r:id="rId1"/>"#);
+    let report = report(&docx(
+        &body,
+        &[header("word/header1.xml", &text_para("Letterhead"))],
+        &[],
+    ));
+    assert_eq!(
+        subjects(&report, NOT_YET_DRAWN),
+        [
+            ("symbol", 1),
+            ("strikethrough", 1),
+            ("section break", 1),
+            ("header", 1),
+        ]
+    );
+}
+
+fn text_para(text: &str) -> String {
+    para(&run(&format!("<w:t>{text}</w:t>")))
 }
 
 #[test]

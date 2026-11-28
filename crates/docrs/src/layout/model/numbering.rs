@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::colour::Palette;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
@@ -22,6 +22,8 @@ pub(super) struct Numbering {
     nums: HashMap<String, Num>,
     abstracts: HashMap<String, HashMap<u8, Level>>,
     counters: HashMap<String, [i64; 9]>,
+    /// The `w:num`s used so far.
+    used: HashSet<String>,
 }
 
 fn read_level(tree: &XmlTree, lvl: NodeId, palette: &Palette) -> Level {
@@ -107,6 +109,14 @@ impl Numbering {
             }
             c
         });
+        // On an instance's first use, the levels it overrides restart.
+        if self.used.insert(num.to_string()) {
+            for (level, start) in starts {
+                if let Some(counter) = counters.get_mut(usize::from(*level)) {
+                    *counter = start - 1;
+                }
+            }
+        }
         let level_index = usize::from(ilvl.min(8));
         counters[level_index] += 1;
         for deeper in level_index + 1..9 {

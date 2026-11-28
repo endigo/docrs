@@ -22,8 +22,10 @@ mod table;
 mod theme;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use super::fonts::{FontBook, FontKind};
+use super::fonts::{Face, FontBook, FontKind};
+use super::variation::Style;
 use crate::Result;
 use crate::package::rels::{Relationship, rt};
 use crate::txn::Txn;
@@ -192,12 +194,12 @@ pub enum Piece {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Label {
+    /// The label's characters (`Piece::Char`), as the paragraph's are.
+    pub pieces: Vec<Piece>,
     pub width: f64,
     pub metric: u32,
-    #[allow(dead_code, reason = "the PDF painter reads it")]
-    pub look: u32,
     /// What follows the label: a tab (true) or a space/nothing.
     pub tab: bool,
     pub space: f64,
@@ -298,11 +300,29 @@ pub struct Section {
     pub continuous: bool,
 }
 
+/// A face a run asks for, and the face that measures it.
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    not(feature = "pdf"),
+    allow(dead_code, reason = "the PDF painter reads it")
+)]
+pub struct RunFace {
+    pub family: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub face: Arc<Face>,
+}
+
 pub struct Model {
     pub sections: Vec<Section>,
     pub blocks: Vec<Block>,
     pub metrics: Vec<Metric>,
     pub looks: Vec<Appearance>,
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub faces: Vec<RunFace>,
     pub links: Vec<Link>,
     pub default_tab: f64,
     /// Layout work already done measuring headers and footers.
@@ -317,6 +337,8 @@ pub(super) struct Builder<'a> {
     metric_index: HashMap<(u64, u64), u32>,
     /// Each look and its index.
     looks: HashMap<Appearance, u32>,
+    faces: Vec<RunFace>,
+    face_index: HashMap<(String, Style), u32>,
     links: Vec<Link>,
     link_index: HashMap<Link, u32>,
     /// The story part's hyperlink relationships: id to target.
@@ -346,6 +368,8 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         metrics: Vec::new(),
         metric_index: HashMap::new(),
         looks: HashMap::new(),
+        faces: Vec::new(),
+        face_index: HashMap::new(),
         links: Vec::new(),
         link_index: HashMap::new(),
         hyperlinks: HashMap::new(),
@@ -442,6 +466,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         blocks,
         metrics: builder.metrics,
         looks: in_order(builder.looks),
+        faces: builder.faces,
         links: builder.links,
         default_tab,
         work,

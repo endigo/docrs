@@ -45,7 +45,7 @@ pub(crate) fn text_document(
     let mut content = Vec::new();
     let mut baseline = A4.1 - MARGIN;
     for line in lines {
-        let face = fonts.add_face(Arc::from(line.font), line.index, line.style)?;
+        let face = fonts.add_face(Arc::from(line.font), line.index, Some(line.style))?;
         let metrics = Face::read_at(&Arc::from(line.font), line.index as usize)?;
         baseline -= line.size * 1.5;
         content.extend_from_slice(b"BT ");
@@ -77,9 +77,10 @@ pub(crate) fn text_document(
         .finish(&mut writer)?
         .into_iter()
         .fold(Dict::new(), |fonts, (name, font)| fonts.with(&name, font));
+    let contents = super::super::page_content(&mut writer, &content)?;
     super::super::write_document(
         writer,
-        &[(A4, content)],
+        &[(A4, contents)],
         Dict::new().with("Font", resources),
         info,
         producer,

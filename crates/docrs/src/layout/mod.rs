@@ -10,7 +10,7 @@
 //! push the body down. Floating objects, footnotes, columns and multiple
 //! sections with different page setups are not modelled.
 
-mod flow;
+pub(crate) mod flow;
 pub mod fonts;
 pub(crate) mod model;
 pub(crate) mod variation;
@@ -136,7 +136,7 @@ fn embedded_fonts(txn: &Txn<'_>, main: &str) -> Result<(Vec<Face>, Vec<String>)>
     Ok((out, unread))
 }
 
-fn model_of(
+pub(crate) fn model_of(
     txn: &Txn<'_>,
     main: &str,
     fonts: &FontSet,
@@ -556,6 +556,8 @@ pub struct LineRecord {
     pub text: String,
     /// The line's text by look.
     pub runs: Vec<RunRecord>,
+    /// A list label, on its paragraph's first line.
+    pub label: Option<RunRecord>,
 }
 
 /// Text of a line in one look. Experimental.
@@ -566,6 +568,8 @@ pub struct RunRecord {
     pub text: String,
     /// Index into the looks `line_records` gives first.
     pub look: u32,
+    /// Where each character of `text` starts, points from the page's left.
+    pub origins: Vec<f64>,
 }
 
 /// The looks and links of `main`, then every line of its body.
@@ -612,21 +616,13 @@ impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
             .pieces
             .get(line.pieces.start as usize..line.pieces.end as usize)
             .unwrap_or_default();
-        let mut runs: Vec<RunRecord> = Vec::new();
-        for piece in pieces {
-            let (ch, look) = match piece {
-                model::Piece::Char { ch, look, .. } => (*ch, *look),
-                model::Piece::Tab { look, .. } => ('\t', *look),
-                _ => continue,
-            };
-            match runs.last_mut() {
-                Some(run) if run.look == look => run.text.push(ch),
-                _ => runs.push(RunRecord {
-                    text: ch.to_string(),
-                    look,
-                }),
-            }
-        }
+        let (origins, label_origins) = line.origins(para);
+        let runs = by_look(pieces, &origins, at.x);
+        let label = para
+            .label
+            .as_ref()
+            .filter(|_| line.label.is_some())
+            .and_then(|label| by_look(&label.pieces, &label_origins, at.x).pop());
         let text = runs.iter().map(|run| run.text.as_str()).collect();
         let story = match para.story {
             StoryId::Body => "body".to_string(),
@@ -652,8 +648,34 @@ impl<F: FnMut(LineRecord) -> Result<()>> flow::Sink for LineDump<F> {
             align: para.align.name(),
             text,
             runs,
+            label,
         })
     }
+}
+
+/// `pieces` by look, their characters at `origins` from `left`; a tab is
+/// `\t`.
+fn by_look(pieces: &[model::Piece], origins: &[f64], left: f64) -> Vec<RunRecord> {
+    let mut runs: Vec<RunRecord> = Vec::new();
+    for (piece, origin) in pieces.iter().zip(origins) {
+        let (ch, look) = match piece {
+            model::Piece::Char { ch, look, .. } => (*ch, *look),
+            model::Piece::Tab { look, .. } => ('\t', *look),
+            _ => continue,
+        };
+        match runs.last_mut() {
+            Some(run) if run.look == look => {
+                run.text.push(ch);
+                run.origins.push(left + origin);
+            }
+            _ => runs.push(RunRecord {
+                text: ch.to_string(),
+                look,
+                origins: vec![left + origin],
+            }),
+        }
+    }
+    runs
 }
 
 fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId), Vec<String>>) {

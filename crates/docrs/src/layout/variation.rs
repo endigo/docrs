@@ -1,20 +1,42 @@
 //! Variable fonts: the `fvar` axes and named instances, and the one rule
-//! that turns a run's weight and italic into axis values. The PDF writer
-//! instances with it; layout is to measure the same instance with it.
+//! that turns a run's weight and italic into axis values. With the `pdf`
+//! feature, layout measures and the PDF writer embeds the same instance;
+//! without it, layout measures a variable font's default instance.
 
 #![cfg_attr(
     not(feature = "pdf"),
-    expect(dead_code, reason = "only the PDF writer instances fonts so far")
+    allow(dead_code, reason = "only the pdf feature instances fonts")
 )]
 
 use super::fonts::be16;
 use super::fonts::be32;
 
-/// The weight and italic a run asks for; a static face ignores both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The weight, italic and size a run asks for; a static face ignores them.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     pub weight: u16,
     pub italic: bool,
+    /// The drawn size in points, for optical sizing; `None`: none.
+    pub size: Option<f32>,
+}
+
+impl Eq for Style {}
+
+impl std::hash::Hash for Style {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (self.weight, self.italic, self.size.map(f32::to_bits)).hash(state);
+    }
+}
+
+impl Style {
+    /// A run's style: bold is weight 700, else 400, at the drawn size.
+    pub(crate) fn of(bold: bool, italic: bool, size: Option<f64>) -> Style {
+        Style {
+            weight: if bold { 700 } else { 400 },
+            italic,
+            size: size.map(|size| size as f32),
+        }
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -22,6 +44,7 @@ impl Style {
     pub const REGULAR: Style = Style {
         weight: 400,
         italic: false,
+        size: None,
     };
 }
 
@@ -116,8 +139,12 @@ impl Fvar {
         Fvar { axes, instances }
     }
 
-    /// The instance `style` selects: `wght` set to the weight, and `ital`
-    /// (else `slnt`) to its italic end when the style is italic.
+    /// The instance `style` selects: `wght` set to the weight, `ital`
+    /// (else `slnt`) to its italic end when the style is italic, and below
+    /// weight 600 `opsz` to the size in 1/300 inch, rounded half up. Word
+    /// for Mac (measured on Inter, Fraunces and Literata): regular runs are
+    /// sized optically, bold runs take the Bold instance, `opsz` at its
+    /// default, at every size.
     pub(crate) fn variation(&self, style: Style) -> Variation {
         let has_ital = self.axes.iter().any(|axis| &axis.tag == b"ital");
         let mut variation = Variation::new();
@@ -126,6 +153,12 @@ impl Fvar {
                 b"wght" => f32::from(style.weight).clamp(axis.min, axis.max),
                 b"ital" if style.italic => axis.max,
                 b"slnt" if style.italic && !has_ital => axis.min,
+                b"opsz" if style.weight < 600 => match style.size {
+                    Some(size) => (size * 300.0 / 72.0 + 0.5)
+                        .floor()
+                        .clamp(axis.min, axis.max),
+                    None => continue,
+                },
                 _ => continue,
             };
             if value != axis.default {
@@ -183,7 +216,11 @@ mod tests {
     }
 
     fn style(weight: u16, italic: bool) -> Style {
-        Style { weight, italic }
+        Style {
+            weight,
+            italic,
+            size: None,
+        }
     }
 
     #[test]
@@ -215,6 +252,41 @@ mod tests {
         assert_eq!(fvar.axes.len(), 1);
         assert_eq!(fvar.axes[0].tag, *b"slnt");
         assert!(fvar.variation(style(700, false)).is_empty());
+    }
+
+    #[test]
+    fn regular_runs_are_sized_optically_and_bold_runs_are_not() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/fonts/inter/Inter[opsz,wght].ttf"
+        );
+        let font = std::fs::read(path).unwrap();
+        let ttf = crate::layout::fonts::Ttf::face(&font, 0).unwrap();
+        let inter = Fvar::read(ttf.table(b"fvar").unwrap());
+        for (size, opsz) in [
+            (4.0, 17.0),
+            (6.5, 27.0),
+            (8.0, 32.0),
+            (11.0, 32.0),
+            (24.0, 32.0),
+        ] {
+            let regular = inter.variation(Style::of(false, false, Some(size)));
+            assert_eq!(regular, [(*b"opsz", opsz)], "{size} pt");
+            let bold = inter.variation(Style::of(true, false, Some(size)));
+            assert_eq!(bold, [(*b"wght", 700.0)], "{size} pt");
+        }
+        assert!(inter.variation(Style::REGULAR).is_empty());
+        let fraunces = Fvar::read(&fvar(&[(*b"opsz", 9, 9, 144), (*b"wght", 100, 900, 900)]));
+        for (size, opsz) in [
+            (9.0, 38.0),
+            (12.0, 50.0),
+            (18.0, 75.0),
+            (24.0, 100.0),
+            (36.0, 144.0),
+        ] {
+            let regular = fraunces.variation(Style::of(false, false, Some(size)));
+            assert_eq!(regular, [(*b"opsz", opsz), (*b"wght", 400.0)], "{size} pt");
+        }
     }
 
     #[test]

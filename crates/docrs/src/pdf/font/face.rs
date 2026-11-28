@@ -125,9 +125,10 @@ impl FaceInfo {
         })
     }
 
-    /// The instance `style` selects, by [`Fvar::variation`].
-    pub(super) fn instance(&self, style: Style) -> Instance {
-        let variation = self.fvar.variation(style);
+    /// The instance `style` selects, by [`Fvar::variation`]; `None`: the
+    /// default instance.
+    pub(super) fn instance(&self, style: Option<Style>) -> Instance {
+        let variation = style.map_or_else(Variation::new, |style| self.fvar.variation(style));
         let value = |tag: &[u8; 4]| {
             variation
                 .iter()
@@ -256,13 +257,17 @@ mod tests {
     }
 
     fn style(weight: u16, italic: bool) -> Style {
-        Style { weight, italic }
+        Style {
+            weight,
+            italic,
+            size: None,
+        }
     }
 
     #[test]
     fn instances_are_named_as_adobe_tn_5902_names_them() {
         let inter = inter();
-        let name = |weight| inter.instance(style(weight, false)).postscript_name;
+        let name = |weight| inter.instance(Some(style(weight, false))).postscript_name;
         assert_eq!(name(400), "Inter-Regular");
         assert_eq!(name(700), "Inter-Bold");
         assert_eq!(name(650), "Inter_650wght");
@@ -272,15 +277,15 @@ mod tests {
     #[test]
     fn the_weight_axis_sets_the_descriptor_weight() {
         let inter = inter();
-        let bold = inter.instance(style(700, false));
+        let bold = inter.instance(Some(style(700, false)));
         assert_eq!(bold.variation, [(*b"wght", 700.0)]);
         assert_eq!((bold.weight, bold.italic), (700, false));
-        let regular = inter.instance(style(400, true));
+        let regular = inter.instance(Some(style(400, true)));
         assert!(
             regular.variation.is_empty(),
             "Inter has no ital or slnt axis"
         );
-        assert_eq!(regular, inter.instance(Style::REGULAR));
+        assert_eq!(regular, inter.instance(Some(Style::REGULAR)));
     }
 
     #[test]
@@ -293,7 +298,7 @@ mod tests {
             max: 0.0,
         });
         face.fvar.instances.clear();
-        let slanted = face.instance(style(700, true));
+        let slanted = face.instance(Some(style(700, true)));
         assert_eq!((slanted.italic_angle, slanted.italic), (-10.0, true));
         assert_eq!(slanted.postscript_name, "Inter_700wght_-10slnt");
     }

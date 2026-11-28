@@ -13,6 +13,9 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
+#[cfg(feature = "pdf")]
+use super::variation::Fvar;
+use super::variation::Style;
 use crate::error::{Error, Result};
 use crate::txn::Txn;
 
@@ -37,6 +40,12 @@ pub struct Face {
     /// Pair kerning between `KERN_CODEPOINTS`, in font units, sorted.
     kerning: Arc<[KernPair]>,
     file: Option<Arc<FontFile>>,
+    /// The style a variable face was instanced at; `None`: its default.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    instance: Option<Style>,
 }
 
 /// The font program a face was read from, and where the face's table
@@ -44,6 +53,7 @@ pub struct Face {
 pub struct FontFile {
     source: FileSource,
     offset: usize,
+    index: u32,
 }
 
 enum FileSource {
@@ -60,7 +70,7 @@ impl FontFile {
     /// which must be over the document the face was laid out from. A keyed
     /// font is deobfuscated into a copy of the part on every call, so a
     /// writer reads each (part, key) once.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the PDF writer reads it"))]
+    #[cfg_attr(not(feature = "pdf"), allow(dead_code))]
     pub(crate) fn read<'a>(&'a self, txn: &'a Txn<'_>) -> Option<Cow<'a, [u8]>> {
         match &self.source {
             FileSource::Bytes(bytes) => Some(Cow::Borrowed(bytes)),
@@ -79,6 +89,23 @@ impl FontFile {
     /// Offset of the face's table directory (0 outside a collection).
     pub fn offset(&self) -> usize {
         self.offset
+    }
+
+    /// The face's index in its collection (0 outside one).
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// The file's bytes, unless it is a part of the document.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub(crate) fn bytes(&self) -> Option<&Arc<[u8]>> {
+        match &self.source {
+            FileSource::Bytes(bytes) => Some(bytes),
+            FileSource::Part { .. } => None,
+        }
     }
 }
 
@@ -189,6 +216,55 @@ impl Face {
         self.file.as_deref()
     }
 
+    /// The style a variable face's advances were measured at, which the
+    /// PDF embeds; `None`: the font's default instance.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub(crate) fn instance(&self) -> Option<Style> {
+        self.instance
+    }
+
+    /// This face at the instance `style` selects ([`Fvar::variation`]),
+    /// with the advances `subsetter` writes for it; `None` for a static
+    /// face, a document's own font, or the default instance.
+    #[cfg(feature = "pdf")]
+    fn instanced(&self, style: Style) -> Option<Face> {
+        use skrifa::{GlyphId, MetadataProvider, instance::Size};
+        let file = self.file.as_deref()?;
+        let data = file.bytes()?;
+        let fvar = Ttf::new_at(data, file.offset).ok()?.table(b"fvar")?;
+        let variation = Fvar::read(fvar).variation(style);
+        if variation.is_empty() {
+            return None;
+        }
+        let font = skrifa::FontRef::from_index(data, file.index).ok()?;
+        let location = font.axes().location(
+            variation
+                .iter()
+                .map(|(tag, value)| (skrifa::Tag::new(tag), *value)),
+        );
+        let metrics = font.glyph_metrics(Size::unscaled(), &location);
+        let widths = self
+            .glyphs
+            .iter()
+            .map(|glyph| {
+                metrics
+                    .advance_width(GlyphId::new(u32::from(*glyph)))
+                    .map_or(0, |width| (width.round() as u16).min(u16::MAX - 1))
+            })
+            .collect();
+        let axis = |tag: &[u8; 4]| variation.iter().find(|(t, _)| t == tag).map(|(_, v)| *v);
+        Some(Face {
+            bold: self.bold || axis(b"wght").is_some_and(|weight| weight >= 600.0),
+            italic: self.italic || axis(b"ital").is_some() || axis(b"slnt").is_some(),
+            widths,
+            instance: Some(style),
+            ..self.clone()
+        })
+    }
+
     fn mapped(&self, ch: char) -> Option<usize> {
         let mut code = ch as u32;
         if self.symbol && (0x20..0x100).contains(&code) {
@@ -253,6 +329,7 @@ impl Face {
         Ok(face.with_file(FontFile {
             source: FileSource::Part { name, key },
             offset,
+            index: 0,
         }))
     }
 
@@ -344,6 +421,7 @@ impl Face {
             glyphs: mapping.iter().map(|(_, glyph)| *glyph).collect(),
             kerning: kerning.into(),
             file: None,
+            instance: None,
         })
     }
 }
@@ -522,6 +600,7 @@ fn read_face(data: &Arc<[u8]>, index: usize, budget: &mut usize) -> Parsed<Named
         face: face.with_file(FontFile {
             source: FileSource::Bytes(data.clone()),
             offset,
+            index: index as u32,
         }),
         info,
         names: [full, postscript],
@@ -891,6 +970,7 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             glyphs: Arc::new([]),
             kerning: kerning.into(),
             file: None,
+            instance: None,
         }));
     }
     Some(out)
@@ -1065,6 +1145,9 @@ pub struct FontBook {
     /// Families that had to be substituted, as the document names them.
     pub missing: Vec<String>,
     missing_seen: HashSet<String>,
+    /// Variable faces by address, at each style asked of them.
+    #[cfg(feature = "pdf")]
+    instances: HashMap<(usize, Style), Arc<Face>>,
 }
 
 fn slot(face: &Face) -> usize {
@@ -1166,6 +1249,13 @@ impl FontBook {
     /// one the family has (Word synthesizes the rest); a family with no
     /// metrics takes `kind`'s substitute and is recorded in `missing`.
     pub fn face(&mut self, family: &str, bold: bool, italic: bool, kind: FontKind) -> Arc<Face> {
+        self.sized_face(family, Style::of(bold, italic, None), kind)
+    }
+
+    /// [`FontBook::face`] for a run drawn at `style.size`, which picks a
+    /// variable face's optical size.
+    pub(crate) fn sized_face(&mut self, family: &str, style: Style, kind: FontKind) -> Arc<Face> {
+        let (bold, italic) = (style.weight >= 600, style.italic);
         let set = match self.set(family) {
             Some(set) => set,
             None => {
@@ -1186,11 +1276,30 @@ impl FontBook {
             .iter()
             .find_map(|slot| set[*slot])
             .expect("a face set has a face");
-        match source {
+        let face = match source {
             Source::Own => self.own[at].clone(),
             Source::Fonts => self.fonts.0.faces[at].clone(),
             Source::Builtin => builtin()[at].clone(),
+        };
+        self.styled(face, style)
+    }
+
+    /// A variable face at the instance `style` selects, so a run is
+    /// measured with the advances the PDF embeds for it.
+    #[cfg(feature = "pdf")]
+    fn styled(&mut self, face: Arc<Face>, style: Style) -> Arc<Face> {
+        let key = (Arc::as_ptr(&face) as usize, style);
+        if let Some(instance) = self.instances.get(&key) {
+            return instance.clone();
         }
+        let instance = face.instanced(style).map_or(face, Arc::new);
+        self.instances.insert(key, instance.clone());
+        instance
+    }
+
+    #[cfg(not(feature = "pdf"))]
+    fn styled(&mut self, face: Arc<Face>, _style: Style) -> Arc<Face> {
+        face
     }
 }
 

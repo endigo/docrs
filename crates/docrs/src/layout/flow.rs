@@ -18,7 +18,7 @@ use crate::{Error, Result};
 /// A tab on a line: its piece, and the x it moves from and to. A left tab
 /// that would pass the right margin ends its line with no width.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct TabPlace {
+pub(crate) struct TabPlace {
     pub piece: u32,
     pub from: f64,
     pub to: f64,
@@ -31,7 +31,7 @@ pub(super) struct TabPlace {
 /// over its `gaps`; a negative `slack` shrinks them, and can be left on a
 /// justified paragraph's last line too.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Line {
+pub(crate) struct Line {
     pub height: f64,
     /// The height that must fit above the bottom margin: Word lets the
     /// extra height of multiple line spacing overflow it.
@@ -53,6 +53,99 @@ pub(super) struct Line {
     pub tabs: Vec<TabPlace>,
     /// Ends the paragraph, or in a line or page break.
     pub last: bool,
+    /// Where the list label starts, on a paragraph's first line.
+    pub label: Option<f64>,
+}
+
+impl Line {
+    /// The x of each piece in `pieces`, and of each label character on
+    /// the first line: the widths layout measured from `start`, each tab
+    /// moving to its stop, and a justified line's slack shared among its
+    /// gaps.
+    pub(crate) fn origins(&self, para: &Para) -> (Vec<f64>, Vec<f64>) {
+        let label = match (self.label, &para.label) {
+            (Some(x), Some(label)) => advance(x, &label.pieces, |_, piece, x| x + width(piece)),
+            _ => Vec::new(),
+        };
+        let first = self.pieces.start as usize;
+        let pieces = para
+            .pieces
+            .get(first..self.pieces.end as usize)
+            .unwrap_or_default();
+        let after_tab = self
+            .tabs
+            .last()
+            .map_or(0, |tab| tab.piece as usize + 1 - first);
+        let gaps = gap_pieces(pieces, after_tab);
+        let justify = para.align.justified() && (!self.last || self.slack < 0.0);
+        let share = if justify && self.gaps > 0 {
+            self.slack / f64::from(self.gaps)
+        } else {
+            0.0
+        };
+        let origins = advance(self.start, pieces, |at, piece, x| {
+            let tab = self
+                .tabs
+                .iter()
+                .find(|tab| tab.piece as usize == first + at);
+            match (piece, tab) {
+                (Piece::Tab { .. }, Some(tab)) => tab.to,
+                _ if gaps[at] => x + width(piece) + share,
+                _ => x + width(piece),
+            }
+        });
+        (origins, label)
+    }
+}
+
+/// Each piece's x, from `start`; `next` gives the x after a piece.
+fn advance(
+    start: f64,
+    pieces: &[Piece],
+    mut next: impl FnMut(usize, &Piece, f64) -> f64,
+) -> Vec<f64> {
+    let mut x = start;
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(at, piece)| {
+            let origin = x;
+            x = next(at, piece, x);
+            origin
+        })
+        .collect()
+}
+
+fn width(piece: &Piece) -> f64 {
+    match piece {
+        Piece::Char { width, .. } | Piece::Object { width, .. } => *width,
+        _ => 0.0,
+    }
+}
+
+fn is_space(ch: char) -> bool {
+    ch == ' ' || ch == '\u{3000}'
+}
+
+/// The spaces from `from` on that a justified line widens: between two
+/// words, as the breaker counts its gaps.
+fn gap_pieces(pieces: &[Piece], from: usize) -> Vec<bool> {
+    let word = |piece: &Piece| match piece {
+        Piece::Char { ch, .. } => !is_space(*ch),
+        Piece::Object { .. } => true,
+        _ => false,
+    };
+    let first = pieces.iter().skip(from).position(word).map(|at| at + from);
+    let last = pieces.iter().rposition(word);
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(at, piece)| {
+            matches!(piece, Piece::Char { ch, .. } if is_space(*ch))
+                && first.is_some_and(|first| at > first)
+                && last.is_some_and(|last| at < last)
+        })
+        .collect()
 }
 
 const EPSILON: f64 = 0.01;
@@ -317,6 +410,7 @@ impl Breaker<'_> {
     fn close(&mut self, ending: Ending, next_piece: usize, end: End) {
         let heights = self.heights(ending == Ending::Paragraph);
         let para = self.para;
+        let first_line = self.first_line;
         let open = std::mem::replace(&mut self.line, Open::new(next_piece, para.left));
         let height = line_height(para, heights.text, open.object);
         let slack = self.right_limit - end.content;
@@ -343,13 +437,14 @@ impl Breaker<'_> {
             gaps: end.gaps,
             tabs,
             last: ending != Ending::Wrap,
+            label: (first_line && para.label.is_some()).then_some(para.left + para.first + offset),
         });
         self.first_line = false;
     }
 
     /// The piece to go on with.
     fn char(&mut self, index: usize, ch: char, width: f64, metric: u32) -> usize {
-        let is_space = ch == ' ' || ch == '\u{3000}';
+        let is_space = is_space(ch);
         let line = &self.line;
         let shrink = if self.para.align.justified() {
             JUSTIFIED_SHRINK * line.spaces
@@ -770,19 +865,25 @@ pub struct Placed {
 
 /// Points from the page's top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Point {
+pub(crate) struct Point {
     pub x: f64,
     pub y: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct PageStart {
+pub(crate) struct PageStart {
     pub number: u32,
+    /// Into `Model.sections`.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub section: usize,
 }
 
 /// The part of a row on one page.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct RowSlice {
+pub(crate) struct RowSlice {
     pub height: f64,
     pub first: bool,
     pub last: bool,
@@ -799,7 +900,7 @@ impl RowSlice {
 }
 
 /// Each call comes once its placement is final; an `Err` stops pagination.
-pub(super) trait Sink {
+pub(crate) trait Sink {
     fn page(&mut self, _page: &PageStart) -> Result<()> {
         Ok(())
     }
@@ -924,7 +1025,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     fn open_page(&mut self) -> Result<()> {
-        self.sink.page(&PageStart { number: self.page })
+        self.sink.page(&PageStart {
+            number: self.page,
+            section: self.section(),
+        })
     }
 
     fn new_page(&mut self) -> Result<()> {
@@ -1373,7 +1477,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 }
 
 /// Paginate the model into `sink`; the page count.
-pub(super) fn paginate<S: Sink>(model: &Model, sink: &mut S) -> Result<u32> {
+pub(crate) fn paginate<S: Sink>(model: &Model, sink: &mut S) -> Result<u32> {
     paginate_within(model, sink, layout_work())
 }
 
@@ -1427,6 +1531,38 @@ mod tests {
         height: 10.0,
         ascent: 8.0,
     }];
+
+    #[test]
+    fn a_justified_line_spreads_its_slack_over_its_gaps() {
+        let mut p = para(12, 20.0);
+        p.align = Align::Both;
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert!(lines.len() > 2);
+        for line in &lines {
+            let (origins, _) = line.origins(&p);
+            let pieces = &p.pieces[line.pieces.start as usize..line.pieces.end as usize];
+            let gaps = gap_pieces(pieces, 0).iter().filter(|gap| **gap).count();
+            assert_eq!(gaps as u32, line.gaps);
+            let last = pieces
+                .iter()
+                .rposition(|p| matches!(p, Piece::Char { ch: 'x', .. }));
+            let end = origins[last.unwrap()] + 5.0;
+            if line.last {
+                assert_eq!(end, line.start + line.width);
+            } else {
+                assert!((end - 100.0).abs() < 1e-9, "{end}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_tab_moves_the_next_piece_to_its_stop() {
+        let mut p = para(2, 20.0);
+        p.pieces.insert(4, Piece::Tab { metric: 0, look: 0 });
+        let line = &lines(&p, &METRICS, 200.0, 36.0)[0];
+        let (origins, _) = line.origins(&p);
+        assert_eq!((origins[4], origins[5]), (20.0, 36.0));
+    }
 
     /// A paragraph of `words` words, each `width` points wide plus a
     /// 2-point space.
@@ -1482,6 +1618,7 @@ mod tests {
             blocks,
             metrics: METRICS.to_vec(),
             looks: Vec::new(),
+            faces: Vec::new(),
             links: Vec::new(),
             default_tab: 36.0,
             work: 0,
@@ -1545,8 +1682,8 @@ mod tests {
         p.pieces = vec![char(0)];
         p.line = LineSpacing::Multiple(1.0);
         p.label = Some(crate::layout::model::Label {
+            pieces: Vec::new(),
             width: 5.0,
-            look: 0,
             space: 0.0,
             tab: false,
             metric: 1,
@@ -1727,8 +1864,8 @@ mod tests {
             left: 18.0,
             first: -18.0,
             label: Some(Label {
+                pieces: Vec::new(),
                 width: 10.0,
-                look: 0,
                 space: 0.0,
                 tab: true,
                 metric: 0,
@@ -1915,8 +2052,8 @@ mod tests {
     fn a_label_only_line_leaves_room_for_the_descent() {
         let p = Para {
             label: Some(Label {
+                pieces: Vec::new(),
                 width: 5.0,
-                look: 0,
                 space: 0.0,
                 tab: false,
                 metric: 0,

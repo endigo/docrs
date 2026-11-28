@@ -59,4 +59,4 @@ belong to their owners.
 
 ## PDF feature dependencies
 
-The experimental `pdf` feature links `subsetter` (Laurenz Mädje, Laurenz Stampfl) and, through it, `skrifa`, `read-fonts`, `write-fonts` and `font-types` (Google's fontations) and `kurbo`, each under the MIT or Apache-2.0 licence, at the user's choice.
+The experimental `pdf` feature links `subsetter` (Laurenz Mädje, Laurenz Stampfl) and `skrifa`, and through them `read-fonts`, `write-fonts` and `font-types` (Google's fontations) and `kurbo`, each under the MIT or Apache-2.0 licence, at the user's choice.
