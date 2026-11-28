@@ -1110,3 +1110,83 @@ fn contents_fields_show_their_saved_results_and_mirrored_indents_are_ignored() {
         [("mirrored indents", 2)]
     );
 }
+
+#[test]
+fn equations_are_counted_located_and_quoted_as_their_linear_text() {
+    let r = |text: &str| format!("<m:r><m:t>{text}</m:t></m:r>");
+    let fraction = format!(
+        "<m:f><m:num>{}</m:num><m:den>{}</m:den></m:f>",
+        r("a"),
+        r("b")
+    );
+    let square = format!(
+        "<m:sSup><m:e>{}</m:e><m:sup>{}</m:sup></m:sSup>",
+        r("x"),
+        r("2")
+    );
+    let hat = format!("<m:acc><m:e>{}</m:e></m:acc>", r("y"));
+    let body = para(&format!("<m:oMath>{fraction}</m:oMath>"))
+        + &para(&run("<w:t>Between</w:t>"))
+        + &para(&format!(
+            "<m:oMathPara><m:oMath>{square}</m:oMath><m:oMath>{hat}</m:oMath></m:oMathPara>"
+        ));
+    let report = report(&docx(&body, &[], &[]));
+    let equations = report
+        .warnings
+        .iter()
+        .find(|w| w.code == "pdf_equation_linearized")
+        .unwrap();
+    assert_eq!(equations.count, 3);
+    let ordinals: Vec<usize> = equations.locations.iter().map(|l| l.ordinal).collect();
+    assert_eq!(ordinals, [1, 3, 3]);
+    assert!(
+        equations
+            .message
+            .ends_with("(\"a/b\", \"x^2\", \"y\u{302}\")"),
+        "{}",
+        equations.message
+    );
+    assert_eq!(
+        subjects(&report, "pdf_text_unsupported"),
+        [("combining marks", 1)],
+        "the accent is a combining mark in the linear text"
+    );
+}
+
+#[test]
+fn a_deleted_equation_is_not_reported() {
+    let math = "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>";
+    let document = docx(
+        &para(&format!(
+            r#"<w:del w:id="1" w:author="A">{math}</w:del><w:moveFrom w:id="2" w:author="A">{math}</w:moveFrom><w:ins w:id="3" w:author="A">{math}</w:ins>"#
+        )),
+        &[],
+        &[],
+    );
+    let report = report(&document);
+    assert_eq!(
+        subjects(&report, "pdf_equation_linearized"),
+        [("equation", 1)]
+    );
+}
+
+#[test]
+fn strict_refuses_a_linearized_equation() {
+    let document = docx(
+        &para("<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>"),
+        &[],
+        &[],
+    );
+    let report = report(&document);
+    report.check(false).unwrap();
+    let err = report.check(true).unwrap_err();
+    assert_eq!(err.reason(), "pdf_not_faithful");
+    let counts: Vec<_> = err
+        .details()
+        .unwrap()
+        .warnings
+        .iter()
+        .map(|w| (w.code, w.count))
+        .collect();
+    assert_eq!(counts, [("pdf_equation_linearized", 1)]);
+}

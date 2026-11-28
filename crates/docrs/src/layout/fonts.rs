@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
+use super::model::MathScripts;
 use super::variation::Fvar;
 use super::variation::Style;
 use crate::error::{Error, Result};
@@ -44,6 +45,8 @@ pub struct Face {
     /// gives none.
     underline: Option<Stroke>,
     strikeout: Option<Stroke>,
+    /// Its MATH table's script geometry, for a math font read from a file.
+    math: Option<MathScripts>,
     file: Option<Arc<FontFile>>,
     /// The style a variable face was instanced at; `None`: its default.
     #[cfg_attr(
@@ -251,6 +254,11 @@ impl Face {
     /// The glyph `ch` maps to, when the face was read from a font file.
     pub fn glyph(&self, ch: char) -> Option<u16> {
         self.glyphs.get(self.mapped(ch)?).copied()
+    }
+
+    /// Its MATH table's script geometry, if it has one.
+    pub(crate) fn math_scripts(&self) -> Option<MathScripts> {
+        self.math
     }
 
     /// The font file the face was read from, for subsetting.
@@ -498,6 +506,9 @@ impl Face {
             strikeout: os2.and_then(|os2| {
                 Stroke::read(be16(os2, 28), be16(os2, 26), units_per_em, 0.0..=1.0)
             }),
+            math: ttf
+                .table(b"MATH")
+                .and_then(|table| MathScripts::read(table, units_per_em)),
             file: None,
             instance: None,
         })
@@ -1055,6 +1066,7 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             kerning: kerning.into(),
             underline: None,
             strikeout: None,
+            math: None,
             file: None,
             instance: None,
         }));
@@ -1328,6 +1340,16 @@ impl FontBook {
     /// Whether metrics exist for `family`.
     pub fn knows(&mut self, family: &str) -> bool {
         self.set(family).is_some()
+    }
+
+    /// Whether the document embeds `family` or the caller supplied it.
+    pub(crate) fn supplies(&mut self, family: &str) -> bool {
+        self.set(family).is_some_and(|slots| {
+            slots
+                .iter()
+                .flatten()
+                .any(|(source, _)| !matches!(source, Source::Builtin))
+        })
     }
 
     /// The face for `family` in a style: the exact style, else the nearest

@@ -1750,3 +1750,62 @@ fn one_skrifa_measures_and_embeds() {
         .count();
     assert_eq!(copies, 1, "Cargo.lock holds {copies} skrifa versions");
 }
+
+#[test]
+fn converted_math_is_laid_out_as_its_linear_text() {
+    use docrs::markdown::{MarkdownOptions, insert_markdown};
+    let mut doc = Document::new();
+    let markdown = "Inline $a^2 + b^2 = c^2$ and $\\frac{1}{2}$.\n\n$$\n\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\n$$\n\nAfter.\n";
+    insert_markdown(&mut doc, markdown, &MarkdownOptions::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut lines = Vec::new();
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            lines.push(line);
+            Ok(())
+        },
+    )
+    .unwrap();
+    let texts: Vec<_> = lines
+        .iter()
+        .map(|line| (line.text.as_str(), line.align))
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            ("Inline a2  + b2  = c2  and 1/2.", "left"),
+            ("∑_(i=1)^n i = (n(n + 1))/2", "center"),
+            ("After.", "left"),
+        ]
+    );
+    let [inline, display, after] = &lines[..] else {
+        panic!()
+    };
+    assert!(
+        (display.x - (inline.x + display.slack / 2.0)).abs() < 0.01,
+        "{} {}",
+        display.x,
+        display.slack
+    );
+    assert!(
+        inline.height > after.height,
+        "raised scripts make the line taller"
+    );
+    assert!(
+        display.height > 2.0 * after.height,
+        "the sum's limits and the fraction stack: {} against {}",
+        display.height,
+        after.height
+    );
+    let layout = layout(&txn, &main, Vec::new()).unwrap();
+    assert!(
+        layout.missing_fonts.is_empty(),
+        "{:?}",
+        layout.missing_fonts
+    );
+}

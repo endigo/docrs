@@ -111,8 +111,8 @@
     {"heading":false,"page":5,"row_end":false,"text":"\n","toc":false,"y":145.42},
     {"heading":true,"page":6,"row_end":false,"text":"Appendix","toc":false,"y":72.0},
     {"heading":false,"page":6,"row_end":false,"text":"LaTeX math becomes native Word equations","toc":false,"y":99.08},
-    {"heading":false,"page":6,"row_end":false,"text":"","toc":false,"y":121.57},
-    {"heading":false,"page":6,"row_end":false,"text":"","toc":false,"y":144.06}
+    {"heading":false,"page":6,"row_end":false,"text":"","toc":false,"y":138.57},
+    {"heading":false,"page":6,"row_end":false,"text":"","toc":false,"y":182.22}
   ],
   "schema": "docrs_layout",
   "version": 1

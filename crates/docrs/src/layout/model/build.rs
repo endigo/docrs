@@ -1,3 +1,4 @@
+use super::equation::lone_equation;
 use super::formatting::ParaFormat;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use crate::layout::fields::{FieldKind, FieldSpan, LayoutWarning, instruction};
 use crate::layout::fonts::{Face, FontKind};
 use crate::layout::variation::Style;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
-use crate::wml::{R, W, w_attr, w_child};
+use crate::wml::{M, R, W, w_attr, w_child};
 use crate::xml::{NodeData, NodeId, XmlTree};
 
 const DRAWINGML_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
@@ -20,6 +21,9 @@ const VML: &str = "urn:schemas-microsoft-com:vml";
 
 /// Tables nested deeper are laid out as their paragraphs.
 const MAX_TABLE_DEPTH: usize = 32;
+
+/// A run's size when nothing sets one.
+pub(super) const DEFAULT_SIZE: f64 = 10.0;
 
 /// Word shows nothing of a field, result included, while any enclosing
 /// field is still in its code.
@@ -97,7 +101,7 @@ struct Pen {
 }
 
 impl Builder<'_> {
-    fn metric(&mut self, height: f64, ascent: f64) -> u32 {
+    pub(super) fn metric(&mut self, height: f64, ascent: f64) -> u32 {
         let key = (height.to_bits(), ascent.to_bits());
         if let Some(index) = self.metric_index.get(&key) {
             return *index;
@@ -108,8 +112,8 @@ impl Builder<'_> {
         index
     }
 
-    fn look(&mut self, rpr: &RPr, measurer: &Measurer, link: Option<u32>) -> u32 {
-        let (_, shift) = script(rpr.size.unwrap_or(10.0), rpr.vert, &measurer.ascii);
+    pub(super) fn look(&mut self, rpr: &RPr, measurer: &Measurer, link: Option<u32>) -> u32 {
+        let (_, shift) = script(rpr.size.unwrap_or(DEFAULT_SIZE), rpr.vert, &measurer.ascii);
         let on = |toggle: Option<bool>| toggle.unwrap_or(false);
         let look = Appearance {
             metric: measurer.metric,
@@ -260,7 +264,7 @@ impl Builder<'_> {
         }
     }
 
-    fn font_name(&self, font: &Option<FontRef>) -> String {
+    pub(super) fn font_name(&self, font: &Option<FontRef>) -> String {
         match font {
             Some(FontRef::Name(name)) => name.clone(),
             Some(FontRef::Theme(major)) => {
@@ -275,8 +279,8 @@ impl Builder<'_> {
         }
     }
 
-    fn measurer(&mut self, rpr: &RPr) -> Measurer {
-        let size = rpr.size.unwrap_or(10.0);
+    pub(super) fn measurer(&mut self, rpr: &RPr) -> Measurer {
+        let size = rpr.size.unwrap_or(DEFAULT_SIZE);
         let bold = rpr.bold.unwrap_or(false);
         let italic = rpr.italic.unwrap_or(false);
         let ascii = self.font_name(&rpr.ascii);
@@ -427,7 +431,16 @@ impl Builder<'_> {
             }
         }
         let mut fields = Vec::new();
+        self.display = None;
         self.inline(tree, p, &para_rpr, &mut para, &mut fields);
+        if let Some(display) = self.display.take()
+            && display.end == para.pieces.len()
+        {
+            para.pieces.pop();
+            if display.start == 0 {
+                para.align = display.align;
+            }
+        }
         if table.is_none()
             && ppr_node
                 .and_then(|pp| w_child(tree, pp, "sectPr"))
@@ -448,6 +461,20 @@ impl Builder<'_> {
         fields: &mut Vec<Field>,
     ) {
         for child in tree.child_elements(parent) {
+            if tree.ns_uri(child) == Some(M) {
+                match tree.local_name(child) {
+                    Some("oMath")
+                        if para.node == Some(parent)
+                            && lone_equation(tree, parent) == Some(child) =>
+                    {
+                        self.display_equation(tree, vec![child], Align::Center, para_rpr, para)
+                    }
+                    Some("oMath") => self.equation(tree, child, 1.0, para_rpr, para),
+                    Some("oMathPara") => self.math_para(tree, child, para_rpr, para),
+                    _ => {}
+                }
+                continue;
+            }
             if tree.ns_uri(child) != Some(W) {
                 continue;
             }
@@ -493,24 +520,6 @@ impl Builder<'_> {
                     }
                 }
                 _ => {}
-            }
-        }
-        // Math: measured as its text in the paragraph font.
-        for child in tree.child_elements(parent) {
-            if tree.local_name(child) == Some("oMath")
-                || tree.local_name(child) == Some("oMathPara")
-            {
-                let text = tree.text_content(child);
-                let measurer = self.measurer(para_rpr);
-                let look = self.look(para_rpr, &measurer, self.link);
-                for ch in text.chars() {
-                    para.pieces.push(Piece::Char {
-                        ch,
-                        width: measurer.width(ch),
-                        metric: measurer.metric,
-                        look,
-                    });
-                }
             }
         }
     }
@@ -772,7 +781,7 @@ pub(crate) struct Measurer {
     hansi: Arc<Face>,
     /// Into `Model.faces`, for `ascii` and `hansi`.
     faces: [u32; 2],
-    size: f64,
+    pub(super) size: f64,
     caps: Caps,
     /// The run is bold: a face that is not is drawn emboldened.
     bold: bool,
