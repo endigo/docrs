@@ -310,6 +310,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             }
             "sym" => self.note_once(NOT_YET_DRAWN, "symbol"),
             "noBreakHyphen" => self.note_once(NOT_YET_DRAWN, "no-break hyphen"),
+            "softHyphen" => self.note_once(NOT_YET_DRAWN, "soft hyphen"),
             "sectPr" if parent == Some("pPr") => self.note(NOT_YET_DRAWN, "section break"),
             "tab" if parent == Some("r") => self.note_once(NOT_YET_DRAWN, "tab"),
             "ptab" => self.note_once(NOT_YET_DRAWN, "positional tab"),
@@ -474,6 +475,9 @@ impl<'s, 'd> Scan<'s, 'd> {
             }
         }
         for ch in text.chars() {
+            if ch == '\u{AD}' {
+                self.note_once(NOT_YET_DRAWN, "soft hyphen");
+            }
             if let Some(script) = unsupported_script(ch) {
                 self.note_once(TEXT, script);
             }

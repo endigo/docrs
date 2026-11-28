@@ -13,10 +13,12 @@ use crate::layout::model::{Appearance, Block, Colour, Model, Para, Piece};
 use crate::txn::Txn;
 use crate::{Error, ErrorDetails, MissingFont, Result};
 
-/// Word's synthesized styles (assumption A2): the outline stroke of a bold
-/// face drawn from a regular one, in ems, and the shear of an italic one.
-const SYNTHETIC_STROKE: f64 = 1.0 / 36.0;
-const SYNTHETIC_SHEAR: f64 = 0.21;
+/// Word for Mac's synthesized styles (measured): a bold face drawn from a
+/// regular one is stroked size / 32.3 wide and scaled to 0.98 of its height
+/// (layout adds its wider advance), and an italic one is sheared 87/256.
+const SYNTHETIC_STROKE: f64 = 1.0 / 32.3;
+const SYNTHETIC_HEIGHT: f64 = 0.98;
+const SYNTHETIC_SHEAR: f64 = 87.0 / 256.0;
 
 /// A page: its size and its content stream.
 pub(super) struct Page {
@@ -48,14 +50,12 @@ pub(super) struct Painter<'m, 't> {
 struct TextState {
     fill: [u8; 3],
     scale: f64,
-    rise: f64,
     stroke: Option<f64>,
 }
 
 const PAGE_START: TextState = TextState {
     fill: [0, 0, 0],
     scale: 1.0,
-    rise: 0.0,
     stroke: None,
 };
 
@@ -233,7 +233,6 @@ impl<'m, 't> Painter<'m, 't> {
                 _ => [0, 0, 0],
             },
             scale: look.scale,
-            rise: look.rise,
             stroke: run.synthetic.0.then_some(run.size * SYNTHETIC_STROKE),
         };
         let out = &mut self.content;
@@ -256,10 +255,6 @@ impl<'m, 't> Painter<'m, 't> {
             write_number(out, state.scale * 100.0)?;
             out.extend_from_slice(b" Tz ");
         }
-        if state.rise != self.state.rise {
-            write_number(out, state.rise)?;
-            out.extend_from_slice(b" Ts ");
-        }
         if state.stroke.is_some() != self.state.stroke.is_some() {
             out.extend_from_slice(if state.stroke.is_some() {
                 b"2 Tr "
@@ -273,7 +268,15 @@ impl<'m, 't> Painter<'m, 't> {
         } else {
             0.0
         };
-        for value in [1.0, 0.0, shear, 1.0, first, height - baseline] {
+        let vertical = if run.synthetic.0 {
+            SYNTHETIC_HEIGHT
+        } else {
+            1.0
+        };
+        // The rise is in the matrix, not `Ts`, so a synthesized style shears
+        // and scales about the raised baseline.
+        let y = height - baseline + look.rise;
+        for value in [1.0, 0.0, shear, vertical, first, y] {
             write_number(out, value)?;
             out.push(b' ');
         }

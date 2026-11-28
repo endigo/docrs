@@ -1096,3 +1096,17 @@ fn toggles_take_the_nearest_style_in_a_chain_and_xor_across_levels() {
     assert_eq!(char_off, plain);
     assert_eq!(shown, plain, "hidden off based on hidden is shown");
 }
+
+/// Layout measures variable fonts with `skrifa` and the PDF writer embeds
+/// them with subsetter's: the advances agree only while both link the same
+/// copy.
+#[test]
+fn one_skrifa_measures_and_embeds() {
+    let lock =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock")).unwrap();
+    let copies = lock
+        .lines()
+        .filter(|line| *line == "name = \"skrifa\"")
+        .count();
+    assert_eq!(copies, 1, "Cargo.lock holds {copies} skrifa versions");
+}

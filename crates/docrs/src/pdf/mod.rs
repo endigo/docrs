@@ -182,6 +182,14 @@ impl Default for PdfLimits {
 }
 
 impl PdfLimits {
+    /// For a serverless function's memory and time.
+    pub fn serverless() -> Self {
+        PdfLimits {
+            max_pages: 500,
+            max_output_bytes: 32 << 20,
+        }
+    }
+
     /// For input the caller trusts.
     pub fn trusted() -> Self {
         PdfLimits {
@@ -451,7 +459,7 @@ fn check_page(width: f64, height: f64) -> Result<()> {
     {
         return Ok(());
     }
-    Err(Error::invalid_argument(
+    Err(Error::unsupported(
         "pdf_page_size",
         format!(
             "page {width} × {height} pt: each side must be {MIN_PAGE_SIDE} to {MAX_PAGE_SIDE} pt"

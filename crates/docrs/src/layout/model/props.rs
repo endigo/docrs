@@ -190,13 +190,13 @@ pub(super) fn side(tree: &XmlTree, borders: NodeId, [name, logical]: [&str; 2]) 
 
 #[cfg(feature = "pdf")]
 impl PPr {
-    /// Some edge draws a line, each edge inherited on its own.
     /// Justified other than `both`: distributed, kashida or Thai.
     pub(crate) fn justified_otherwise(&self) -> bool {
         self.align
             .is_some_and(|align| align.justified() && align != Align::Both)
     }
 
+    /// Some edge draws a line, each edge inherited on its own.
     pub(crate) fn bordered(&self) -> bool {
         self.borders
             .iter()

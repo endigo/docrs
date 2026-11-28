@@ -184,10 +184,14 @@ fn page_lists_and_sizes_are_checked() {
     let info = Info::default();
     let refused = |pages: &[(f64, f64)]| {
         let err = write(pages, &info, &Limits::default()).unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::InvalidArgument, "{pages:?}");
+        assert!(err.is_refusal(), "{pages:?}: a page size is the document's");
         err.reason()
     };
-    assert_eq!(refused(&[]), "pdf_no_pages");
+    let none = write(&[], &info, &Limits::default()).unwrap_err();
+    assert_eq!(
+        (none.kind(), none.reason()),
+        (ErrorKind::InvalidArgument, "pdf_no_pages")
+    );
     for side in [f64::NAN, f64::INFINITY, 0.0, -1.0, 0.001, 2.999, 14_400.001] {
         assert_eq!(refused(&[A4, (side, 100.0)]), "pdf_page_size");
         assert_eq!(refused(&[(100.0, side)]), "pdf_page_size");

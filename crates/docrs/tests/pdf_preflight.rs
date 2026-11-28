@@ -824,6 +824,8 @@ fn constructs_word_draws_are_not_skipped_silently() {
 #[test]
 fn what_the_painter_does_not_draw_yet_stays_refused() {
     let body = para(&run(r#"<w:sym w:font="Wingdings" w:char="F04A"/>"#))
+        + &para(&run("<w:t>soft</w:t><w:softHyphen/><w:t>after</w:t>"))
+        + &text_para("hy\u{AD}phen")
         + &para(&run(r#"<w:rPr><w:dstrike/></w:rPr><w:t>gone</w:t>"#))
         + &para(&(r#"<w:pPr><w:sectPr/></w:pPr>"#.to_string() + &run("<w:t>end</w:t>")))
         + &text_para("next section")
@@ -837,6 +839,7 @@ fn what_the_painter_does_not_draw_yet_stays_refused() {
         subjects(&report, NOT_YET_DRAWN),
         [
             ("symbol", 1),
+            ("soft hyphen", 2),
             ("strikethrough", 1),
             ("section break", 1),
             ("header", 1),

@@ -13,7 +13,6 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
-#[cfg(feature = "pdf")]
 use super::variation::Fvar;
 use super::variation::Style;
 use crate::error::{Error, Result};
@@ -97,10 +96,6 @@ impl FontFile {
     }
 
     /// The file's bytes, unless it is a part of the document.
-    #[cfg_attr(
-        not(feature = "pdf"),
-        allow(dead_code, reason = "the PDF painter reads it")
-    )]
     pub(crate) fn bytes(&self) -> Option<&Arc<[u8]>> {
         match &self.source {
             FileSource::Bytes(bytes) => Some(bytes),
@@ -229,7 +224,6 @@ impl Face {
     /// This face at the instance `style` selects ([`Fvar::variation`]),
     /// with the advances `subsetter` writes for it; `None` for a static
     /// face, a document's own font, or the default instance.
-    #[cfg(feature = "pdf")]
     fn instanced(&self, style: Style) -> Option<Face> {
         use skrifa::{GlyphId, MetadataProvider, instance::Size};
         let file = self.file.as_deref()?;
@@ -1146,7 +1140,6 @@ pub struct FontBook {
     pub missing: Vec<String>,
     missing_seen: HashSet<String>,
     /// Variable faces by address, at each style asked of them.
-    #[cfg(feature = "pdf")]
     instances: HashMap<(usize, Style), Arc<Face>>,
 }
 
@@ -1249,13 +1242,6 @@ impl FontBook {
     /// one the family has (Word synthesizes the rest); a family with no
     /// metrics takes `kind`'s substitute and is recorded in `missing`.
     pub fn face(&mut self, family: &str, bold: bool, italic: bool, kind: FontKind) -> Arc<Face> {
-        self.sized_face(family, Style::of(bold, italic, None), kind)
-    }
-
-    /// [`FontBook::face`] for a run drawn at `style.size`, which picks a
-    /// variable face's optical size.
-    pub(crate) fn sized_face(&mut self, family: &str, style: Style, kind: FontKind) -> Arc<Face> {
-        let (bold, italic) = (style.weight >= 600, style.italic);
         let set = match self.set(family) {
             Some(set) => set,
             None => {
@@ -1281,12 +1267,11 @@ impl FontBook {
             Source::Fonts => self.fonts.0.faces[at].clone(),
             Source::Builtin => builtin()[at].clone(),
         };
-        self.styled(face, style)
+        self.styled(face, Style::of(bold, italic))
     }
 
     /// A variable face at the instance `style` selects, so a run is
     /// measured with the advances the PDF embeds for it.
-    #[cfg(feature = "pdf")]
     fn styled(&mut self, face: Arc<Face>, style: Style) -> Arc<Face> {
         let key = (Arc::as_ptr(&face) as usize, style);
         if let Some(instance) = self.instances.get(&key) {
@@ -1295,11 +1280,6 @@ impl FontBook {
         let instance = face.instanced(style).map_or(face, Arc::new);
         self.instances.insert(key, instance.clone());
         instance
-    }
-
-    #[cfg(not(feature = "pdf"))]
-    fn styled(&mut self, face: Arc<Face>, _style: Style) -> Arc<Face> {
-        face
     }
 }
 

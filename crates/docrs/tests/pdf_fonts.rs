@@ -17,7 +17,6 @@ const PRODUCER: &str = "docrs-test";
 const BOLD: Style = Style {
     weight: 700,
     italic: false,
-    size: None,
 };
 
 fn fixture(path: &str) -> Vec<u8> {
@@ -561,7 +560,6 @@ fn a_face_is_one_resource_per_instance() {
             Style {
                 weight: 400,
                 italic: true,
-                size: None,
             },
             "b",
         ),
@@ -571,7 +569,6 @@ fn a_face_is_one_resource_per_instance() {
             Style {
                 weight: 900,
                 italic: false,
-                size: None,
             },
             "d",
         ),
@@ -580,7 +577,6 @@ fn a_face_is_one_resource_per_instance() {
             Style {
                 weight: 1000,
                 italic: false,
-                size: None,
             },
             "e",
         ),

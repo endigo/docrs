@@ -107,7 +107,7 @@ fn glyphs(pdf: &Pdf) -> Vec<Vec<Glyph>> {
                     }
                     "Tz" => scale = number(0) / 100.0,
                     "Tm" => {
-                        assert_eq!((number(0), number(1), number(3)), (1.0, 0.0, 1.0));
+                        assert_eq!((number(0), number(1)), (1.0, 0.0));
                         origin = (number(4), number(5));
                         pen = 0.0;
                     }
@@ -208,28 +208,32 @@ fn widths(pdf: &Pdf, font: &Dict) -> BTreeMap<u16, f64> {
     out
 }
 
-/// Every line layout records for `document`'s body.
-fn records(document: &Document, fonts: &FontSet) -> Vec<LineRecord> {
+/// Every line layout records for `document`'s body, and each look's rise.
+fn records(document: &Document, fonts: &FontSet) -> (Vec<LineRecord>, Vec<f64>) {
     let txn = Txn::new(document);
     let main = document.package().main_part_name().to_string();
-    let mut out = Vec::new();
+    let (mut out, mut rises) = (Vec::new(), Vec::new());
     docrs::layout::line_records_with(
         &txn,
         &main,
         fonts,
-        |_, _| Ok(()),
+        |looks, _| {
+            rises = looks.iter().map(|look| look.rise).collect();
+            Ok(())
+        },
         |line| {
             out.push(line);
             Ok(())
         },
     )
     .unwrap();
-    out
+    (out, rises)
 }
 
 /// The glyphs each page should draw, as layout records them: each line's
-/// label, then its characters other than tabs, on its baseline.
-fn expected(records: &[LineRecord]) -> Vec<Vec<Glyph>> {
+/// label, then its characters other than tabs, on its baseline raised by
+/// the run's rise.
+fn expected((records, rises): &(Vec<LineRecord>, Vec<f64>)) -> Vec<Vec<Glyph>> {
     let pages = records.iter().map(|line| line.page).max().unwrap_or(0) as usize;
     let mut out = vec![Vec::new(); pages];
     for line in records {
@@ -239,7 +243,7 @@ fn expected(records: &[LineRecord]) -> Vec<Vec<Glyph>> {
                     out[line.page as usize - 1].push(Glyph {
                         text: ch.to_string(),
                         x: *x,
-                        y: line.baseline,
+                        y: line.baseline - rises[run.look as usize],
                     });
                 }
             }
@@ -368,8 +372,8 @@ fn every_glyph_is_where_layout_placed_it() {
     assert!(documents.len() > 50, "{}", documents.len());
 }
 
-/// Runs in each fixture font: Inter regular and bold at the sizes Word
-/// sizes optically, Liberation Serif, and Source Sans (CFF).
+/// Runs in each fixture font: Inter regular and bold from 4 to 24 pt,
+/// Liberation Serif, and Source Sans (CFF).
 fn font_mix() -> Document {
     let mut html = String::new();
     for size in ["4", "6.5", "8", "11", "24"] {
@@ -379,6 +383,7 @@ fn font_mix() -> Document {
     }
     html.push_str(r#"<p><span style="font-family: 'Liberation Serif'">Liberation Serif, upright </span><em><span style="font-family: 'Liberation Serif'">and italic, synthesized</span></em></p>"#);
     html.push_str(r#"<p><span style="font-family: 'Source Sans 3'">Source Sans 3 with CFF outlines</span></p>"#);
+    html.push_str("<p>A raised italic<sup><em>note</em></sup> shears about its own baseline.</p>");
     convert(&html, InputFormat::Html, Some("inter.docx"))
 }
 
@@ -418,15 +423,17 @@ fn w_widths_equal_layouts_advances() {
         })
         .collect();
     for instance in [
-        "Inter_17opsz",
-        "Inter_27opsz",
-        "Inter_32opsz",
+        "Inter-Regular",
         "Inter-Bold",
         "LiberationSerif",
         "SourceSans3-Regular-Identity-H",
     ] {
         assert!(names.iter().any(|n| n == instance), "{instance}: {names:?}");
     }
+    assert!(
+        !names.iter().any(|n| n.contains("opsz")),
+        "every size lays out and draws at the default optical size: {names:?}"
+    );
     assert_same_places(
         "font mix",
         &glyphs(&pdf),
@@ -549,4 +556,37 @@ fn the_page_limit_and_the_output_limit_hold() {
     options.limits.max_output_bytes = 10_000;
     let err = render(&memo(), &options).unwrap_err();
     assert_eq!(err.kind(), docrs::ErrorKind::ResourceLimit);
+}
+
+/// Word for Mac widens each glyph of a synthesized bold by 0.018 em, layout
+/// measures it so, and the painter strokes it and scales it to 0.98.
+#[test]
+fn a_synthesized_bold_is_measured_wider() {
+    let text = "Synthesized bold";
+    let width = |html: &str| {
+        let document = convert(html, InputFormat::Html, Some("inter.docx"));
+        records(&document, &fonts()).0[0].width
+    };
+    let serif = |tag: &str| {
+        format!(
+            r#"<p><{tag}><span style="font-family: 'Liberation Serif'">{text}</span></{tag}></p>"#
+        )
+    };
+    let extra = width(&serif("strong")) - width(&serif("span"));
+    let glyphs = text.chars().count() as f64;
+    assert!((extra - glyphs * 11.0 * 0.018).abs() < 1e-9, "{extra}");
+    let bytes = pdf_of(&convert(
+        &serif("strong"),
+        InputFormat::Html,
+        Some("inter.docx"),
+    ));
+    let content = {
+        let pdf = Pdf::parse(&bytes).unwrap();
+        let page = pdf.pages().unwrap()[0];
+        String::from_utf8_lossy(&pdf.stream_data(pdf.get(page, "Contents")).unwrap()).into_owned()
+    };
+    assert!(
+        content.contains("2 Tr") && content.contains(" 1 0 0 0.98 "),
+        "{content}"
+    );
 }

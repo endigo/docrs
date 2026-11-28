@@ -225,12 +225,12 @@ impl Builder<'_> {
                 .unwrap_or(FontKind::Serif)
         };
         let (ascii_kind, hansi_kind) = (kind(&ascii), kind(&hansi));
-        let style = Style::of(bold, italic, Some(small));
-        let face = self.fonts.sized_face(&ascii, style, ascii_kind);
+        let style = Style::of(bold, italic);
+        let face = self.fonts.face(&ascii, bold, italic, ascii_kind);
         let face_hansi = if hansi.eq_ignore_ascii_case(&ascii) {
             face.clone()
         } else {
-            self.fonts.sized_face(&hansi, style, hansi_kind)
+            self.fonts.face(&hansi, bold, italic, hansi_kind)
         };
         let metric = self.metric(face.line_height() * size, face.ascent() * size);
         let faces = [
@@ -243,6 +243,7 @@ impl Builder<'_> {
             faces,
             size: small,
             caps: Caps::of(rpr.caps.unwrap_or(false), rpr.small_caps.unwrap_or(false)),
+            bold,
             spacing: rpr.spacing.unwrap_or(0.0),
             scale: rpr.scale.unwrap_or(100.0) / 100.0,
             kern: rpr.kern.is_some_and(|from| from > 0.0 && size >= from),
@@ -659,6 +660,10 @@ fn vml_size(style: &str) -> (f64, f64) {
     (width, height)
 }
 
+/// The advance Word for Mac adds to each glyph of a bold run set in a face
+/// that is not bold, in ems (measured, 11 pt Liberation Serif).
+const SYNTHETIC_BOLD_ADVANCE: f64 = 0.018;
+
 pub(super) struct Measurer {
     ascii: Arc<Face>,
     hansi: Arc<Face>,
@@ -666,6 +671,8 @@ pub(super) struct Measurer {
     faces: [u32; 2],
     size: f64,
     caps: Caps,
+    /// The run is bold: a face that is not is drawn emboldened.
+    bold: bool,
     spacing: f64,
     scale: f64,
     /// Pair kerning on (`w:kern` at or below the size).
@@ -685,7 +692,13 @@ impl Measurer {
     pub(super) fn width(&self, ch: char) -> f64 {
         let face = self.face(ch);
         let (ch, share) = self.caps.apply(ch);
-        face.advance(ch) * (self.size * share) * self.scale + self.spacing
+        let size = self.size * share;
+        let emboldened = if self.bold && !face.bold {
+            size * SYNTHETIC_BOLD_ADVANCE
+        } else {
+            0.0
+        };
+        face.advance(ch) * size * self.scale + self.spacing + emboldened
     }
 
     /// The kerning `left` takes before `right` (points), when kerning is on

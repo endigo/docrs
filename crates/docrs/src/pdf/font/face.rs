@@ -257,11 +257,7 @@ mod tests {
     }
 
     fn style(weight: u16, italic: bool) -> Style {
-        Style {
-            weight,
-            italic,
-            size: None,
-        }
+        Style { weight, italic }
     }
 
     #[test]

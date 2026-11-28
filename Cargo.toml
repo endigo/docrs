@@ -37,7 +37,8 @@ js-sys = "=0.3.106"
 serde-wasm-bindgen = "=0.6.5"
 serde_bytes = "=0.11.19"
 subsetter = "0.2.6"
-# The version subsetter instances with, so layout measures as it embeds.
+# Layout measures variable fonts with it; subsetter embeds with the same
+# version, so exactly one skrifa may be in Cargo.lock (tests/layout.rs).
 skrifa = "0.42.1"
 
 [workspace.lints.rust]
