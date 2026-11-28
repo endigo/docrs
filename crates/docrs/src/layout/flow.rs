@@ -137,14 +137,17 @@ fn line_height(para: &Para, text: f64, object: f64) -> f64 {
 }
 
 /// From the line top (Word for Mac 16.115, the ascent including the line
-/// gap): multiple spacing's extra goes below the descent, at-least
-/// spacing's above the ascent, and an exact line's baseline is 0.8 of it.
-/// A multiple line keeps height less descent when an object is taller than
-/// the text, or when the multiple is below 1 and the line shorter than it.
+/// gap): a multiple of 1 or more puts its extra below the descent,
+/// at-least spacing above the ascent, and an exact line or a multiple
+/// below 1 has its baseline at 0.8 of its height. A multiple line's object
+/// taller than that sits on the baseline, which is never below the line's
+/// height less its descent (a line of a list label only).
 fn baseline(para: &Para, height: f64, heights: &Heights, object: f64) -> f64 {
     let above = height - heights.below;
+    let on_object = object - heights.below;
     match para.line {
-        LineSpacing::Multiple(_) => above.min(heights.ascent.max(object - heights.below)),
+        LineSpacing::Multiple(multiple) if multiple < 1.0 => (0.8 * height).max(on_object),
+        LineSpacing::Multiple(_) => above.min(heights.ascent.max(on_object)),
         LineSpacing::Exact(points) => 0.8 * points,
         LineSpacing::AtLeast(_) => above,
     }
@@ -1695,7 +1698,7 @@ mod tests {
         p.line = LineSpacing::Multiple(1.5);
         assert_eq!(baseline(&p), (15.0, 8.0));
         p.line = LineSpacing::Multiple(0.8);
-        assert_eq!(baseline(&p), (8.0, 6.0));
+        assert_eq!(baseline(&p), (8.0, 6.4));
         p.line = LineSpacing::AtLeast(20.0);
         assert_eq!(baseline(&p), (20.0, 18.0));
         p.line = LineSpacing::Exact(5.0);

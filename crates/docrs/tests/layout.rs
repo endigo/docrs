@@ -1099,15 +1099,19 @@ fn toggles_take_the_nearest_style_in_a_chain_and_xor_across_levels() {
 
 #[test]
 fn each_line_rule_puts_the_baseline_where_word_does() {
-    // Word for Mac 16.115.2, Arial 11 (PR #60's spacing.docx): each
-    // paragraph's first baseline below its line top, and its line pitch.
-    // Word places lines on a 0.24-point grid.
+    // Word for Mac 16.115.2, Arial 11 (PR #60's spacing.docx and
+    // spacing2.docx): each paragraph's first baseline below its line top,
+    // and its line pitch. Word places lines on a 0.24-point grid.
     let rules = [
         ("w:line=\"276\" w:lineRule=\"auto\"", 10.32, 14.64),
         ("w:line=\"360\" w:lineRule=\"exact\"", 14.34, 18.00),
         ("w:line=\"360\" w:lineRule=\"atLeast\"", 15.54, 18.00),
         ("w:line=\"200\" w:lineRule=\"exact\"", 8.10, 10.08),
         ("w:line=\"240\" w:lineRule=\"auto\"", 10.18, 12.72),
+        // spacing2.docx: multiples below 1.
+        ("w:line=\"216\" w:lineRule=\"auto\"", 9.02, 11.52),
+        ("w:line=\"192\" w:lineRule=\"auto\"", 8.09, 10.08),
+        ("w:line=\"120\" w:lineRule=\"auto\"", 5.13, 6.24),
     ];
     let text = "The quick brown fox jumps over the lazy dog while the five boxing wizards \
                 jump quickly and a wary jackal watches them from the hill.";
