@@ -22,6 +22,7 @@
 - A face read from a font file keeps its glyph for each character and the file it came from (`Face::glyph`, `Face::file`), for the PDF writer to subset later. A face embedded in a document refers to its part, and `FontFile::read` reads it back from the document. Font names are also read from Unicode-platform name records, so Lucida Grande's collection reads all four faces.
 - Page estimates treat strike and hidden as toggle properties, like bold, italic, caps and small caps: they XOR across the table, paragraph and character styles. Within one style's `basedOn` chain the nearest value wins, as Word does: a style based on a bold style with bold off is regular. No layout snapshot changed.
 - The layout model carries each run's look for the PDF painter: size and rise, colour (theme colours resolved with their tint and shade), bold, italic, underline style and colour, strike, highlight, shading, caps, spacing, scale and hyperlink target, with paragraph shading and borders and cell fill, vertical alignment and borders as read. Lines and pages are unchanged.
+- Superscript and subscript are drawn at 0.64 of the size, raised 0.41 em or lowered 0.087 em, as Word for Mac draws Arial 11 pt; they were 2/3, 1/3 and 0.08. A line holding them can now fit a little more text. A `pctN` shading mixes in thousandths and truncates, so `pct50` black on white is 7F7F7F, as in Word, not 808080.
 
 ### Node package
 
