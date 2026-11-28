@@ -166,21 +166,35 @@ fn a_long_note_is_drawn_where_word_draws_it() {
     );
 }
 
+/// Word's two separators of a notes part of `kind`.
+fn separators(kind: &str) -> String {
+    format!(
+        r#"<w:{kind} w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:{kind}><w:{kind} w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:{kind}>"#
+    )
+}
+
 /// A Letter document whose body is `body`, with `footnotes` and `endnotes`
 /// (after each part's two separators), in 11 pt Liberation Serif.
 fn noted(body: &str, footnotes: &str, endnotes: &str) -> Document {
-    let separators = |kind: &str| {
-        format!(
-            r#"<w:{kind} w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:{kind}><w:{kind} w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:{kind}>"#
-        )
-    };
+    noted_with(
+        body,
+        "",
+        &(separators("footnote") + footnotes),
+        &(separators("endnote") + endnotes),
+    )
+}
+
+/// [`noted`], with `section` in the section's properties and each notes
+/// part's whole content given.
+fn noted_with(body: &str, section: &str, footnotes: &str, endnotes: &str) -> Document {
     let part = |kind: &str, notes: &str| {
         format!(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:{kind}s xmlns:w="{W}" xmlns:r="{R}">{}{notes}</w:{kind}s>"#,
-            separators(kind)
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:{kind}s xmlns:w="{W}" xmlns:r="{R}">{notes}</w:{kind}s>"#
         )
     };
-    let section = r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#;
+    let section = format!(
+        r#"<w:sectPr>{section}<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#
+    );
     let document = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{W}" xmlns:r="{R}"><w:body>{body}{section}</w:body></w:document>"#
     );
@@ -306,4 +320,140 @@ fn a_note_whose_table_would_go_on_is_refused() {
     let err = render_unchecked_for_tests(&noted(&body, &footnote, ""), &liberation()).unwrap_err();
     assert_eq!(err.reason(), "pdf_footnote_layout_unsupported", "{err}");
     assert!(err.message().contains("footnote 1 holds a table"), "{err}");
+}
+
+const INTER: &str = "inter/Inter[opsz,wght].ttf";
+
+/// Liberation Serif and Inter.
+fn liberation_and_inter() -> PdfOptions {
+    let mut fonts = FontSet::builder();
+    fonts.add(font(LIBERATION)).unwrap();
+    fonts.add(font(INTER)).unwrap();
+    let mut options = PdfOptions::default();
+    options.fonts = fonts.build();
+    options.strict = true;
+    options
+}
+
+/// A one-footnote body whose footnotes part has `separator` as its
+/// separator paragraph, Word's continuation separator, and the note.
+fn with_separator(separator: &str) -> Document {
+    let body = para(&(text("Cites") + &superscript(r#"<w:footnoteReference w:id="1"/>"#)));
+    let footnotes = format!(
+        r#"<w:footnote w:type="separator" w:id="-1">{separator}</w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>{}"#,
+        note("footnote", " The note.")
+    );
+    noted_with(&body, "", &footnotes, &separators("endnote"))
+}
+
+/// The separator paragraph's alignment places its rule, as it would a
+/// 2-inch word: centred between the margins, or ending at the right one.
+#[test]
+fn an_aligned_separator_is_placed_by_its_alignment() {
+    for (align, left) in [("left", 72.0), ("center", 234.0), ("right", 396.0)] {
+        let separator = format!(
+            r#"<w:p><w:pPr><w:jc w:val="{align}"/></w:pPr><w:r><w:separator/></w:r></w:p>"#
+        );
+        let (bytes, report) = render(&with_separator(&separator), &liberation_and_inter()).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let rules = rules(&Pdf::parse(&bytes).unwrap());
+        assert_eq!(rules.len(), 1, "{align}: {rules:?}");
+        assert!(near(rules[0].left, left, 0.01), "{align}: {rules:?}");
+        assert!(near(rules[0].width, 144.0, 0.01), "{align}: {rules:?}");
+    }
+}
+
+/// Text after a separator starts where its rule ends.
+#[test]
+fn text_after_a_separator_follows_its_rule() {
+    let separator = para(&(text("Notes ") + &run("<w:separator/>") + &text("end")));
+    let (bytes, _) = render(&with_separator(&separator), &liberation_and_inter()).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let rule = rules(&pdf)[0];
+    let drawn = &glyphs(&pdf)[0];
+    let notes = drawn.iter().find(|g| g.text == "N").unwrap();
+    let end = drawn
+        .iter()
+        .find(|g| g.text == "e" && g.x > rule.left)
+        .unwrap();
+    assert!(notes.x < rule.left, "{notes:?} {rule:?}");
+    assert!(
+        near(end.x, rule.left + rule.width, 0.01),
+        "{end:?} {rule:?}"
+    );
+}
+
+/// Word sets the rule on a 1/300-inch grid at its run's strikeout: 0.72 pt
+/// in a face whose strikeout is near 0.07 em at 11 pt (Calibri in the
+/// corpus, Inter here), 0.48 in Liberation Serif.
+#[test]
+fn the_rule_is_as_thick_as_its_run_s_strikeout_on_word_s_grid() {
+    for (fonts, thickness) in [
+        ("", 0.48),
+        (r#"<w:rFonts w:ascii="Inter" w:hAnsi="Inter"/>"#, 0.72),
+    ] {
+        let separator = format!(r#"<w:p><w:r><w:rPr>{fonts}</w:rPr><w:separator/></w:r></w:p>"#);
+        let (bytes, _) = render(&with_separator(&separator), &liberation_and_inter()).unwrap();
+        let rules = rules(&Pdf::parse(&bytes).unwrap());
+        assert!(
+            near(rules[0].thickness, thickness, 0.001),
+            "{fonts}: {rules:?}"
+        );
+    }
+}
+
+/// What layout cannot draw as Word does is reported, so strict refuses it:
+/// a page field in a note, a reference to a note the document lacks or in
+/// a header, a number format marks are not written in, and a continuation
+/// notice with text (refused in either mode).
+#[test]
+fn notes_drawn_otherwise_are_reported() {
+    let cites = |id: &str| {
+        para(&(text("Cites") + &superscript(&format!(r#"<w:footnoteReference w:id="{id}"/>"#))))
+    };
+    let field = format!(
+        r#"<w:footnote w:id="1">{}</w:footnote>"#,
+        para(
+            &(superscript("<w:footnoteRef/>")
+                + r#"<w:fldSimple w:instr=" PAGE "><w:r><w:t>9</w:t></w:r></w:fldSimple>"#)
+        )
+    );
+    let notice = format!(
+        r#"<w:footnote w:type="continuationNotice" w:id="2">{}</w:footnote>"#,
+        para(&text("Continued"))
+    );
+    let empty_notice = r#"<w:footnote w:type="continuationNotice" w:id="2"><w:p/></w:footnote>"#;
+    let footnote = note("footnote", " The note.");
+    let hebrew = r#"<w:footnotePr><w:numFmt w:val="hebrew1"/></w:footnotePr>"#;
+    let roman = r#"<w:footnotePr><w:numFmt w:val="upperRoman"/></w:footnotePr>"#;
+    let cases = [
+        ("", cites("1"), field, Some("pdf_field_cached")),
+        (
+            "",
+            cites("7"),
+            footnote.clone(),
+            Some("pdf_note_reference_dropped"),
+        ),
+        (
+            hebrew,
+            cites("1"),
+            footnote.clone(),
+            Some("pdf_field_format_approximated"),
+        ),
+        (roman, cites("1"), footnote.clone(), None),
+        (
+            "",
+            cites("1"),
+            notice + &footnote,
+            Some("pdf_footnote_layout_unsupported"),
+        ),
+        ("", cites("1"), empty_notice.to_string() + &footnote, None),
+    ];
+    for (section, body, notes, code) in cases {
+        let footnotes = separators("footnote") + &notes;
+        let document = noted_with(&body, section, &footnotes, &separators("endnote"));
+        let report = docrs::pdf::preflight(&document).unwrap();
+        let codes: Vec<&str> = report.warnings.iter().map(|w| w.code).collect();
+        assert_eq!(codes, Vec::from_iter(code), "{notes}");
+    }
 }
