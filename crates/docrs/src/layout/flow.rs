@@ -195,7 +195,7 @@ fn is_space(ch: char) -> bool {
 fn gap_pieces(pieces: &[Piece], from: usize) -> Vec<bool> {
     let word = |piece: &Piece| match piece {
         Piece::Char { ch, .. } => !is_space(*ch),
-        Piece::Object { .. } => true,
+        Piece::Object { .. } | Piece::NoteRef { .. } => true,
         _ => false,
     };
     let first = pieces.iter().skip(from).position(word).map(|at| at + from);
@@ -1783,7 +1783,7 @@ mod tests {
     use super::*;
     use crate::authoring::SectionStart;
     use crate::layout::fields::NumberFormat;
-    use crate::layout::model::{Label, NoteSettings, Notes, Page, Section, Slots};
+    use crate::layout::model::{Label, NoteKind, NoteSettings, Notes, Page, Section, Slots};
 
     fn spaced(style: &str, before: f64, after: f64, contextual: bool) -> Para {
         Para {
@@ -1839,6 +1839,45 @@ mod tests {
             } else {
                 assert!((end - 100.0).abs() < 1e-9, "{end}");
             }
+        }
+    }
+
+    #[test]
+    fn a_justified_line_starting_or_ending_with_a_note_mark_widens_every_gap() {
+        let mut p = para(12, 20.0);
+        p.align = Align::Both;
+        // Four words to a line: lines end and start with a mark as wide as a word.
+        let mark = Piece::NoteRef {
+            note: NoteId {
+                kind: NoteKind::Footnote,
+                index: 0,
+            },
+            width: 20.0,
+            metric: 0,
+            look: 0,
+        };
+        for word in [11, 8, 7, 4, 3] {
+            p.pieces.splice(word * 5..word * 5 + 4, [mark.clone()]);
+        }
+        let lines = lines(&p, &METRICS, 100.0, 36.0);
+        assert!(lines.len() > 2);
+        let at_mark = |at: u32| matches!(p.pieces[at as usize], Piece::NoteRef { .. });
+        assert!(at_mark(lines[1].pieces.start));
+        for line in lines.iter().filter(|line| !line.last) {
+            let (origins, _) = line.origins(&p);
+            let pieces = &p.pieces[line.pieces.start as usize..line.pieces.end as usize];
+            let gaps = gap_pieces(pieces, 0).iter().filter(|gap| **gap).count();
+            assert_eq!(gaps as u32, line.gaps);
+            let last = pieces
+                .iter()
+                .rposition(|p| !matches!(p, Piece::Char { ch: ' ', .. }))
+                .unwrap();
+            let width = if at_mark(line.pieces.start + last as u32) {
+                20.0
+            } else {
+                5.0
+            };
+            assert!((origins[last] + width - 100.0).abs() < 1e-9, "{line:?}");
         }
     }
 
