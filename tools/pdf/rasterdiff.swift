@@ -1,8 +1,9 @@
 // Usage: rasterdiff OURS.pdf WORD.pdf [DIFF_PREFIX] (tools/pdf/README.md).
 // Renders each page of both PDFs at 144 dpi with PDFKit and prints, per
-// page, the share of pixels whose grey levels differ by more than 64 of
-// 255. With DIFF_PREFIX, writes DIFF_PREFIX-N.png: ours in red, Word's in
-// blue, both in black.
+// page, the share of inked pixels (darker than 191 of 255 in either render)
+// whose grey levels differ by more than 64 of 255. A different page count
+// or page size is reported and exits 1. With DIFF_PREFIX, writes
+// DIFF_PREFIX-N.png: ours in red, Word's in blue, both in black.
 import AppKit
 import Foundation
 import PDFKit
@@ -34,14 +35,26 @@ else {
     FileHandle.standardError.write("usage: rasterdiff OURS.pdf WORD.pdf [DIFF_PREFIX]\n".data(using: .utf8)!)
     exit(2)
 }
+var mismatch = false
 print("pages\t\(ours.pageCount)\t\(word.pageCount)")
+if ours.pageCount != word.pageCount {
+    print("mismatch\tpage count")
+    mismatch = true
+}
 for index in 0..<min(ours.pageCount, word.pageCount) {
     let a = ours.page(at: index)!, b = word.page(at: index)!
     let bounds = a.bounds(for: .mediaBox)
+    let other = b.bounds(for: .mediaBox)
+    if abs(bounds.width - other.width) > 0.5 || abs(bounds.height - other.height) > 0.5 {
+        print("mismatch\tpage \(index + 1) size \(bounds.size) against \(other.size)")
+        mismatch = true
+        continue
+    }
     let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
     let (x, y) = (grey(a, size), grey(b, size))
+    let inked = zip(x, y).filter { Int(min($0, $1)) < 255 - tolerance }.count
     let differing = zip(x, y).filter { abs(Int($0) - Int($1)) > tolerance }.count
-    print(String(format: "page\t%d\t%.4f", index + 1, Double(differing) / Double(x.count)))
+    print(String(format: "page\t%d\t%.4f", index + 1, Double(differing) / Double(max(inked, 1))))
     if args.count > 3 {
         let width = Int(size.width), height = Int(size.height)
         let image = NSBitmapImageRep(
@@ -59,3 +72,4 @@ for index in 0..<min(ours.pageCount, word.pageCount) {
             .write(to: URL(fileURLWithPath: "\(args[3])-\(index + 1).png"))
     }
 }
+if mismatch { exit(1) }

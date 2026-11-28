@@ -4,12 +4,13 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+use super::decorate::{self, Span};
 use super::font::{Cid, FaceRef, FontResources};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
 use crate::layout::flow::{Line, PageStart, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
-use crate::layout::model::{Appearance, Block, Colour, Model, Para, Piece, TabKind};
+use crate::layout::model::{Appearance, Block, Model, Para, Piece, Rgb, TabKind};
 use crate::txn::Txn;
 use crate::{Error, ErrorDetails, MissingFont, Result};
 
@@ -271,29 +272,105 @@ impl<'m, 't> Painter<'m, 't> {
         Ok(())
     }
 
-    fn draw(&mut self, run: &Run, baseline: f64) -> Result<()> {
-        let Some((_, height)) = self.page else {
-            return Err(Error::internal(
-                "pdf_no_page",
-                "a line before the first page",
-            ));
+    fn page_height(&self) -> Result<f64> {
+        self.page
+            .map(|(_, height)| height)
+            .ok_or_else(|| Error::internal("pdf_no_page", "a line before the first page"))
+    }
+
+    /// The decorations' view of `pieces` at `origins`, `left` from the
+    /// page's left edge, `tab_end` giving the stop each tab moves to; none
+    /// when no piece is decorated. Ordinary spaces after the last drawn
+    /// piece trail, before a line break too, as Word leaves them; tabs and
+    /// no-break spaces do not.
+    fn spans(
+        &self,
+        pieces: &[Piece],
+        origins: &[f64],
+        left: f64,
+        tab_end: impl Fn(usize) -> Option<f64>,
+    ) -> Vec<Span<'m>> {
+        let model = self.model;
+        let look_of = |piece: &Piece| match piece {
+            Piece::Char { look, .. } | Piece::Tab { look, .. } => {
+                Some(&model.looks[*look as usize])
+            }
+            _ => None,
         };
+        if !pieces.iter().filter_map(look_of).any(decorate::decorated) {
+            return Vec::new();
+        }
+        let visible = pieces.iter().rposition(|piece| match piece {
+            Piece::Char { ch, .. } => *ch != ' ',
+            Piece::Tab { .. } | Piece::Object { .. } => true,
+            Piece::LineBreak { .. } | Piece::PageBreak => false,
+        });
+        let mut spans = Vec::new();
+        for (at, (piece, x)) in pieces.iter().zip(origins).enumerate() {
+            let (look, face, end, blank) = match piece {
+                Piece::Char {
+                    ch, look, width, ..
+                } => {
+                    let look = &model.looks[*look as usize];
+                    (look, look.face(*ch), x + width, ch.is_whitespace())
+                }
+                Piece::Tab { look, .. } => {
+                    let look = &model.looks[*look as usize];
+                    (look, look.ascii, tab_end(at).unwrap_or(*x), true)
+                }
+                _ => continue,
+            };
+            let to = origins.get(at + 1).copied().unwrap_or(end);
+            spans.push(Span {
+                look,
+                face: self.drawing(face).clone(),
+                from: left + x,
+                to: left + to,
+                blank,
+                trailing: visible.is_none_or(|last| at > last),
+            });
+        }
+        spans
+    }
+
+    /// The decorations' view of `line`: its label, then its pieces, each
+    /// tab to its stop.
+    fn line_spans(&self, left: f64, para: &Para, line: &Line) -> Vec<Span<'m>> {
+        let (origins, label_origins) = line.origins(para);
+        let mut spans = Vec::new();
+        if let Some(label) = para.label.as_ref().filter(|_| line.label.is_some()) {
+            spans = self.spans(&label.pieces, &label_origins, left, |_| None);
+        }
+        let first = line.pieces.start as usize;
+        let pieces = para
+            .pieces
+            .get(first..line.pieces.end as usize)
+            .unwrap_or_default();
+        spans.extend(self.spans(pieces, &origins, left, |at| {
+            let tab = line
+                .tabs
+                .iter()
+                .find(|tab| tab.piece as usize == first + at);
+            tab.map(|tab| tab.to)
+        }));
+        spans
+    }
+
+    fn draw(&mut self, run: &Run, baseline: f64, paragraph: Option<Rgb>) -> Result<()> {
+        let height = self.page_height()?;
         let look = run.look;
         let state = TextState {
-            fill: match look.colour {
-                Colour::Rgb(rgb) => [rgb.r, rgb.g, rgb.b],
-                _ => [0, 0, 0],
-            },
+            fill: decorate::ink(look.colour, look, paragraph),
             scale: look.scale,
             stroke: run.synthetic.0.then_some(run.size * SYNTHETIC_STROKE),
         };
         let out = &mut self.content;
         if state.fill != self.state.fill {
-            colour(out, state.fill)?;
+            decorate::colour(out, state.fill)?;
             out.extend_from_slice(b"rg\n");
         }
         if let Some(width) = state.stroke.filter(|_| state != self.state) {
-            colour(out, state.fill)?;
+            decorate::colour(out, state.fill)?;
             out.extend_from_slice(b"RG ");
             write_number(out, width)?;
             out.extend_from_slice(b" w\n");
@@ -368,14 +445,6 @@ fn tj(out: &mut Vec<u8>, glyphs: &[Glyph], em: f64) -> Result<()> {
     Ok(())
 }
 
-fn colour(out: &mut Vec<u8>, rgb: [u8; 3]) -> Result<()> {
-    for value in rgb {
-        write_number(out, f64::from(value) / 255.0)?;
-        out.push(b' ');
-    }
-    Ok(())
-}
-
 /// A number as [`write_number`] writes it.
 fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
@@ -402,9 +471,15 @@ impl Sink for Painter<'_, '_> {
 
     fn line(&mut self, at: Point, para: &Para, line: &Line) -> Result<()> {
         let marks = marks(self.model, at.x, para, line);
-        for run in &self.runs(&marks)? {
-            self.draw(run, at.y + line.baseline)?;
+        let runs = self.runs(&marks)?;
+        let spans = self.line_spans(at.x, para, line);
+        let height = self.page_height()?;
+        let baseline = at.y + line.baseline;
+        decorate::backgrounds(&mut self.content, &spans, height, at.y, line.height)?;
+        for run in &runs {
+            self.draw(run, baseline, para.shade)?;
         }
+        decorate::decorations(&mut self.content, &spans, height - baseline, para.shade)?;
         self.bars(at, para, line)?;
         let drawn = self.drawn + self.content.len() as u64;
         if drawn > self.max_drawn {

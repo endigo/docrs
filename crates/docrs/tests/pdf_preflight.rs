@@ -135,9 +135,9 @@ fn alternate_shape(inner: &str) -> String {
     ))
 }
 
-fn underlined(text: &str) -> String {
+fn bordered(text: &str) -> String {
     para(&run(&format!(
-        r#"<w:rPr><w:u w:val="single"/></w:rPr><w:t>{text}</w:t>"#
+        r#"<w:rPr><w:bdr w:val="single" w:sz="4"/></w:rPr><w:t>{text}</w:t>"#
     )))
 }
 
@@ -168,10 +168,10 @@ fn cases() -> Vec<Case> {
     vec![
         case(
             NOT_YET_DRAWN,
-            "underline",
+            "border",
             2,
             docx(
-                &(underlined("One") + &underlined("Two") + &text("Three") + &para("")),
+                &(bordered("One") + &bordered("Two") + &text("Three") + &para("")),
                 &[],
                 &[],
             ),
@@ -609,11 +609,11 @@ fn redact_keeps_codes_and_counts_only() {
 
 #[test]
 fn not_yet_drawn_refuses_even_without_strict() {
-    let document = docx(&underlined("Words"), &[], &[]);
+    let document = docx(&bordered("Words"), &[], &[]);
     let err = report(&document).check(false).unwrap_err();
     assert_eq!(err.refusal_kind(), Some(RefusalKind::UnsupportedStructure));
     assert_eq!(err.reason(), NOT_YET_DRAWN);
-    assert!(err.message().contains("underline"), "{}", err.message());
+    assert!(err.message().contains("border"), "{}", err.message());
     let json = err.to_json();
     assert_eq!(
         json["error"]["details"]["warnings"][0]["code"],
@@ -711,7 +711,7 @@ fn constructs_set_through_styles_are_reported() {
         + "</w:tc></w:tr></w:tbl>";
     let report = report(&styled(&body));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    for expected in [("border", 2), ("shading", 3), ("table", 1)] {
+    for expected in [("border", 2), ("shading", 2), ("table", 1)] {
         assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
     }
     assert_eq!(
@@ -853,7 +853,6 @@ fn what_the_painter_does_not_draw_yet_stays_refused() {
     let body = para(&run(r#"<w:sym w:font="Wingdings" w:char="F04A"/>"#))
         + &para(&run("<w:t>soft</w:t><w:softHyphen/><w:t>after</w:t>"))
         + &text_para("hy\u{AD}phen")
-        + &para(&run(r#"<w:rPr><w:dstrike/></w:rPr><w:t>gone</w:t>"#))
         + &para(&(r#"<w:pPr><w:sectPr/></w:pPr>"#.to_string() + &run("<w:t>end</w:t>")))
         + &text_para("next section")
         + &section(r#"<w:headerReference w:type="default" r:id="rId1"/>"#);
@@ -867,11 +866,26 @@ fn what_the_painter_does_not_draw_yet_stays_refused() {
         [
             ("symbol", 1),
             ("soft hyphen", 2),
-            ("strikethrough", 1),
             ("section break", 1),
             ("header", 1),
         ]
     );
+}
+
+#[test]
+fn run_decorations_and_fills_are_drawn() {
+    let body = [
+        r#"<w:u w:val="wave" w:color="FF0000"/>"#,
+        "<w:strike/>",
+        "<w:dstrike/>",
+        r#"<w:highlight w:val="yellow"/>"#,
+        r#"<w:shd w:val="pct50" w:color="auto" w:fill="auto"/>"#,
+        r#"<w:color w:val="auto"/><w:shd w:val="clear" w:fill="1F3864"/>"#,
+    ]
+    .map(|rpr| para(&run(&format!("<w:rPr>{rpr}</w:rPr><w:t>look</w:t>"))))
+    .concat();
+    let report = report(&docx(&body, &[], &[]));
+    assert_eq!(report.warnings, [], "{report:#?}");
 }
 
 fn text_para(text: &str) -> String {

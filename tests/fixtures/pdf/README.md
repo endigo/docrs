@@ -11,6 +11,8 @@ Small English documents for the PDF engine. `cases.tsv` gives each case's source
 | `sources/toc.md` | a table of contents with 15 headings over five pages |
 | `sources/stories.md` | prose over three pages in `references/stories.docx`: a first-page, an even and a default header, and a "Page X of Y" footer |
 
+`decorations.docx` is the decoration sheet, in Inter: one line per underline style (the sample between `style: ` and ` end`), underline colours, mixed sizes and a superscript under one underline, single, double, raised and coloured strikethrough, every highlight colour, shading patterns and theme fills, theme colours with tint and shade, automatic colour on dark fills, and hidden text. `appearance.rs` builds it; `pdf_text.rs` checks its lines against Inter's `post` and `OS/2` metrics. `fill-in.docx` has fill-in lines: an underlined and a struck tab to a stop, underlined text ending in no-break spaces or ordinary spaces, and underlined spaces before a manual line break (not underlined, as trailing spaces).
+
 `appearance.docx` has a run for each appearance property (theme colours with tint and shade, toggles through styles, every underline, every highlight, caps, spacing, scale, super- and subscript, raised and lowered text, shading and hyperlinks), each named for what it shows. `crates/docrs/tests/appearance.rs` builds it and checks it against the committed file.
 
 The references set one family for headings and body:

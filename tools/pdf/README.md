@@ -94,4 +94,4 @@ Each line gives the largest channel difference, the mean and the share of pixels
 swiftc -O tools/pdf/rasterdiff.swift -o rasterdiff && ./rasterdiff OURS.pdf WORD.pdf [DIFF_PREFIX]
 ```
 
-renders each page of both PDFs at 144 dpi with PDFKit and prints, per page, the share of pixels whose grey levels differ by more than 64 of 255. With `DIFF_PREFIX` it writes `DIFF_PREFIX-N.png`: our ink in red, Word's in blue, both in black. A fixture's threshold is its share from the first Word run.
+renders each page of both PDFs at 144 dpi with PDFKit and prints, per page, the share of inked pixels (darker than 191 of 255 in either render) whose grey levels differ by more than 64 of 255. A different page count or page size is printed as `mismatch` and the tool exits 1. With `DIFF_PREFIX` it writes `DIFF_PREFIX-N.png`: our ink in red, Word's in blue, both in black. It is a manual tool, not a test: glyph edges dominate the share, so it barely moves when decorations go missing.

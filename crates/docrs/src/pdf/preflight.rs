@@ -438,17 +438,8 @@ impl<'s, 'd> Scan<'s, 'd> {
         if rpr.rtl == Some(true) {
             self.note_once(TEXT, RTL);
         }
-        if rpr.highlighted() || rpr.shaded == Some(true) {
-            self.note_once(NOT_YET_DRAWN, "shading");
-        }
         if rpr.bordered() {
             self.note_once(NOT_YET_DRAWN, "border");
-        }
-        if rpr.underlined() {
-            self.note_once(NOT_YET_DRAWN, "underline");
-        }
-        if rpr.struck() {
-            self.note_once(NOT_YET_DRAWN, "strikethrough");
         }
     }
 

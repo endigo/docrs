@@ -40,6 +40,10 @@ pub struct Face {
     glyphs: Arc<[u16]>,
     /// Pair kerning between `KERN_CODEPOINTS`, in font units, sorted.
     kerning: Arc<[KernPair]>,
+    /// `post`'s underline and `OS/2`'s strikeout; `None` when the face
+    /// gives none.
+    underline: Option<Stroke>,
+    strikeout: Option<Stroke>,
     file: Option<Arc<FontFile>>,
     /// The style a variable face was instanced at; `None`: its default.
     #[cfg_attr(
@@ -48,6 +52,47 @@ pub struct Face {
     )]
     instance: Option<Style>,
 }
+
+/// A decoration line in ems: its centre above the baseline (negative:
+/// below) and its thickness.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Stroke {
+    pub offset: f64,
+    pub thickness: f64,
+}
+
+/// The thickest decoration line a face may ask for, in ems.
+const MAX_STROKE: f64 = 0.2;
+
+impl Stroke {
+    /// `top` of a line `thickness` thick, in font units, as `post` and
+    /// `OS/2` give them; `None` for a missing or empty line, one thicker
+    /// than [`MAX_STROKE`], or one whose top is outside `tops` (ems). The
+    /// default instance's values: `MVAR` deltas are not applied.
+    fn read(
+        top: Option<u16>,
+        thickness: Option<u16>,
+        units_per_em: f64,
+        tops: std::ops::RangeInclusive<f64>,
+    ) -> Option<Stroke> {
+        let top = f64::from(top? as i16) / units_per_em;
+        let thickness = f64::from(thickness? as i16) / units_per_em;
+        (thickness > 0.0 && thickness <= MAX_STROKE && tops.contains(&top)).then(|| Stroke {
+            offset: top - thickness / 2.0,
+            thickness,
+        })
+    }
+}
+
+/// Arial's lines, for faces that give none (Word check pending).
+const UNDERLINE: Stroke = Stroke {
+    offset: -0.142_578,
+    thickness: 0.073_242,
+};
+const STRIKEOUT: Stroke = Stroke {
+    offset: 0.233_887,
+    thickness: 0.049_805,
+};
 
 /// The font program a face was read from, and where the face's table
 /// directory starts in it.
@@ -281,6 +326,24 @@ impl Face {
         }
     }
 
+    /// The underline of this face.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub(crate) fn underline(&self) -> Stroke {
+        self.underline.unwrap_or(UNDERLINE)
+    }
+
+    /// The strikethrough line of this face.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
+    pub(crate) fn strikeout(&self) -> Stroke {
+        self.strikeout.unwrap_or(STRIKEOUT)
+    }
+
     /// Single line height in ems (Word for Mac: hhea ascender + descender
     /// + line gap).
     pub fn line_height(&self) -> f64 {
@@ -383,6 +446,7 @@ impl Face {
             .filter(|hmtx| metrics != 0 && hmtx.len() / 4 >= metrics)
             .ok_or(FontError::Malformed("hmtx"))?;
         let os2 = ttf.table(b"OS/2");
+        let post = ttf.table(b"post");
         let average_width = os2
             .and_then(|os2| be16(os2, 2))
             .map_or(units_per_em / 2.0, |w| f64::from(w as i16).max(1.0));
@@ -428,6 +492,12 @@ impl Face {
             widths: mapping.iter().map(|(_, glyph)| advance(*glyph)).collect(),
             glyphs: mapping.iter().map(|(_, glyph)| *glyph).collect(),
             kerning: kerning.into(),
+            underline: post.and_then(|post| {
+                Stroke::read(be16(post, 8), be16(post, 10), units_per_em, -0.5..=0.0)
+            }),
+            strikeout: os2.and_then(|os2| {
+                Stroke::read(be16(os2, 28), be16(os2, 26), units_per_em, 0.0..=1.0)
+            }),
             file: None,
             instance: None,
         })
@@ -983,6 +1053,8 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             widths: widths.into(),
             glyphs: Arc::new([]),
             kerning: kerning.into(),
+            underline: None,
+            strikeout: None,
             file: None,
             instance: None,
         }));
@@ -1336,6 +1408,24 @@ pub(crate) fn xor_font_key(data: &mut [u8], key: &[u8; 16]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_decoration_line_out_of_bounds_is_left_to_the_default() {
+        let read = |top: i16, thickness: i16| {
+            Stroke::read(Some(top as u16), Some(thickness as u16), 1000.0, -0.5..=0.0)
+        };
+        assert_eq!(
+            read(-100, 50),
+            Some(Stroke {
+                offset: -0.125,
+                thickness: 0.05
+            })
+        );
+        assert_eq!(read(-100, 0), None);
+        assert_eq!(read(-100, 900), None);
+        assert_eq!(read(-2000, 50), None);
+        assert_eq!(read(300, 50), None);
+    }
 
     #[test]
     fn the_bundled_table_reads() {
