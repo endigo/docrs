@@ -235,6 +235,23 @@ pub struct Border {
     pub colour: Colour,
 }
 
+impl Border {
+    /// The lines and the gaps between them: Word sets each `width` wide.
+    pub(crate) fn thickness(&self) -> f64 {
+        let lines = match self.style {
+            BorderStyle::Double => 3.0,
+            BorderStyle::Triple => 5.0,
+            _ => 1.0,
+        };
+        self.width * lines
+    }
+
+    /// The room the border takes beside the text: its thickness and space.
+    pub(crate) fn extent(&self) -> f64 {
+        self.thickness() + self.space
+    }
+}
+
 /// `ST_Border` line styles; the picture borders are `Art`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderStyle {

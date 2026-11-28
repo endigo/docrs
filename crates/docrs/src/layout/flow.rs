@@ -7,9 +7,15 @@
 //! object. Pages fill top to bottom with the
 //! paragraph spacing, page breaks, keep-with-next, keep-lines and
 //! widow/orphan control; table rows are as tall as their tallest cell and
-//! split across pages between lines.
+//! split across pages between lines. Paragraph borders take room above and
+//! below the text (see [`boxes`]).
+
+mod boxes;
 
 use std::ops::Range;
+
+use boxes::Joins;
+pub(crate) use boxes::ParaBox;
 
 use super::model::{Align, Block, LineSpacing, Metric, Model, Para, Piece, Row, TabKind, Table};
 use crate::xml::NodeId;
@@ -608,12 +614,17 @@ impl Para {
 }
 
 /// The gap between `previous` and `para`: Word takes the larger of the
-/// previous paragraph's space after and this one's space before, after
-/// contextual spacing removed either between paragraphs of one style.
+/// previous paragraph's space after and this one's space before.
 fn gap(previous: Option<&Para>, para: &Para) -> f64 {
-    let Some(previous) = previous else {
-        return para.before_spacing();
-    };
+    previous.map_or(para.before_spacing(), |previous| {
+        let (after, before) = spacing(previous, para);
+        after.max(before)
+    })
+}
+
+/// `previous`'s space after and `para`'s space before, after contextual
+/// spacing removed either between paragraphs of one style.
+fn spacing(previous: &Para, para: &Para) -> (f64, f64) {
     let same = previous.style == para.style;
     // Automatic (HTML) spacing is not added between list items.
     let list = previous.label.is_some() && para.label.is_some();
@@ -627,7 +638,7 @@ fn gap(previous: Option<&Para>, para: &Para) -> f64 {
     } else {
         para.before_spacing()
     };
-    after.max(before)
+    (after, before)
 }
 
 /// A line of a cell's content: top relative to the content, height, and
@@ -699,15 +710,16 @@ fn cell_layout<'m>(
     };
     let mut y = 0.0;
     let mut previous: Option<&Para> = None;
-    let mut first = true;
-    for block in blocks {
+    for (index, block) in blocks.iter().enumerate() {
         match block {
             Block::Para(para) => {
-                y += if first && cell && para.before_auto {
+                y += if index == 0 && cell && para.before_auto {
                     0.0
                 } else {
                     gap(previous, para)
                 };
+                let (lead, tail) = Joins::of(blocks, index).extents(para);
+                y += lead;
                 out.paras.push(ParaOffset {
                     node: para.node,
                     offset: y,
@@ -732,6 +744,7 @@ fn cell_layout<'m>(
                     });
                     y += height;
                 }
+                y += tail;
                 previous = Some(para);
             }
             Block::Table(table) => {
@@ -773,7 +786,6 @@ fn cell_layout<'m>(
                 previous = None;
             }
         }
-        first = false;
     }
     if let Some(last) = previous {
         // A cell's last paragraph keeps no automatic spacing, nor any
@@ -925,6 +937,12 @@ pub(crate) trait Sink {
     fn placed(&mut self, _placed: Placed) -> Result<()> {
         Ok(())
     }
+
+    /// A body paragraph's borders and shading on the current page, after
+    /// its lines.
+    fn para_box(&mut self, _boxed: &ParaBox) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Sink for Vec<Placed> {
@@ -993,6 +1011,9 @@ struct Flow<'m, 's, S: Sink> {
     at_section_start: bool,
     previous: Option<&'m Para>,
     last: Option<(u32, f64)>,
+    /// The last paragraph's box, until what follows it shows how far its
+    /// lines and fill reach; and whether the next paragraph joins it.
+    open_box: Option<(ParaBox, bool)>,
     work: u64,
     budget: u64,
 }
@@ -1032,6 +1053,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     }
 
     fn new_page(&mut self) -> Result<()> {
+        self.close_box(0.0, 0.0, None)?;
         self.page += 1;
         let first = self.page == self.section_first_page;
         let (top, bottom) = bounds(self.model, self.section, first);
@@ -1041,6 +1063,16 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.at_top = true;
         self.previous = None;
         self.open_page()
+    }
+
+    /// Emit the open box; `next` follows it on this page `gap` below, of
+    /// which `after` is the boxed paragraph's space after.
+    fn close_box(&mut self, after: f64, gap: f64, next: Option<&Para>) -> Result<()> {
+        let Some((mut boxed, joined)) = self.open_box.take() else {
+            return Ok(());
+        };
+        boxed.reach_down(after, gap, next.filter(|_| joined));
+        self.sink.para_box(&boxed)
     }
 
     fn body_height(&self) -> f64 {
@@ -1191,13 +1223,21 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
     }
 
-    fn place_para(&mut self, para: &'m Para) -> Result<()> {
+    fn place_para(&mut self, para: &'m Para, joins: Joins) -> Result<()> {
         let lines = self.lines(para)?;
         if para.page_break_before && !self.at_top {
             self.new_page()?;
         }
-        self.y += self.space_above(para);
-        let total: f64 = lines.iter().map(|l| l.height).sum::<f64>()
+        let gap = self.space_above(para);
+        let after = self
+            .previous
+            .map_or(0.0, |previous| spacing(previous, para).0)
+            .min(gap);
+        // The previous paragraph's share of the gap, and the gap.
+        let mut above = (after, gap);
+        self.y += gap;
+        let (lead, tail) = joins.extents(para);
+        let total: f64 = lead + lines.iter().map(|l| l.height).sum::<f64>()
             - lines.last().map_or(0.0, |l| l.height - l.fit);
         if para.keep_lines
             && !self.at_top
@@ -1206,12 +1246,14 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             && !lines.iter().any(|l| l.page_break)
         {
             self.new_page()?;
+            above = (0.0, 0.0);
         }
         let mut first = true;
         let mut index = 0;
         while index < lines.len() {
+            let lead = if first { lead } else { 0.0 };
             let mut fit = 0;
-            let mut y = self.y;
+            let mut y = self.y + lead;
             for line in &lines[index..] {
                 if y + line.fit > self.bottom + EPSILON {
                     break;
@@ -1237,9 +1279,13 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     fit = 1;
                 } else {
                     self.new_page()?;
+                    above = (0.0, 0.0);
                     continue;
                 }
             }
+            let top = self.y;
+            self.y += lead;
+            let opening = first;
             if first {
                 // Word reports an empty section-break paragraph where the
                 // paragraph before it starts.
@@ -1253,6 +1299,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     y,
                     row_end: false,
                 })?;
+                self.close_box(above.0, above.1, Some(para))?;
                 first = false;
             }
             let left = self.column_left();
@@ -1260,6 +1307,11 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 self.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }
+            let closing = index + fit == lines.len();
+            if closing {
+                self.y += tail;
+            }
+            self.open_box(para, joins, (top, opening, closing), above);
             self.at_top = false;
             self.at_start = false;
             self.at_section_start = false;
@@ -1286,12 +1338,35 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(())
     }
 
+    /// The box of `para`'s lines on this page, from `top` to here; open
+    /// until the next paragraph or page. `above`: as `close_box` takes it.
+    fn open_box(
+        &mut self,
+        para: &Para,
+        joins: Joins,
+        (top, opening, closing): (f64, bool, bool),
+        (after, gap): (f64, f64),
+    ) {
+        let lines = (
+            joins.top(para).filter(|_| opening),
+            joins.bottom(para).filter(|_| closing),
+        );
+        let column = (self.column_left(), self.text_width());
+        self.open_box = ParaBox::new(para, column, (top, self.y), lines).map(|mut boxed| {
+            if opening {
+                boxed.reach_up(gap - after, joins.previous);
+            }
+            (boxed, joins.next)
+        });
+    }
+
     fn place_table(&mut self, table: &'m Table) -> Result<()> {
-        if !self.at_top
-            && let Some(previous) = self.previous
-        {
-            self.y += previous.after_spacing();
-        }
+        let after = match self.previous {
+            Some(previous) if !self.at_top => previous.after_spacing(),
+            _ => 0.0,
+        };
+        self.close_box(after, after, None)?;
+        self.y += after;
         let headers = table.rows.iter().take_while(|r| r.header).count();
         let header_layouts = table.rows[..headers]
             .iter()
@@ -1445,7 +1520,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         let mut index = start;
         while let Some(Block::Para(para)) = blocks.get(index) {
             let lines = self.lines(para)?;
-            let space = if at_top { 0.0 } else { gap(previous, para) };
+            let (lead, tail) = Joins::of(blocks, index).extents(para);
+            let space = lead + if at_top { 0.0 } else { gap(previous, para) };
             if !para.keep_next {
                 let count = if para.widow_control {
                     2.min(lines.len())
@@ -1458,7 +1534,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     - taken.last().map_or(0.0, |l| l.height - l.fit);
                 break;
             }
-            need += space + lines.iter().map(|l| l.height).sum::<f64>();
+            need += space + lines.iter().map(|l| l.height).sum::<f64>() + tail;
             previous = Some(para);
             at_top = false;
             index += 1;
@@ -1497,6 +1573,7 @@ fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<
         at_section_start: true,
         previous: None,
         last: None,
+        open_box: None,
         work: 0,
         budget,
     };
@@ -1514,11 +1591,12 @@ fn paginate_within<S: Sink>(model: &Model, sink: &mut S, budget: u64) -> Result<
                             .take_while(|b| matches!(b, Block::Para(p) if p.keep_next))
                             .count();
                 }
-                flow.place_para(para)?;
+                flow.place_para(para, Joins::of(&model.blocks, index))?;
             }
             Block::Table(table) => flow.place_table(table)?,
         }
     }
+    flow.close_box(0.0, 0.0, None)?;
     Ok(flow.page)
 }
 
@@ -1527,7 +1605,7 @@ mod tests {
     use super::*;
     use crate::layout::model::{Label, Page, Section};
 
-    const METRICS: [Metric; 1] = [Metric {
+    pub(super) const METRICS: [Metric; 1] = [Metric {
         height: 10.0,
         ascent: 8.0,
     }];
@@ -1566,7 +1644,7 @@ mod tests {
 
     /// A paragraph of `words` words, each `width` points wide plus a
     /// 2-point space.
-    fn para(words: usize, width: f64) -> Para {
+    pub(super) fn para(words: usize, width: f64) -> Para {
         let mut pieces = Vec::new();
         for index in 0..words {
             if index > 0 {
@@ -1593,7 +1671,7 @@ mod tests {
         }
     }
 
-    fn model(blocks: Vec<Block>, height: f64) -> Model {
+    pub(super) fn model(blocks: Vec<Block>, height: f64) -> Model {
         Model {
             sections: vec![Section {
                 page: Page {
