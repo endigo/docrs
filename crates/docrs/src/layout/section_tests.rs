@@ -415,3 +415,20 @@ fn a_centred_or_bottom_aligned_section_moves_its_pages_body_down() {
     // The empty paragraph ending the section takes no room in the block.
     assert_eq!(aligned_tops("center", true), [384.0, 396.0, 408.0]);
 }
+
+#[test]
+fn a_continuous_section_after_a_centred_one_s_empty_break_centres_the_whole_page() {
+    let centred = sect(&[], r#"<w:vAlign w:val="center"/>"#);
+    let content = [lines(2), break_para(&centred), lines(30)].concat();
+    let doc = Doc {
+        body: body(content, sect(&[], &start("continuous"))),
+        stories: Vec::new(),
+        even_and_odd: false,
+    };
+    let tops: Vec<_> = doc.lines().iter().map(|l| (l.0, l.2)).collect();
+    // 33 lines of 12 pt leave 252 of the 648 between the margins.
+    assert_eq!(tops.len(), 33);
+    assert!(tops.iter().all(|&(page, _)| page == 1));
+    assert_eq!(tops[0].1, 72.0 + 126.0);
+    assert_eq!(tops[32].1 + 12.0, 720.0 - 126.0);
+}

@@ -1460,7 +1460,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     /// Start section `next` after the current paragraph: on this page when
     /// it is continuous on paper of the same size, else on a new page, after
     /// a blank one when an even or odd start needs it.
-    fn next_section(&mut self, next: usize) -> Result<()> {
+    /// `empty_mark`: the top of the breaking paragraph's line when it is empty.
+    fn next_section(&mut self, next: usize, empty_mark: Option<f64>) -> Result<()> {
         let next = next.min(self.model.sections.len() - 1);
         let section = &self.model.sections[next];
         if section.start == SectionStart::Continuous
@@ -1469,6 +1470,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             self.section = next;
             self.section_notes();
             return Ok(());
+        }
+        // Word gives an empty section-break paragraph ending a page no height.
+        if let (Some(held), Some(mark)) = (&mut self.held, empty_mark) {
+            held.end = Some(mark);
         }
         self.section_end = self.previous;
         let blank = self.needs_blank_page(section);
@@ -1605,13 +1610,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         }
         self.at_start = false;
         if let Some(next) = para.section_break {
-            // Word gives an empty section-break paragraph no height here.
-            if let (true, Some(held), Some(line)) =
-                (para.pieces.is_empty(), &mut self.held, lines.last())
-            {
-                held.end = Some(self.y - line.height);
-            }
-            self.next_section(next)?;
+            let mark = lines.last().filter(|_| para.pieces.is_empty());
+            self.next_section(next, mark.map(|line| self.y - line.height))?;
         }
         Ok(())
     }
