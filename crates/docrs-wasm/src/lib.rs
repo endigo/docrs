@@ -621,8 +621,12 @@ export interface FromMarkdownOptions {
   fields?: Record<string, string>;
   /** Fonts to measure the contents page numbers with, and to draw a PDF in, for the families and styles the template embeds no font for (experimental). */
   fonts?: FontSet;
-  /** Also draw the converted document as a PDF (experimental): `true`, or the PDF's options. The result adds `pdf` and `pdfReport`. */
-  pdf?: boolean | PdfOptions;
+}
+
+/** Options of a conversion that also draws a PDF (experimental). */
+export interface PdfConversionOptions extends FromMarkdownOptions {
+  /** Also draw the converted document as a PDF: `true`, or the PDF's options. The result adds `pdf` and `pdfReport`. */
+  pdf: boolean | PdfOptions;
   /** Return the .docx too (default true); `false` needs `pdf`. */
   docx?: boolean;
 }
@@ -704,7 +708,7 @@ export interface UsedFont {
 }
 
 /** A source to convert, with the options of its conversion (no `fonts`, `pdf` or `docx`). */
-export type UsedFontsSource = Omit<FromMarkdownOptions, "fonts" | "pdf" | "docx"> &
+export type UsedFontsSource = Omit<FromMarkdownOptions, "fonts"> &
   ({ html: string } | { markdown: string } | { json: object | string });
 
 /** Options of `usedFonts` for a .docx. */
@@ -719,29 +723,34 @@ type WithPdf = { pdf: true | PdfOptions };
 /** Convert Markdown into a .docx styled by a reference document, and with `pdf` draw it as a PDF too. */
 export function fromMarkdown(markdown: string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 export function fromMarkdown(markdown: string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
-export function fromMarkdown(markdown: string, options?: FromMarkdownOptions & { pdf?: false; docx?: true }): FromMarkdownResult;
-export function fromMarkdown(markdown: string, options?: FromMarkdownOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromMarkdown(markdown: string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+export function fromMarkdown(markdown: string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromMarkdown(markdown: string, options?: FromMarkdownOptions): FromMarkdownResult;
 
 /** Convert editor HTML (TipTap's `editor.getHTML()` and similar) like `fromMarkdown`; pictures get no captions unless `captions: true`. */
 export function fromHtml(html: string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 export function fromHtml(html: string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
-export function fromHtml(html: string, options?: FromMarkdownOptions & { pdf?: false; docx?: true }): FromMarkdownResult;
-export function fromHtml(html: string, options?: FromMarkdownOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromHtml(html: string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+export function fromHtml(html: string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromHtml(html: string, options?: FromMarkdownOptions): FromMarkdownResult;
 
 /** Convert a TipTap document (`editor.getJSON()`, as the object or as JSON text) like `fromMarkdown`; pictures get no captions unless `captions: true`. */
 export function fromJson(document: object | string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 export function fromJson(document: object | string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
-export function fromJson(document: object | string, options?: FromMarkdownOptions & { pdf?: false; docx?: true }): FromMarkdownResult;
-export function fromJson(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromJson(document: object | string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+export function fromJson(document: object | string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromJson(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult;
 
 /** @deprecated Use `fromJson`. */
 export function fromTiptap(document: object | string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 /** @deprecated Use `fromJson`. */
 export function fromTiptap(document: object | string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
 /** @deprecated Use `fromJson`. */
-export function fromTiptap(document: object | string, options?: FromMarkdownOptions & { pdf?: false; docx?: true }): FromMarkdownResult;
+export function fromTiptap(document: object | string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
 /** @deprecated Use `fromJson`. */
-export function fromTiptap(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromTiptap(document: object | string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+/** @deprecated Use `fromJson`. */
+export function fromTiptap(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult;
 
 /**
  * Draw a .docx as a PDF, as `docrs pdf` does (experimental). A family and style with no font
@@ -752,7 +761,9 @@ export function toPdf(docx: Uint8Array, options?: ToPdfOptions): ToPdfResult;
 
 /**
  * The families and styles a PDF of a .docx, or of a source converted with its options, draws with no
- * font the document embeds (experimental): the faces to fetch and pass as `fonts`.
+ * font the document embeds (experimental): the faces to fetch and pass as `fonts`. For now it
+ * draws the PDF without fonts and reads its refusal: it costs a full conversion and layout, and
+ * throws `pdf_not_yet_drawn` wherever `toPdf` would, until it reads the document without drawing (#64).
  */
 export function usedFonts(docx: Uint8Array, options?: UsedFontsOptions): UsedFont[];
 export function usedFonts(source: UsedFontsSource): UsedFont[];
@@ -855,7 +866,7 @@ export function loadFontManifest(entries: FontManifestEntry[], options?: FontMan
 export function createFontCache(options?: { maxBytes?: number }): FontCache;
 
 /** Options of `inspectReference` and `markdownStyles`: those of a conversion, without `fonts`. */
-export type ReferenceOptions = Omit<FromMarkdownOptions, "fonts" | "pdf" | "docx">;
+export type ReferenceOptions = Omit<FromMarkdownOptions, "fonts">;
 
 /** What a conversion will take from a reference document (`inspectReference`). */
 export interface ReferenceInspection {
@@ -1197,6 +1208,19 @@ fn conversion_options(value: Option<js_sys::Object>) -> Result<Options, JsValue>
     })
 }
 
+/// The options of `inspectReference` and `markdownStyles`: a conversion's,
+/// refusing `pdf` and `docx`, which neither draws nor writes.
+fn reference_options(value: Option<js_sys::Object>, name: &str) -> Result<Options, JsValue> {
+    let options = conversion_options(value)?;
+    if options.pdf.is_some() || options.docx.is_some() {
+        return Err(js_error_with(
+            &Error::invalid_argument("invalid_options", format!("{name} takes no pdf or docx")),
+            options.redact,
+        ));
+    }
+    Ok(options)
+}
+
 /// The fields of `options` not set to `undefined` or `null`, which count as
 /// not set.
 fn set_fields(options: &js_sys::Object) -> js_sys::Object {
@@ -1316,7 +1340,7 @@ pub fn inspect_reference(
     >,
 ) -> Result<JsValue, JsValue> {
     check_js_sizes(None, Some(&reference), options.as_ref())?;
-    let options = conversion_options(options)?;
+    let options = reference_options(options, "inspectReference")?;
     let reference = bytes_from(&reference, "reference")?;
     inspect(&reference, &options)
         .map(|value| to_js(&value))
@@ -1340,7 +1364,7 @@ pub fn markdown_styles(
     let reference = Some(reference).filter(|r| !r.is_undefined() && !r.is_null());
     check_js_sizes(None, reference.as_ref(), options.as_ref())?;
     let redact = options.as_ref().is_some_and(redact_of);
-    let mut options = conversion_options(options)?;
+    let mut options = reference_options(options, "markdownStyles")?;
     if let Some(styles) = styles {
         let styles: BTreeMap<String, String> = serde_wasm_bindgen::from_value(styles.into())
             .map_err(|err| {

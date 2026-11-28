@@ -162,23 +162,31 @@ pub struct UsedFont {
 }
 
 /// The families and styles `document` needs font programs for.
-// Until `pdf::used_fonts` lands, read off the refusal of a PDF drawn
-// without fonts.
+// Until `pdf::used_fonts` lands (#64), read off the refusal of a PDF drawn
+// without fonts: a full layout, and `pdf_not_yet_drawn` wherever `toPdf`
+// refuses so. A refusal without its details is an error, never "no fonts".
 pub fn used_fonts(document: &Document, limits: PdfLimits) -> Result<Vec<UsedFont>, Error> {
     let mut options = PdfOptions::default();
     options.limits = limits;
     match docrs::pdf::render(document, &options) {
         Ok(_) => Ok(Vec::new()),
-        Err(err) if err.reason() == "pdf_font_program_missing" => Ok(err
-            .details()
-            .map_or(&[][..], |details: &ErrorDetails| &details.missing_fonts)
-            .iter()
-            .map(|font| UsedFont {
-                family: font.family.clone(),
-                bold: font.bold,
-                italic: font.italic,
-            })
-            .collect()),
+        Err(err) if err.reason() == "pdf_font_program_missing" => {
+            let details: &ErrorDetails = err.details().ok_or_else(|| {
+                Error::internal(
+                    "used_fonts_unlisted",
+                    "pdf_font_program_missing came without the missing fonts",
+                )
+            })?;
+            Ok(details
+                .missing_fonts
+                .iter()
+                .map(|font| UsedFont {
+                    family: font.family.clone(),
+                    bold: font.bold,
+                    italic: font.italic,
+                })
+                .collect())
+        }
         Err(err) => Err(err),
     }
 }
@@ -459,18 +467,29 @@ pub(crate) mod tests {
         assert!(to_pdf(docx, roomy).unwrap().pdf.report["pages"].as_u64() > Some(1));
     }
 
-    /// The `docrs` command `cargo test --workspace` builds in this test's
-    /// profile directory: the nearest directory above the test binary that
-    /// holds it (`target/debug/deps/..` before Cargo's build-dir layout,
-    /// `target/debug/build/docrs-wasm/<hash>/../../..` since).
+    /// The `docrs` command as the tree is now: `cargo build -p docrs-cli`
+    /// (nothing to do when `cargo test --workspace` built it), in this test's
+    /// profile, and the executable Cargo reports for it, never an older one
+    /// left in the target directory.
     fn cli() -> PathBuf {
         let exe = std::env::current_exe().unwrap();
-        let name = format!("docrs{}", std::env::consts::EXE_SUFFIX);
-        exe.ancestors()
-            .skip(1)
-            .map(|dir| dir.join(&name))
-            .find(|cli| cli.is_file())
-            .unwrap_or_else(|| panic!("no {name} above {}: build docrs-cli first", exe.display()))
+        let release = exe.ancestors().any(|dir| dir.ends_with("release"));
+        let mut cargo = std::process::Command::new(env!("CARGO"));
+        cargo
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args(["build", "--quiet", "-p", "docrs-cli", "--bin", "docrs"])
+            .arg("--message-format=json")
+            .args(release.then_some("--release"))
+            .stderr(std::process::Stdio::inherit());
+        let out = cargo.output().expect("run cargo");
+        assert!(out.status.success(), "cargo build -p docrs-cli failed");
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|message| message["target"]["name"] == "docrs")
+            .find_map(|message| message["executable"].as_str().map(PathBuf::from))
+            .expect("cargo named no docrs executable")
     }
 
     #[test]

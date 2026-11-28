@@ -22,6 +22,8 @@ const glue = vm.compileFunction(
 // this, the next call runs on a fresh one. Measured in Node 26: conversions
 // with a 16 MiB font set stay under 50 MiB; the largest the serverless
 // budgets allow (384 KiB of table HTML, 12 MiB of pictures) leave 142 MiB.
+// PDFs: 130 pages of editor HTML (the serverless source budget) with a
+// 24-face set leave 40 MiB; 770 pages under the default budgets, 119 MiB.
 const HIGH_WATER = 128 << 20;
 
 const GLUE = [
@@ -148,7 +150,7 @@ function fontless(name, ...at) {
 }
 
 function docrsError(message, fields) {
-  return Object.assign(new Error(message), { refusal: false, limit: null, ...fields });
+  return Object.assign(new Error(message), { refusal: false, limit: null, details: null, ...fields });
 }
 
 const invalid = (reason, message) => docrsError(message, { code: "invalid_argument", reason });

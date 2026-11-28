@@ -210,6 +210,11 @@ usedFonts(docx); // [{ family: "Inter", bold: false, italic: false }, { family: 
 usedFonts({ html, reference, styles }); // or { markdown } or { json }, with the conversion's options
 ```
 
+For now `usedFonts` draws the PDF with no fonts and reads the faces off its
+refusal: it costs a full conversion and layout, and it refuses with
+`pdf_not_yet_drawn` wherever `toPdf` would. Both go once it reads the
+document without drawing it (issue #64).
+
 A call that draws a PDF leaves the instance's memory where its peak was,
 like any other: the package replaces an instance past 128 MiB after the
 call and loads font sets into the next one when a call first uses them.
@@ -284,28 +289,51 @@ import { createFontCache, fromHtml, loadFontManifest, usedFonts, type FontCache,
 export const runtime = "nodejs";
 
 const reference = new Uint8Array(await readFile("templates/advice.docx"));
+
+// Your app: the signed-in user's tenant, from its own session (never a
+// header or field the client sends), and the faces that tenant uploaded,
+// each a signed https URL, with the families they stand in for
+// (`{ Arial: "Inter" }`: documents asking for Arial are drawn in Inter).
+declare function tenantOf(request: Request): Promise<string>;
+declare function manifestOf(tenant: string): Promise<{ entries: FontManifestEntry[]; aliases: Record<string, string> }>;
+
+// A 16 MiB cache for each of the 4 most recently served tenants: at most
+// 64 MiB of font files kept between requests, however many tenants call.
 const caches = new Map<string, FontCache>();
+function cacheOf(tenant: string): FontCache {
+  const cache = caches.get(tenant) ?? createFontCache({ maxBytes: 16 << 20 });
+  caches.delete(tenant);
+  caches.set(tenant, cache); // a Map iterates in insertion order: the oldest first
+  if (caches.size > 4) caches.delete(caches.keys().next().value!);
+  return cache;
+}
 
-// Your storage: every face the tenant uploaded, each a signed https URL.
-declare function manifestOf(tenant: string): Promise<FontManifestEntry[]>;
-
-// Both weights of a style: a variable file declared regular draws bold too.
-const draws = (used: UsedFont[]) => (entry: FontManifestEntry) =>
-  used.some((face) => face.family.toLowerCase() === entry.family.toLowerCase() &&
-    face.italic === Boolean(entry.italic));
+// The engine's matching: names trimmed and in any case, a document's family
+// read through `aliases` first, "Times" taken as "Times New Roman". It
+// assumes each file holds the family its entry declares.
+const key = (family: string) => {
+  const name = family.trim().toLowerCase();
+  return name === "times" ? "times new roman" : name;
+};
+function needed(used: UsedFont[], aliases: Record<string, string>) {
+  const to = new Map(Object.entries(aliases).map(([from, family]) => [from.trim().toLowerCase(), key(family)]));
+  const wanted = used.map((face) => ({ family: to.get(face.family.trim().toLowerCase()) ?? key(face.family), italic: face.italic }));
+  // Both weights of a style: a variable file declared regular draws bold too.
+  return (entry: FontManifestEntry) =>
+    wanted.some((face) => face.family === key(entry.family) && face.italic === Boolean(entry.italic));
+}
 
 export async function POST(request: Request) {
-  const tenant = request.headers.get("x-tenant") ?? "";
+  const tenant = await tenantOf(request);
   const html = await request.text();
-  const used = usedFonts({ html, reference, limits: "serverless" });
-  const entries = (await manifestOf(tenant)).filter(draws(used));
-  let cache = caches.get(tenant);
-  if (!cache) caches.set(tenant, (cache = createFontCache({ maxBytes: 32 << 20 })));
-  const fonts = await loadFontManifest(entries, {
-    cache, limits: "serverless", timeoutMs: 10_000, signal: request.signal,
+  const options = { reference, limits: "serverless", redact: true } as const;
+  const used = usedFonts({ html, ...options });
+  const { entries, aliases } = await manifestOf(tenant);
+  const fonts = await loadFontManifest(entries.filter(needed(used, aliases)), {
+    aliases, cache: cacheOf(tenant), limits: "serverless", timeoutMs: 10_000, signal: request.signal,
   });
   try {
-    const { pdf } = fromHtml(html, { reference, fonts, pdf: true, docx: false, limits: "serverless", redact: true });
+    const { pdf } = fromHtml(html, { ...options, fonts, pdf: true, docx: false });
     return new Response(pdf.slice(), {
       headers: { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="advice.pdf"' },
     });
@@ -318,6 +346,12 @@ export async function POST(request: Request) {
   }
 }
 ```
+
+The route leaves every other error as a 500: a construct the engine does
+not draw yet (`pdf_not_yet_drawn`, from `usedFonts` as from `fromHtml`), a
+font that could not be fetched, a budget. Until `usedFonts` reads a document
+without drawing it, each request lays the document out about three times
+(once in `usedFonts`, twice in the conversion).
 
 For a TipTap editor, post `editor.getJSON()` as the request body and hand
 it to `fromJson`. A long-lived server (one process serving many exports)

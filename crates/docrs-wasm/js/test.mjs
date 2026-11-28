@@ -297,6 +297,12 @@ test("markdownStyles takes the limits and strictPackage options", () => {
   assert.throws(() => lib.markdownStyles(undefined, undefined, { limits: "huge" }), (err) => err.code === "invalid_argument");
 });
 
+test("inspectReference and markdownStyles refuse pdf and docx", () => {
+  const refused = (err) => err.reason === "invalid_options" && /takes no pdf or docx/.test(err.message);
+  assert.throws(() => lib.inspectReference(lib.fromMarkdown("x").docx, { pdf: true }), refused);
+  assert.throws(() => lib.markdownStyles(undefined, undefined, { docx: false }), refused);
+});
+
 test("now must be a time from 1970 to the year 9999 in milliseconds", () => {
   for (const now of [NaN, Infinity, -Infinity, -1, 253402300800000, 1e300]) {
     assert.throws(
@@ -1028,7 +1034,8 @@ let pdf = PDFDocument(url: URL(fileURLWithPath: CommandLine.arguments[1]))!
 print(pdf.pageCount)
 print(pdf.string ?? "")
 `;
-const reader = { skip: has("qpdf") ? false : "needs qpdf" };
+// On CI qpdf is installed, so a missing one fails rather than skips.
+const reader = { skip: has("qpdf") || process.env.CI ? false : "needs qpdf" };
 
 test("the PDF passes qpdf --check and its text extracts", reader, async () => {
   const { mkdtempSync, writeFileSync } = await import("node:fs");
@@ -1075,7 +1082,7 @@ test("the typings compile against a consumer", tsc, () =>
   compile(
     "consumer",
     ["es2022", "dom"],
-    `import { createFontCache, fromHtml, fromJson, fromMarkdown, fromTiptap, inspectReference, loadFontManifest, loadFonts, markdownStyles, toPdf, usedFonts, type FontSet, type FromMarkdownPdfResult, type FromMarkdownResult, type PdfOutput, type PdfReport, type ToPdfResult, type UsedFont } from "docrs-wasm";
+    `import { createFontCache, fromHtml, fromJson, fromMarkdown, fromTiptap, inspectReference, loadFontManifest, loadFonts, markdownStyles, toPdf, usedFonts, type FontSet, type FromMarkdownOptions, type FromMarkdownPdfResult, type FromMarkdownResult, type PdfConversionOptions, type PdfOutput, type PdfReport, type ToPdfResult, type UsedFont } from "docrs-wasm";
 const fonts: FontSet = loadFonts([new Uint8Array(4)], { limits: "serverless", aliases: { Brand: "Inter" } });
 const family: string = fonts.faces[0].family;
 const plain: FromMarkdownResult = fromMarkdown("# A", { fonts, toc: true });
@@ -1085,6 +1092,19 @@ fromTiptap("{}", { fonts });
 inspectReference(new Uint8Array(4), { limits: "serverless" });
 // @ts-expect-error a conversion without pdf has no pdf
 plain.pdf;
+const typed: FromMarkdownOptions = { strict: true };
+const viaVariable: Uint8Array = fromHtml("<p>x</p>", typed).docx;
+function wrapper(html: string, options?: FromMarkdownOptions): Uint8Array {
+  return fromHtml(html, options).docx;
+}
+const returned: FromMarkdownResult = null as unknown as ReturnType<typeof fromMarkdown>;
+const off: Uint8Array = fromJson({ type: "doc" }, { pdf: false }).docx;
+// @ts-expect-error docx: false needs pdf
+fromHtml("<p>x</p>", { docx: false });
+const conversion: PdfConversionOptions = { pdf: true };
+// @ts-expect-error a PdfConversionOptions conversion may have no docx
+fromHtml("<p>x</p>", conversion).docx;
+void viaVariable; void wrapper; void returned; void off;
 const both: FromMarkdownResult & PdfOutput = fromHtml("<p>x</p>", { fonts, pdf: true });
 const report: PdfReport = both.pdfReport;
 const pages: number = report.pages;
@@ -1113,6 +1133,10 @@ fromMarkdown("x", { fonts: { faces: [], free() {} } });
 inspectReference(new Uint8Array(4), { fonts });
 // @ts-expect-error markdownStyles takes no fonts
 markdownStyles(undefined, undefined, { fonts });
+// @ts-expect-error inspectReference draws no PDF
+inspectReference(new Uint8Array(4), { pdf: true });
+// @ts-expect-error markdownStyles returns no docx to leave out
+markdownStyles(undefined, undefined, { docx: false });
 // @ts-expect-error an entry has a url or data
 loadFontManifest([{ id: "a", family: "Inter" }]);
 // @ts-expect-error a cache comes from createFontCache
