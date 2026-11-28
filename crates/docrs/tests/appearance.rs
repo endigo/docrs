@@ -287,6 +287,9 @@ fn body() -> String {
             &[
                 run("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FFFF00\"/>", "fill "),
                 run("<w:shd w:val=\"pct50\" w:color=\"000000\" w:fill=\"FFFFFF\"/>", "pct50 "),
+                ["pct10", "pct62", "pct75", "pct87"]
+                    .map(|pct| run(&format!("<w:shd w:val=\"{pct}\" w:color=\"000000\" w:fill=\"FFFFFF\"/>"), &format!("{pct} ")))
+                    .concat(),
                 run(
                     "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"4472C4\" w:themeFill=\"accent1\"/>",
                     "theme-fill",
@@ -494,7 +497,15 @@ fn caps_spacing_scale_and_shading_are_kept() {
     assert_eq!(look(&runs, "spaced").spacing, 2.0);
     assert_eq!(look(&runs, "scaled").scale, 1.5);
     assert_eq!(look(&runs, "fill").shade, Some(rgb("FFFF00")));
-    assert_eq!(look(&runs, "pct50").shade, Some(rgb("808080")));
+    for (pct, want) in [
+        ("pct10", "E5E5E5"),
+        ("pct50", "7F7F7F"),
+        ("pct62", "5F5F5F"),
+        ("pct75", "3F3F3F"),
+        ("pct87", "1F1F1F"),
+    ] {
+        assert_eq!(look(&runs, pct).shade, Some(rgb(want)), "{pct}");
+    }
     assert_eq!(look(&runs, "theme-fill").shade, Some(rgb("4472C4")));
     assert_eq!(look(&runs, "rgb-red").shade, None);
 }

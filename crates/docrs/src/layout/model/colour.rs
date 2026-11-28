@@ -83,10 +83,12 @@ impl Rgb {
             .map(Rgb::packed)
     }
 
-    /// `amount` of `self` over `under`.
-    fn over(self, under: Rgb, amount: f64) -> Rgb {
-        let mix =
-            |a: u8, b: u8| (f64::from(a) * amount + f64::from(b) * (1.0 - amount)).round() as u8;
+    /// `permille` thousandths of `self` over `under`, truncated: Word's
+    /// `pct50` black on white is 7F7F7F.
+    fn over(self, under: Rgb, permille: u32) -> Rgb {
+        let mix = |a: u8, b: u8| {
+            ((u32::from(a) * permille + u32::from(b) * (1000 - permille)) / 1000) as u8
+        };
         Rgb {
             r: mix(self.r, under.r),
             g: mix(self.g, under.g),
@@ -203,19 +205,19 @@ impl Palette {
             ["color", "themeColor", "themeTint", "themeShade"],
         );
         let density = match w_attr(tree, shd, "val") {
-            None | Some("nil" | "clear") => 0.0,
-            Some("solid") => 1.0,
+            None | Some("nil" | "clear") => 0,
+            Some("solid") => 1000,
             Some(pct) => pct
                 .strip_prefix("pct")
-                .and_then(|n| n.parse::<u8>().ok())
-                .map_or(0.0, |n| (percent(n) / 100.0).clamp(0.0, 1.0)),
+                .and_then(|n| n.parse::<u32>().ok())
+                .map_or(0, |n| permille(n).min(1000)),
         };
         let solid = |c: Option<Colour>| match c {
             Some(Colour::Rgb(rgb)) => Some(rgb),
             _ => None,
         };
         let (fill, pattern) = (solid(fill), solid(pattern));
-        if density == 0.0 {
+        if density == 0 {
             return fill;
         }
         // An automatic pattern colour is black.
@@ -224,11 +226,12 @@ impl Palette {
     }
 }
 
-/// `pct12`, `pct37`, `pct62` and `pct87` are 12.5, 37.5, 62.5 and 87.5 %.
-fn percent(n: u8) -> f64 {
+/// `pctN` in thousandths; `pct12`, `pct37`, `pct62` and `pct87` are
+/// 12.5, 37.5, 62.5 and 87.5 %.
+fn permille(n: u32) -> u32 {
     match n {
-        12 | 37 | 62 | 87 => f64::from(n) + 0.5,
-        _ => f64::from(n),
+        12 | 37 | 62 | 87 => n * 10 + 5,
+        _ => n * 10,
     }
 }
 
@@ -304,15 +307,34 @@ mod tests {
 
     #[test]
     fn the_eighth_patterns_are_half_a_percent_more() {
-        assert_eq!(percent(12), 12.5);
-        assert_eq!(percent(87), 87.5);
-        assert_eq!(percent(50), 50.0);
+        assert_eq!(permille(12), 125);
+        assert_eq!(permille(87), 875);
+        assert_eq!(permille(50), 500);
     }
 
     #[test]
-    fn a_pattern_mixes_its_colour_over_the_fill() {
+    fn a_pattern_mix_is_truncated() {
         let black = Rgb::packed(0);
-        assert_eq!(black.over(Rgb::WHITE, 0.5), Rgb::hex("808080").unwrap());
-        assert_eq!(black.over(Rgb::WHITE, 0.0), Rgb::WHITE);
+        // 255 × (1 − p), truncated; Word draws pct50 as 7F7F7F.
+        for (n, want) in [
+            (5, "F2F2F2"),
+            (10, "E5E5E5"),
+            (12, "DFDFDF"),
+            (25, "BFBFBF"),
+            (37, "9F9F9F"),
+            (50, "7F7F7F"),
+            (62, "5F5F5F"),
+            (75, "3F3F3F"),
+            (87, "1F1F1F"),
+            (95, "0C0C0C"),
+        ] {
+            assert_eq!(
+                black.over(Rgb::WHITE, permille(n)),
+                Rgb::hex(want).unwrap(),
+                "pct{n}"
+            );
+        }
+        assert_eq!(black.over(Rgb::WHITE, 0), Rgb::WHITE);
+        assert_eq!(Rgb::WHITE.over(black, 500), Rgb::hex("7F7F7F").unwrap());
     }
 }
