@@ -219,7 +219,8 @@ pub struct PdfLocation {
     /// The part holding it (`word/document.xml`, `word/header1.xml`, …).
     pub story: String,
     /// The story's paragraph it is in or after, from 1 (0: before the
-    /// first; document-wide settings have no location).
+    /// first, or the story as a whole, as for what layout changes in it;
+    /// document-wide settings have no location).
     pub ordinal: usize,
     /// The page, once the document is laid out.
     pub page: Option<u32>,
@@ -246,12 +247,35 @@ pub struct PdfWarning {
     pub count: usize,
 }
 
+impl PdfWarning {
+    /// One more occurrence of a tallied warning, at `location` unless it
+    /// names that story already.
+    fn also(&mut self, location: PdfLocation) {
+        if self.locations.iter().any(|l| l.story == location.story) {
+            return;
+        }
+        let before = counted(self.subject, self.count);
+        self.count += 1;
+        if let Some(rest) = self.message.strip_prefix(&before) {
+            self.message = counted(self.subject, self.count) + rest;
+        }
+        if self.locations.len() < MAX_LOCATIONS {
+            self.locations.push(location);
+        }
+    }
+}
+
 /// Locations kept per warning.
 pub const MAX_LOCATIONS: usize = 10;
 
 /// Quoted input kept per warning, and its length.
 const MAX_SAMPLES: usize = 5;
 const SAMPLE_CHARS: usize = 60;
+
+/// The start of a tallied warning's message.
+fn counted(subject: &str, count: usize) -> String {
+    format!("{subject} ({count}): ")
+}
 
 /// Occurrences gathered into one warning per code and subject, in order of
 /// first occurrence.
@@ -309,9 +333,8 @@ impl Tally {
             .into_iter()
             .map(|entry| {
                 let mut message = format!(
-                    "{} ({}): {}",
-                    entry.subject,
-                    entry.count,
+                    "{}{}",
+                    counted(entry.subject, entry.count),
                     message(entry.code, entry.subject)
                 );
                 if !entry.samples.is_empty() {
@@ -445,26 +468,20 @@ fn settle_for_pdf(txn: &Txn<'_>, options: &PdfOptions) -> Result<(Settled, FontB
     settle(txn, main, &options.fonts, target)
 }
 
-/// What layout changes in the stories some page shows: stories cut off,
-/// page numbers written otherwise, page references it cannot place.
-/// What `reported` already holds is not repeated.
-fn layout_warnings(
+/// Adds to `reported` what layout changes in the stories some page shows:
+/// stories cut off, page numbers written otherwise, page references it
+/// cannot place. A story a warning already names is not counted again.
+fn add_layout_warnings(
     txn: &Txn<'_>,
     settled: &Settled,
     main: &str,
-    reported: &[PdfWarning],
-) -> Result<Vec<PdfWarning>> {
+    reported: &mut Vec<PdfWarning>,
+) -> Result<()> {
     let notes = |rel| txn.part_related_by(main, rel);
     let parts = [notes(rt::FOOTNOTES)?, notes(rt::ENDNOTES)?];
     let mut tally = Tally::default();
     let model = settled.model();
     for warning in settled.warnings.iter().filter(|w| model.shows(w.story)) {
-        if reported
-            .iter()
-            .any(|r| r.code == warning.code && r.subject == warning.subject)
-        {
-            continue;
-        }
         let location = PdfLocation {
             story: match warning.story {
                 StoryId::Footnotes => parts[0].as_deref(),
@@ -477,9 +494,16 @@ fn layout_warnings(
             page: warning.page,
             kind: warning.story.kind(),
         };
-        tally.note(warning.code, warning.subject, Some(location), None);
+        match reported
+            .iter_mut()
+            .find(|r| r.code == warning.code && r.subject == warning.subject)
+        {
+            Some(found) => found.also(location),
+            None => tally.note(warning.code, warning.subject, Some(location), None),
+        }
     }
-    Ok(tally.finish())
+    reported.extend(tally.finish());
+    Ok(())
 }
 
 /// Lays out and draws `document`, adding what its fonts change, what
@@ -501,8 +525,7 @@ fn paint(
     let (warnings, fonts) = chain.report();
     report.warnings.extend(warnings);
     report.fonts = fonts;
-    let changed = layout_warnings(&txn, &settled, main, &report.warnings)?;
-    report.warnings.extend(changed);
+    add_layout_warnings(&txn, &settled, main, &mut report.warnings)?;
     report.check(options.strict)?;
     let limits = &options.limits;
     let places = places::Places::new(options.links, options.outline);

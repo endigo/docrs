@@ -200,7 +200,7 @@ fn a_tested_pair_declared_as_an_alias_is_silent_but_where_it_differs_from_words_
         assert!(
             report.warnings[0]
                 .message
-                .contains("Times New Roman Regular (drawn in Liberation Serif)"),
+                .contains("Times New Roman Regular (drawn in Liberation Serif, whose U+2010 is another width than Word's)"),
             "{}",
             report.warnings[0].message
         );
@@ -659,24 +659,36 @@ fn run(family: &str, rpr: &str, content: &str) -> String {
     format!("<w:r><w:rPr>{fonts}{rpr}</w:rPr>{content}</w:r>")
 }
 
+const LETTER: &str = r#"<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>"#;
+const SUPERSCRIPT: &str = r#"<w:vertAlign w:val="superscript"/>"#;
+
 /// "Plain line" citing footnote 1, whose mark is in `body_mark`; the note's
 /// own mark is in `note_mark` and its text, `text`, in `note_text`.
 fn noted(body_mark: &str, note_mark: &str, note_text: &str, text: &str) -> Document {
-    use support::{ROOT_RELS, RawMember, build_zip};
-    let superscript = r#"<w:vertAlign w:val="superscript"/>"#;
     let body = format!(
-        r#"<w:document {MAIN}><w:body><w:p>{}{}</w:p><w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#,
+        r#"<w:p>{}{}</w:p><w:sectPr>{LETTER}</w:sectPr>"#,
         run("", "", "<w:t>Plain line</w:t>"),
-        run(body_mark, superscript, r#"<w:footnoteReference w:id="1"/>"#),
+        run(body_mark, SUPERSCRIPT, r#"<w:footnoteReference w:id="1"/>"#),
     );
-    let notes = format!(
-        r#"<w:footnotes {MAIN}><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote><w:footnote w:id="1"><w:p>{}{}</w:p></w:footnote></w:footnotes>"#,
-        run(note_mark, superscript, "<w:footnoteRef/>"),
+    let note = format!(
+        r#"<w:footnote w:id="1"><w:p>{}{}</w:p></w:footnote>"#,
+        run(note_mark, SUPERSCRIPT, "<w:footnoteRef/>"),
         run(
             note_text,
             "",
             &format!(r#"<w:t xml:space="preserve"> {text}</w:t>"#)
         ),
+    );
+    with_footnotes(&body, &note)
+}
+
+/// A document of `body`, in Liberation Serif, with `notes` after the
+/// footnote separators.
+fn with_footnotes(body: &str, notes: &str) -> Document {
+    use support::{ROOT_RELS, RawMember, build_zip};
+    let body = format!(r#"<w:document {MAIN}><w:body>{body}</w:body></w:document>"#);
+    let notes = format!(
+        r#"<w:footnotes {MAIN}><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>{notes}</w:footnotes>"#
     );
     let styles = format!(
         r#"<w:styles {MAIN}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>"#
@@ -730,6 +742,51 @@ fn a_note_character_its_face_lacks_is_drawn_by_the_next_face_and_counted() {
     let letter = drawn.iter().find(|g| g.text == "C").unwrap();
     assert_ne!(check.font, letter.font);
     assert_eq!(drawn.iter().filter(|g| g.text == "1").count(), 2);
+}
+
+/// A second section numbering its notes afresh in roman from 3888: the
+/// marks counted are those it shows, not the first section's.
+#[test]
+fn note_marks_are_counted_as_each_section_numbers_them() {
+    let cite = |id: u32| {
+        run(
+            "Calibri",
+            SUPERSCRIPT,
+            &format!(r#"<w:footnoteReference w:id="{id}"/>"#),
+        )
+    };
+    let first = format!(
+        r#"<w:p><w:pPr><w:sectPr><w:type w:val="continuous"/>{LETTER}</w:sectPr></w:pPr>{}{}</w:p>"#,
+        run("", "", "<w:t>One</w:t>"),
+        cite(1),
+    );
+    let second = format!(
+        r#"<w:p>{}{}</w:p><w:sectPr><w:footnotePr><w:numFmt w:val="lowerRoman"/><w:numStart w:val="3888"/><w:numRestart w:val="eachSect"/></w:footnotePr><w:type w:val="continuous"/>{LETTER}</w:sectPr>"#,
+        run("", "", "<w:t>Two</w:t>"),
+        cite(2),
+    );
+    let notes: String = (1..=2)
+        .map(|id| {
+            format!(
+                r#"<w:footnote w:id="{id}"><w:p>{}{}</w:p></w:footnote>"#,
+                run("", SUPERSCRIPT, "<w:footnoteRef/>"),
+                run("", "", "<w:t>A note.</w:t>"),
+            )
+        })
+        .collect();
+    let document = with_footnotes(&(first + &second), &notes);
+    let fallback = set(vec![font(SERIF), font(INTER)], |b| {
+        b.fallback(FontKind::Serif, "Inter");
+    });
+    let (bytes, report) = render_unchecked_for_tests(&document, &options(&fallback)).unwrap();
+    let texts: String = glyphs(&Pdf::parse(&bytes).unwrap())
+        .concat()
+        .iter()
+        .map(|g| g.text.as_str())
+        .collect();
+    assert!(texts.contains("mmmdccclxxxviii"), "{texts}");
+    let marks = "1".len() + "mmmdccclxxxviii".len();
+    assert_eq!(codes(&report), [("pdf_font_substituted", marks)]);
 }
 
 /// "Plain line", an upright equation of `equation`, and a `TITLE` field showing
