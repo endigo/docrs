@@ -304,7 +304,10 @@ pub struct Para {
     /// Ends a section (`w:sectPr` in its properties): the next section's
     /// index.
     pub section_break: Option<usize>,
-    #[allow(dead_code, reason = "the PDF painter reads it")]
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads it")
+    )]
     pub shade: Option<Rgb>,
     /// Read only: layout gives them no height yet. `None` when it has none.
     #[allow(dead_code, reason = "the PDF painter reads them")]

@@ -324,8 +324,13 @@ const LISTS: &str = "# Steps\n\nFirst the plan.\n\n1. Collect the keys.\n2. Chec
 
 #[test]
 fn extracted_text_is_the_documents_per_page() {
-    for (name, document) in [("memo", memo()), ("lists", markdown(LISTS))] {
+    for (name, document) in [
+        ("memo", memo()),
+        ("lists", markdown(LISTS)),
+        ("decorations", decorations()),
+    ] {
         let bytes = pdf_of(&document);
+        qpdf_check(&format!("{name}.pdf"), &bytes);
         let drawn = page_texts(&glyphs(&Pdf::parse(&bytes).unwrap()));
         let laid_out = page_texts(&expected(&records(&document, &fonts())));
         assert_eq!(drawn, laid_out, "{name}");
@@ -354,6 +359,9 @@ fn every_glyph_is_where_layout_placed_it() {
     docx(fixtures().join("markdown/templates"));
     docx(fixtures().join("markdown/templates/v2"));
     docx(fixtures().join("../../examples/markdown"));
+    for name in ["appearance.docx", "decorations.docx"] {
+        documents.push((name.to_string(), open(&fixtures().join("pdf").join(name))));
+    }
     let cases = std::fs::read_to_string(fixtures().join("pdf/cases.tsv")).unwrap();
     for row in cases.lines().skip(1) {
         let [case, source, reference, ..] = row.split('\t').collect::<Vec<_>>()[..] else {
@@ -879,5 +887,385 @@ fn a_justified_line_ending_in_a_break_is_spread() {
     assert!(
         (spread - kept - slack).abs() < 1e-9,
         "{spread} {kept} {slack}"
+    );
+}
+
+/// The decoration sheet (`appearance.rs` builds it).
+fn decorations() -> Document {
+    open(&fixtures().join("pdf/decorations.docx"))
+}
+
+/// A line or rectangle the content stream paints outside text.
+#[derive(Debug, Clone, PartialEq)]
+struct Mark {
+    rgb: [f64; 3],
+    width: f64,
+    dash: Vec<f64>,
+    /// Page x from and to, and page y (from the bottom) where it starts.
+    from: f64,
+    to: f64,
+    y: f64,
+    wave: bool,
+}
+
+/// The stroked paths (`S`) and filled rectangles (`re f`, as marks with
+/// their height for width and their bottom for y) of the first page. A
+/// wave ends where its clip (`re W n`) does.
+fn marks(bytes: &[u8]) -> (Vec<Mark>, Vec<Mark>) {
+    let pdf = Pdf::parse(bytes).unwrap();
+    let page = pdf.pages().unwrap()[0];
+    let content = pdf.stream_data(pdf.get(page, "Contents")).unwrap();
+    let (mut strokes, mut fills) = (Vec::new(), Vec::new());
+    let (mut stroke, mut fill) = ([0.0; 3], [0.0; 3]);
+    let (mut rect, mut clip): ([f64; 4], Option<[f64; 4]>) = ([0.0; 4], None);
+    let mut mark = Mark {
+        rgb: [0.0; 3],
+        width: 1.0,
+        dash: Vec::new(),
+        from: 0.0,
+        to: 0.0,
+        y: 0.0,
+        wave: false,
+    };
+    for op in tokenize_content(&content).unwrap() {
+        let number = |at: usize| op.operands[at].number().unwrap();
+        match op.operator.as_str() {
+            "RG" => stroke = [number(0), number(1), number(2)],
+            "rg" => fill = [number(0), number(1), number(2)],
+            "w" => mark.width = number(0),
+            "d" => {
+                let Value::Array(items) = &op.operands[0] else {
+                    panic!("d without an array");
+                };
+                mark.dash = items.iter().map(|i| i.number().unwrap()).collect();
+            }
+            "m" => (mark.from, mark.y, mark.wave) = (number(0), number(1), false),
+            "l" => mark.to = number(0),
+            "c" => (mark.to, mark.wave) = (number(4), true),
+            "S" => strokes.push(Mark {
+                rgb: stroke,
+                to: match clip {
+                    Some([x, _, w, _]) if mark.wave => x + w,
+                    _ => mark.to,
+                },
+                ..mark.clone()
+            }),
+            "re" => rect = [number(0), number(1), number(2), number(3)],
+            "W" => clip = Some(rect),
+            "Q" => clip = None,
+            "f" => fills.push(Mark {
+                rgb: fill,
+                width: rect[3],
+                dash: Vec::new(),
+                from: rect[0],
+                to: rect[0] + rect[2],
+                y: rect[1],
+                wave: false,
+            }),
+            _ => {}
+        }
+    }
+    (strokes, fills)
+}
+
+/// A table's bytes in a TrueType file.
+fn table<'a>(font: &'a [u8], tag: &[u8; 4]) -> &'a [u8] {
+    let be16 = |at: usize| u16::from_be_bytes([font[at], font[at + 1]]);
+    let be32 = |at: usize| u32::from_be_bytes(font[at..at + 4].try_into().unwrap()) as usize;
+    (0..usize::from(be16(4)))
+        .map(|i| 12 + 16 * i)
+        .find(|at| &font[*at..*at + 4] == tag)
+        .map(|at| &font[be32(at + 8)..be32(at + 8) + be32(at + 12)])
+        .unwrap()
+}
+
+/// Inter's underline and strikeout at `size`: each line's centre above the
+/// baseline and its thickness, from `post` and `OS/2`.
+fn inter_lines(size: f64) -> [(f64, f64); 2] {
+    let font = font(INTER);
+    let field = |table: &[u8], at: usize| f64::from(i16::from_be_bytes([table[at], table[at + 1]]));
+    let em = field(table(&font, b"head"), 18) / size;
+    let line = |table: &[u8], top: usize, thick: usize| {
+        let (top, thick) = (field(table, top), field(table, thick));
+        ((top - thick / 2.0) / em, thick / em)
+    };
+    [
+        line(table(&font, b"post"), 8, 10),
+        line(table(&font, b"OS/2"), 28, 26),
+    ]
+}
+
+/// Where the sheet's line starting `label: ` sets its sample: the first and the
+/// following glyph's x, and the baseline from the page's bottom.
+fn sample(glyphs: &[Glyph], height: f64, label: &str, length: usize) -> (f64, f64, f64) {
+    let text: Vec<&str> = glyphs.iter().map(|g| g.text.as_str()).collect();
+    let prefix: Vec<String> = format!("{label}: ").chars().map(String::from).collect();
+    let starts_line = |at: usize| at == 0 || glyphs[at - 1].y != glyphs[at].y;
+    let at = (0..text.len())
+        .find(|at| {
+            starts_line(*at)
+                && text[*at..]
+                    .iter()
+                    .zip(&prefix)
+                    .filter(|(a, b)| a == b)
+                    .count()
+                    == prefix.len()
+        })
+        .unwrap()
+        + prefix.len();
+    (glyphs[at].x, glyphs[at + length].x, height - glyphs[at].y)
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 0.002
+}
+
+#[test]
+fn underlines_and_strikethrough_follow_the_face_metrics() {
+    let bytes = pdf_of(&decorations());
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let glyphs = &glyphs(&pdf)[0];
+    let height = pdf.media_boxes().unwrap()[0][3];
+    let (strokes, _) = marks(&bytes);
+    let [(under, thick), (strike, strike_thick)] = inter_lines(11.0);
+    let at = |label: &str| {
+        let (from, to, baseline) = sample(glyphs, height, label, 15);
+        let found: Vec<&Mark> = strokes
+            .iter()
+            .filter(|m| close(m.from, from) && (m.y - baseline).abs() < 6.0)
+            .collect();
+        assert!(!found.is_empty(), "{label}: {strokes:?}");
+        (found, to, baseline)
+    };
+
+    let (single, to, baseline) = at("single");
+    assert_eq!(single.len(), 1);
+    let line = single[0];
+    assert!(
+        close(line.to, to) && close(line.y, baseline + under),
+        "{line:?}"
+    );
+    assert!(close(line.width, thick) && line.dash.is_empty() && !line.wave);
+    assert_eq!(line.rgb, [0.0; 3]);
+
+    // Word for Mac's shapes on Inter 11 pt (centre and width below the
+    // baseline, within Word's 0.24 pt grid); dash lengths are exact.
+    let near = |a: f64, b: f64| (a - b).abs() <= 0.25;
+    let (double, _, baseline) = at("double");
+    let lines: Vec<(f64, f64)> = double.iter().map(|m| (baseline - m.y, m.width)).collect();
+    assert!(
+        lines.len() == 2
+            && near(lines[0].0, 0.96)
+            && near(lines[1].0, 2.40)
+            && lines.iter().all(|(_, w)| near(*w, 0.48)),
+        "{lines:?}"
+    );
+
+    for (label, heavy, dash) in [
+        ("thick", true, &[][..]),
+        ("dotted", false, &[1.44, 1.44][..]),
+        ("dashedHeavy", true, &[3.84, 1.92][..]),
+        ("dashLong", false, &[7.92, 3.84][..]),
+        ("dashDotHeavy", true, &[2.88, 0.96, 0.96, 0.96][..]),
+        (
+            "dotDotDash",
+            false,
+            &[2.16, 0.72, 0.72, 0.72, 0.72, 0.72][..],
+        ),
+    ] {
+        let (found, to, baseline) = at(label);
+        let line = found[0];
+        let placed = if heavy {
+            near(baseline - line.y, 1.44) && near(line.width, 1.44)
+        } else {
+            close(line.y, baseline + under) && close(line.width, thick)
+        };
+        assert!(placed && close(line.to, to), "{label}: {line:?}");
+        assert!(
+            line.dash.len() == dash.len() && line.dash.iter().zip(dash).all(|(a, b)| close(*a, *b)),
+            "{label}: {line:?}"
+        );
+    }
+    for (label, centres, width) in [
+        ("wave", &[1.2][..], 0.24),
+        ("wavyHeavy", &[1.2][..], 0.96),
+        ("wavyDouble", &[0.96, 1.44][..], 0.24),
+    ] {
+        let (found, to, baseline) = at(label);
+        assert_eq!(found.len(), centres.len(), "{label}: {found:?}");
+        for (line, centre) in found.iter().zip(centres) {
+            assert!(
+                line.wave
+                    && near(baseline - line.y, *centre)
+                    && close(line.width, width)
+                    && close(line.to, to),
+                "{label}: {line:?}"
+            );
+        }
+    }
+
+    let (words, _, _) = at("words");
+    assert_eq!(words.len(), 1, "a words underline leaves out the spaces");
+    let parts = strokes
+        .iter()
+        .filter(|m| close(m.y, words[0].y) && m.from >= words[0].from)
+        .count();
+    assert_eq!(parts, 3);
+
+    let (red, _, _) = at("red-underline");
+    assert_eq!(red[0].rgb, [1.0, 0.0, 0.0]);
+
+    let (struck, to, baseline) = at("strike");
+    let line = struck[0];
+    assert!(
+        close(line.y, baseline + strike) && close(line.width, strike_thick) && close(line.to, to),
+        "{line:?}"
+    );
+    let (double, _, baseline) = at("dstrike");
+    let ys: Vec<f64> = double.iter().map(|m| m.y).collect();
+    assert_eq!(ys.len(), 2, "{double:?}");
+    assert!(
+        ys.iter()
+            .all(|y| close((y - baseline - strike).abs(), strike_thick)),
+        "{ys:?}"
+    );
+    let (raised, _, baseline) = at("raised-strike");
+    assert!(
+        close(raised[0].y, baseline + strike),
+        "struck at its own raised baseline"
+    );
+}
+
+/// Word for Mac draws one underline under a stretch of mixed sizes, at
+/// neither size's metrics (`pr-proof/pr65/mix-word.pdf`): its top and
+/// thickness, in points below the baseline, for each case, within 0.3 pt.
+/// Three-run stretches are further off (11 + 11 + 24: Word 3.12, ours 3.59).
+#[test]
+fn a_mixed_size_underline_is_one_line_near_words() {
+    const CASES: [(&[f64], f64, f64); 9] = [
+        (&[8.0], 1.44, 0.48),
+        (&[11.0], 1.92, 0.72),
+        (&[16.0], 2.64, 1.20),
+        (&[24.0], 4.08, 1.68),
+        (&[8.0, 11.0], 1.68, 0.72),
+        (&[11.0, 16.0], 2.40, 0.96),
+        (&[11.0, 22.0], 3.36, 1.20),
+        (&[11.0, 24.0], 3.60, 1.44),
+        (&[24.0, 11.0], 3.60, 1.44),
+    ];
+    let html: String = CASES
+        .iter()
+        .enumerate()
+        .map(|(case, (sizes, ..))| {
+            let runs: String = sizes
+                .iter()
+                .map(|size| format!(r#"<span style="font-size: {size}pt">x{size}x </span>"#))
+                .collect();
+            format!("<p>case{case}: <u>{runs}</u>end</p>")
+        })
+        .collect();
+    let bytes = pdf_of(&convert(&html, InputFormat::Html, Some("inter.docx")));
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let glyphs = &glyphs(&pdf)[0];
+    let height = pdf.media_boxes().unwrap()[0][3];
+    let (strokes, _) = marks(&bytes);
+    for (case, (sizes, top, thickness)) in CASES.iter().enumerate() {
+        let (from, _, baseline) = sample(glyphs, height, &format!("case{case}"), 0);
+        let found: Vec<&Mark> = strokes.iter().filter(|m| close(m.from, from)).collect();
+        assert_eq!(found.len(), 1, "{sizes:?}: {strokes:?}");
+        let line = found[0];
+        let ours = (baseline - line.y - line.width / 2.0, line.width);
+        assert!(
+            (ours.0 - top).abs() <= 0.3 && (ours.1 - thickness).abs() <= 0.3,
+            "{sizes:?}: ours {ours:?}, Word {top} and {thickness}"
+        );
+    }
+}
+
+/// Fill-in lines: a trailing underlined or struck tab is drawn to its
+/// stop, and trailing no-break spaces are underlined; only trailing
+/// ordinary spaces are left out, before a line break too.
+#[test]
+fn trailing_tabs_and_no_break_spaces_are_decorated() {
+    let bytes = pdf_of(&open(&fixtures().join("pdf/fill-in.docx")));
+    qpdf_check("fill-in.pdf", &bytes);
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let glyphs = &glyphs(&pdf)[0];
+    let height = pdf.media_boxes().unwrap()[0][3];
+    let (strokes, _) = marks(&bytes);
+    let stop = 72.0 + 300.0;
+    let to_stop: Vec<&Mark> = strokes.iter().filter(|m| close(m.to, stop)).collect();
+    assert_eq!(to_stop.len(), 2, "{strokes:?}");
+    let line = |label: &str, length: usize| {
+        let (from, end, _) = sample(glyphs, height, label, length);
+        let found: Vec<&Mark> = strokes.iter().filter(|m| close(m.from, from)).collect();
+        assert_eq!(found.len(), 1, "{label}: {strokes:?}");
+        (found[0].to, end)
+    };
+    let (to, last_nbsp) = line("Date", 7);
+    assert!(to > last_nbsp, "{to} {last_nbsp}");
+    for label in ["Spaces", "Break"] {
+        let (to, first_space) = line(label, 4);
+        assert!(close(to, first_space), "{label}: {to} {first_space}");
+    }
+}
+
+#[test]
+fn highlights_and_shading_fill_the_line_behind_the_text() {
+    let bytes = pdf_of(&decorations());
+    let (_, fills) = marks(&bytes);
+    let rgb = |hex: u32| [16, 8, 0].map(|shift| f64::from((hex >> shift) & 0xFF) / 255.0);
+    let close3 = |a: [f64; 3], b: [f64; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.001);
+    for colour in [
+        0x000000, 0xFFFF00, 0x000080, 0xC0C0C0, 0x7F7F7F, 0x4472C4, 0xB4C6E7,
+    ] {
+        assert!(
+            fills.iter().any(|f| close3(f.rgb, rgb(colour))),
+            "{colour:06X}: {fills:?}"
+        );
+    }
+    assert!(
+        !fills.iter().any(|f| close3(f.rgb, rgb(0x00B0F0))),
+        "a highlight covers the shading under it"
+    );
+    let records = records(&decorations(), &fonts()).0;
+    let heights: Vec<f64> = records.iter().map(|line| line.height).collect();
+    assert!(
+        fills
+            .iter()
+            .all(|f| heights.iter().any(|h| (f.width - h).abs() < 0.002)),
+        "each fill is as tall as its line"
+    );
+    let content = {
+        let pdf = Pdf::parse(&bytes).unwrap();
+        let page = pdf.pages().unwrap()[0];
+        String::from_utf8_lossy(&pdf.stream_data(pdf.get(page, "Contents")).unwrap()).into_owned()
+    };
+    for (at, _) in content.match_indices("re f\nQ\n") {
+        let next = &content[at + 7..];
+        let before = |op: &str| next.find(op).unwrap_or(next.len());
+        assert!(
+            before("BT") < before("re f").min(before(" S\n")),
+            "text follows its fills: {}",
+            &next[..next.len().min(200)]
+        );
+    }
+}
+
+#[test]
+fn auto_text_is_white_on_a_dark_fill_and_hidden_text_is_not_drawn() {
+    let bytes = pdf_of(&decorations());
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let content = String::from_utf8_lossy(
+        &pdf.stream_data(pdf.get(pdf.pages().unwrap()[0], "Contents"))
+            .unwrap(),
+    )
+    .into_owned();
+    assert!(content.contains("1 1 1 rg"), "white text");
+    assert!(content.contains("1 1 1 RG"), "a white auto underline");
+    let text: String = glyphs(&pdf)[0].iter().map(|g| g.text.as_str()).collect();
+    assert!(
+        text.contains("shown shown") && !text.contains("hidden"),
+        "{text}"
     );
 }

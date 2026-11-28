@@ -93,11 +93,15 @@ fn format_scheme() -> String {
 }
 
 fn package(body: &str, styles: &str) -> Vec<u8> {
+    package_in("Arial", body, styles)
+}
+
+fn package_in(font: &str, body: &str, styles: &str) -> Vec<u8> {
     let document = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\" xmlns:r=\"{R}\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>"
     );
     let styles = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:styles xmlns:w=\"{W}\"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after=\"120\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>{styles}</w:styles>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:styles xmlns:w=\"{W}\"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"{font}\" w:hAnsi=\"{font}\" w:cs=\"{font}\"/><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after=\"120\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>{styles}</w:styles>"
     );
     let ct = CT_XML.replace(
         "</Types>",
@@ -328,6 +332,206 @@ fn fixture() -> Vec<u8> {
     package(&body(), &styles())
 }
 
+/// A line naming what its middle run shows: `label: ` and ` end` are plain.
+fn sample(label: &str, rpr: &str, text: &str) -> String {
+    para(
+        "",
+        &[
+            run("", &format!("{label}: ")),
+            run(rpr, text),
+            run("", " end"),
+        ]
+        .concat(),
+    )
+}
+
+/// The decoration sheet, in Inter: every underline, strikethrough,
+/// highlight and shading, theme colours, and `auto` on dark fills.
+fn decoration_body() -> String {
+    let fox = "quick brown fox";
+    let mut out: Vec<String> = UNDERLINES
+        .iter()
+        .map(|u| sample(u, &format!("<w:u w:val=\"{u}\"/>"), fox))
+        .collect();
+    out.extend([
+        sample(
+            "red-underline",
+            "<w:color w:val=\"1F4E79\"/><w:u w:val=\"single\" w:color=\"FF0000\"/>",
+            fox,
+        ),
+        sample(
+            "accent2-wave",
+            "<w:u w:val=\"wave\" w:color=\"ED7D31\" w:themeColor=\"accent2\"/>",
+            fox,
+        ),
+        para(
+            "",
+            &[
+                run("", "sizes: "),
+                run("<w:u w:val=\"single\"/>", "small "),
+                run("<w:u w:val=\"single\"/><w:sz w:val=\"44\"/>", "BIG"),
+                run("<w:u w:val=\"single\"/>", " small"),
+                run("", " end"),
+            ]
+            .concat(),
+        ),
+        para(
+            "",
+            &[
+                run("", "script: "),
+                run("<w:u w:val=\"single\"/>", "E=mc"),
+                run(
+                    "<w:u w:val=\"single\"/><w:vertAlign w:val=\"superscript\"/>",
+                    "2",
+                ),
+                run("", " end"),
+            ]
+            .concat(),
+        ),
+        sample("strike", "<w:strike/>", fox),
+        sample("dstrike", "<w:dstrike/>", fox),
+        sample("raised-strike", "<w:strike/><w:position w:val=\"6\"/>", fox),
+        sample("red-strike", "<w:strike/><w:color w:val=\"C00000\"/>", fox),
+    ]);
+    for half in HIGHLIGHTS.chunks(8) {
+        let runs: String = half
+            .iter()
+            .map(|(name, _)| run(&format!("<w:highlight w:val=\"{name}\"/>"), name) + &run("", " "))
+            .collect();
+        out.push(para("", &runs));
+    }
+    let shd = |val: &str, extra: &str| format!("<w:shd w:val=\"{val}\" w:color=\"auto\" {extra}/>");
+    let shades: String = ["pct10", "pct25", "pct50", "pct62", "pct75", "pct87"]
+        .map(|pct| run(&shd(pct, "w:fill=\"FFFFFF\""), pct) + &run("", " "))
+        .concat();
+    out.extend([
+        para("", &shades),
+        para(
+            "",
+            &[
+                run(&shd("clear", "w:fill=\"FFFF00\""), "fill"),
+                run("", " "),
+                run(
+                    &shd("clear", "w:fill=\"4472C4\" w:themeFill=\"accent1\""),
+                    "accent1-fill",
+                ),
+                run("", " "),
+                run(
+                    &shd(
+                        "clear",
+                        "w:fill=\"B4C6E7\" w:themeFill=\"accent1\" w:themeFillTint=\"66\"",
+                    ),
+                    "accent1-fill-lighter-60",
+                ),
+                run("", " "),
+                run(
+                    &format!(
+                        "<w:highlight w:val=\"yellow\"/>{}",
+                        shd("clear", "w:fill=\"00B0F0\"")
+                    ),
+                    "highlight-over-fill",
+                ),
+            ]
+            .concat(),
+        ),
+    ]);
+    let theme = |name: &str, extra: &str, label: &str| {
+        run(
+            &format!("<w:color w:val=\"000000\" w:themeColor=\"{name}\" {extra}/>"),
+            label,
+        ) + &run("", " ")
+    };
+    out.push(para(
+        "",
+        &[
+            "accent1",
+            "accent2",
+            "accent3",
+            "accent4",
+            "accent5",
+            "accent6",
+            "text2",
+            "hyperlink",
+        ]
+        .map(|name| theme(name, "", name))
+        .concat(),
+    ));
+    out.push(para(
+        "",
+        &[
+            theme("accent1", "w:themeTint=\"33\"", "lighter-80"),
+            theme("accent1", "w:themeTint=\"66\"", "lighter-60"),
+            theme("accent1", "w:themeTint=\"99\"", "lighter-40"),
+            theme("accent1", "w:themeShade=\"BF\"", "darker-25"),
+            theme("accent1", "w:themeShade=\"80\"", "darker-50"),
+        ]
+        .concat(),
+    ));
+    let auto = |extra: &str, label: &str| {
+        run(&format!("<w:color w:val=\"auto\"/>{extra}"), label) + &run("", " ")
+    };
+    out.push(para(
+        "",
+        &[
+            auto(&shd("clear", "w:fill=\"1F3864\""), "auto-navy"),
+            auto(&shd("clear", "w:fill=\"7F7F7F\""), "auto-7F7F7F"),
+            auto(&shd("clear", "w:fill=\"808080\""), "auto-808080"),
+            auto("<w:highlight w:val=\"darkBlue\"/>", "auto-darkBlue"),
+            auto(
+                &format!(
+                    "<w:u w:val=\"single\"/>{}",
+                    shd("clear", "w:fill=\"000000\"")
+                ),
+                "auto-underline-black",
+            ),
+        ]
+        .concat(),
+    ));
+    out.push(para(
+        "",
+        &[
+            run("", "shown "),
+            run("<w:vanish/>", "hidden "),
+            run("", "shown"),
+        ]
+        .concat(),
+    ));
+    out.concat()
+}
+
+fn decoration_fixture() -> Vec<u8> {
+    package_in("Inter", &decoration_body(), "")
+}
+
+/// Fill-in lines, in Inter: an underlined and a struck tab to a stop at
+/// 300 pt, and underlined text ending in no-break spaces, in spaces, or
+/// in spaces before a line break.
+fn fill_in_fixture() -> Vec<u8> {
+    let stop = "<w:tabs><w:tab w:val=\"left\" w:pos=\"6000\"/></w:tabs>";
+    let tab = |rpr: &str| format!("<w:r><w:rPr>{rpr}</w:rPr><w:tab/></w:r>");
+    let body = [
+        para(stop, &(run("", "Name: ") + &tab("<w:u w:val=\"single\"/>"))),
+        para(stop, &(run("", "Struck: ") + &tab("<w:strike/>"))),
+        para(
+            "",
+            &(run("", "Date: ") + &run("<w:u w:val=\"single\"/>", "text\u{a0}\u{a0}\u{a0}\u{a0}")),
+        ),
+        para(
+            "",
+            &(run("", "Spaces: ") + &run("<w:u w:val=\"single\"/>", "text    ")),
+        ),
+        para(
+            "",
+            &(run("", "Break: ")
+                + &run("<w:u w:val=\"single\"/>", "text    ")
+                + "<w:r><w:rPr><w:u w:val=\"single\"/></w:rPr><w:br/></w:r>"
+                + &run("", "after")),
+        ),
+    ]
+    .concat();
+    package_in("Inter", &body, "")
+}
+
 const SCRIPT_FONTS: [&str; 4] = ["Arial", "Times New Roman", "Georgia", "Courier New"];
 const SCRIPT_SIZES: [u32; 6] = [8, 10, 11, 12, 24, 72];
 /// The marker paragraph's runs, with their properties.
@@ -454,15 +658,21 @@ fn colour(hex: &str) -> Colour {
 }
 
 #[test]
-fn the_committed_fixture_is_the_one_these_tests_build() {
-    let path = repo_root().join("tests/fixtures/pdf/appearance.docx");
-    if std::env::var_os("DOCRS_UPDATE_SNAPSHOTS").is_some() {
-        std::fs::write(&path, fixture()).unwrap();
+fn the_committed_fixtures_are_the_ones_these_tests_build() {
+    for (name, built) in [
+        ("appearance.docx", fixture()),
+        ("decorations.docx", decoration_fixture()),
+        ("fill-in.docx", fill_in_fixture()),
+    ] {
+        let path = repo_root().join("tests/fixtures/pdf").join(name);
+        if std::env::var_os("DOCRS_UPDATE_SNAPSHOTS").is_some() {
+            std::fs::write(&path, &built).unwrap();
+        }
+        assert!(
+            std::fs::read(&path).unwrap() == built,
+            "{name}: rerun with DOCRS_UPDATE_SNAPSHOTS=1"
+        );
     }
-    assert!(
-        std::fs::read(&path).unwrap() == fixture(),
-        "rerun with DOCRS_UPDATE_SNAPSHOTS=1"
-    );
 }
 
 /// The number of elements directly inside the first `<a:{list}>`.

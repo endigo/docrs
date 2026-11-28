@@ -129,8 +129,6 @@ pub(crate) struct RPr {
     pub(super) shd: Option<Option<Rgb>>,
     /// Points raised (`w:position`).
     pub(super) position: Option<f64>,
-    /// `w:shd` draws a fill or a pattern, automatic colours included.
-    pub(crate) shaded: Option<bool>,
     /// `w:bdr`; `Some(None)`: `none` or `nil`.
     pub(super) bdr: Option<Option<Border>>,
     pub(crate) rtl: Option<bool>,
@@ -143,7 +141,7 @@ impl RPr {
         }
         take!(
             ascii, hansi, size, bold, italic, caps, small_caps, vanish, spacing, scale, vert, kern,
-            colour, underline, strike, dstrike, highlight, shd, position, shaded, bdr, rtl
+            colour, underline, strike, dstrike, highlight, shd, position, bdr, rtl
         );
     }
 
@@ -212,18 +210,6 @@ impl PPr {
 impl RPr {
     pub(crate) fn bordered(&self) -> bool {
         matches!(self.bdr, Some(Some(_)))
-    }
-
-    pub(crate) fn highlighted(&self) -> bool {
-        matches!(self.highlight, Some(Some(_)))
-    }
-
-    pub(crate) fn underlined(&self) -> bool {
-        matches!(self.underline, Some(Some(_)))
-    }
-
-    pub(crate) fn struck(&self) -> bool {
-        self.strike == Some(true) || self.dstrike == Some(true)
     }
 }
 
@@ -414,10 +400,7 @@ pub(super) fn read_rpr(tree: &XmlTree, rpr: Option<NodeId>, palette: &Palette) -
             "strike" => out.strike = Some(on_off(tree, child)),
             "dstrike" => out.dstrike = Some(on_off(tree, child)),
             "highlight" => out.highlight = w_attr(tree, child, "val").map(highlight),
-            "shd" => {
-                out.shd = Some(palette.shading(tree, child));
-                out.shaded = Some(shaded(tree, child));
-            }
+            "shd" => out.shd = Some(palette.shading(tree, child)),
             "bdr" => out.bdr = Some(read_border(tree, child, palette)),
             "rtl" => out.rtl = Some(on_off(tree, child)),
             "position" => {

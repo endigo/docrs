@@ -10,6 +10,7 @@
 
 #![cfg_attr(not(feature = "test-support"), allow(dead_code))]
 
+mod decorate;
 mod font;
 mod image;
 mod limits;
