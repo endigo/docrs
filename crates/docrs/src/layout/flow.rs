@@ -1519,22 +1519,20 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             let headers = (row_index >= headers && headers > 0)
                 .then_some((header_layouts.as_slice(), header_height));
             let refs = notes::row_refs(&layout, |_, _| true);
-            if !self.admit(&mut self.notes.area.clone(), &refs, self.y + layout.height)? {
-                let splittable = !row.cant_split && !row.header && layout.height > 0.0;
+            let splittable = !row.cant_split && !row.header && layout.height > 0.0;
+            let (whole, going_on) = self.row_admits(&refs, self.y + layout.height)?;
+            if !whole || (splittable && going_on) {
                 if splittable && self.split_row(table, row_index, &layout, headers)? {
                     continue;
                 }
-                if !self.at_top {
+                if !whole && !self.at_top {
                     self.new_page()?;
                     if let Some(headers) = headers {
                         self.repeat_headers(table, headers)?;
                     }
+                    let (whole, going_on) = self.row_admits(&refs, self.y + layout.height)?;
                     if splittable
-                        && !self.admit(
-                            &mut self.notes.area.clone(),
-                            &refs,
-                            self.y + layout.height,
-                        )?
+                        && (!whole || going_on)
                         && self.split_row(table, row_index, &layout, headers)?
                     {
                         continue;

@@ -594,3 +594,86 @@ fn a_splitting_cell_gives_up_lines_until_its_note_starts() {
     assert_eq!(first.page, 1);
     assert!(close(first.y + first.height, BODY_BOTTOM), "{first:?}");
 }
+
+#[test]
+fn a_splitting_row_ends_at_the_line_whose_note_goes_on() {
+    // As Word lays out pr68-flag.docx (pr-proof/pr68/word): the cell's
+    // lines below the citing line wait for the page after the note's
+    // continuation, and the cell beside keeps its line.
+    let cell = |content: String| {
+        format!(r#"<w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr>{content}</w:tc>"#)
+    };
+    let lines: String = (0..8)
+        .map(|n| match n {
+            2 => cited("cell line 2", &[1]),
+            n => para(&format!("cell line {n}")),
+        })
+        .collect();
+    let row = format!(
+        r#"<w:tbl><w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr>{}{}</w:tr></w:tbl>"#,
+        cell(lines),
+        cell(para("side"))
+    );
+    let note: Vec<String> = (0..20).map(|n| format!("Note line {n}.")).collect();
+    let note: Vec<&str> = note.iter().map(String::as_str).collect();
+    let doc = document(Parts {
+        body: &(filler(2) + &row + &para("after")),
+        footnotes: &footnote(1, &note),
+        ..NONE
+    });
+    let records = records(&doc);
+    let page = |text: &str| find(&records, text).page;
+    assert_eq!(
+        (0..8)
+            .map(|n| page(&format!("cell line {n}{}", if n == 2 { "1" } else { "" })))
+            .collect::<Vec<_>>(),
+        [1, 1, 1, 3, 3, 3, 3, 3]
+    );
+    assert_eq!((page("side"), page("after")), (1, 3));
+    assert_eq!(page("1 Note line 0."), 1);
+    assert!(
+        records
+            .iter()
+            .all(|r| r.page != 2 || r.story == "footnotes")
+    );
+}
+
+#[test]
+fn below_mode_15_a_separator_s_spacing_counts_only_above_a_note_going_on() {
+    let spaced = r#"<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="240"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>"#;
+    let tops = |settings: &str, note_lines: usize| {
+        let lines: Vec<String> = (1..=note_lines)
+            .map(|n| format!("Note line {n}."))
+            .collect();
+        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let doc = document(Parts {
+            body: &(filler(5) + &cited("Cited", &[1])),
+            footnotes: &(spaced.to_string() + &footnote(1, &lines)),
+            settings,
+            ..NONE
+        });
+        let records = records(&doc);
+        let notes = of_story(&records, "footnotes");
+        (notes[0].page, notes[0].y, notes[1].y)
+    };
+    let mode_15 = r#"<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#;
+    // A whole one-line note ends at 180: its 12.65-point separator line
+    // sits above it, with its 12 points after only in mode 15.
+    let (_, separator, note) = tops("", 1);
+    assert!(
+        close(note, 168.5) && close(separator, 155.85),
+        "{separator} {note}"
+    );
+    let (_, separator, note) = tops(mode_15, 1);
+    assert!(
+        close(note, 168.5) && close(separator, 143.85),
+        "{separator} {note}"
+    );
+    // Above a note going on, the separator's spacing counts in either
+    // mode.
+    for settings in ["", mode_15] {
+        let (page, separator, note) = tops(settings, 20);
+        assert_eq!(page, 1);
+        assert!(close(note - separator, 24.65), "{separator} {note}");
+    }
+}

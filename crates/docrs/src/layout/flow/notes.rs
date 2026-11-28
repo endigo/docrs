@@ -26,6 +26,8 @@ pub(super) struct Area {
     parts: Vec<Part>,
     /// The separator's and the parts'.
     height: f64,
+    /// The separator's share of `height`.
+    separator: f64,
     /// Opens with the rest of a note from the page before.
     continued: bool,
     /// The bottom of the line whose note goes on: nothing more fits.
@@ -90,6 +92,9 @@ pub(super) struct Notes<'m> {
     endnotes: Vec<NoteId>,
     /// Laying out the endnotes: their paragraphs are not body paragraphs.
     pub(super) in_endnotes: bool,
+    /// Below compatibility mode 15, the separator's paragraph spacing
+    /// counts only above a note going on to the next page.
+    legacy: bool,
 }
 
 impl<'m> Notes<'m> {
@@ -106,13 +111,23 @@ impl<'m> Notes<'m> {
             area: Area::default(),
             endnotes: Vec::new(),
             in_endnotes: false,
+            legacy: model.page_break_keeps_space,
         }
     }
 
-    fn separator_height(&self, continued: bool) -> f64 {
-        self.separators[usize::from(continued)]
-            .as_ref()
-            .map_or(0.0, |s| separator_height(s, continued))
+    /// The separator's height, its paragraph spacing included (Word for
+    /// Mac 16.115, corpus and Word checks): the continuation separator's
+    /// line alone, and below mode 15 the separator's while the page's notes
+    /// fit whole.
+    fn separator_height(&self, continued: bool, going_on: bool) -> f64 {
+        let Some(layout) = self.separators[usize::from(continued)].as_ref() else {
+            return 0.0;
+        };
+        if continued || (self.legacy && !going_on) {
+            layout.lines.iter().map(|l| l.height).sum()
+        } else {
+            layout.content
+        }
     }
 
     fn laid(&self, note: NoteId) -> &Laid<'m> {
@@ -128,6 +143,11 @@ impl<'m> Notes<'m> {
 }
 
 impl Area {
+    /// The note going on to the next page.
+    pub(super) fn going_on(&self) -> Option<NoteId> {
+        self.carry.first().map(|part| part.note)
+    }
+
     fn holds(&self, note: NoteId) -> bool {
         self.parts.iter().chain(&self.carry).any(|p| p.note == note)
     }
@@ -138,24 +158,27 @@ impl Area {
         if self.full_at.is_some() {
             return false;
         }
-        let opening = self.opening(notes, refs);
-        let room = notes.page_bottom - line_bottom - self.height - opening;
         let heights: Vec<f64> = refs.iter().map(|n| notes.laid(*n).whole()).collect();
         let whole: f64 = heights.iter().sum();
-        if whole <= room + EPSILON {
-            self.take_whole(refs, opening + whole);
+        let room = notes.page_bottom - line_bottom - self.height;
+        let opening = self.opening(notes, refs, false);
+        if whole <= room - opening + EPSILON {
+            self.open(opening);
+            self.take_whole(refs, whole);
             return true;
         }
         let (Some((last, earlier)), Some(last_height)) = (refs.split_last(), heights.last()) else {
             return false;
         };
-        let room = room - (whole - last_height);
+        let opening = self.opening(notes, refs, true);
+        let room = room - opening - (whole - last_height);
         let laid = notes.laid(*last);
         let fit = laid.fitting(0, room);
         if room <= 0.0 || fit == 0 {
             return false;
         }
-        self.take_whole(earlier, opening + whole - last_height);
+        self.open(opening);
+        self.take_whole(earlier, whole - last_height);
         self.split(*last, laid, 0, fit, line_bottom);
         true
     }
@@ -163,9 +186,8 @@ impl Area {
     /// Take the notes of a line placed although they don't fit: those that
     /// do, then a part of the next, the rest going on.
     fn force(&mut self, notes: &Notes<'_>, refs: &[NoteId], line_bottom: f64) {
-        let opening = self.opening(notes, refs);
+        let opening = self.opening(notes, refs, true);
         let mut room = notes.page_bottom - line_bottom - self.height - opening;
-        let was_empty = self.parts.is_empty();
         for &note in refs {
             let laid = notes.laid(note);
             if self.full_at.is_some() {
@@ -182,18 +204,23 @@ impl Area {
                 self.split(note, laid, 0, fit, line_bottom);
             }
         }
-        if was_empty && !self.parts.is_empty() {
-            self.height += opening;
+        if !self.parts.is_empty() {
+            self.open(opening);
         }
     }
 
-    /// The separator above the page's first note.
-    fn opening(&self, notes: &Notes<'_>, refs: &[NoteId]) -> f64 {
-        if self.parts.is_empty() && !self.continued && !refs.is_empty() {
-            notes.separator_height(false)
-        } else {
-            0.0
+    /// What the separator above the page's notes adds for `refs`: all of
+    /// it above the first, its spacing once a note goes on.
+    fn opening(&self, notes: &Notes<'_>, refs: &[NoteId], going_on: bool) -> f64 {
+        if self.continued || refs.is_empty() {
+            return 0.0;
         }
+        (notes.separator_height(false, going_on) - self.separator).max(0.0)
+    }
+
+    fn open(&mut self, opening: f64) {
+        self.separator += opening;
+        self.height += opening;
     }
 
     fn take_whole(&mut self, refs: &[NoteId], height: f64) {
@@ -233,6 +260,10 @@ fn note_bottom(area: &Area, refs: &[NoteId], para: &Para, line: &Line, top: f64)
     if area.height == 0.0 && !cites {
         return top + line.fit;
     }
+    citing_bottom(para, line, top, cites)
+}
+
+fn citing_bottom(para: &Para, line: &Line, top: f64, cites: bool) -> f64 {
     let ends = line.pieces.end as usize >= para.pieces.len();
     let after = if cites && ends {
         para.after_spacing()
@@ -242,14 +273,15 @@ fn note_bottom(area: &Area, refs: &[NoteId], para: &Para, line: &Line, top: f64)
     top + line.height + after
 }
 
-/// The separator counts with its paragraph spacing, the continuation
-/// separator with its line alone (Word for Mac 16.115).
-fn separator_height(layout: &CellLayout<'_>, continued: bool) -> f64 {
-    if continued {
-        layout.lines.iter().map(|l| l.height).sum()
-    } else {
-        layout.content
-    }
+/// The footnotes a line at `top` cites, each with the line's bottom above
+/// the notes.
+pub(super) fn citations(para: &Para, line: &Line, top: f64) -> Vec<(f64, NoteId)> {
+    let bottom = citing_bottom(para, line, top, true);
+    line_refs(para, line)
+        .into_iter()
+        .filter(|note| note.kind == NoteKind::Footnote)
+        .map(|note| (bottom, note))
+        .collect()
 }
 
 /// The notes a line refers to, footnotes and endnotes alike.
@@ -345,6 +377,14 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     ) -> Result<bool> {
         let footnotes = self.new_footnotes(refs, area)?;
         Ok(area.admit(&self.notes, &footnotes, line_bottom))
+    }
+
+    /// Whether a row ending at `bottom` fits with its notes, and whether
+    /// one of them would then go on to the next page.
+    pub(super) fn row_admits(&mut self, refs: &[NoteId], bottom: f64) -> Result<(bool, bool)> {
+        let mut area = self.notes.area.clone();
+        let whole = self.admit(&mut area, refs, bottom)?;
+        Ok((whole, area.going_on().is_some()))
     }
 
     /// `admit` for a paragraph's line.
@@ -450,9 +490,11 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         if carry.is_empty() {
             return Ok(false);
         }
+        let separator = self.notes.separator_height(true, true);
         let mut area = Area {
             continued: true,
-            height: self.notes.separator_height(true),
+            height: separator,
+            separator,
             ..Area::default()
         };
         for part in carry {
@@ -505,7 +547,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         let mut y = (self.notes.page_bottom - self.notes.area.height).max(self.top);
         if let Some(separator) = separator {
             self.draw_separator(separator, left, y)?;
-            y += separator_height(separator, self.notes.area.continued);
+            y += self.notes.area.separator;
         }
         for part in parts {
             let note = &laid[&part.note];
