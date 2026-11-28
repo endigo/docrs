@@ -104,6 +104,12 @@ impl NoteNumbering {
         out
     }
 
+    /// Whether marks are written in the format asked, not in arabic.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn writes_format(&self) -> bool {
+        super::numbering::writes_format(&self.format)
+    }
+
     pub fn mark(&self, number: u32) -> String {
         format_number(i64::from(number), &self.format)
     }

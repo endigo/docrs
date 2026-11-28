@@ -40,6 +40,19 @@ pub(crate) struct TabPlace {
     pub leader: Leader,
 }
 
+/// A note separator's rule on a line: its piece and the x it runs from
+/// and to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RulePlace {
+    pub piece: u32,
+    pub from: f64,
+    pub to: f64,
+}
+
+/// Word's note separator is a 2-inch rule; the continuation separator
+/// runs to the right indent. Either is cut at the right indent.
+pub(crate) const SEPARATOR_LENGTH: f64 = 144.0;
+
 /// A tab's leader as drawn: its character, in the tab's look, at each x
 /// from the page's left edge.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +96,8 @@ pub(crate) struct Line {
     /// line may shrink.
     pub gaps: u32,
     pub tabs: Vec<TabPlace>,
+    /// The note separators' rules, which advance like a word.
+    pub rules: Vec<RulePlace>,
     /// Ends the paragraph, or in a line or page break.
     pub last: bool,
     /// Its slack is spread over its gaps.
@@ -121,8 +136,14 @@ impl Line {
                 .tabs
                 .iter()
                 .find(|tab| tab.piece as usize == first + at);
+            let rule = || {
+                self.rules
+                    .iter()
+                    .find(|rule| rule.piece as usize == first + at)
+            };
             match (piece, tab) {
                 (Piece::Tab { .. }, Some(tab)) => tab.to,
+                (Piece::Separator { .. }, _) => x + rule().map_or(0.0, |r| r.to - r.from),
                 _ if gaps[at] => x + width(piece) + share,
                 _ => x + width(piece),
             }
@@ -361,6 +382,7 @@ struct End {
     content: f64,
     gaps: u32,
     tabs: usize,
+    rules: usize,
     /// Text other than spaces before the end.
     ink: bool,
 }
@@ -401,6 +423,7 @@ struct Open {
     pending: u32,
     words: bool,
     tabs: Vec<TabPlace>,
+    rules: Vec<RulePlace>,
 }
 
 impl Open {
@@ -420,6 +443,7 @@ impl Open {
             pending: 0,
             words: false,
             tabs: Vec::new(),
+            rules: Vec::new(),
         }
     }
 
@@ -428,6 +452,7 @@ impl Open {
             content: self.content,
             gaps: self.gaps,
             tabs: self.tabs.len(),
+            rules: self.rules.len(),
             ink: self.ink,
         }
     }
@@ -555,6 +580,12 @@ impl Breaker<'_> {
             tab.from += offset;
             tab.to += offset;
         }
+        let mut rules = open.rules;
+        rules.truncate(end.rules);
+        for rule in &mut rules {
+            rule.from += offset;
+            rule.to += offset;
+        }
         self.out.push(Line {
             height,
             fit,
@@ -567,6 +598,7 @@ impl Breaker<'_> {
             slack,
             gaps: end.gaps,
             tabs,
+            rules,
             last: ending != Ending::Wrap,
             justified: para.align.justified() && (spread || slack < 0.0),
             label: para
@@ -626,6 +658,35 @@ impl Breaker<'_> {
         let line = &mut self.line;
         line.x += width;
         line.object = line.object.max(height);
+        line.word();
+        line.mark_break(index + 1);
+    }
+
+    /// A note separator: a rule that advances like a word, so alignment
+    /// places it and text after it follows it. A separator that does not
+    /// fit after other content starts the next line.
+    fn separator(&mut self, index: usize, continuation: bool, metric: u32) {
+        if !continuation
+            && self.line.has_content
+            && self.line.x + SEPARATOR_LENGTH > self.right_limit + EPSILON
+        {
+            self.close(Ending::Wrap, index, self.line.end());
+        }
+        let line = &mut self.line;
+        let room = (self.right_limit - line.x).max(0.0);
+        let length = if continuation {
+            room
+        } else {
+            SEPARATOR_LENGTH.min(room)
+        };
+        line.text.add(self.metrics, metric, self.extra);
+        line.ink = true;
+        line.rules.push(RulePlace {
+            piece: index as u32,
+            from: line.x,
+            to: line.x + length,
+        });
+        line.x += length;
         line.word();
         line.mark_break(index + 1);
     }
@@ -704,7 +765,14 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
                 ch, width, metric, ..
             } => b.char(index, ch, width, metric),
             Piece::NoteRef { width, metric, .. } => b.char(index, '0', width, metric),
-            Piece::Separator { metric, .. } => b.char(index, '0', 0.0, metric),
+            Piece::Separator {
+                continuation,
+                metric,
+                ..
+            } => {
+                b.separator(index, continuation, metric);
+                index + 1
+            }
             Piece::Object { width, height, .. } => {
                 b.object(index, width, height);
                 index + 1

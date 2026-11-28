@@ -477,16 +477,27 @@ fn cases() -> Vec<Case> {
             1,
             docx(
                 &para(FOOTNOTE_REF),
-                &[xml_part(
-                    "word/settings.xml",
-                    "settings",
-                    "settings",
-                    r#"<w:footnotePr><w:pos w:val="beneathText"/></w:footnotePr>"#,
-                )],
+                &[
+                    xml_part(
+                        "word/settings.xml",
+                        "settings",
+                        "settings",
+                        r#"<w:footnotePr><w:pos w:val="beneathText"/></w:footnotePr>"#,
+                    ),
+                    footnote_one(),
+                ],
                 &[],
             ),
         )
         .unlocated(),
+        // A reference to a note the document does not have, and one in a
+        // header, are left out.
+        case(
+            "pdf_note_reference_dropped",
+            "note reference",
+            1,
+            docx(&para(FOOTNOTE_REF), &[], &[]),
+        ),
         case(
             "pdf_link_target_missing",
             "link",
@@ -515,6 +526,18 @@ fn cases() -> Vec<Case> {
 }
 
 const FOOTNOTE_REF: &str = r#"<w:r><w:footnoteReference w:id="1"/></w:r>"#;
+
+/// A footnotes part holding the note [`FOOTNOTE_REF`] cites.
+fn footnote_one() -> Part {
+    xml_part(
+        "word/footnotes.xml",
+        "footnotes",
+        "footnotes",
+        &(r#"<w:footnote w:id="1">"#.to_string()
+            + &para(&run("<w:t>Note.</w:t>"))
+            + "</w:footnote>"),
+    )
+}
 
 fn report(document: &Document) -> PdfReport {
     preflight(document).unwrap()
@@ -636,19 +659,16 @@ fn a_converted_document_is_only_not_yet_drawn() {
         "{codes:?}"
     );
     let subjects: Vec<_> = report.warnings.iter().map(|w| w.subject).collect();
-    assert!(subjects.contains(&"footnote"), "{subjects:?}");
-    for drawn in ["text", "list", "link", "table", "border", "shading"] {
+    for drawn in [
+        "text", "list", "link", "table", "border", "shading", "footnote",
+    ] {
         assert!(!subjects.contains(&drawn), "{drawn}: {subjects:?}");
     }
-    let footnote = report
-        .warnings
-        .iter()
-        .find(|w| w.subject == "footnote")
-        .unwrap();
     assert!(
-        footnote
-            .locations
+        report
+            .warnings
             .iter()
+            .flat_map(|w| &w.locations)
             .all(|l| l.page.is_none() && l.ordinal >= 1)
     );
 }
@@ -1572,4 +1592,26 @@ fn diagonal_cell_borders_and_patterned_cell_shading_are_reported() {
             "a diagonal is not a border drawn as a single line"
         );
     }
+}
+
+/// Word allows no note in a header: layout leaves the reference out, and
+/// preflight says so, with the header's location.
+#[test]
+fn a_note_reference_in_a_header_is_reported() {
+    let body = text_para("Body") + &section(r#"<w:headerReference w:type="default" r:id="rId1"/>"#);
+    let report = report(&docx(
+        &body,
+        &[
+            header("word/header1.xml", &para(FOOTNOTE_REF)),
+            footnote_one(),
+        ],
+        &[],
+    ));
+    let dropped: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "pdf_note_reference_dropped")
+        .collect();
+    assert_eq!(dropped.len(), 1, "{report:#?}");
+    assert_eq!(dropped[0].locations[0].story, "word/header1.xml");
 }

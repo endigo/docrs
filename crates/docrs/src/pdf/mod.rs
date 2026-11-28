@@ -142,7 +142,7 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     ),
     (
         FIELD_FORMAT_APPROXIMATED,
-        "a page number asked in words, as an ordinal or through a numeric picture is shown in arabic digits",
+        "a page number asked in words, as an ordinal or through a numeric picture, or a note number in a format the PDF engine does not write, is shown in arabic digits",
     ),
     (
         STORY_OVERFLOW,
@@ -155,6 +155,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         FOOTNOTE_LAYOUT_UNSUPPORTED,
         "footnotes or endnotes placed beneath the text, in columns or at section ends, or a note's table split across pages: the PDF engine cannot place them as Word does",
+    ),
+    (
+        "pdf_note_reference_dropped",
+        "a note reference in a header or footer, or to a note the document does not have, is left out with its mark",
     ),
     (
         "pdf_link_scheme_skipped",
@@ -204,6 +208,12 @@ fn message(code: &str, subject: &str) -> &'static str {
         }
         (FIELD_CACHED, "field without an end") => {
             "a field without an end is not computed: the PDF shows the text saved in its place"
+        }
+        (FIELD_CACHED, "page field in a note") => {
+            "a page field in a note or separator is not computed: the PDF shows the number saved in the document"
+        }
+        (FIELD_FORMAT_APPROXIMATED, "note number format") => {
+            "note numbers in a format the PDF engine does not write are shown in arabic digits"
         }
         (FIELD_CACHED, _) => {
             "a page field whose instruction the PDF engine does not read shows the number saved in the document"

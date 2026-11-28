@@ -54,6 +54,8 @@ const LINK_TARGET: &str = "pdf_link_target_missing";
 const JUSTIFY: &str = "pdf_justification_unsupported";
 const APPROXIMATED: &str = "pdf_decoration_approximated";
 const FALLBACK: &str = "pdf_drawing_fallback_used";
+const NUMBER_FORMAT: &str = crate::layout::FIELD_FORMAT_APPROXIMATED;
+const NOTE_MISSING: &str = "pdf_note_reference_dropped";
 
 const RTL: &str = "right-to-left text";
 const TABLE_BORDER: &str = "table border";
@@ -80,6 +82,11 @@ pub fn preflight(document: &Document) -> Result<PdfReport> {
         related(&txn, main, rt::SETTINGS)?,
     );
     let mut scan = Scan::new(&txn, formatting);
+    for (slot, rel) in [rt::FOOTNOTES, rt::ENDNOTES].into_iter().enumerate() {
+        if let Some(notes) = related(&txn, main, rel)? {
+            scan.note_ids[slot] = normal_note_ids(notes);
+        }
+    }
     scan.story(main, "body", tree, body.unwrap_or(tree.root()))?;
     let settings = related(&txn, main, rt::SETTINGS)?;
     let setting = |name: &str| {
@@ -121,6 +128,22 @@ fn related<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Result<Option<&'t Xml
         Some(part) => Ok(Some(txn.tree(&part)?)),
         None => Ok(None),
     }
+}
+
+/// The `w:id` of each note a notes part holds, separators left out.
+fn normal_note_ids(tree: &XmlTree) -> HashSet<String> {
+    tree.child_elements(tree.root())
+        .filter(|&note| w_attr(tree, note, "type").is_none_or(|t| t == "normal"))
+        .filter_map(|note| w_attr(tree, note, "id").map(str::to_string))
+        .collect()
+}
+
+/// Whether a note holds anything drawn: a run with more than its
+/// properties.
+fn has_content(tree: &XmlTree, note: NodeId) -> bool {
+    tree.descendants(note)
+        .filter(|&n| tree.is(n, W, "r"))
+        .any(|run| tree.child_elements(run).any(|c| !tree.is(c, W, "rPr")))
 }
 
 /// The headers and footers some page shows, with their kind: each
@@ -219,6 +242,8 @@ struct Scan<'s, 'd> {
     page_field: Option<PdfLocation>,
     /// A section numbers its pages with chapter numbers (`w:chapStyle`).
     chapters: bool,
+    /// The footnotes' and endnotes' ids ([`normal_note_ids`]).
+    note_ids: [HashSet<String>; 2],
     tally: Tally,
 }
 
@@ -240,6 +265,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             anchors: Vec::new(),
             page_field: None,
             chapters: false,
+            note_ids: [HashSet::new(), HashSet::new()],
             tally: Tally::default(),
         }
     }
@@ -257,12 +283,15 @@ impl<'s, 'd> Scan<'s, 'd> {
         Ok(())
     }
 
-    /// Footnotes and endnotes, without the separators Word draws itself.
+    /// Footnotes, endnotes and their separators. Layout does not draw a
+    /// continuation notice, nor keep room for it: one with content refuses.
     fn notes(&mut self, part: &str, kind: &'static str, tree: &XmlTree) -> Result<()> {
         self.enter(part, kind)?;
         for note in tree.child_elements(tree.root()) {
-            if w_attr(tree, note, "type").is_none_or(|t| t == "normal") {
+            if w_attr(tree, note, "type") != Some("continuationNotice") {
                 self.walk(tree, note)?;
+            } else if has_content(tree, note) {
+                self.note(FOOTNOTE_LAYOUT_UNSUPPORTED, "a continuation notice");
             }
         }
         self.close_fields();
@@ -339,6 +368,23 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
         for subject in misplaced {
             self.note_at(FOOTNOTE_LAYOUT_UNSUPPORTED, subject, false, None);
+        }
+        for (kind, local) in [
+            (NoteKind::Footnote, "footnoteReference"),
+            (NoteKind::Endnote, "endnoteReference"),
+        ] {
+            if referenced(local) && sections.iter().any(|s| !s.get(kind).writes_format()) {
+                self.note_at(NUMBER_FORMAT, "note number format", false, None);
+            }
+        }
+    }
+
+    /// A reference layout leaves out: in a header or footer, which Word
+    /// does not allow, or to a note the document does not have.
+    fn note_reference(&mut self, tree: &XmlTree, node: NodeId, slot: usize) {
+        let known = w_attr(tree, node, "id").is_some_and(|id| self.note_ids[slot].contains(id));
+        if matches!(self.kind, "header" | "footer") || !known {
+            self.note(NOTE_MISSING, "note reference");
         }
     }
 
@@ -491,8 +537,8 @@ impl<'s, 'd> Scan<'s, 'd> {
                     self.bookmarks.insert(bookmark_key(name));
                 }
             }
-            "footnoteReference" | "footnoteRef" => self.note(NOT_YET_DRAWN, "footnote"),
-            "endnoteReference" | "endnoteRef" => self.note(NOT_YET_DRAWN, "endnote"),
+            "footnoteReference" => self.note_reference(tree, node, 0),
+            "endnoteReference" => self.note_reference(tree, node, 1),
             "fldSimple" => {
                 let instruction = w_attr(tree, node, "instr").unwrap_or("");
                 self.field(instruction, field_locked(tree, node), true)
@@ -779,6 +825,13 @@ impl<'s, 'd> Scan<'s, 'd> {
                 }
             }
             command => match field_shown(instruction) {
+                // Layout computes page fields in the body, headers and
+                // footers only; Word keeps a locked one's result.
+                FieldShown::Computed
+                    if !locked && matches!(self.kind, "footnotes" | "endnotes") =>
+                {
+                    self.note(FIELD, "page field in a note")
+                }
                 FieldShown::Computed => {
                     if matches!(command, "PAGE" | "PAGEREF") && !locked && self.page_field.is_none()
                     {

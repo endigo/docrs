@@ -283,9 +283,13 @@ pub enum Piece {
     /// The rule above the notes (`w:separator`), or above a note continued
     /// from the page before (`w:continuationSeparator`).
     Separator {
-        #[allow(dead_code, reason = "the PDF painter reads it")]
         continuation: bool,
         metric: u32,
+        #[cfg_attr(
+            not(feature = "pdf"),
+            allow(dead_code, reason = "the PDF painter reads it")
+        )]
+        look: u32,
     },
     /// An inline drawing's box: its extent and effect extent.
     Object {

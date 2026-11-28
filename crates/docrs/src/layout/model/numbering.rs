@@ -164,6 +164,23 @@ fn level_in<'a>(
         .or_else(|| abstracts.get(abs).and_then(|levels| levels.get(&ilvl)))
 }
 
+/// Whether [`format_number`] writes `format` as asked; any other is
+/// written in arabic digits.
+#[cfg(feature = "pdf")]
+pub(super) fn writes_format(format: &str) -> bool {
+    matches!(
+        format,
+        "decimal"
+            | "chicago"
+            | "lowerLetter"
+            | "upperLetter"
+            | "lowerRoman"
+            | "upperRoman"
+            | "decimalZero"
+            | "none"
+    )
+}
+
 pub(super) fn format_number(value: i64, format: &str) -> String {
     match format {
         "chicago" => {
