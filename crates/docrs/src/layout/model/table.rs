@@ -91,6 +91,7 @@ impl TableCtx {
 
 /// A table's style, by name and resolved, and its `w:tblLook`.
 pub(crate) struct TableFormat {
+    #[cfg(feature = "pdf")]
     pub(crate) id: Option<String>,
     pub(super) style: Rc<TableStyle>,
     pub(crate) look: TableLook,

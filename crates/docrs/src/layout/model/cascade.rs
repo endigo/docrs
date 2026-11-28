@@ -135,6 +135,7 @@ impl TableLook {
         }
     }
 
+    #[cfg(feature = "pdf")]
     pub(crate) fn first_row(self) -> bool {
         self.first_row
     }
@@ -282,6 +283,7 @@ pub(super) fn parts_of(regions: &[(Part, Region)]) -> Parts {
 
 impl Parts {
     /// The first row's formats, for a scan that does not place cells.
+    #[cfg(feature = "pdf")]
     pub(crate) fn first_row(on: bool) -> Parts {
         Parts::default().with(Part::FirstRow, on)
     }

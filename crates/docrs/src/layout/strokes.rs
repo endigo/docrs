@@ -154,3 +154,67 @@ fn line_runs(strokes: &[Stroke], horizontal: bool, at: f64) -> Vec<Stroke> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::model::{BorderStyle, Colour};
+    use super::*;
+
+    fn border(width: f64) -> Border {
+        Border {
+            style: BorderStyle::Single,
+            width,
+            space: 0.0,
+            colour: Colour::Auto,
+        }
+    }
+
+    fn across(y: f64, from: f64, to: f64, width: f64) -> Stroke {
+        Stroke::on(true, y, from, to, border(width))
+    }
+
+    fn spans(strokes: &[Stroke]) -> Vec<(f64, f64, f64)> {
+        strokes
+            .iter()
+            .map(|s| (s.span().1, s.span().2, s.border.width))
+            .collect()
+    }
+
+    #[test]
+    fn touching_strokes_join_and_a_row_s_bottom_meets_the_next_row_s_top_once() {
+        let strokes = vec![
+            across(100.0, 72.0, 172.0, 0.5),
+            across(100.0, 172.0, 272.0, 0.5),
+            // The next row's top: the same line again.
+            across(100.0, 72.0, 272.0, 0.5),
+            Stroke::on(false, 72.0, 80.0, 100.0, border(0.5)),
+            Stroke::on(false, 72.0, 100.0, 120.0, border(0.5)),
+        ];
+        let runs = runs(strokes);
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        assert_eq!(spans(&runs[..1]), [(72.0, 272.0, 0.5)]);
+        assert_eq!(
+            (runs[1].from, runs[1].to),
+            (Point { x: 72.0, y: 80.0 }, Point { x: 72.0, y: 120.0 })
+        );
+    }
+
+    #[test]
+    fn where_strokes_overlap_the_stronger_border_is_drawn() {
+        // A repeated header's bottom over the next row's thicker top.
+        let runs = runs(vec![
+            across(200.0, 72.0, 272.0, 0.5),
+            across(200.0, 172.0, 372.0, 1.5),
+        ]);
+        assert_eq!(spans(&runs), [(72.0, 172.0, 0.5), (172.0, 372.0, 1.5)]);
+    }
+
+    #[test]
+    fn strokes_apart_stay_apart() {
+        let runs = runs(vec![
+            across(10.0, 0.0, 10.0, 0.5),
+            across(10.0, 20.0, 30.0, 0.5),
+        ]);
+        assert_eq!(spans(&runs), [(0.0, 10.0, 0.5), (20.0, 30.0, 0.5)]);
+    }
+}

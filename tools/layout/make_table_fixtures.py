@@ -66,14 +66,14 @@ CONFLICTS = [
     ("Dotted weighs 1: single 0.25 pt beats dotted 3 pt", side("right", "dotted", 24, "C00000"), side("left", "single", 2, "0070C0")),
     ("Colour: red beats blue (darker on B + 2G)", side("right", "single", 24, "0000FF"), side("left", "single", 24, "FF0000")),
     ("Colour: magenta beats green (green counts twice)", side("right", "single", 24, "00FF00"), side("left", "single", 24, "FF00FF")),
-    ("none yields: the right cell's thick line shows", side("right", "none", 0), side("left", "thick", 24, "0070C0")),
+    ("none yields (no insideV): the right cell's thick line shows", side("right", "none", 0), side("left", "thick", 24, "0070C0"), False),
     ("nil hides: no line, though the right cell has one", side("right", "nil", 0), side("left", "thick", 24, "0070C0")),
-    ("Cell beats table: a cell's own none defers to the table's insideV", side("right", "none", 0), ""),
+    ("A cell's none defers to the table's green insideV", side("right", "none", 0), ""),
 ]
 
 
-def conflict(label, left, right):
-    borders = THIN + side("insideV", "single", 24, "00B050")
+def conflict(label, left, right, inside=True):
+    borders = THIN + (side("insideV", "single", 24, "00B050") if inside else "")
     a = cell(3000, "Left", f"<w:tcBorders>{left}</w:tcBorders>")
     b = cell(3000, "Right", f"<w:tcBorders>{right}</w:tcBorders>" if right else "")
     return p(label, '<w:spacing w:before="240"/>', "<w:b/>") + table(row(a, b), [3000, 3000], borders=borders)

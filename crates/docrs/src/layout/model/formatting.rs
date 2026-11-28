@@ -155,6 +155,7 @@ impl Formatting {
             .or_else(|| self.styles.default_table.clone());
         TableFormat {
             style: self.styles.table_style(id.as_deref()),
+            #[cfg(feature = "pdf")]
             id,
             look: TableLook::read(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblLook"))),
         }
