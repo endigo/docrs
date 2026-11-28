@@ -181,10 +181,7 @@ impl Builder<'_> {
         let anchor = w_attr(tree, hyperlink, "anchor");
         match (uri, anchor) {
             (Some(uri), Some(anchor)) => Some(Link::Uri(format!("{uri}#{anchor}"))),
-            (Some(uri), None) => Some(match uri.trim().strip_prefix('#') {
-                Some(bookmark) => Link::Anchor(bookmark.to_string()),
-                None => Link::Uri(uri.clone()),
-            }),
+            (Some(uri), None) => Some(Link::to(uri)),
             (None, anchor) => anchor.map(|a| Link::Anchor(a.to_string())),
         }
     }
@@ -267,9 +264,16 @@ impl Builder<'_> {
                     }
                 }
                 "customXml" | "ins" | "moveTo" => self.blocks(tree, child, table, out),
+                "bookmarkStart" | "del" | "moveFrom" => self.loose_bookmarks(tree, child),
                 _ => {}
             }
         }
+    }
+
+    /// Bookmarks outside a paragraph, at `node` or deleted inside it: they
+    /// go to the next paragraph's start.
+    pub(super) fn loose_bookmarks(&mut self, tree: &XmlTree, node: NodeId) {
+        self.loose.extend(bookmark_names(tree, node));
     }
 
     /// A table nested too deep: its paragraphs, and those of the tables in
@@ -288,6 +292,7 @@ impl Builder<'_> {
             }
             match tree.local_name(node).unwrap_or("") {
                 "p" => out.push(Block::Para(self.paragraph(tree, node, table))),
+                "bookmarkStart" | "del" | "moveFrom" => self.loose_bookmarks(tree, node),
                 "tbl" | "tr" | "tc" | "sdt" | "sdtContent" | "customXml" | "ins" | "moveTo" => {
                     let children: Vec<NodeId> = tree.child_elements(node).collect();
                     stack.extend(children.into_iter().rev());
@@ -522,6 +527,10 @@ impl Builder<'_> {
                 });
             }
         }
+        para.bookmarks = std::mem::take(&mut self.loose)
+            .into_iter()
+            .map(|name| Bookmark { name, piece: 0 })
+            .collect();
         let mut fields = Vec::new();
         self.display = None;
         self.inline(tree, p, &para_rpr, &mut para, &mut fields);
@@ -609,13 +618,10 @@ impl Builder<'_> {
                         self.inline(tree, content, para_rpr, para, fields);
                     }
                 }
-                "bookmarkStart" => {
-                    if let Some(name) = w_attr(tree, child, "name") {
-                        para.bookmarks.push(Bookmark {
-                            name: name.to_string(),
-                            piece: para.pieces.len() as u32,
-                        });
-                    }
+                "bookmarkStart" | "del" | "moveFrom" => {
+                    let piece = para.pieces.len() as u32;
+                    para.bookmarks
+                        .extend(bookmark_names(tree, child).map(|name| Bookmark { name, piece }));
                 }
                 _ => {}
             }
@@ -834,7 +840,7 @@ fn sym_char(tree: &XmlTree, sym: NodeId) -> Option<char> {
 }
 
 /// A HYPERLINK field's target: its URI (with `\l`'s bookmark as the
-/// fragment), else the bookmark.
+/// fragment), else the bookmark; a URI `#name` is the bookmark `name`.
 pub(crate) fn field_link(code: &str) -> Option<Link> {
     let tokens = fieldcode::tokens(code).ok()?;
     let (command, rest) = tokens.split_first()?;
@@ -858,9 +864,17 @@ pub(crate) fn field_link(code: &str) -> Option<Link> {
     }
     match (uri, anchor) {
         (Some(uri), Some(anchor)) => Some(Link::Uri(format!("{uri}#{anchor}"))),
-        (Some(uri), None) => Some(Link::Uri(uri)),
+        (Some(uri), None) => Some(Link::to(&uri)),
         (None, anchor) => anchor.map(Link::Anchor),
     }
+}
+
+/// The names of `node`'s bookmark starts, itself included.
+fn bookmark_names(tree: &XmlTree, node: NodeId) -> impl Iterator<Item = String> + '_ {
+    tree.descendants(node)
+        .filter(|&n| tree.is(n, W, "bookmarkStart"))
+        .filter_map(|n| w_attr(tree, n, "name"))
+        .map(str::to_string)
 }
 
 fn vml_size(style: &str) -> (f64, f64) {

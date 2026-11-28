@@ -41,3 +41,5 @@ The numbered files have no `settings.xml`; `-fe` adds `w:useFELayout`, `-nofe` l
 `one-page.pdf`, `font-line.pdf` and `image-logo.pdf` are the PDF writer's golden files (`crates/docrs/tests/pdf.rs`, `pdf_fonts.rs` and `pdf_images.rs`): an empty page, a line of Liberation Serif embedded as a subset, and `images/logo.png` with its soft mask.
 
 `images/` holds images from real encoders (`images/PROVENANCE.md`).
+
+`word-links.docx` is the links test document of PR #54 as Word for Mac saved it (Arial 11 pt, 6 pt space after): links to a bookmark in two cases, to a missing bookmark and to `_top`, over three pages. Word's PDF of it (`pr-proof` branch, `pr54/word-links.pdf`) gives the link rectangles `crates/docrs/tests/pdf_links.rs` holds ours to.

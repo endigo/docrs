@@ -600,11 +600,11 @@ impl<'s, 'd> Scan<'s, 'd> {
     /// A link target on `subject`: a bookmark, an allowed scheme, or
     /// skipped.
     fn link(&mut self, target: &str, subject: &'static str) {
-        let target = target.trim();
-        if let Some(anchor) = target.strip_prefix('#') {
-            return self.anchor(anchor, subject);
-        }
-        match scheme(target) {
+        let target = match Link::to(target) {
+            Link::Anchor(anchor) => return self.anchor(&anchor, subject),
+            Link::Uri(uri) => uri,
+        };
+        match scheme(target.trim()) {
             Some(scheme) if LINK_SCHEMES.contains(&scheme.as_str()) => {
                 self.note(NOT_YET_DRAWN, subject)
             }

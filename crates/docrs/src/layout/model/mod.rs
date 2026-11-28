@@ -584,6 +584,8 @@ pub(super) struct Builder<'a> {
     hyperlinks: HashMap<String, String>,
     /// The link of the `w:hyperlink` or `w:fldSimple` being read.
     link: Option<u32>,
+    /// Bookmarks read outside a paragraph, for the next one.
+    loose: Vec<String>,
     sections_seen: usize,
     story: StoryId,
     notes: notes::NoteState<'a>,
@@ -646,6 +648,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         sections_seen: 0,
         story: StoryId::Body,
         notes: notes::NoteState::read(txn, main, section_notes.clone()),
+        loose: Vec::new(),
         depth: 0,
         properties: super::fields::properties(txn),
         warnings: Vec::new(),
@@ -686,6 +689,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                     StoryId::Footer(n)
                 };
                 builder.hyperlinks = hyperlinks(txn, name);
+                builder.loose.clear();
                 let mut blocks = Vec::new();
                 builder.blocks(story, story.root(), None, &mut blocks);
                 let values = Values::default();
@@ -746,6 +750,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     }
     builder.story = StoryId::Body;
     builder.hyperlinks = hyperlinks(txn, main);
+    builder.loose.clear();
     let mut blocks = Vec::new();
     if let Some(body) = body {
         builder.blocks(tree, body, None, &mut blocks);

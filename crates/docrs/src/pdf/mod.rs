@@ -383,13 +383,15 @@ pub fn render(document: &Document, options: &PdfOptions) -> Result<(Vec<u8>, Pdf
     let mut report = preflight(document)?;
     report.check(options.strict)?;
     let (bytes, pages) = paint(document, options, None, &mut report)?;
+    // A link navigation left out that the preflight did not count.
+    report.check(options.strict)?;
     report.pages = Some(pages);
     Ok((bytes, report))
 }
 
-/// Lays out and draws `document`, adding what its fonts change to
-/// `report` and refusing as [`PdfReport::check`] does before drawing;
-/// `stand_in` draws what nothing else does.
+/// Lays out and draws `document`, adding what its fonts change and what
+/// navigation leaves out to `report`, and refusing as [`PdfReport::check`]
+/// does before drawing; `stand_in` draws what nothing else does.
 fn paint(
     document: &Document,
     options: &PdfOptions,
@@ -427,7 +429,7 @@ fn paint(
         .map(|page| (page.size, page.contents))
         .collect();
     let info = info(document)?;
-    let (bytes, _) = write_document(
+    let (bytes, navigation) = write_document(
         writer,
         &sizes,
         Dict::new().with("Font", fonts),
@@ -435,6 +437,7 @@ fn paint(
         &info,
         PRODUCER,
     )?;
+    report.add_navigation(navigation);
     Ok((bytes, pages))
 }
 
@@ -491,6 +494,23 @@ pub fn used_fonts(document: &Document) -> Result<Vec<UsedFont>> {
 }
 
 impl PdfReport {
+    /// Navigation's warnings, where the preflight counted fewer of a code
+    /// and subject: it reads the same links, so it normally counts as many,
+    /// with their locations.
+    fn add_navigation(&mut self, warnings: Vec<PdfWarning>) {
+        for warning in warnings {
+            let known = self
+                .warnings
+                .iter_mut()
+                .find(|known| (known.code, known.subject) == (warning.code, warning.subject));
+            match known {
+                Some(known) if known.count >= warning.count => {}
+                Some(known) => *known = warning,
+                None => self.warnings.push(warning),
+            }
+        }
+    }
+
     /// Replace every message with its code's fixed description, every
     /// location's part name with its story kind (`body`, `header`,
     /// `footer`, `footnotes`, `endnotes`), and every family name the
@@ -795,4 +815,41 @@ pub fn render_unchecked_for_tests(
 #[doc(hidden)]
 pub fn glyphs_for_tests(font: &[u8], index: u32, text: &str) -> Result<Vec<(u16, String)>> {
     font::glyphs_by_cmap(font, index, text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn warning(code: &'static str, count: usize) -> PdfWarning {
+        PdfWarning {
+            code,
+            subject: "link",
+            message: format!("{count}"),
+            locations: Vec::new(),
+            count,
+        }
+    }
+
+    #[test]
+    fn navigation_adds_only_what_the_preflight_counted_fewer_of() {
+        let mut report = PdfReport {
+            warnings: vec![warning(TARGET_MISSING, 2), warning(SCHEME_SKIPPED, 1)],
+            pages: None,
+        };
+        report.add_navigation(vec![
+            warning(TARGET_MISSING, 1),
+            warning(SCHEME_SKIPPED, 3),
+            warning(NOT_YET_DRAWN, 1),
+        ]);
+        let counts: Vec<(&str, usize)> =
+            report.warnings.iter().map(|w| (w.code, w.count)).collect();
+        assert_eq!(
+            counts,
+            [(TARGET_MISSING, 2), (SCHEME_SKIPPED, 3), (NOT_YET_DRAWN, 1)]
+        );
+    }
+
+    const TARGET_MISSING: &str = "pdf_link_target_missing";
+    const SCHEME_SKIPPED: &str = "pdf_link_scheme_skipped";
 }

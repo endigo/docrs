@@ -399,6 +399,8 @@ impl Builder<'_> {
     fn note_blocks(&mut self, tree: &XmlTree, note: Option<NodeId>) -> Vec<Block> {
         let mut blocks = Vec::new();
         if let Some(note) = note {
+            // Bookmarks left after the story or note before do not carry over.
+            self.loose.clear();
             self.blocks(tree, note, None, &mut blocks);
         }
         blocks

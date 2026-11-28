@@ -16,7 +16,7 @@ use docrs::layout::{FontSet, Link};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{
     Info, LinkId, Navigation, PdfOptions, PdfWarning, Rect, linked_document_for_tests,
-    paint_for_tests, render,
+    paint_for_tests, preflight, render,
 };
 use docrs::{Document, ErrorKind, Limits, Tolerance};
 use reader::{Dict, Pdf, Value, decode_text};
@@ -741,6 +741,9 @@ fn font(path: &str) -> Vec<u8> {
 
 const LIBERATION: &str = "liberation/LiberationSerif-Regular.ttf";
 
+/// How far Word's link rectangles reach past the text.
+const LINK_MARGIN: f64 = 2.16;
+
 fn fonts() -> FontSet {
     let mut builder = FontSet::builder();
     for path in ["inter/Inter[opsz,wght].ttf", LIBERATION] {
@@ -856,8 +859,22 @@ fn linked_texts(pdf: &Pdf) -> Vec<(String, Goes, usize)> {
     let mut out: Vec<(String, Goes, usize)> = Vec::new();
     let mut previous_bottom = f64::NAN;
     for annot in annots(pdf) {
-        let text = text_in(&drawn, &heights, annot.page, annot.rect);
+        let [left, bottom, right, top] = annot.rect;
+        let inside = [left + LINK_MARGIN, bottom, right - LINK_MARGIN, top];
+        let text = text_in(&drawn, &heights, annot.page, inside);
         assert!(!text.is_empty(), "{annot:?} covers no text");
+        let first = drawn[annot.page]
+            .iter()
+            .filter(|g| {
+                let y = heights[annot.page] - g.y;
+                g.x >= inside[0] - 0.001 && g.x < inside[2] && y > bottom && y < top
+            })
+            .map(|g| g.x)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            (first - inside[0]).abs() < 0.001,
+            "{annot:?} starts at {first}"
+        );
         let continues = out.last().is_some_and(|(_, goes, _)| *goes == annot.goes)
             && (annot.rect[3] - previous_bottom).abs() < 0.01;
         previous_bottom = annot.rect[1];
@@ -1173,4 +1190,203 @@ fn links_and_the_outline_can_be_left_out() {
     assert_eq!(catalog(&options), (vec![], 0));
     options.links = true;
     assert_eq!(catalog(&options), (vec!["Names".into()], 2));
+}
+
+/// Word for Mac's PDF of `word-links.docx` (Arial 11 pt, 6 pt space after):
+/// its link rectangles reach 2.16 pt past the text and down through the
+/// space after. Drawn here in Liberation Sans, which has Arial's metrics;
+/// Word's right edges are on a 0.24 pt grid.
+#[test]
+fn link_rects_are_word_s() {
+    let document = Document::open_path_with(
+        fixtures().join("pdf/word-links.docx"),
+        &Limits::default(),
+        Tolerance::word(),
+    )
+    .unwrap()
+    .0;
+    let mut builder = FontSet::builder();
+    builder
+        .add(font("liberation/LiberationSans-Regular.ttf"))
+        .unwrap();
+    builder.alias("Arial", "Liberation Sans");
+    let mut options = PdfOptions::default();
+    options.fonts = builder.build();
+    let (bytes, report) = render(&document, &options).unwrap();
+    let missing: Vec<usize> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "pdf_link_target_missing")
+        .map(|w| w.count)
+        .collect();
+    assert_eq!(missing, [1]);
+    let word = [
+        [69.84, 682.80, 237.60, 701.28],
+        [69.84, 664.08, 329.76, 682.80],
+        [69.84, 626.64, 225.84, 645.36],
+        [69.84, 589.44, 290.64, 608.16],
+    ];
+    let ours: Vec<[f64; 4]> = annots(&Pdf::parse(&bytes).unwrap())
+        .into_iter()
+        .map(|annot| annot.rect)
+        .collect();
+    assert_eq!(ours.len(), word.len(), "{ours:?}");
+    for (ours, word) in ours.iter().zip(word) {
+        for (side, (a, b)) in ours.iter().zip(word).enumerate() {
+            assert!(
+                (a - b).abs() < 0.25,
+                "side {side}: {ours:?} against {word:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_wrapped_link_s_first_line_stops_at_its_last_word_inside_the_margin() {
+    let words = "word ".repeat(40);
+    for ppr in ["", r#"<w:jc w:val="both"/>"#] {
+        let link = format!(r#"<w:hyperlink r:id="rLink">{}</w:hyperlink>"#, run(&words));
+        let pdf = Pdf::parse(&pdf_of(&raw(&para(ppr, &link)))).unwrap();
+        let drawn = glyphs(&pdf);
+        let rects: Vec<[f64; 4]> = annots(&pdf).into_iter().map(|a| a.rect).collect();
+        assert!(rects.len() >= 2, "{rects:?}");
+        let first = rects[0];
+        let last_glyph = drawn[0]
+            .iter()
+            .filter(|g| g.text != " " && 792.0 - g.y < first[3] && 792.0 - g.y > first[1])
+            .map(|g| g.x)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let d_width = 11.0 * 0.5;
+        assert!(
+            first[2] - LINK_MARGIN <= 540.0 + 0.001,
+            "{ppr}: {first:?} passes the margin"
+        );
+        assert!(
+            (first[2] - LINK_MARGIN - last_glyph) < d_width + 0.01,
+            "{ppr}: {first:?} runs past its last word at {last_glyph}"
+        );
+    }
+}
+
+#[test]
+fn a_link_of_only_a_tab_covers_the_tab() {
+    let link = r#"<w:hyperlink r:id="rLink"><w:r><w:tab/></w:r></w:hyperlink>"#;
+    let pdf = Pdf::parse(&pdf_of(&raw(&para("", link)))).unwrap();
+    let rects: Vec<[f64; 4]> = annots(&pdf).into_iter().map(|a| a.rect).collect();
+    assert_eq!(rects.len(), 1);
+    let [left, _, right, _] = rects[0];
+    assert!((left - (72.0 - LINK_MARGIN)).abs() < 0.001, "{rects:?}");
+    assert!((right - (108.0 + LINK_MARGIN)).abs() < 0.001, "{rects:?}");
+}
+
+#[test]
+fn a_hyperlink_field_to_a_hash_name_goes_to_the_bookmark() {
+    let field = |instruction: &str, text: &str| {
+        format!(
+            r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> {instruction} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{}<w:r><w:fldChar w:fldCharType="end"/></w:r>"#,
+            run(text)
+        )
+    };
+    let body = [
+        para("", &field(r##"HYPERLINK "#Here""##, "By hash")),
+        para("", &run("Between.")),
+        para("", &field(r#"HYPERLINK \l "Here""#, "By switch")),
+        para("", PAGE_BREAK),
+        para(
+            "",
+            &(r#"<w:bookmarkStart w:id="0" w:name="Here"/>"#.to_string() + &run("Here")),
+        ),
+    ]
+    .concat();
+    let (bytes, report) = render(&raw(&body), &options()).unwrap();
+    assert_eq!(report.warnings, []);
+    let goes: Vec<(String, Goes)> = linked_texts(&Pdf::parse(&bytes).unwrap())
+        .into_iter()
+        .map(|(text, goes, _)| (text, goes))
+        .collect();
+    let here = Goes::At(1, 69.84, 720.0);
+    assert_eq!(
+        goes,
+        [
+            ("By hash".to_string(), here.clone()),
+            ("By switch".to_string(), here),
+        ]
+    );
+}
+
+/// Word writes bookmarks between blocks: before a table, between its rows
+/// and deleted with tracked text. Each goes to the next paragraph.
+#[test]
+fn bookmarks_outside_paragraphs_go_to_the_next_paragraph() {
+    let link = |name: &str| {
+        para(
+            "",
+            &format!(
+                r#"<w:hyperlink w:anchor="{name}">{}</w:hyperlink>"#,
+                run(name)
+            ),
+        )
+    };
+    let cell = |text: &str| {
+        format!(
+            r#"<w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr>{}</w:tc>"#,
+            para("", &run(text))
+        )
+    };
+    let body = [
+        link("Loose"),
+        para("", &run("-")),
+        link("BeforeTable"),
+        para("", &run("-")),
+        link("Rows"),
+        para("", &run("-")),
+        link("Deleted"),
+        para("", PAGE_BREAK),
+        r#"<w:bookmarkStart w:id="1" w:name="Loose"/><w:bookmarkEnd w:id="1"/>"#.to_string(),
+        para("", &run("After the loose bookmark")),
+        r#"<w:bookmarkStart w:id="2" w:name="BeforeTable"/>"#.to_string(),
+        format!(
+            r#"<w:tbl><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr>{}</w:tr><w:bookmarkStart w:id="3" w:name="Rows"/><w:tr>{}</w:tr></w:tbl>"#,
+            cell("First row"),
+            cell("Second row")
+        ),
+        para(
+            "",
+            &(r#"<w:del w:id="9" w:author="A"><w:bookmarkStart w:id="4" w:name="Deleted"/><w:r><w:delText>gone</w:delText></w:r></w:del>"#.to_string()
+                + &run("Kept")),
+        ),
+    ]
+    .concat();
+    let document = raw(&body);
+    let bytes = paint_for_tests(&document, &fonts(), &font(LIBERATION)).unwrap();
+    let pdf = Pdf::parse(&bytes).unwrap();
+    let drawn = glyphs(&pdf);
+    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
+    let landed: Vec<(String, String)> = linked_texts(&pdf)
+        .into_iter()
+        .map(|(text, goes, _)| {
+            let Goes::At(page, _, top) = goes else {
+                panic!("{text}: {goes:?}");
+            };
+            (text, line_below(&drawn, &heights, page, top).0)
+        })
+        .collect();
+    let pairs =
+        |pairs: [(&str, &str); 4]| pairs.map(|(a, b)| (a.to_string(), b.to_string())).to_vec();
+    assert_eq!(
+        landed,
+        pairs([
+            ("Loose", "After the loose bookmark"),
+            ("BeforeTable", "First row"),
+            ("Rows", "Second row"),
+            ("Deleted", "Kept"),
+        ])
+    );
+    assert!(
+        preflight(&document)
+            .unwrap()
+            .warnings
+            .iter()
+            .all(|w| w.code != "pdf_link_target_missing")
+    );
 }

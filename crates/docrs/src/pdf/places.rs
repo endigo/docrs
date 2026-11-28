@@ -7,6 +7,10 @@ use super::nav::{LinkId, Navigation, Rect};
 use crate::layout::flow::{Line, Point};
 use crate::layout::model::{Model, Para, Piece, StoryId};
 
+/// Word's link rectangles reach this far, in points, past the text's ends
+/// (measured in Word for Mac's PDFs).
+const LINK_MARGIN: f64 = 2.16;
+
 /// The navigation of the pages painted so far.
 #[derive(Default)]
 pub(super) struct Places {
@@ -67,9 +71,11 @@ impl Places {
         self.lines += 1;
     }
 
-    /// One rectangle per hyperlink on the line, from its top to its bottom
-    /// and from its first piece's x to the next piece's, so the spaces
-    /// between its words and their justified gaps are inside it.
+    /// One rectangle per hyperlink on the line, from its first piece to
+    /// the end of its last drawn one, the spaces between its words and
+    /// their justified gaps included and the spaces the line breaks at
+    /// left out. As Word's, it reaches [`LINK_MARGIN`] past each end and
+    /// on the paragraph's last line down through its space after.
     fn links(&mut self, model: &Model, painted: &Painted) {
         let Painted { para, line, .. } = *painted;
         let (origins, _) = line.origins(para);
@@ -78,14 +84,20 @@ impl Places {
             .pieces
             .get(first as usize..line.pieces.end as usize)
             .unwrap_or_default();
+        let drawn = pieces.iter().rposition(|piece| match piece {
+            Piece::Char { ch, .. } => *ch != ' ',
+            Piece::Tab { .. } | Piece::Object { .. } => true,
+            Piece::LineBreak { .. } | Piece::PageBreak => false,
+        });
         let mut parts: Vec<(LinkId, u32, f64, f64)> = Vec::new();
         for (at, piece) in pieces.iter().enumerate() {
             let Some(link) = link_of(model, piece) else {
                 continue;
             };
             let id = self.occurrence(para, first + at as u32, link);
-            let Some(end) = piece_end(line, &origins, first, at, piece) else {
-                continue;
+            let end = match piece_end(line, &origins, first, at, piece) {
+                Some(end) if drawn.is_some_and(|last| at <= last) => end,
+                _ => continue,
             };
             match parts.last_mut() {
                 Some(part) if part.0 == id => part.3 = end,
@@ -93,11 +105,16 @@ impl Places {
             }
         }
         let top = painted.height - painted.at.y;
+        let after = if line.pieces.end as usize >= para.pieces.len() {
+            para.after_spacing()
+        } else {
+            0.0
+        };
         for (id, link, from, to) in parts {
             let rect = Rect {
-                left: painted.at.x + from,
-                bottom: top - line.height,
-                right: painted.at.x + to,
+                left: painted.at.x + from - LINK_MARGIN,
+                bottom: top - line.height - after,
+                right: painted.at.x + to + LINK_MARGIN,
                 top,
             };
             self.navigation.link(
@@ -177,9 +194,9 @@ fn link_of(model: &Model, piece: &Piece) -> Option<u32> {
     }
 }
 
-/// Where a character or tab ends: the next piece's x, else its own end.
+/// Where a character or tab ends.
 fn piece_end(line: &Line, origins: &[f64], first: u32, at: usize, piece: &Piece) -> Option<f64> {
-    let own = match piece {
+    Some(match piece {
         Piece::Char { width, .. } => origins[at] + width,
         Piece::Tab { .. } => line
             .tabs
@@ -187,8 +204,7 @@ fn piece_end(line: &Line, origins: &[f64], first: u32, at: usize, piece: &Piece)
             .find(|tab| tab.piece == first + at as u32)
             .map_or(origins[at], |tab| tab.to),
         _ => return None,
-    };
-    Some(origins.get(at + 1).copied().unwrap_or(own))
+    })
 }
 
 /// A heading's text with its list label, as the outline shows it.
