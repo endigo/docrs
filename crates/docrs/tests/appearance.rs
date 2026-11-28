@@ -548,9 +548,9 @@ fn caps_spacing_scale_and_shading_are_kept() {
     for (pct, want) in [
         ("pct10", "E5E5E5"),
         ("pct50", "7F7F7F"),
-        ("pct62", "5F5F5F"),
-        ("pct75", "3F3F3F"),
-        ("pct87", "1F1F1F"),
+        ("pct62", "606060"),
+        ("pct75", "404040"),
+        ("pct87", "202020"),
     ] {
         assert_eq!(look(&runs, pct).shade, Some(rgb(want)), "{pct}");
     }

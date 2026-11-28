@@ -83,11 +83,13 @@ impl Rgb {
             .map(Rgb::packed)
     }
 
-    /// `permille` thousandths of `self` over `under`, truncated: Word's
-    /// `pct50` black on white is 7F7F7F.
+    /// `permille` thousandths of `self` over `under`: Word moves each channel
+    /// toward `self` by its share rounded half up (`pct50` black on white is
+    /// 7F7F7F, `pct62` 606060).
     fn over(self, under: Rgb, permille: u32) -> Rgb {
         let mix = |a: u8, b: u8| {
-            ((u32::from(a) * permille + u32::from(b) * (1000 - permille)) / 1000) as u8
+            let share = ((u32::from(a.abs_diff(b)) * permille + 500) / 1000) as u8;
+            if a >= b { b + share } else { b - share }
         };
         Rgb {
             r: mix(self.r, under.r),
@@ -204,14 +206,7 @@ impl Palette {
             shd,
             ["color", "themeColor", "themeTint", "themeShade"],
         );
-        let density = match w_attr(tree, shd, "val") {
-            None | Some("nil" | "clear") => 0,
-            Some("solid") => 1000,
-            Some(pct) => pct
-                .strip_prefix("pct")
-                .and_then(|n| n.parse::<u32>().ok())
-                .map_or(0, |n| permille(n).min(1000)),
-        };
+        let density = density(w_attr(tree, shd, "val"));
         let solid = |c: Option<Colour>| match c {
             Some(Colour::Rgb(rgb)) => Some(rgb),
             _ => None,
@@ -226,12 +221,20 @@ impl Palette {
     }
 }
 
-/// `pctN` in thousandths; `pct12`, `pct37`, `pct62` and `pct87` are
-/// 12.5, 37.5, 62.5 and 87.5 %.
-fn permille(n: u32) -> u32 {
-    match n {
-        12 | 37 | 62 | 87 => n * 10 + 5,
-        _ => n * 10,
+/// A `w:shd` pattern's density in thousandths; `pct12`, `pct37`, `pct62` and
+/// `pct87` are 12.5, 37.5, 62.5 and 87.5 %.
+fn density(val: Option<&str>) -> u32 {
+    let permille = |n: u8| match n {
+        12 | 37 | 62 | 87 => u32::from(n) * 10 + 5,
+        _ => u32::from(n) * 10,
+    };
+    match val {
+        None | Some("nil" | "clear") => 0,
+        Some("solid") => 1000,
+        Some(pct) => pct
+            .strip_prefix("pct")
+            .and_then(|n| n.parse::<u8>().ok())
+            .map_or(0, |n| permille(n).min(1000)),
     }
 }
 
@@ -307,34 +310,39 @@ mod tests {
 
     #[test]
     fn the_eighth_patterns_are_half_a_percent_more() {
-        assert_eq!(permille(12), 125);
-        assert_eq!(permille(87), 875);
-        assert_eq!(permille(50), 500);
+        assert_eq!(density(Some("pct12")), 125);
+        assert_eq!(density(Some("pct87")), 875);
+        assert_eq!(density(Some("pct50")), 500);
     }
 
     #[test]
-    fn a_pattern_mix_is_truncated() {
+    fn an_out_of_range_pattern_is_clamped_or_ignored() {
+        assert_eq!(density(Some("pct200")), 1000);
+        assert_eq!(density(Some("pct4294967295")), 0);
+        assert_eq!(density(Some("pct-5")), 0);
+    }
+
+    #[test]
+    fn a_pattern_moves_each_channel_by_its_share_rounded_half_up() {
         let black = Rgb::packed(0);
-        // 255 × (1 − p), truncated; Word draws pct50 as 7F7F7F.
-        for (n, want) in [
-            (5, "F2F2F2"),
-            (10, "E5E5E5"),
-            (12, "DFDFDF"),
-            (25, "BFBFBF"),
-            (37, "9F9F9F"),
-            (50, "7F7F7F"),
-            (62, "5F5F5F"),
-            (75, "3F3F3F"),
-            (87, "1F1F1F"),
-            (95, "0C0C0C"),
+        // Word for Mac 16.115, black on white.
+        for (pct, want) in [
+            ("pct10", "E5E5E5"),
+            ("pct50", "7F7F7F"),
+            ("pct62", "606060"),
+            ("pct75", "404040"),
+            ("pct87", "202020"),
         ] {
             assert_eq!(
-                black.over(Rgb::WHITE, permille(n)),
+                black.over(Rgb::WHITE, density(Some(pct))),
                 Rgb::hex(want).unwrap(),
-                "pct{n}"
+                "{pct}"
             );
         }
         assert_eq!(black.over(Rgb::WHITE, 0), Rgb::WHITE);
-        assert_eq!(Rgb::WHITE.over(black, 500), Rgb::hex("7F7F7F").unwrap());
+        assert_eq!(Rgb::WHITE.over(black, 500), Rgb::hex("808080").unwrap());
+        let (red, blue) = (Rgb::hex("FF0000").unwrap(), Rgb::hex("0000FF").unwrap());
+        assert_eq!(red.over(blue, 500), Rgb::hex("80007F").unwrap());
+        assert_eq!(red.over(blue, 100), Rgb::hex("1A00E5").unwrap());
     }
 }
