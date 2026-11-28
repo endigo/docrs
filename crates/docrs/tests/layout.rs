@@ -1751,17 +1751,20 @@ fn each_border_conflict_goes_to_word_s_ranking() {
         })
         .collect();
     let line = |style, width: f64, colour: &str| Some((style, width, colour.to_string()));
+    // Word for Mac 16.115's PDF of the fixture, case by case.
     assert_eq!(
         shared,
         [
             line(Single, 1.5, "0070C0"),
             line(Double, 0.5, "C00000"),
-            line(Single, 1.5, "0070C0"),
+            // The double's two lines and gap weigh 36 against the single's 12.
+            line(Double, 0.5, "C00000"),
             line(Single, 0.25, "0070C0"),
             line(Single, 3.0, "FF0000"),
             line(Single, 3.0, "FF00FF"),
             line(Thick, 3.0, "0070C0"),
-            None,
+            // nil yields: the right cell's line is drawn.
+            line(Thick, 3.0, "0070C0"),
             line(Single, 3.0, "00B050"),
         ]
     );
@@ -1809,13 +1812,18 @@ fn a_cut_row_closes_on_its_page_and_opens_on_the_next_and_its_merge_keeps_its_fi
     };
     assert_eq!((first.page, first.first, first.last), (1, true, false));
     assert_eq!((second.page, second.first, second.last), (2, false, true));
-    let blue = |from: f64, to: f64| (from, to, "0070C0".to_string());
-    // At the cut: the edge below the row, across the merge it ends there.
+    let line = |from: f64, to: f64, colour: &str| (from, to, colour.to_string());
+    // As Word draws the cut: the table's bottom border (green) on page 1,
+    // across the merge too, and its top border (red) on page 2.
     assert_eq!(
         horizontal_at(first, first.y + first.height),
-        [blue(72.0, 372.0)]
+        [line(72.0, 372.0, "00B050")]
     );
-    assert_eq!(horizontal_at(second, second.y), [blue(72.0, 372.0)]);
+    assert_eq!(
+        horizontal_at(second, second.y),
+        [line(72.0, 372.0, "C00000")]
+    );
+    let blue = |from: f64, to: f64| line(from, to, "0070C0");
     // Below the part that ends the row the merge goes on: column 2 only.
     assert_eq!(
         horizontal_at(second, second.y + second.height),
@@ -1873,19 +1881,20 @@ fn the_cascade_follows_the_look_and_not_cnf_style() {
         ],
         "corners over the first row"
     );
+    // Word: column bands over row bands.
     assert_eq!(
         all[1],
         [
             f("A9D08E"),
-            f("DEEAF6"),
-            f("DEEAF6"),
-            f("DEEAF6"),
-            f("DEEAF6"),
+            f("E2EFD9"),
+            f("FBE4D5"),
+            f("E2EFD9"),
+            f("FBE4D5"),
             f("F4B084")
         ],
-        "a row band over the column bands"
+        "column bands over the row bands"
     );
-    assert_eq!(all[2][1], f("FFF2CC"));
+    assert_eq!(all[2], all[1]);
     assert_eq!(
         all[5],
         [
@@ -1898,18 +1907,39 @@ fn the_cascade_follows_the_look_and_not_cnf_style() {
         ]
     );
     assert_eq!(fills(1), all, "the bitmask reads as the attributes");
-    let bands = fills(2);
-    assert_eq!(bands[0], vec![f("2F5496"); 6]);
-    assert_eq!(bands[1][0], f("DEEAF6"), "no first column shown");
-    let claimed = fills(3);
+    // w:val="04A0" w:firstColumn="0": the bitmask is ignored and the
+    // attributes left out are on, so the header, the last row and column
+    // with their corners show, with no first column and no bands.
+    let header_only = fills(2);
+    let body = [None, None, None, None, None, f("F4B084")];
     assert_eq!(
-        claimed[2], bands[2],
-        "cnfStyle claims the first row in vain"
+        header_only,
+        [
+            vec![
+                f("2F5496"),
+                f("2F5496"),
+                f("2F5496"),
+                f("2F5496"),
+                f("2F5496"),
+                f("C00000")
+            ],
+            body.to_vec(),
+            body.to_vec(),
+            body.to_vec(),
+            body.to_vec(),
+            vec![
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("FFC000")
+            ],
+        ]
     );
-    assert_eq!(
-        claimed[4], bands[4],
-        "a style band beats the exception's fill"
-    );
+    // Row 3's cnfStyle claims the first row in vain, and row 5's exception
+    // draws no fill.
+    assert_eq!(fills(3), header_only);
     let exception = rows[3 * 6 + 4];
     let inside = vertical_at(exception, exception.x + 78.0).unwrap();
     assert_eq!(

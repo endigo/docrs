@@ -240,7 +240,7 @@ fn cnf_style_does_not_move_a_cell_into_a_format() {
 }
 
 #[test]
-fn a_row_exception_gives_its_row_table_borders_and_a_fill() {
+fn a_row_exception_gives_its_row_table_borders_but_no_fill() {
     let exception = |row: usize| {
         if row == 1 {
             r#"<w:tblPrEx><w:tblBorders><w:top w:val="single" w:sz="24" w:color="00FF00"/><w:insideH w:val="single" w:sz="24" w:color="00FF00"/><w:insideV w:val="dashed" w:sz="8" w:color="0000FF"/></w:tblBorders><w:shd w:val="clear" w:fill="FFFF00"/></w:tblPrEx>"#.to_string()
@@ -264,12 +264,12 @@ fn a_row_exception_gives_its_row_table_borders_and_a_fill() {
         BorderStyle::Dashed
     );
     assert_eq!(table.edges.vertical(0, 1), None);
-    assert_eq!(fills(table)[1], vec![Some("FFFF00".to_string()); 3]);
-    assert_eq!(fills(table)[0], vec![None; 3]);
+    // Word for Mac draws no fill from the exception's w:shd.
+    assert_eq!(fills(table)[1], vec![None; 3]);
 }
 
 #[test]
-fn a_style_format_beats_a_row_exception_and_a_cell_border_beats_both() {
+fn a_style_format_beats_a_row_exception_and_a_cell_nil_stops_both() {
     let exception = |row: usize| {
         match row {
         0 => r#"<w:tblPrEx><w:shd w:val="clear" w:fill="FFFF00"/></w:tblPrEx>"#.to_string(),
@@ -291,12 +291,17 @@ fn a_style_format_beats_a_row_exception_and_a_cell_border_beats_both() {
         "the first row's fill"
     );
     // Above the last row: its top (double, from the style) beats the
-    // exception's insideH; the third cell's own nil hides it.
+    // exception's insideH. The third cell's own nil stops its lookup before
+    // the double, and yields to the row above's insideH.
     assert_eq!(
         table.edges.horizontal(3, 0).unwrap().style,
         BorderStyle::Double
     );
-    assert_eq!(table.edges.horizontal(3, 2), None);
+    let above_nil = table.edges.horizontal(3, 2).unwrap();
+    assert_eq!(
+        (above_nil.style, above_nil.colour.to_string()),
+        (BorderStyle::Single, "BFBFBF".to_string())
+    );
 }
 
 #[test]

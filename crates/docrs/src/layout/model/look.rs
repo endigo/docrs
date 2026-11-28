@@ -403,8 +403,9 @@ impl ParaBorders {
     }
 }
 
-/// A cell edge as one level of the table cascade sets it: `None` yields
-/// to the adjacent cell's edge, `Nil` hides both (MS-OI29500 §2.1.169).
+/// A cell edge as one level of the table cascade sets it: `None` defers to
+/// the next level, `Nil` ends the lookup with no line. Against the adjacent
+/// cell's edge both yield.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Edge {
     Line(Border),

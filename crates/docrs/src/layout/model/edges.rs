@@ -15,6 +15,9 @@ pub(super) struct GridCell {
     pub(super) merged_up: bool,
     /// Top, left, bottom, right.
     pub(super) edges: [Edge; 4],
+    /// Top and bottom where a page break cuts the table: the cell's as if
+    /// its row were the table's first, or last.
+    pub(super) cut: [Edge; 2],
 }
 
 /// A table's borders after conflicts. Experimental.
@@ -22,9 +25,10 @@ pub(super) struct GridCell {
 pub struct Edges {
     columns: usize,
     /// Grid lines above each row and below the last, `columns` segments
-    /// each, and whether a vertical merge runs through the segment.
+    /// each.
     horizontal: Vec<Option<Border>>,
-    merged: Vec<bool>,
+    /// Per row and grid column, the top and bottom at a page break.
+    cut: Vec<[Option<Border>; 2]>,
     /// Per row, the grid lines left of each column and right of the last.
     vertical: Vec<Option<Border>>,
 }
@@ -32,20 +36,19 @@ pub struct Edges {
 impl Edges {
     /// Grid line `line` (0: the table's top) over grid column `column`.
     pub fn horizontal(&self, line: usize, column: usize) -> Option<Border> {
-        let index = line * self.columns + column;
-        if self.merged.get(index).copied().unwrap_or(false) {
-            return None;
-        }
-        self.seam(line, column)
-    }
-
-    /// The same where a page break cuts the table: a vertical merge
-    /// through the segment is closed there.
-    pub fn seam(&self, line: usize, column: usize) -> Option<Border> {
         self.horizontal
             .get(line * self.columns + column)
             .copied()
             .flatten()
+    }
+
+    /// Where a page break cuts row `row`, over grid column `column`: the
+    /// table's top border on the page after (`top`), else its bottom
+    /// border on the page before, closing a vertical merge there too.
+    pub fn cut(&self, row: usize, column: usize, top: bool) -> Option<Border> {
+        self.cut
+            .get(row * self.columns + column)
+            .and_then(|edges| edges[usize::from(!top)])
     }
 
     /// Vertical grid line `line` (0: the table's left) beside row `row`.
@@ -63,18 +66,26 @@ impl Edges {
                 .find(|cell| (cell.column..cell.column + cell.span).contains(&column))
         };
         let mut horizontal = Vec::with_capacity((rows.len() + 1) * columns);
-        let mut merged = Vec::with_capacity(horizontal.capacity());
         for line in 0..=rows.len() {
             for column in 0..columns {
                 let above = line.checked_sub(1).and_then(|row| at(row, column));
                 let below = at(line, column);
-                merged.push(above.is_some() && below.is_some_and(|below| below.merged_up));
-                horizontal.push(conflict(
-                    above.map(|c| c.edges[2]),
-                    below.map(|c| c.edges[0]),
-                ));
+                horizontal.push(match (above, below) {
+                    (Some(_), Some(below)) if below.merged_up => None,
+                    (above, below) => {
+                        conflict(above.map(|c| c.edges[2]), below.map(|c| c.edges[0]))
+                    }
+                });
             }
         }
+        let cut = (0..rows.len())
+            .flat_map(|row| (0..columns).map(move |column| (row, column)))
+            .map(|(row, column)| {
+                at(row, column).map_or([None, None], |cell| {
+                    cell.cut.map(|edge| conflict(Some(edge), None))
+                })
+            })
+            .collect();
         let mut vertical = Vec::with_capacity(rows.len() * (columns + 1));
         for row in 0..rows.len() {
             for line in 0..=columns {
@@ -89,19 +100,23 @@ impl Edges {
         Edges {
             columns,
             horizontal,
-            merged,
+            cut,
             vertical,
         }
     }
 }
 
 /// The border drawn between two candidates, the first in reading order
-/// winning ties: `none` yields, `nil` hides both.
+/// winning ties. `nil` and `none` both yield: Word for Mac 16.115 draws the
+/// other cell's line beside a `nil` one.
 fn conflict(first: Option<Edge>, second: Option<Edge>) -> Option<Border> {
-    match (first.unwrap_or(Edge::None), second.unwrap_or(Edge::None)) {
-        (Edge::Nil, _) | (_, Edge::Nil) | (Edge::None, Edge::None) => None,
-        (Edge::Line(only), Edge::None) | (Edge::None, Edge::Line(only)) => Some(only),
-        (Edge::Line(a), Edge::Line(b)) => Some(if rank(&b, &a).is_gt() { b } else { a }),
+    let line = |edge: Option<Edge>| match edge {
+        Some(Edge::Line(border)) => Some(border),
+        _ => None,
+    };
+    match (line(first), line(second)) {
+        (Some(a), Some(b)) => Some(if rank(&b, &a).is_gt() { b } else { a }),
+        (a, b) => a.or(b),
     }
 }
 
@@ -114,12 +129,13 @@ pub(crate) fn rank(a: &Border, b: &Border) -> Ordering {
         .then(brightness(b.colour).cmp(&brightness(a.colour)))
 }
 
-/// Width in eighths of a point times the style's number.
+/// Drawn width in eighths of a point times the style's number. A double
+/// line is two lines of its width with as wide a gap: Word for Mac 16.115
+/// draws a double 0.5 point (weight 36) over a single 1.5 point (12).
 fn weight(border: &Border) -> u32 {
-    border
-        .style
-        .number()
-        .map_or(1, |number| (border.width * 8.0).round() as u32 * number)
+    border.style.number().map_or(1, |number| {
+        (border.thickness() * 8.0).round() as u32 * number
+    })
 }
 
 /// Compared in turn: R + B + 2G, then B + 2G, then G.
@@ -134,8 +150,8 @@ fn brightness(colour: Colour) -> (u32, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::look::BorderStyle;
     use super::*;
+    use crate::layout::model::BorderStyle;
 
     fn line(style: BorderStyle, eighths: f64, colour: &str) -> Edge {
         Edge::Line(Border {
@@ -153,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn the_heavier_border_wins_then_the_earlier_style_then_the_darker_colour() {
+    fn the_heavier_drawn_border_wins_then_the_earlier_style_then_the_darker_colour() {
         use BorderStyle::*;
         let red = Colour::Rgb(Rgb::hex("FF0000").unwrap());
         let cases = [
@@ -163,17 +179,22 @@ mod tests {
                 line(Single, 12.0, "000000"),
                 (Single, 12.0),
             ),
-            // Double 4 weighs 12, single 8 weighs 8.
+            // A double 4 is drawn 12 wide (two lines and a gap) and weighs
+            // 36: it beats a single 8 and, as Word draws it, a single 12.
             (
                 line(Double, 4.0, "000000"),
                 line(Single, 8.0, "000000"),
                 (Double, 4.0),
             ),
-            // Equal weights (12): single comes before double.
             (
                 line(Double, 4.0, "000000"),
                 line(Single, 12.0, "000000"),
-                (Single, 12.0),
+                (Double, 4.0),
+            ),
+            (
+                line(Double, 2.0, "000000"),
+                line(Single, 24.0, "000000"),
+                (Single, 24.0),
             ),
             // Dotted weighs 1 at any width.
             (
@@ -220,10 +241,11 @@ mod tests {
     }
 
     #[test]
-    fn none_yields_and_nil_hides() {
+    fn none_and_nil_yield() {
         let single = line(BorderStyle::Single, 4.0, "000000");
         assert!(winner(Edge::None, single).is_some());
-        assert_eq!(winner(Edge::Nil, single), None);
+        assert!(winner(Edge::Nil, single).is_some());
+        assert_eq!(winner(Edge::Nil, Edge::Nil), None);
         assert_eq!(winner(Edge::None, Edge::None), None);
         assert_eq!(conflict(None, Some(single)), conflict(Some(single), None));
     }
@@ -236,6 +258,7 @@ mod tests {
             span,
             merged_up,
             edges: [single; 4],
+            cut: [single, Edge::None],
         };
         // Row 0: a cell over columns 0–1, then column 2. Row 1: column 0
         // continues nothing, columns 1–2 merge with nothing; column 2
@@ -251,10 +274,7 @@ mod tests {
             edges.horizontal(1, 2).is_none(),
             "inside the vertical merge"
         );
-        assert!(
-            edges.seam(1, 2).is_some(),
-            "closed where a page break cuts it"
-        );
+        assert!(edges.cut(1, 2, true).is_some() && edges.cut(1, 2, false).is_none());
         assert!(edges.horizontal(1, 0).is_some());
         assert!(
             (0..3).all(|c| edges.horizontal(0, c).is_some() && edges.horizontal(2, c).is_some())

@@ -5,15 +5,15 @@ use super::table::CellProps;
 use crate::wml::w_attr;
 use crate::xml::{NodeId, XmlTree};
 
-/// Conditional formats in the order Word applies them: bands, then first
-/// and last column, first and last row, then the corners (ECMA-376
-/// §17.7.6).
+/// Conditional formats in the order Word applies them: horizontal then
+/// vertical bands (Word for Mac 16.115 shows column bands over row bands),
+/// first and last column, first and last row, then the corners.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Part {
-    Band1Vert,
-    Band2Vert,
     Band1Horz,
     Band2Horz,
+    Band1Vert,
+    Band2Vert,
     FirstCol,
     LastCol,
     FirstRow,
@@ -26,10 +26,10 @@ pub(crate) enum Part {
 
 impl Part {
     pub(super) const ALL: [Part; 12] = [
-        Part::Band1Vert,
-        Part::Band2Vert,
         Part::Band1Horz,
         Part::Band2Horz,
+        Part::Band1Vert,
+        Part::Band2Vert,
         Part::FirstCol,
         Part::LastCol,
         Part::FirstRow,
@@ -115,15 +115,25 @@ pub(crate) struct TableLook {
 const DEFAULT_LOOK: u32 = 0x04A0;
 
 impl TableLook {
-    /// The attributes, else the `w:val` bitmask.
+    /// The attributes, else the `w:val` bitmask. Word for Mac 16.115 reads
+    /// no bitmask once any attribute is there, and takes a missing one as on.
     pub(super) fn read(tree: &XmlTree, look: Option<NodeId>) -> TableLook {
+        const NAMES: [&str; 6] = [
+            "firstRow",
+            "lastRow",
+            "firstColumn",
+            "lastColumn",
+            "noHBand",
+            "noVBand",
+        ];
+        let attributes =
+            look.is_some_and(|look| NAMES.iter().any(|name| w_attr(tree, look, name).is_some()));
         let mask = look.map_or(Some(DEFAULT_LOOK), |look| {
             w_attr(tree, look, "val").and_then(|v| u32::from_str_radix(v, 16).ok())
         });
-        let flag = |name: &str, bit: u32| {
-            look.and_then(|look| w_attr(tree, look, name))
-                .map(|v| matches!(v, "1" | "true" | "on"))
-                .unwrap_or_else(|| mask.is_some_and(|mask| mask & bit != 0))
+        let flag = |name: &str, bit: u32| match look.filter(|_| attributes) {
+            Some(look) => w_attr(tree, look, name).is_none_or(|v| matches!(v, "1" | "true" | "on")),
+            None => mask.is_some_and(|mask| mask & bit != 0),
         };
         TableLook {
             first_row: flag("firstRow", 0x0020),
@@ -197,6 +207,24 @@ impl TableLook {
                 (start + size - 1).min(to),
             ))
         };
+        if self.row_bands
+            && let Some((odd, top, bottom)) =
+                band(at.row, self.first_row, self.last_row, last_row, bands.0)
+        {
+            let part = if odd {
+                Part::Band1Horz
+            } else {
+                Part::Band2Horz
+            };
+            out.push((
+                part,
+                Region {
+                    top,
+                    bottom,
+                    ..rows
+                },
+            ));
+        }
         if self.column_bands
             && let Some((odd, left, right)) = band(
                 at.column,
@@ -216,24 +244,6 @@ impl TableLook {
                 Region {
                     left,
                     right,
-                    ..rows
-                },
-            ));
-        }
-        if self.row_bands
-            && let Some((odd, top, bottom)) =
-                band(at.row, self.first_row, self.last_row, last_row, bands.0)
-        {
-            let part = if odd {
-                Part::Band1Horz
-            } else {
-                Part::Band2Horz
-            };
-            out.push((
-                part,
-                Region {
-                    top,
-                    bottom,
                     ..rows
                 },
             ));
@@ -317,12 +327,29 @@ mod tests {
     }
 
     #[test]
-    fn the_attributes_win_over_the_bitmask() {
+    fn any_attribute_sets_the_look_and_a_missing_one_is_on() {
         let mask = look(r#"w:val="04A0""#);
         assert!(mask.first_row && mask.first_column && mask.row_bands);
-        assert!(!mask.last_row && !mask.column_bands);
-        let both = look(r#"w:val="04A0" w:firstRow="0" w:lastRow="1""#);
-        assert!(!both.first_row && both.last_row && both.first_column);
+        assert!(!mask.last_row && !mask.last_column && !mask.column_bands);
+        // Word's cascade.docx table 3: the bitmask is ignored, and every
+        // attribute left out reads as 1, noHBand and noVBand included.
+        let table_3 = look(r#"w:val="04A0" w:firstColumn="0""#);
+        assert_eq!(
+            table_3,
+            TableLook {
+                first_row: true,
+                last_row: true,
+                first_column: false,
+                last_column: true,
+                row_bands: false,
+                column_bands: false,
+            }
+        );
+        let all = look(
+            r#"w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1" w:val="0000""#,
+        );
+        assert!(all.first_row && all.first_column && all.row_bands);
+        assert!(!all.last_row && !all.last_column && !all.column_bands);
         assert_eq!(look(""), look(r#"w:val="0000""#));
         assert!(look("").row_bands && look("").column_bands);
     }
@@ -332,8 +359,12 @@ mod tests {
         let all = look(r#"w:val="01E0""#);
         use Part::*;
         assert_eq!(parts(all, 0, 0), [FirstCol, FirstRow, NwCell]);
-        assert_eq!(parts(all, 1, 1), [Band1Vert, Band1Horz]);
-        assert_eq!(parts(all, 2, 2), [Band2Vert, Band2Horz]);
+        assert_eq!(
+            parts(all, 1, 1),
+            [Band1Horz, Band1Vert],
+            "column bands apply last"
+        );
+        assert_eq!(parts(all, 2, 2), [Band2Horz, Band2Vert]);
         assert_eq!(parts(all, 5, 3), [LastCol, LastRow, SeCell]);
         assert_eq!(parts(all, 0, 3), [LastCol, FirstRow, NeCell]);
         let plain = look(r#"w:val="0600""#);

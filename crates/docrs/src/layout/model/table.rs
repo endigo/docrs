@@ -121,11 +121,11 @@ fn candidates(levels: &[([Option<Edge>; 6], [usize; 4])]) -> [Edge; 4] {
     })
 }
 
-/// A row exception (`w:tblPrEx`): table properties for one row.
+/// A row exception (`w:tblPrEx`): table properties for one row. Word for
+/// Mac 16.115 draws no fill from its `w:shd`.
 struct Exception {
     margins: [Option<f64>; 4],
     borders: [Option<Edge>; 6],
-    fill: Option<Option<Rgb>>,
 }
 
 /// What reading a table's rows shares: the table-wide properties, and the
@@ -206,7 +206,6 @@ impl TableReader {
         let mut exception = Exception {
             margins: self.margins,
             borders: read_edges(tree, ex("tblBorders"), &self.palette),
-            fill: ex("shd").map(|shd| self.palette.shading(tree, shd)),
         };
         set(&mut exception.margins, margins(tree, ex("tblCellMar")));
         let tcs: Vec<NodeId> = w_children(tree, tr, "tc").collect();
@@ -266,12 +265,14 @@ impl TableReader {
         };
         let regions = self.format.look.parts(at, self.bands);
         let own = read_cell_props(tree, tc_pr, &self.palette);
-        let (fill, valign) = self.look(&regions, &own, exception, column, vmerge);
+        let (fill, valign) = self.look(&regions, &own, column, vmerge);
+        let (edges, cut) = self.edges(&regions, &own, exception, at);
         let grid_cell = GridCell {
             column,
             span,
             merged_up: vmerge == 2,
-            edges: self.edges(&regions, &own, exception, at),
+            edges,
+            cut,
         };
         let mut cell_margins = exception.margins;
         set(&mut cell_margins, margins(tree, prop("tcMar")));
@@ -304,19 +305,18 @@ impl TableReader {
     }
 
     /// A cell's fill and vertical alignment: its own, else its formats'
-    /// (the last to apply first), the style's, the row's and the table's;
+    /// (the last to apply first), the style's and the table's;
     /// a merge's continuation keeps its first cell's.
     fn look(
         &mut self,
         regions: &[(Part, Region)],
         own: &CellProps,
-        exception: &Exception,
         column: usize,
         vmerge: u8,
     ) -> (Option<Rgb>, VAlign) {
         let style = &self.format.style;
         let mut props = CellProps {
-            fill: exception.fill.or(self.fill),
+            fill: self.fill,
             ..CellProps::default()
         };
         props.merge(&style.cell);
@@ -335,14 +335,16 @@ impl TableReader {
     }
 
     /// A cell's candidate edges: its own, its formats' (the last to apply
-    /// first), the row's and the table's.
+    /// first), the row's and the table's; and its top and bottom where a
+    /// page break cuts it, which take the table's top and bottom borders
+    /// (Word for Mac 16.115).
     fn edges(
         &self,
         regions: &[(Part, Region)],
         own: &CellProps,
         exception: &Exception,
         at: Position,
-    ) -> [Edge; 4] {
+    ) -> ([Edge; 4], [Edge; 2]) {
         let style = &self.format.style;
         let whole = Region {
             top: 0,
@@ -358,7 +360,14 @@ impl TableReader {
         }));
         levels.push((exception.borders, table_sides));
         levels.push((self.borders, table_sides));
-        candidates(&levels)
+        let edges = candidates(&levels);
+        let outer = [0, table_sides[1], 2, table_sides[3]];
+        let count = levels.len();
+        for level in &mut levels[count - 2..] {
+            level.1 = outer;
+        }
+        let [top, _, bottom, _] = candidates(&levels);
+        (edges, [top, bottom])
     }
 }
 

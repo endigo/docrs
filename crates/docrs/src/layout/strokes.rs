@@ -46,8 +46,8 @@ impl Stroke {
 }
 
 /// The borders of row `row`'s part `slice` with its top-left at `origin`:
-/// the edge above it and below it (a page break cuts a row between the
-/// two), and the vertical edges beside its cells.
+/// the edge above it and below it (where a page break cuts the row, the
+/// table's top and bottom), and the vertical edges beside its cells.
 pub(super) fn row_strokes(
     origin: Point,
     table: &Table,
@@ -58,13 +58,13 @@ pub(super) fn row_strokes(
     let columns = table.grid.len().saturating_sub(1);
     let mut out = Vec::new();
     let bottom = origin.y + slice.height;
-    for (line, y, cut) in [
-        (row, origin.y, !slice.first),
-        (row + 1, bottom, !slice.last),
+    for (line, y, cut, top) in [
+        (row, origin.y, !slice.first, true),
+        (row + 1, bottom, !slice.last, false),
     ] {
         let edge = |column| {
             if cut {
-                table.edges.seam(line, column)
+                table.edges.cut(row, column, top)
             } else {
                 table.edges.horizontal(line, column)
             }
