@@ -30,6 +30,8 @@ pub struct Face {
     descender: f64,
     line_gap: f64,
     average_width: f64,
+    /// OS/2 `ySuperscriptYSize` and `ySubscriptYSize`, in ems.
+    script_sizes: [f64; 2],
     codepoints: Arc<[u32]>,
     widths: Arc<[u16]>,
     /// Each code point's glyph; empty for the bundled table.
@@ -215,6 +217,11 @@ impl Face {
         (self.ascender + self.descender + self.line_gap) / self.units_per_em
     }
 
+    /// Superscript (`true`) or subscript size in ems.
+    pub(crate) fn script_size(&self, superscript: bool) -> f64 {
+        self.script_sizes[usize::from(!superscript)]
+    }
+
     /// Ascent plus line gap in ems: Word for Mac sets the gap above the
     /// text, so on a line mixing fonts it adds to the ascent.
     pub fn ascent(&self) -> f64 {
@@ -304,10 +311,16 @@ impl Face {
             .table(b"hmtx")
             .filter(|hmtx| metrics != 0 && hmtx.len() / 4 >= metrics)
             .ok_or(FontError::Malformed("hmtx"))?;
-        let average_width = ttf
-            .table(b"OS/2")
+        let os2 = ttf.table(b"OS/2");
+        let average_width = os2
             .and_then(|os2| be16(os2, 2))
             .map_or(units_per_em / 2.0, |w| f64::from(w as i16).max(1.0));
+        let script_size = |at| {
+            os2.and_then(|os2| be16(os2, at))
+                .map(|size| f64::from(size as i16) / units_per_em)
+                .filter(|size| *size > 0.0 && *size <= 1.0)
+                .unwrap_or(SCRIPT_SIZE)
+        };
         let glyphs = ttf
             .table(b"maxp")
             .and_then(|maxp| be16(maxp, 4))
@@ -339,6 +352,7 @@ impl Face {
             descender,
             line_gap,
             average_width,
+            script_sizes: [script_size(20), script_size(12)],
             codepoints: mapping.iter().map(|(c, _)| *c).collect(),
             widths: mapping.iter().map(|(_, glyph)| advance(*glyph)).collect(),
             glyphs: mapping.iter().map(|(_, glyph)| *glyph).collect(),
@@ -442,6 +456,10 @@ impl Face {
             .collect()
     }
 }
+
+/// The script size of Arial, Times New Roman, Georgia and Courier New
+/// (1331/2048 em), for a face whose OS/2 table gives none.
+const SCRIPT_SIZE: f64 = 1331.0 / 2048.0;
 
 /// Faces read from one collection; the rest are left unread.
 const MAX_COLLECTION_FACES: usize = 64;
@@ -886,6 +904,8 @@ fn read_table(packed: &[u8]) -> Option<Vec<Arc<Face>>> {
             descender,
             line_gap,
             average_width,
+            // The table has no OS/2 script sizes; every measured Microsoft font's is this.
+            script_sizes: [SCRIPT_SIZE; 2],
             codepoints,
             widths: widths.into(),
             glyphs: Arc::new([]),
@@ -1810,6 +1830,26 @@ mod font_set {
         assert_eq!(file.offset(), 20 + regular.len());
         let regular_face = book.face("Brand", false, false, FontKind::Sans);
         assert_eq!(regular_face.file().unwrap().offset(), 20);
+    }
+
+    #[test]
+    fn script_sizes_are_read_from_os2_or_fall_back_to_1331_of_2048() {
+        let face = |sizes: Option<(i16, i16)>| {
+            let extra = sizes.map(|(sup, sub)| {
+                let (tag, mut table) = os2(4, 0);
+                table[12..14].copy_from_slice(&sub.to_be_bytes());
+                table[20..22].copy_from_slice(&sup.to_be_bytes());
+                (tag, table)
+            });
+            let face = &Face::parse_file(&font("Regular", extra.into_iter().collect()))[0];
+            [face.script_size(true), face.script_size(false)]
+        };
+        assert_eq!(face(Some((600, 550))), [0.6, 0.55]);
+        for absurd in [None, Some((0, -300)), Some((1001, i16::MIN))] {
+            assert_eq!(face(absurd), [SCRIPT_SIZE; 2], "{absurd:?}");
+        }
+        let arial = FontBook::default().face("Arial", false, false, FontKind::Sans);
+        assert_eq!(arial.script_size(true), 1331.0 / 2048.0);
     }
 
     #[test]
