@@ -19,4 +19,6 @@ The references set one family for headings and body:
 
 `<case>/word.lines.json` is Word's line geometry for the case, and `environment.json` the Word, macOS and font files it was made with (`tools/pdf/check.sh OUT_DIR --fixtures-only --word --update-fixtures`). Word's PDFs themselves are not committed.
 
-`one-page.pdf` and `font-line.pdf` are the PDF writer's golden files (`crates/docrs/tests/pdf.rs` and `pdf_fonts.rs`): an empty page, and a line of Liberation Serif embedded as a subset.
+`one-page.pdf`, `font-line.pdf` and `image-logo.pdf` are the PDF writer's golden files (`crates/docrs/tests/pdf.rs`, `pdf_fonts.rs` and `pdf_images.rs`): an empty page, a line of Liberation Serif embedded as a subset, and `images/logo.png` with its soft mask.
+
+`images/` holds images from real encoders (`images/PROVENANCE.md`).

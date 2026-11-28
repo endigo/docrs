@@ -447,14 +447,21 @@ fn each_fixture_reports_its_code_and_count() {
     }
 }
 
+/// Raised when an image is read, not by preflight; `pdf_images.rs` has
+/// their fixtures.
+const IMAGE_CODES: [&str; 2] = ["pdf_image_profile_ignored", "pdf_image_animated"];
+
 #[test]
 fn every_code_has_a_fixture() {
     let covered: Vec<&str> = cases().iter().map(|c| c.code).collect();
     for (code, description) in WARNING_CODES {
-        assert!(covered.contains(code), "{code} has no fixture");
+        assert!(
+            covered.contains(code) || IMAGE_CODES.contains(code),
+            "{code} has no fixture"
+        );
         assert!(!description.is_empty());
     }
-    assert_eq!(covered.len(), WARNING_CODES.len());
+    assert_eq!(covered.len() + IMAGE_CODES.len(), WARNING_CODES.len());
 }
 
 #[test]

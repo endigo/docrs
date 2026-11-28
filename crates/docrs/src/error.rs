@@ -213,6 +213,19 @@ impl Error {
         }
     }
 
+    /// Memory for `bytes` more could not be reserved: the input needs more
+    /// than this process has, which no [`crate::Limits`] budget names.
+    pub(crate) fn out_of_memory(bytes: usize) -> Self {
+        Error {
+            kind: ErrorKind::ResourceLimit,
+            reason: "out_of_memory",
+            message: format!("could not reserve {bytes} bytes"),
+            limit: None,
+            details: None,
+            source: None,
+        }
+    }
+
     /// A filesystem failure with context.
     pub fn io(reason: &'static str, message: impl Into<String>, source: std::io::Error) -> Self {
         Error {

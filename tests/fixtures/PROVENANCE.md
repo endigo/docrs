@@ -23,5 +23,6 @@ under `markdown/` are committed `.docx` files, described in
 `layout/` holds `docrs layout` snapshots, written by
 `crates/docrs-cli/tests/layout_snapshots.rs` (`tools/pdf/README.md`).
 `pdf/` holds the PDF engine's fixture sources and their reference
-documents (`pdf/README.md`). `fonts/` holds openly licensed fonts the
+documents (`pdf/README.md`), and images from real encoders
+(`pdf/images/PROVENANCE.md`). `fonts/` holds openly licensed fonts the
 fixtures use, with their licences (`fonts/PROVENANCE.md`).
