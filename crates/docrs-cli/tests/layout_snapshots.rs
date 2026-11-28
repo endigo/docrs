@@ -1,4 +1,5 @@
-//! `docrs layout --json` against `tests/fixtures/layout/` (tools/pdf/README.md).
+//! `docrs layout --json` against `tests/fixtures/layout/`, and the PDF
+//! fixtures' baselines against Word's (tools/pdf/README.md).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -171,17 +172,41 @@ fn corpus_snapshots(
     (manifest, changed)
 }
 
+struct Fixture {
+    case: String,
+    docx: PathBuf,
+    font: Option<PathBuf>,
+}
+
+/// Each PDF fixture converted into `work`.
+fn fixtures(root: &Path, work: &Path) -> Vec<(Fixture, Result<(), String>)> {
+    tsv(&root.join("tests/fixtures/pdf/cases.tsv"))
+        .into_iter()
+        .map(|row| {
+            let [case, source, reference, font, options] = &row[..] else {
+                panic!("tests/fixtures/pdf/cases.tsv: a row has five columns: {row:?}");
+            };
+            let flags: Vec<&str> = options.split(' ').filter(|o| *o != "-").collect();
+            let fixture = Fixture {
+                case: case.clone(),
+                docx: work.join(format!("pdf-{case}.docx")),
+                font: (font != "-").then(|| root.join(font)),
+            };
+            let converted = convert(
+                &root.join(source),
+                &root.join(reference),
+                &fixture.docx,
+                &flags,
+            );
+            (fixture, converted)
+        })
+        .collect()
+}
+
 fn fixture_snapshots(root: &Path, snapshots: &Path, work: &Path, actual: &mut Snapshots) {
-    for row in tsv(&root.join("tests/fixtures/pdf/cases.tsv")) {
-        let [case, source, reference, font, options] = &row[..] else {
-            panic!("tests/fixtures/pdf/cases.tsv: a row has five columns: {row:?}");
-        };
-        let flags: Vec<&str> = options.split(' ').filter(|o| *o != "-").collect();
-        let font = (font != "-").then(|| root.join(font));
-        let out = work.join(format!("pdf-{case}.docx"));
-        let result = convert(&root.join(source), &root.join(reference), &out, &flags)
-            .and_then(|()| layout(&out, font.as_deref()));
-        actual.insert(snapshots.join(format!("pdf/{case}.json")), result);
+    for (fixture, converted) in fixtures(root, work) {
+        let result = converted.and_then(|()| layout(&fixture.docx, fixture.font.as_deref()));
+        actual.insert(snapshots.join(format!("pdf/{}.json", fixture.case)), result);
     }
 }
 
@@ -271,4 +296,144 @@ fn layout_matches_the_snapshots() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+const BASELINE_TOLERANCE: f64 = 0.3;
+
+/// Fixtures whose lines Word places elsewhere for a reason other than the
+/// baseline: the residual allowed and the last page compared.
+const PLACEMENT_DRIFT: [(&str, f64, u32); 3] = [
+    // Word's header row is 0.54 pt taller, which moves every line below it.
+    ("table-times-new-roman", 0.65, u32::MAX),
+    // From page 2, Word keeps the space before of the headings that break
+    // the page.
+    ("toc-arial", BASELINE_TOLERANCE, 1),
+    ("toc-inter", BASELINE_TOLERANCE, 1),
+];
+
+fn letters(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+struct WordLine {
+    page: u64,
+    letters: String,
+    baseline: f64,
+}
+
+fn word_lines(path: &Path) -> Vec<WordLine> {
+    let text =
+        std::fs::read_to_string(path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    value["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|page| page["lines"].as_array().unwrap())
+        .filter_map(|line| {
+            Some(WordLine {
+                page: line["page"].as_u64()?,
+                letters: letters(line["text"].as_str()?),
+                baseline: line["baseline"].as_f64()?,
+            })
+        })
+        .collect()
+}
+
+fn laid_out_lines(fixture: &Fixture) -> Result<Vec<serde_json::Value>, String> {
+    let mut args = vec![
+        std::ffi::OsStr::new("layout"),
+        fixture.docx.as_os_str(),
+        std::ffi::OsStr::new("--lines"),
+    ];
+    if let Some(font) = &fixture.font {
+        args.extend([std::ffi::OsStr::new("--font"), font.as_os_str()]);
+    }
+    let stdout = docrs(&args)?;
+    String::from_utf8_lossy(&stdout)
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).map_err(|err| err.to_string()))
+        .collect()
+}
+
+/// Our baseline less Word's for each body line with text up to `last_page`.
+/// Word's line is the nearest on the page with the same text, the same
+/// after a list label, or starting with it (Word joins a row's cells).
+fn baseline_residuals(ours: &[serde_json::Value], word: &[WordLine], last_page: u32) -> Vec<f64> {
+    let mut used = vec![false; word.len()];
+    let mut residuals = Vec::new();
+    for line in ours {
+        let (Some(page), Some(text), Some(baseline)) = (
+            line["page"].as_u64(),
+            line["text"].as_str(),
+            line["baseline"].as_f64(),
+        ) else {
+            continue;
+        };
+        let text = letters(text);
+        if line["story"] != "body" || text.is_empty() || page > u64::from(last_page) {
+            continue;
+        }
+        let whole = |w: &WordLine| w.letters.ends_with(&text) && w.letters.len() <= text.len() + 3;
+        let nearest = word
+            .iter()
+            .enumerate()
+            .filter(|(i, w)| {
+                w.page == page && ((!used[*i] && whole(w)) || w.letters.starts_with(&text))
+            })
+            .min_by(|(_, a), (_, b)| {
+                (a.baseline - baseline)
+                    .abs()
+                    .total_cmp(&(b.baseline - baseline).abs())
+            });
+        if let Some((i, w)) = nearest {
+            used[i] = whole(w);
+            residuals.push(baseline - w.baseline);
+        }
+    }
+    residuals
+}
+
+#[test]
+fn baselines_match_words() {
+    let root = root();
+    let work = tempfile::tempdir().unwrap();
+    let mut failures = Vec::new();
+    for (fixture, converted) in fixtures(&root, work.path()) {
+        let case = fixture.case.as_str();
+        let ours = match converted.and_then(|()| laid_out_lines(&fixture)) {
+            Ok(ours) => ours,
+            Err(err) => {
+                failures.push(format!("{case}: {err}"));
+                continue;
+            }
+        };
+        let word = word_lines(&root.join(format!("tests/fixtures/pdf/{case}/word.lines.json")));
+        let (within, last_page) = PLACEMENT_DRIFT
+            .iter()
+            .find(|(drifting, ..)| *drifting == case)
+            .map_or((BASELINE_TOLERANCE, u32::MAX), |&(_, within, last)| {
+                (within, last)
+            });
+        let residuals = baseline_residuals(&ours, &word, last_page);
+        let worst = residuals
+            .iter()
+            .copied()
+            .fold(0.0_f64, |a, r| a.max(r.abs()));
+        println!(
+            "{case}: {} lines matched, worst residual {worst:.2} pt",
+            residuals.len()
+        );
+        if residuals.is_empty() || worst > within + 1e-9 {
+            failures.push(format!(
+                "{case}: {} lines matched, a baseline {worst:.2} pt from Word's (allowed {within})",
+                residuals.len()
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

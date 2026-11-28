@@ -75,7 +75,7 @@ fn metric(metrics: &[Metric], metric: u32) -> Metric {
 /// The text extent of a line. Word for Mac stacks the largest ascent on
 /// the largest descent of the fonts on the line, the line gap counting
 /// above the text; multiple line spacing adds each font's share of extra
-/// height above it (`extra`: the multiple less one).
+/// height (`extra`: the multiple less one), which [`baseline`] puts below.
 #[derive(Clone, Copy, Default)]
 struct Extent {
     above: f64,
@@ -113,9 +113,14 @@ impl Extent {
         self.above.max(label) + self.below
     }
 
+    /// The largest ascent, the label's included.
+    fn top_ascent(self) -> f64 {
+        self.ascent.max(self.label.unwrap_or(0.0))
+    }
+
     /// The height without multiple line spacing's extra.
     fn single_height(self) -> f64 {
-        self.ascent.max(self.label.unwrap_or(0.0)) + self.below
+        self.top_ascent() + self.below
     }
 }
 
@@ -126,6 +131,16 @@ fn line_height(para: &Para, text: f64, object: f64) -> f64 {
         LineSpacing::Exact(points) => points,
         LineSpacing::Multiple(_) => text.max(object),
         LineSpacing::AtLeast(points) => text.max(points).max(object),
+    }
+}
+
+/// From the line top. Word for Mac puts multiple line spacing's extra
+/// height below the descent, so the baseline is the largest ascent down.
+fn baseline(para: &Para, height: f64, heights: &Heights, object: f64) -> f64 {
+    let above = height - heights.below;
+    match para.line {
+        LineSpacing::Multiple(_) => above.min(heights.ascent.max(object - heights.below)),
+        LineSpacing::Exact(_) | LineSpacing::AtLeast(_) => above,
     }
 }
 
@@ -179,6 +194,7 @@ enum Ending {
 struct Heights {
     text: f64,
     single: f64,
+    ascent: f64,
     below: f64,
 }
 
@@ -297,18 +313,21 @@ impl Breaker<'_> {
             Heights {
                 text: height,
                 single: text.single_height(),
+                ascent: text.top_ascent(),
                 below,
             }
         } else if paragraph_end {
             Heights {
                 text: height.max(self.mark),
                 single: text.single_height().max(self.mark_single),
+                ascent: text.top_ascent().max(self.mark_single - self.mark_below),
                 below: text.below.max(self.mark_below),
             }
         } else {
             Heights {
                 text: self.mark,
                 single: self.mark_single,
+                ascent: self.mark_single - self.mark_below,
                 below: self.mark_below,
             }
         }
@@ -336,7 +355,7 @@ impl Breaker<'_> {
             fit: line_height(para, heights.single, open.object),
             page_break: ending == Ending::PageBreak,
             pieces: open.first_piece as u32..next_piece as u32,
-            baseline: height - heights.below,
+            baseline: baseline(para, height, &heights, open.object),
             start: open.start + offset,
             width: end.content - open.start,
             slack,
@@ -1654,6 +1673,21 @@ mod tests {
             ]
         );
         assert!(lines.iter().all(|l| l.baseline == 8.0 && l.tabs.is_empty()));
+    }
+
+    #[test]
+    fn multiple_spacing_leaves_the_baseline_one_ascent_down() {
+        let mut p = para(2, 10.0);
+        let baseline = |p: &Para| {
+            let line = lines(p, &METRICS, 100.0, 36.0).remove(0);
+            (line.height, line.baseline)
+        };
+        p.line = LineSpacing::Multiple(1.5);
+        assert_eq!(baseline(&p), (15.0, 8.0));
+        p.line = LineSpacing::Multiple(0.8);
+        assert_eq!(baseline(&p), (8.0, 6.0));
+        p.line = LineSpacing::AtLeast(20.0);
+        assert_eq!(baseline(&p), (20.0, 18.0));
     }
 
     #[test]
