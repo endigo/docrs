@@ -828,7 +828,7 @@ impl<'s, 'd> Scan<'s, 'd> {
 
     /// A picture by its relationship: TIFF, EMF and WMF are unsupported,
     /// and one the package does not hold is a placeholder. A DrawingML
-    /// picture is `drawn`; a VML one is not yet.
+    /// picture is `drawn`; a VML one is not yet, whatever its part.
     fn image(&mut self, id: Option<&str>, drawn: bool) {
         let source = source_part_name(&self.part);
         let base = base_uri(&source);
@@ -837,7 +837,11 @@ impl<'s, 'd> Scan<'s, 'd> {
             .filter(|rel| !rel.external)
             .and_then(|rel| self.txn.resolve(&rel.target_part_name(base)));
         let Some(part) = part else {
-            return self.note(IMAGE, "missing image");
+            return if drawn {
+                self.note(IMAGE, "missing image")
+            } else {
+                self.note(NOT_YET_DRAWN, "image")
+            };
         };
         let content_type = self.txn.content_type(&part).unwrap_or_default();
         match unsupported_image(&content_type, &part) {

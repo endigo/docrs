@@ -1494,3 +1494,15 @@ fn table_layout_features_the_pdf_ignores_are_reported() {
         ]
     );
 }
+
+#[test]
+fn a_vml_picture_naming_no_part_is_not_yet_drawn() {
+    // VML pictures are not drawn at all, so a missing part is no
+    // placeholder: the picture is reported as not drawn.
+    let body = para(&run(
+        r#"<w:pict><v:shape style="width:20pt;height:20pt"><v:imagedata r:id="rIdNone"/></v:shape></w:pict>"#,
+    ));
+    let report = report(&docx(&body, &[], &[]));
+    assert_eq!(subjects(&report, NOT_YET_DRAWN), [("image", 1)]);
+    assert!(subjects(&report, "pdf_image_unsupported").is_empty());
+}

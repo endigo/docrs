@@ -52,12 +52,13 @@ pub(super) struct Painter<'m, 't, 'c, 'b> {
     /// Where the body's text starts in `content`, after the headers' and
     /// footers'.
     body_at: Option<usize>,
-    /// The paragraph last drawn on the page, and its first line's top.
-    para_top: Option<(*const Para, f64)>,
+    /// The paragraph last drawn on the page and its first line's top.
+    para_top: Option<ParaTop>,
     state: TextState,
     max_pages: u32,
     /// Content-stream bytes of the closed pages before compression, and
-    /// their cap: a leader draws many glyphs for one tab.
+    /// their cap: a leader draws many glyphs for one tab, and a header
+    /// anchors any number of pictures on every page.
     drawn: u64,
     max_drawn: u64,
     /// Draws, for tests, what no font program draws (a space for what it
@@ -65,6 +66,19 @@ pub(super) struct Painter<'m, 't, 'c, 'b> {
     stand_in: Option<Arc<Face>>,
     /// Each note's mark, as pagination numbers it.
     note_marks: HashMap<NoteId, String>,
+}
+
+/// The paragraph whose lines are being drawn on the page.
+#[derive(Clone, Copy)]
+struct ParaTop {
+    story: StoryId,
+    /// Its address, told apart from another paragraph's only together with
+    /// the rest: a header or footer may be drawn from a per-page copy freed
+    /// before the next one is made.
+    para: usize,
+    /// The end of its last line drawn: the next line must start there.
+    end: u32,
+    top: f64,
 }
 
 /// The text and graphics state a content stream carries between runs.
@@ -158,10 +172,10 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
         let size = (geometry.width, geometry.height);
         let content = std::mem::take(&mut self.content);
         let mut fills = std::mem::take(&mut self.fills);
-        self.drawn += (content.len() + fills.len()) as u64;
         let (furniture, body) = content.split_at(self.body_at.take().unwrap_or(content.len()));
         fills.extend_from_slice(body);
         let stream = self.pictures.page_stream(furniture, &fills);
+        self.drawn += stream.len() as u64;
         let contents = super::page_content(&mut self.writer, &stream)?;
         self.pages.push(Page { size, contents });
         Ok(())
@@ -203,15 +217,20 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
         let Some(page) = self.page else {
             return Err(no_page());
         };
-        let para_key = para as *const Para;
-        let para_top = match self.para_top {
-            Some((key, top)) if key == para_key => top,
-            _ => {
-                self.para_top = Some((para_key, at.y));
-                at.y
-            }
-        };
         let (start, end) = (line.pieces.start, line.pieces.end);
+        // A paragraph's first line starts it again; a later one continues
+        // the paragraph only straight after its line before.
+        let key = (para.story, para as *const Para as usize);
+        let para_top = match self.para_top {
+            Some(top) if start > 0 && (top.story, top.para) == key && top.end == start => top.top,
+            _ => at.y,
+        };
+        self.para_top = Some(ParaTop {
+            story: para.story,
+            para: key.1,
+            end,
+            top: para_top,
+        });
         let last = end as usize >= para.pieces.len();
         for anchor in &para.anchors {
             if anchor.piece < start || (anchor.piece >= end && !last) {
@@ -222,7 +241,7 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
                 .map_or(line.start + line.width, |x| *x);
             let spot = Spot {
                 page: self.geometry(&page),
-                number: page.number,
+                odd: page.odd,
                 para_top,
                 line_top: at.y,
                 line_height: line.height,
@@ -417,7 +436,8 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
     }
 
     fn check_drawn(&self) -> Result<()> {
-        let drawn = self.drawn + (self.fills.len() + self.content.len()) as u64;
+        let open = self.fills.len() + self.content.len() + self.pictures.layered();
+        let drawn = self.drawn + open as u64;
         if drawn > self.max_drawn {
             return Err(Error::limit("max_pdf_content_bytes", self.max_drawn, drawn));
         }
@@ -669,7 +689,8 @@ impl Sink for Painter<'_, '_, '_, '_> {
         self.check_drawn()?;
         let (origins, _) = line.origins(para);
         self.objects(line_pieces(para, line), &origins, at.x, baseline)?;
-        self.anchors(at, para, line, &origins)
+        self.anchors(at, para, line, &origins)?;
+        self.check_drawn()
     }
 
     fn para_box(&mut self, boxed: &ParaBox) -> Result<()> {

@@ -361,6 +361,8 @@ struct End {
     content: f64,
     gaps: u32,
     tabs: usize,
+    /// Text other than spaces before the end.
+    ink: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -386,6 +388,9 @@ struct Open {
     /// Width of the spaces between words since the last tab.
     spaces: f64,
     object: f64,
+    /// Text other than spaces (a tab and a line break count): a line
+    /// ending with an object and only spaces has the object alone.
+    ink: bool,
     has_content: bool,
     /// Last break opportunity (piece index to restart from).
     last_break: Option<(usize, End)>,
@@ -406,6 +411,7 @@ impl Open {
             text: Extent::default(),
             spaces: 0.0,
             object: 0.0,
+            ink: false,
             has_content: false,
             last_break: None,
             start: x,
@@ -422,6 +428,7 @@ impl Open {
             content: self.content,
             gaps: self.gaps,
             tabs: self.tabs.len(),
+            ink: self.ink,
         }
     }
 
@@ -521,7 +528,7 @@ impl Breaker<'_> {
         let open = std::mem::replace(&mut self.line, Open::new(next_piece, para.left));
         // Word for Mac (the corpus's showcase pictures): an object alone on
         // its line keeps the mark's extra spacing below it, not its descent.
-        let alone = open.object > 0.0 && open.text.single == 0.0 && open.text.label.is_none();
+        let alone = open.object > 0.0 && !end.ink && open.text.label.is_none();
         let descent = if alone { heights.below } else { 0.0 };
         let height = line_height(
             para,
@@ -588,6 +595,7 @@ impl Breaker<'_> {
                     index + 1,
                     End {
                         content: line.x + width,
+                        ink: true,
                         ..line.end()
                     },
                 ),
@@ -602,6 +610,7 @@ impl Breaker<'_> {
             line.space(width);
             line.mark_break(index + 1);
         } else {
+            line.ink = true;
             line.word();
             if breaks_after(ch) {
                 line.mark_break(index + 1);
@@ -637,6 +646,7 @@ impl Breaker<'_> {
             _ => stop.pos,
         };
         self.line.text.add(self.metrics, metric, self.extra);
+        self.line.ink = true;
         if target > self.right_limit + EPSILON && self.line.has_content && kind == TabKind::Left {
             self.line.tabs.push(TabPlace {
                 piece: index as u32,
@@ -705,6 +715,7 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
             }
             Piece::LineBreak { metric, .. } => {
                 b.line.text.add(metrics, metric, extra);
+                b.line.ink = true;
                 b.manual_break(index, Ending::LineBreak);
                 index + 1
             }
@@ -1072,6 +1083,8 @@ pub(crate) struct Point {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PageStart {
     pub number: u32,
+    /// The number the page shows is odd: its inside margin is on the left.
+    pub odd: bool,
     /// Into `Model.sections`.
     pub section: usize,
 }
@@ -1295,8 +1308,13 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 
     /// Start the page: its header and footer, then the body at its top.
     fn open_page(&mut self, blank: bool) -> Result<()> {
+        let first = self.page == self.section_first_page;
+        let shown = self
+            .furniture
+            .next_number(first, &self.model.sections[self.section()]);
         self.sink.page(&PageStart {
             number: self.page,
+            odd: shown.rem_euclid(2) == 1,
             section: self.section(),
         })?;
         let at = PageAt {
@@ -2304,6 +2322,40 @@ mod tests {
             object: 0,
         });
         assert_eq!(line(&p), (37.0, 30.0, 2.0));
+    }
+
+    #[test]
+    fn an_object_with_only_spaces_on_its_line_is_alone() {
+        // A: height 10, ascent 8. A 30-point object at 1.5 spacing: alone,
+        // the line keeps the extra 5 below it but not A's descent 2, also
+        // with a space wrapped onto the line after it; a word beside it
+        // brings the descent back.
+        let metrics = [Metric {
+            height: 10.0,
+            ascent: 8.0,
+        }];
+        let object = Piece::Object {
+            width: 50.0,
+            height: 30.0,
+            object: 0,
+        };
+        let first = |pieces: Vec<Piece>| {
+            let p = Para {
+                pieces,
+                line: LineSpacing::Multiple(1.5),
+                ..Para::default()
+            };
+            let line = lines(&p, &metrics, 100.0, 36.0).remove(0);
+            (line.height, line.baseline)
+        };
+        let alone = (35.0, 30.0);
+        assert_eq!(first(vec![object.clone()]), alone);
+        let mut spaced = vec![object.clone()];
+        spaced.extend(text(" wordwordwordword", 5.0));
+        assert_eq!(first(spaced), alone);
+        let mut beside = vec![object];
+        beside.extend(text(" a", 5.0));
+        assert_eq!(first(beside), (37.0, 30.0));
     }
 
     #[test]

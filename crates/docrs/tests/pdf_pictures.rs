@@ -1186,3 +1186,136 @@ fn an_oversized_footer_picture_is_drawn_past_the_page_edge() {
         "{large:?}"
     );
 }
+
+#[test]
+fn a_header_s_anchors_count_toward_the_content_cap() {
+    // 4,000 anchors in one header paragraph, about 200 KB of content a
+    // page that compresses to little: ten pages are past 16 times a
+    // 100 KB output cap, though the output stays under it.
+    let place = (offset("H", "page", 36.0), offset("V", "page", 18.0));
+    let one = anchor(10.0, 10.0, r#"relativeHeight="1""#, &place.0, &place.1);
+    let header = para(&one.repeat(4_000));
+    let words = para(&text(&"Words that fill pages. ".repeat(2_400)));
+    let package = Package {
+        body: format!(
+            r#"{words}<w:sectPr><w:headerReference w:type="default" r:id="rIdS1"/>{SECTION}</w:sectPr>"#
+        ),
+        stories: vec![("header1.xml", "hdr", header)],
+        media: vec![("logo.png", logo())],
+    };
+    let document = package.document();
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    options.limits.max_output_bytes = 100_000;
+    let err = render(&document, &options).unwrap_err();
+    assert_eq!(err.reason(), "max_pdf_content_bytes", "{err}");
+}
+
+#[test]
+fn a_footer_paragraph_anchor_takes_the_footer_paragraph_s_top() {
+    // Header and footer both hold a field, so each page lays them out from
+    // a copy; the footer's picture must not take the header line's top.
+    let field = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>"#;
+    let header = para(&(text("Header ") + field));
+    let footer = para(
+        &(text("Footer ")
+            + field
+            + &anchor(
+                40.0,
+                20.0,
+                r#"relativeHeight="1""#,
+                &offset("H", "page", 300.0),
+                &offset("V", "paragraph", 0.0),
+            )),
+    );
+    let words = para(&text(&"Words that fill pages. ".repeat(300)));
+    let package = Package {
+        body: format!(
+            r#"{words}<w:sectPr><w:headerReference w:type="default" r:id="rIdS1"/><w:footerReference w:type="default" r:id="rIdS2"/>{SECTION}</w:sectPr>"#
+        ),
+        stories: vec![
+            ("header1.xml", "hdr", header),
+            ("footer1.xml", "ftr", footer),
+        ],
+        media: vec![("logo.png", logo())],
+    };
+    let document = package.document();
+    let txn = Txn::new(&document);
+    let main = document.package().main_part_name().to_string();
+    let mut footers = Vec::new();
+    records_with(
+        &txn,
+        &main,
+        &fonts(),
+        |_, _| Ok(()),
+        |record| {
+            if let Record::Line(line) = record
+                && line.story.starts_with("footer")
+            {
+                footers.push(line);
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    let marks = marks(&painted(&document));
+    assert!(marks.len() >= 2, "{} pages", marks.len());
+    for (page, marks) in marks.iter().enumerate() {
+        let footer = footers
+            .iter()
+            .find(|line| line.page as usize == page + 1)
+            .unwrap_or_else(|| panic!("no footer line on page {}", page + 1));
+        let drawn = images(marks);
+        assert_eq!(drawn.len(), 1, "page {}", page + 1);
+        assert_near(
+            bounds(drawn[0].1, PAGE_HEIGHT),
+            [300.0, footer.y, 340.0, footer.y + 20.0],
+            "the footer paragraph's top",
+        );
+    }
+}
+
+#[test]
+fn a_crop_showing_almost_nothing_draws_nothing_and_fails_nothing() {
+    // A share of 1e-12 would stretch the image some 1e14 points wide.
+    for crop in [
+        r#"<a:srcRect l="99999.9999999"/>"#,
+        r#"<a:srcRect l="99999999" r="-99999950"/>"#,
+        r#"<a:srcRect t="-1e300"/>"#,
+    ] {
+        let document = body(&para(&inline(100.0, 60.0, crop, ""))).document();
+        let (pdf, _) = rendered(&document);
+        let drawn = images(&marks(&pdf)[0]);
+        assert!(drawn.len() <= 1, "{crop}: {drawn:?}");
+        for (_, ctm, _) in drawn {
+            assert!(ctm.iter().all(|v| v.abs() < 1e9), "{crop}: {ctm:?}");
+        }
+    }
+}
+
+#[test]
+fn inside_and_outside_follow_the_number_the_page_shows() {
+    // The first page shows 2, an even page: its inside is on the right.
+    let picture = anchor(
+        40.0,
+        20.0,
+        r#"relativeHeight="1""#,
+        &aligned("H", "margin", "inside"),
+        &offset("V", "page", 100.0),
+    );
+    let package = Package {
+        body: format!(
+            r#"{}<w:sectPr>{SECTION}<w:pgNumType w:start="2"/></w:sectPr>"#,
+            para(&(text("Inside.") + &picture))
+        ),
+        stories: Vec::new(),
+        media: vec![("logo.png", logo())],
+    };
+    let drawn = images(&marks(&painted(&package.document()))[0]);
+    // Letter 612 wide, margins left 90 and right 72.
+    assert_near(
+        bounds(drawn[0].1, PAGE_HEIGHT),
+        [500.0, 100.0, 540.0, 120.0],
+        "the right margin's edge",
+    );
+}

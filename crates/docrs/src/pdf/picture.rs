@@ -23,8 +23,8 @@ pub(super) struct Rect {
 /// What an anchor on a line is placed against.
 pub(super) struct Spot<'a> {
     pub page: &'a Page,
-    /// From 1: odd pages have their inside margin on the left.
-    pub number: u32,
+    /// The page shows an odd number: its inside margin is on the left.
+    pub odd: bool,
     pub para_top: f64,
     pub line_top: f64,
     pub line_height: f64,
@@ -46,6 +46,8 @@ pub(super) struct Pictures {
     /// Parts already counted in a warning.
     warned: HashSet<String>,
     layers: Vec<Layer>,
+    /// The bytes of `layers`' content.
+    layered: usize,
     pub(super) tally: Tally,
 }
 
@@ -99,6 +101,7 @@ impl Pictures {
             limits,
             warned: HashSet::new(),
             layers: Vec::new(),
+            layered: 0,
             tally: Tally::default(),
         }
     }
@@ -117,6 +120,7 @@ impl Pictures {
         let mut content = Vec::new();
         self.draw(writer, txn, object, rect, spot.page.height, &mut content)?;
         if !content.is_empty() {
+            self.layered += content.len();
             self.layers.push(Layer {
                 furniture,
                 behind: anchor.behind,
@@ -127,11 +131,17 @@ impl Pictures {
         Ok(())
     }
 
+    /// The bytes of the open page's layers.
+    pub(super) fn layered(&self) -> usize {
+        self.layered
+    }
+
     /// The page's content stream: the headers' and footers' layer under
     /// the body's, each its behind-text objects, its text, then its
     /// in-front objects, by `relativeHeight`.
     pub(super) fn page_stream(&mut self, furniture: &[u8], body: &[u8]) -> Vec<u8> {
         let mut layers = std::mem::take(&mut self.layers);
+        self.layered = 0;
         layers.sort_by_key(|layer| layer.order);
         let mut stream = Vec::new();
         for (in_furniture, text) in [(true, furniture), (false, body)] {
@@ -255,6 +265,15 @@ fn frame(picture: &Picture, rect: Rect, page_height: f64) -> Matrix {
         .then(Matrix::translate(centre.0, centre.1))
 }
 
+/// A crop side's bounds: all of the image cut off, or ten times its size
+/// added.
+const CROP_SIDE: (f64, f64) = (-10.0, 1.0);
+
+/// The least share of the image a crop shows and still draws: one in ten
+/// thousand. Less, and the image stretched over the picture would be
+/// beyond what a content stream writes.
+const MIN_SHOWN: f64 = 1e-4;
+
 /// The image stretched over the uncropped picture and clipped to `rect`.
 fn drawn(
     out: &mut Vec<u8>,
@@ -263,9 +282,11 @@ fn drawn(
     rect: Rect,
     name: &str,
 ) -> Result<()> {
-    let [left, top, right, bottom] = picture.crop;
+    let [left, top, right, bottom] = picture
+        .crop
+        .map(|side| side.clamp(CROP_SIDE.0, CROP_SIDE.1));
     let (shown_x, shown_y) = (1.0 - left - right, 1.0 - top - bottom);
-    if shown_x <= 0.0 || shown_y <= 0.0 {
+    if shown_x < MIN_SHOWN || shown_y < MIN_SHOWN {
         return Ok(());
     }
     let (width, height) = (rect.width / shown_x, rect.height / shown_y);
@@ -313,7 +334,7 @@ fn rectangle(out: &mut Vec<u8>, rect: Rect) -> Result<()> {
 
 /// Where an anchor's position puts its extent.
 fn place(anchor: &Anchor, object: &Object, spot: &Spot<'_>) -> Rect {
-    let odd = spot.number % 2 == 1;
+    let odd = spot.odd;
     let (x, width) = horizontal(anchor.x.from, odd, spot);
     let (y, height) = vertical(anchor.y.from, odd, spot);
     Rect {
