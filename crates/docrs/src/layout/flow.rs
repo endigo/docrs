@@ -547,9 +547,23 @@ impl Para {
 /// previous paragraph's space after and this one's space before, after
 /// contextual spacing removed either between paragraphs of one style.
 fn gap(previous: Option<&Para>, para: &Para) -> f64 {
-    let Some(previous) = previous else {
-        return para.before_spacing();
-    };
+    previous.map_or(para.before_spacing(), |previous| {
+        let (after, before) = spacing(previous, para);
+        after.max(before)
+    })
+}
+
+/// The space above a paragraph `pageBreakBefore` moved to a new page: Word
+/// keeps what the previous paragraph's space after did not cover.
+fn space_after_break(previous: Option<&Para>, para: &Para) -> f64 {
+    previous.map_or(para.before_spacing(), |previous| {
+        let (after, before) = spacing(previous, para);
+        (before - after).max(0.0)
+    })
+}
+
+/// The space after `previous` and before `para` where they meet.
+fn spacing(previous: &Para, para: &Para) -> (f64, f64) {
     let same = previous.style == para.style;
     // Automatic (HTML) spacing is not added between list items.
     let list = previous.label.is_some() && para.label.is_some();
@@ -563,7 +577,7 @@ fn gap(previous: Option<&Para>, para: &Para) -> f64 {
     } else {
         para.before_spacing()
     };
-    after.max(before)
+    (after, before)
 }
 
 /// A place a row can split before: a line of a cell's content (a nested
@@ -1170,9 +1184,12 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     fn place_para(&mut self, para: &'m Para) -> Result<()> {
         let lines = self.lines(para)?;
         if para.page_break_before && !self.at_top {
+            let previous = self.previous;
             self.new_page()?;
+            self.y += space_after_break(previous, para);
+        } else {
+            self.y += self.space_above(para);
         }
-        self.y += self.space_above(para);
         let total: f64 = lines.iter().map(|l| l.height).sum::<f64>()
             - lines.last().map_or(0.0, |l| l.height - l.fit);
         if para.keep_lines
