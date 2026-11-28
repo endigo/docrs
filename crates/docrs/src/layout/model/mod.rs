@@ -415,6 +415,16 @@ impl Table {
             TableAlign::Right => room - self.width(),
         }
     }
+
+    /// Each cell's left edge in `row`, from the table's: its grid line, or
+    /// the previous cell's right edge past the grid's last column.
+    pub fn cell_lefts(&self, row: usize) -> impl Iterator<Item = f64> + '_ {
+        self.rows[row].cells.iter().scan(0.0, |x, cell| {
+            let left = self.grid.get(cell.column).copied().unwrap_or(*x);
+            *x = left + cell.width;
+            Some(left)
+        })
+    }
 }
 
 /// What writes a field's value: its result's font and look.

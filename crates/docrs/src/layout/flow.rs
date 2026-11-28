@@ -992,18 +992,17 @@ fn row_layout<'m>(
     metrics: &[Metric],
     default_tab: f64,
 ) -> RowLayout<'m> {
+    let lefts = table.cell_lefts(row);
     let row = &table.rows[row];
     let mut height = 0.0f64;
     let mut cells = Vec::new();
     let mut work = 1;
-    let mut x = 0.0;
-    for cell in &row.cells {
+    for (cell, x) in row.cells.iter().zip(lefts) {
         let width = (cell.width - cell.margins[2] - cell.margins[3]).max(1.0);
         let layout = cell_layout(&cell.blocks, metrics, width, default_tab, true);
         if cell.vmerge != 2 {
             height = height.max(layout.content + cell.margins[0] + cell.margins[1]);
         }
-        x = table.grid.get(cell.column).copied().unwrap_or(x);
         work += layout.work;
         cells.push(CellPart {
             layout,
@@ -1011,7 +1010,6 @@ fn row_layout<'m>(
             shift: 0.0,
             x: x + cell.margins[2],
         });
-        x += cell.width;
     }
     if let Some((value, exact)) = row.height {
         height = if exact { value } else { height.max(value) };

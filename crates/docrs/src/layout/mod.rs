@@ -952,9 +952,10 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
         let cells = table.rows[row]
             .cells
             .iter()
+            .zip(table.cell_lefts(row))
             .zip(&slice.cells)
-            .map(|(cell, content)| CellRecord {
-                x: origin.x + table.grid.get(cell.column).copied().unwrap_or(0.0),
+            .map(|((cell, left), content)| CellRecord {
+                x: origin.x + left,
                 width: cell.width,
                 from: content.start,
                 to: content.end,

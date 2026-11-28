@@ -204,7 +204,7 @@ impl TableLook {
             Some((
                 ((index - from) / size).is_multiple_of(2),
                 start,
-                (start + size - 1).min(to),
+                start.saturating_add(size - 1).min(to),
             ))
         };
         if self.row_bands
@@ -404,6 +404,29 @@ mod tests {
                 Region {
                     top: 5,
                     bottom: 6,
+                    left: 0,
+                    right: 0
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn a_band_of_any_size_ends_at_the_table_s_last_row() {
+        let at = Position {
+            row: 3,
+            rows: 6,
+            column: 0,
+            columns: 1,
+        };
+        let band = look(r#"w:val="0420""#).parts(at, (usize::MAX, 1))[0];
+        assert_eq!(
+            band,
+            (
+                Part::Band1Horz,
+                Region {
+                    top: 1,
+                    bottom: 5,
                     left: 0,
                     right: 0
                 }

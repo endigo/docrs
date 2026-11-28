@@ -647,3 +647,33 @@ fn without_the_override_setting_normal_s_size_and_left_alignment_give_way_to_the
     assert_eq!(cell_look(&standard, table, 0, 0).size, 12.0);
     assert_eq!(para(&standard, 0), Align::Left);
 }
+
+#[test]
+fn a_band_size_past_32_bits_reads_as_the_largest() {
+    let body = table_xml(
+        "Banded",
+        r#"<w:tblStyleRowBandSize w:val="18446744073709551615"/>"#,
+        4,
+        |_| String::new(),
+    );
+    let model = model(&body, BANDED);
+    let table = tables(&model)[0];
+    assert_eq!(
+        fills(table)[1],
+        fills(table)[3],
+        "one band below the header"
+    );
+}
+
+#[test]
+fn cells_past_the_grid_s_last_column_follow_the_cell_before() {
+    let cells: String = (0..70)
+        .map(|_| r#"<w:tc><w:tcPr><w:tcW w:w="200" w:type="dxa"/></w:tcPr><w:p/></w:tc>"#)
+        .collect();
+    let body = format!("<w:tbl><w:tr>{cells}</w:tr></w:tbl><w:p/>");
+    let model = model(&body, "");
+    let table = tables(&model)[0];
+    let lefts: Vec<f64> = table.cell_lefts(0).collect();
+    let expected: Vec<f64> = (0..70).map(|i| f64::from(i) * 10.0).collect();
+    assert_eq!(lefts, expected);
+}

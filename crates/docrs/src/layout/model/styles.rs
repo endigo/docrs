@@ -77,12 +77,13 @@ impl TableStyle {
     }
 }
 
+/// A band size is an `ST_DecimalNumber`, a 32-bit integer.
 pub(super) fn band_size(tree: &XmlTree, tbl_pr: Option<NodeId>, name: &str) -> Option<usize> {
     tbl_pr
         .and_then(|p| w_child(tree, p, name))
         .and_then(|b| w_attr(tree, b, "val"))
         .and_then(|v| v.parse::<usize>().ok())
-        .map(|size| size.max(1))
+        .map(|size| size.clamp(1, i32::MAX as usize))
 }
 
 impl Styles {
