@@ -47,8 +47,6 @@ pub(crate) struct PPr {
     /// The bar beside facing pages (`w:bar`), read for the PDF preflight
     /// only.
     pub(super) bar: Option<Option<Border>>,
-    /// `w:shd` draws a fill or a pattern, automatic colours included.
-    pub(crate) shaded: Option<bool>,
     pub(crate) frame: Option<Frame>,
     pub(crate) bidi: Option<bool>,
     /// Text not laid out left to right, top to bottom (`w:textDirection`).
@@ -79,7 +77,6 @@ impl PPr {
             ilvl,
             shd,
             bar,
-            shaded,
             frame,
             bidi,
             rotated
@@ -196,12 +193,19 @@ impl PPr {
             .is_some_and(|align| align.justified() && align != Align::Both)
     }
 
-    /// Some edge draws a line, each edge inherited on its own.
-    pub(crate) fn bordered(&self) -> bool {
+    /// The bar beside facing pages draws a line.
+    pub(crate) fn barred(&self) -> bool {
+        matches!(self.bar, Some(Some(_)))
+    }
+
+    /// Some edge, each inherited on its own, has a style the PDF draws as
+    /// a single line.
+    pub(crate) fn border_approximated(&self) -> bool {
         self.borders
             .iter()
-            .chain([&self.bar])
-            .any(|side| matches!(side, Some(Some(_))))
+            .flatten()
+            .flatten()
+            .any(|border| !border.style.drawn())
     }
 }
 
@@ -334,10 +338,7 @@ pub(super) fn read_ppr(tree: &XmlTree, ppr: Option<NodeId>, palette: &Palette) -
                 }
                 out.ilvl = ilvl;
             }
-            "shd" => {
-                out.shd = Some(palette.shading(tree, child));
-                out.shaded = Some(shaded(tree, child));
-            }
+            "shd" => out.shd = Some(palette.shading(tree, child)),
             "framePr" => {
                 out.frame = Some(match w_attr(tree, child, "dropCap") {
                     Some("drop" | "margin") => Frame::DropCap,

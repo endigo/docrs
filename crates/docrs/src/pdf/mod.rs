@@ -8,6 +8,7 @@
 //! not draw yet is a `pdf_not_yet_drawn` warning, and [`PdfReport::check`]
 //! refuses it, so a PDF is never silently incomplete.
 
+mod boxes;
 mod font;
 mod meta;
 mod paint;
@@ -94,6 +95,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_field_cached",
         "a date or time field shows the value saved in the document, not the current one",
+    ),
+    (
+        "pdf_decoration_approximated",
+        "a border style the PDF does not draw is drawn as a single line",
     ),
     (
         "pdf_justification_unsupported",

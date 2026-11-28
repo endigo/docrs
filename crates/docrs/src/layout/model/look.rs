@@ -284,6 +284,23 @@ pub enum BorderStyle {
 }
 
 impl BorderStyle {
+    /// Drawn as the style says; the PDF draws any other as a single line.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn drawn(self) -> bool {
+        matches!(
+            self,
+            BorderStyle::Single
+                | BorderStyle::Thick
+                | BorderStyle::Double
+                | BorderStyle::Triple
+                | BorderStyle::Dotted
+                | BorderStyle::Dashed
+                | BorderStyle::DashSmallGap
+                | BorderStyle::DotDash
+                | BorderStyle::DotDotDash
+        )
+    }
+
     const NAMES: [(&str, BorderStyle); 25] = [
         ("single", BorderStyle::Single),
         ("thick", BorderStyle::Thick),

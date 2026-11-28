@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::font::{Cid, FaceRef, FontResources};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
-use crate::layout::flow::{Line, PageStart, Point, Sink};
+use crate::layout::flow::{Line, PageStart, ParaBox, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
 use crate::layout::model::{Appearance, Block, Colour, Model, Para, Piece};
 use crate::txn::Txn;
@@ -37,6 +37,8 @@ pub(super) struct Painter<'m, 't> {
     programs: HashMap<usize, Arc<[u8]>>,
     pub pages: Vec<Page>,
     page: Option<(f64, f64)>,
+    /// Drawn first, behind the page's text.
+    fills: Vec<u8>,
     content: Vec<u8>,
     state: TextState,
     max_pages: u32,
@@ -92,6 +94,7 @@ impl<'m, 't> Painter<'m, 't> {
             programs: HashMap::new(),
             pages: Vec::new(),
             page: None,
+            fills: Vec::new(),
             content: Vec::new(),
             state: PAGE_START,
             max_pages: limits.max_pages,
@@ -104,8 +107,9 @@ impl<'m, 't> Painter<'m, 't> {
         let Some(size) = self.page.take() else {
             return Ok(());
         };
-        let contents = super::page_content(&mut self.writer, &self.content)?;
-        self.content.clear();
+        let mut stream = std::mem::take(&mut self.fills);
+        stream.append(&mut self.content);
+        let contents = super::page_content(&mut self.writer, &stream)?;
         self.pages.push(Page { size, contents });
         Ok(())
     }
@@ -219,13 +223,18 @@ impl<'m, 't> Painter<'m, 't> {
         Ok(runs)
     }
 
-    fn draw(&mut self, run: &Run, baseline: f64) -> Result<()> {
-        let Some((_, height)) = self.page else {
-            return Err(Error::internal(
+    fn page_height(&self) -> Result<f64> {
+        match self.page {
+            Some((_, height)) => Ok(height),
+            None => Err(Error::internal(
                 "pdf_no_page",
                 "a line before the first page",
-            ));
-        };
+            )),
+        }
+    }
+
+    fn draw(&mut self, run: &Run, baseline: f64) -> Result<()> {
+        let height = self.page_height()?;
         let look = run.look;
         let state = TextState {
             fill: match look.colour {
@@ -365,6 +374,12 @@ impl Sink for Painter<'_, '_> {
             self.draw(run, baseline)?;
         }
         Ok(())
+    }
+
+    fn para_box(&mut self, boxed: &ParaBox) -> Result<()> {
+        let height = self.page_height()?;
+        super::boxes::fill(&mut self.fills, boxed, height)?;
+        super::boxes::lines(&mut self.content, boxed, height)
     }
 }
 
