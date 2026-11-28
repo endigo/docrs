@@ -191,6 +191,13 @@ pub struct Note {
     /// Marked by the text after its reference (`w:customMarkFollows`), not
     /// numbered.
     pub custom: bool,
+    /// Its mark as layout measures it: numbered in document order, by each
+    /// section's numbering; empty when custom or never referenced.
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF font check reads it")
+    )]
+    pub mark: String,
 }
 
 /// One kind of note, in its part's order, and the separators.
@@ -390,13 +397,15 @@ impl Builder<'_> {
             story.separator = self.note_blocks(tree, part.separator);
             story.continuation = self.note_blocks(tree, part.continuation);
             for (index, node) in part.notes.iter().enumerate() {
-                self.notes.current = Some(NoteId {
+                let note = NoteId {
                     kind,
                     index: index as u32,
-                });
+                };
+                self.notes.current = Some(note);
                 story.notes.push(Note {
                     blocks: self.note_blocks(tree, Some(*node)),
                     custom: self.notes.custom[slot][index],
+                    mark: self.notes.mark(note),
                 });
             }
             self.notes.current = None;

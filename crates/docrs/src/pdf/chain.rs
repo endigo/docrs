@@ -137,12 +137,12 @@ impl<'b> Chain<'b> {
     }
 
     /// Decides every character a mark of `note`'s kind can show, since
-    /// pagination numbers the marks; counts those of its number in
-    /// document order.
+    /// pagination numbers the marks; counts those of the mark layout
+    /// measures.
     fn count_mark(&mut self, model: &Model, note: NoteId, look: u32) {
-        if model.notes.note(note).is_none_or(|n| n.custom) {
+        let Some(shown) = model.notes.note(note).filter(|n| !n.custom) else {
             return;
-        }
+        };
         let alphabet = self
             .mark_alphabets
             .entry(note.kind)
@@ -152,12 +152,7 @@ impl<'b> Chain<'b> {
         for ch in alphabet {
             self.drawn(model, appearance, ch, false);
         }
-        let Some(section) = model.sections.first() else {
-            return;
-        };
-        let numbering = section.notes.get(note.kind);
-        let mark = numbering.mark(numbering.start.saturating_add(note.index));
-        for ch in mark.chars() {
+        for ch in shown.mark.chars() {
             self.count(model, look, ch, false);
         }
     }
