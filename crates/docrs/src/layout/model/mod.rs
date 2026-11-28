@@ -21,6 +21,7 @@ mod marks;
 mod math;
 mod notes;
 mod numbering;
+mod object;
 mod props;
 mod styles;
 mod table;
@@ -59,6 +60,9 @@ pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
 #[cfg(feature = "pdf")]
 pub(crate) use notes::NotePosition;
 pub use notes::{NoteCounter, NoteId, NoteKind, NoteSettings, Notes};
+pub use object::{Anchor, Object, ObjectKind};
+#[cfg(feature = "pdf")]
+pub(crate) use object::{Picture, Place, Position, Relative, is_watermark};
 pub(crate) use props::on_off;
 use props::twips;
 #[cfg(feature = "pdf")]
@@ -282,9 +286,16 @@ pub enum Piece {
         continuation: bool,
         metric: u32,
     },
+    /// An inline drawing's box: its extent and effect extent.
     Object {
         width: f64,
         height: f64,
+        /// Into `Model.objects`.
+        #[cfg_attr(
+            not(feature = "pdf"),
+            allow(dead_code, reason = "the PDF painter reads it")
+        )]
+        object: u32,
     },
 }
 
@@ -369,6 +380,7 @@ pub struct Para {
     pub shade: Option<Rgb>,
     /// `None` when it has none.
     pub borders: Option<Box<ParaBorders>>,
+    pub anchors: Vec<Anchor>,
 }
 
 /// A `w:bookmarkStart` in a paragraph, before its piece `piece`.
@@ -578,6 +590,11 @@ pub struct Model {
     )]
     pub faces: Vec<RunFace>,
     pub links: Vec<Link>,
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF painter reads them")
+    )]
+    pub objects: Vec<Object>,
     pub default_tab: f64,
     pub warnings: Vec<LayoutWarning>,
     /// Before Word 2013 (compatibility mode under 15, or none), a paragraph
@@ -603,6 +620,9 @@ pub(super) struct Builder<'a> {
     link_index: HashMap<Link, u32>,
     /// The story part's hyperlink relationships: id to target.
     hyperlinks: HashMap<String, String>,
+    /// The story part's internal relationships: id to the part named.
+    parts: HashMap<String, String>,
+    objects: Vec<Object>,
     /// The link of the `w:hyperlink` or `w:fldSimple` being read.
     link: Option<u32>,
     /// Bookmarks read outside a paragraph, for the next one.
@@ -665,6 +685,8 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         links: Vec::new(),
         link_index: HashMap::new(),
         hyperlinks: HashMap::new(),
+        parts: HashMap::new(),
+        objects: Vec::new(),
         link: None,
         sections_seen: 0,
         story: StoryId::Body,
@@ -711,6 +733,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
                 };
                 builder.hyperlinks = hyperlinks(txn, name);
                 builder.loose.clear();
+                builder.parts = related_parts(txn, name);
                 let mut blocks = Vec::new();
                 builder.blocks(story, story.root(), None, &mut blocks);
                 let values = Values::default();
@@ -778,6 +801,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     builder.story = StoryId::Body;
     builder.hyperlinks = hyperlinks(txn, main);
     builder.loose.clear();
+    builder.parts = related_parts(txn, main);
     let mut blocks = Vec::new();
     if let Some(body) = body {
         builder.blocks(tree, body, None, &mut blocks);
@@ -809,6 +833,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         looks: in_order(builder.looks),
         faces: builder.faces,
         links: builder.links,
+        objects: builder.objects,
         default_tab,
         warnings,
         page_break_keeps_space: settings
@@ -867,6 +892,14 @@ fn section_start(tree: &XmlTree, sect: NodeId) -> SectionStart {
         Some(SectionStart::NewColumn) | None => SectionStart::NewPage,
         Some(start) => start,
     }
+}
+
+fn related_parts(txn: &Txn<'_>, part: &str) -> HashMap<String, String> {
+    txn.resolved_relationships(part)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(rel, member)| (rel.id, member))
+        .collect()
 }
 
 /// Section properties in body order: those ending a section inside a

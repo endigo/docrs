@@ -286,8 +286,12 @@ impl Extent {
 }
 
 /// The height of a line whose text is `text` points tall (multiple line
-/// spacing included) and tallest object `object` points.
-fn line_height(para: &Para, text: f64, object: f64) -> f64 {
+/// spacing included), `tail` of it below the baseline, and tallest object
+/// `object` points. An object sits on the baseline with the text's tail
+/// below it (Word for Mac 16.115: a 201.6 pt picture at 1.15 spacing makes
+/// a 205.66 pt line).
+fn line_height(para: &Para, text: f64, tail: f64, object: f64) -> f64 {
+    let object = if object > 0.0 { object + tail } else { 0.0 };
     match para.line {
         LineSpacing::Exact(points) => points,
         LineSpacing::Multiple(_) => text.max(object),
@@ -299,14 +303,13 @@ fn line_height(para: &Para, text: f64, object: f64) -> f64 {
 /// gap): a multiple of 1 or more puts its extra below the descent,
 /// at-least spacing above the ascent, and an exact line or a multiple
 /// below 1 has its baseline at 0.8 of its height. A multiple line's object
-/// taller than that sits on the baseline, which is never below the line's
-/// height less its descent (a line of a list label only).
+/// taller than that has its bottom on the baseline, which is never below
+/// the line's height less its descent (a line of a list label only).
 fn baseline(para: &Para, height: f64, heights: &Heights, object: f64) -> f64 {
     let above = height - heights.below;
-    let on_object = object - heights.below;
     match para.line {
-        LineSpacing::Multiple(multiple) if multiple < 1.0 => (0.8 * height).max(on_object),
-        LineSpacing::Multiple(_) => above.min(heights.ascent.max(on_object)),
+        LineSpacing::Multiple(multiple) if multiple < 1.0 => (0.8 * height).max(object),
+        LineSpacing::Multiple(_) => above.min(heights.ascent.max(object)),
         LineSpacing::Exact(points) => 0.8 * points,
         LineSpacing::AtLeast(_) => above,
     }
@@ -512,11 +515,22 @@ impl Breaker<'_> {
     }
 
     fn close(&mut self, ending: Ending, next_piece: usize, end: End) {
-        let heights = self.heights(ending == Ending::Paragraph);
+        let mut heights = self.heights(ending == Ending::Paragraph);
         let para = self.para;
         let first_line = self.first_line;
         let open = std::mem::replace(&mut self.line, Open::new(next_piece, para.left));
-        let height = line_height(para, heights.text, open.object);
+        // Word for Mac (the corpus's showcase pictures): an object alone on
+        // its line keeps the mark's extra spacing below it, not its descent.
+        let alone = open.object > 0.0 && open.text.single == 0.0 && open.text.label.is_none();
+        let descent = if alone { heights.below } else { 0.0 };
+        let height = line_height(
+            para,
+            heights.text,
+            heights.text - heights.ascent - descent,
+            open.object,
+        );
+        let fit = line_height(para, heights.single, heights.below - descent, open.object);
+        heights.below -= descent;
         let slack = self.right_limit - end.content;
         let spread = match ending {
             Ending::Wrap => true,
@@ -536,7 +550,7 @@ impl Breaker<'_> {
         }
         self.out.push(Line {
             height,
-            fit: line_height(para, heights.single, open.object),
+            fit,
             page_break: ending == Ending::PageBreak,
             pieces: open.first_piece as u32..next_piece as u32,
             baseline: baseline(para, height, &heights, open.object),
@@ -681,7 +695,7 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
             } => b.char(index, ch, width, metric),
             Piece::NoteRef { width, metric, .. } => b.char(index, '0', width, metric),
             Piece::Separator { metric, .. } => b.char(index, '0', 0.0, metric),
-            Piece::Object { width, height } => {
+            Piece::Object { width, height, .. } => {
                 b.object(index, width, height);
                 index + 1
             }
@@ -2054,6 +2068,7 @@ mod tests {
             looks: Vec::new(),
             faces: Vec::new(),
             links: Vec::new(),
+            objects: Vec::new(),
             default_tab: 36.0,
             warnings: Vec::new(),
             page_break_keeps_space: true,
@@ -2280,13 +2295,15 @@ mod tests {
             align: Align::Left,
         });
         assert_eq!(line(&p), (19.0, 12.0, 2.0));
-        // An object taller than the text sits on the baseline.
+        // An object taller than the text has its bottom on the baseline,
+        // and A's descent and extra below it.
         p.label = None;
         p.pieces.push(Piece::Object {
             width: 5.0,
             height: 30.0,
+            object: 0,
         });
-        assert_eq!(line(&p), (30.0, 28.0, 2.0));
+        assert_eq!(line(&p), (37.0, 30.0, 2.0));
     }
 
     #[test]
