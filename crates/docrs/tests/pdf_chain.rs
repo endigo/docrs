@@ -698,3 +698,73 @@ fn a_note_character_its_face_lacks_is_drawn_by_the_next_face_and_counted() {
     assert_ne!(check.font, letter.font);
     assert_eq!(drawn.iter().filter(|g| g.text == "1").count(), 2);
 }
+
+/// "Plain line", an upright equation of `equation`, and a `TITLE` field showing
+/// `title`, all in Liberation Serif.
+fn equation_and_title(equation: &str, title: &str) -> Document {
+    use support::{RawMember, build_zip};
+    let math = r#"xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math""#;
+    let body = format!(
+        r#"<w:document {MAIN} {math}><w:body><w:p>{}</w:p><w:p><m:oMath><m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>{equation}</m:t></m:r></m:oMath></w:p><w:p><w:fldSimple w:instr=" TITLE ">{}</w:fldSimple></w:p><w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#,
+        run("", "", "<w:t>Plain line</w:t>"),
+        run("", "", "<w:t>Stored</w:t>"),
+    );
+    let styles = format!(
+        r#"<w:styles {MAIN}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>"#
+    );
+    let core = format!(
+        r#"<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{title}</dc:title></cp:coreProperties>"#
+    );
+    let types = format!(
+        r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="{WML}.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="{WML}.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>"#
+    );
+    let root = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>"#;
+    let rels = format!(
+        r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="{RELS}/styles" Target="styles.xml"/></Relationships>"#
+    );
+    let members = [
+        RawMember::new("[Content_Types].xml", types.as_bytes()),
+        RawMember::new("_rels/.rels", root.as_bytes()),
+        RawMember::new("docProps/core.xml", core.as_bytes()),
+        RawMember::new("word/document.xml", body.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/styles.xml", styles.as_bytes()),
+    ];
+    Document::open_bytes(&build_zip(&members), &Limits::default()).unwrap()
+}
+
+#[test]
+fn equations_and_field_results_draw_a_character_their_face_lacks_in_the_next_face() {
+    let without = fonts(&[SERIF, INTER]);
+    let fallback = set(vec![font(SERIF), font(INTER)], |b| {
+        b.fallback(FontKind::Sans, "Inter");
+    });
+    // The preflight still refuses a TITLE field, which layout computes.
+    for (equation, title) in [("x\u{2713}", "Title"), ("x", "Checked \u{2713}")] {
+        let document = equation_and_title(equation, title);
+        let error = render_unchecked_for_tests(&document, &options(&without)).unwrap_err();
+        assert_eq!(error.reason(), "pdf_glyph_missing", "{}", error.message());
+        assert!(
+            error.message().contains("U+2713 (Liberation Serif)"),
+            "{}",
+            error.message()
+        );
+        let (bytes, report) = render_unchecked_for_tests(&document, &options(&fallback)).unwrap();
+        qpdf_check("equation.pdf", &bytes);
+        assert_eq!(codes(&report), [("pdf_glyph_missing", 1)]);
+        let drawn = glyphs(&Pdf::parse(&bytes).unwrap());
+        assert_same_positions(
+            "pdf",
+            &drawn,
+            &expected(&records_for(&document, &fallback, PDF)),
+        );
+        let drawn = drawn.concat();
+        let check = drawn.iter().find(|g| g.text == "\u{2713}").unwrap();
+        let letter = drawn.iter().find(|g| g.text == "P").unwrap();
+        assert_ne!(check.font, letter.font, "{equation} {title}");
+        assert!(
+            !drawn.iter().any(|g| g.text == "S"),
+            "the stored result is replaced"
+        );
+    }
+}

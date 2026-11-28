@@ -432,6 +432,26 @@ impl Table {
 pub struct FieldPen {
     pub measurer: Measurer,
     pub look: u32,
+    /// Each character the value can show that the face lacks, with the
+    /// measurer and look of the face of the chain that draws it.
+    pub glyphs: Vec<(char, Measurer, u32)>,
+}
+
+impl FieldPen {
+    /// `ch` of the value, in the face of the chain that draws it.
+    pub(crate) fn piece(&self, ch: char) -> Piece {
+        let (measurer, look) = self
+            .glyphs
+            .iter()
+            .find(|(c, ..)| *c == ch)
+            .map_or((&self.measurer, self.look), |(_, m, look)| (m, *look));
+        Piece::Char {
+            ch,
+            width: measurer.width(ch),
+            metric: measurer.metric,
+            look,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

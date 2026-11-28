@@ -94,10 +94,10 @@ fn script(size: f64, vert: Option<VertAlign>, face: &Face) -> (f64, f64) {
 }
 
 /// A run's measurer and its look for the link it is in.
-struct Pen {
-    measurer: Measurer,
-    link: Option<u32>,
-    look: u32,
+pub(super) struct Pen {
+    pub(super) measurer: Measurer,
+    pub(super) link: Option<u32>,
+    pub(super) look: u32,
 }
 
 impl Builder<'_> {
@@ -184,10 +184,38 @@ impl Builder<'_> {
         }
     }
 
-    fn field_pen(&mut self, rpr: &RPr, link: Option<u32>) -> FieldPen {
+    /// The pen for a field of `kind`, with the face of the chain that
+    /// draws each character its value can show that the run's face lacks.
+    fn field_pen(&mut self, kind: &FieldKind, rpr: &RPr, link: Option<u32>) -> FieldPen {
         let measurer = self.measurer(rpr);
         let look = self.look(rpr, &measurer, link);
-        FieldPen { measurer, look }
+        let pen = Pen {
+            measurer,
+            link,
+            look,
+        };
+        let mut shown: Vec<char> = ('0'..='9')
+            .chain(['-'])
+            .chain('a'..='z')
+            .chain('A'..='Z')
+            .collect();
+        if let FieldKind::Text(text) = kind {
+            shown.extend(text.chars());
+        }
+        shown.sort_unstable();
+        shown.dedup();
+        let glyphs = shown
+            .into_iter()
+            .filter_map(|ch| {
+                let (measurer, look) = self.glyph_pen(rpr, &pen, ch)?;
+                Some((ch, measurer, look))
+            })
+            .collect();
+        FieldPen {
+            measurer: pen.measurer,
+            look: pen.look,
+            glyphs,
+        }
     }
 
     /// The pen for `rpr`, made on first use and given the look for `link`.
@@ -366,7 +394,7 @@ impl Builder<'_> {
         }
     }
 
-    fn glyph_pen(&mut self, rpr: &RPr, pen: &Pen, ch: char) -> Option<(Measurer, u32)> {
+    pub(super) fn glyph_pen(&mut self, rpr: &RPr, pen: &Pen, ch: char) -> Option<(Measurer, u32)> {
         let m = &pen.measurer;
         let drawn = m.caps.apply(ch, m.size).0;
         let face = m.face(ch);
@@ -556,7 +584,10 @@ impl Builder<'_> {
                             Some(r) => self.fmt.run(tree, r, para_rpr),
                             None => para_rpr.clone(),
                         };
-                        LiveField::new(kind, para, self.field_pen(&rpr, self.link))
+                        {
+                            let pen = self.field_pen(&kind, &rpr, self.link);
+                            LiveField::new(kind, para, pen)
+                        }
                     });
                     self.inline(tree, child, para_rpr, para, fields);
                     if let Some(live) = live {
@@ -629,7 +660,7 @@ impl Builder<'_> {
                         }
                         let code = std::mem::take(&mut last.code);
                         if let Some(kind) = self.field_kind(&code) {
-                            let pen = self.field_pen(&rpr, link);
+                            let pen = self.field_pen(&kind, &rpr, link);
                             last.live = Some(LiveField::new(kind, para, pen));
                         }
                     }
@@ -667,8 +698,9 @@ impl Builder<'_> {
                     }
                 }
                 "pgNum" => {
-                    let pen = self.field_pen(&rpr, link);
-                    LiveField::new(FieldKind::Page(Default::default()), para, pen).close(para);
+                    let kind = FieldKind::Page(Default::default());
+                    let pen = self.field_pen(&kind, &rpr, link);
+                    LiveField::new(kind, para, pen).close(para);
                 }
                 "tab" | "ptab" => {
                     let pen = self.pen(&mut pen, &rpr, link);
