@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 use super::fields::{self, Context, LayoutWarning, Number, Values};
-use super::flow::{CellLayout, Drawn, Item, Point, RowSlice, Sink, story_layout};
+use super::flow::{CellLayout, Drawn, EPSILON, Item, Point, RowSlice, Sink, story_layout};
 use super::model::{Model, Section, Slots};
 use crate::Result;
 
@@ -90,10 +90,12 @@ impl<'m> Furniture<'m> {
         let header = self.pick(section.headers, at, number);
         let footer = self.pick(section.footers, at, number);
         let header = self.place(header, Side::Header, at, &context, sink, charge)?;
-        let footer = self.place(footer, Side::Footer, at, &context, sink, charge)?;
         // Word pushes the body down (up) when the header (footer) runs past
-        // the top (bottom) margin.
+        // the top (bottom) margin. A footer leaves the body at least its
+        // least height below the header.
         let top = page.top.max(page.header + header);
+        let room = page.height - page.footer - top - MIN_BODY;
+        let footer = self.place(footer, Side::Footer(room), at, &context, sink, charge)?;
         let bottom = page.height - page.bottom.max(page.footer + footer);
         Ok(Body {
             top,
@@ -128,10 +130,11 @@ impl<'m> Furniture<'m> {
         }
     }
 
-    /// Emit a story's lines and give its height. Lines from half the page
-    /// less 10 pt past the story's edge on are not drawn: a header's below
-    /// the header distance, a footer's above its bottom (measured from its
-    /// top, as for a header).
+    /// Emit a story's lines and give its height, at most a footer's room. Lines from
+    /// half the page less 10 pt past the story's edge on are not drawn: a
+    /// header's below the header distance, a footer's above its bottom
+    /// (measured from its top, as for a header); nor are a footer's lines
+    /// past its room.
     fn place<S: Sink>(
         &mut self,
         story: Option<usize>,
@@ -175,30 +178,37 @@ impl<'m> Furniture<'m> {
         // half the page less 10 pt below the header distance, whatever the
         // margins; the body then starts below the last one's space after.
         let cap = page.height / 2.0 - STORY_CAP_MARGIN;
-        let shown = |drawn: &&Drawn<'_>| drawn.offset < cap;
+        let room = match side {
+            Side::Header => f64::INFINITY,
+            Side::Footer(room) => room.max(0.0),
+        };
+        let bottom = |drawn: &Drawn<'_>, after: bool| {
+            drawn.offset
+                + match &drawn.item {
+                    Item::Line(para, line) if after && line.last => {
+                        line.height + para.after_spacing()
+                    }
+                    Item::Line(_, line) => line.height,
+                    Item::Row(_, _, height) => *height,
+                }
+        };
+        let shown =
+            |drawn: &&Drawn<'_>| drawn.offset < cap && bottom(drawn, false) <= room + EPSILON;
         let clipped = layout.drawn.iter().any(|d| !shown(&d));
         let height = if clipped {
             layout
                 .drawn
                 .iter()
                 .filter(shown)
-                .map(|drawn| {
-                    drawn.offset
-                        + match &drawn.item {
-                            Item::Line(para, line) if line.last => {
-                                line.height + para.after_spacing()
-                            }
-                            Item::Line(_, line) => line.height,
-                            Item::Row(_, _, height) => *height,
-                        }
-                })
+                .map(|drawn| bottom(drawn, true))
                 .fold(0.0, f64::max)
         } else {
             layout.content
-        };
+        }
+        .min(room);
         let top = match side {
             Side::Header => page.header,
-            Side::Footer => page.height - page.footer - height,
+            Side::Footer(_) => page.height - page.footer - height,
         };
         let left = page.left + page.gutter;
         for drawn in layout.drawn.iter().filter(shown) {
@@ -228,5 +238,6 @@ impl<'m> Furniture<'m> {
 #[derive(Clone, Copy)]
 enum Side {
     Header,
-    Footer,
+    /// The most height it may take.
+    Footer(f64),
 }

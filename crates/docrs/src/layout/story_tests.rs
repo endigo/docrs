@@ -365,6 +365,38 @@ fn a_story_past_half_the_page_is_clipped_and_warned() {
 }
 
 #[test]
+fn an_oversized_header_and_footer_leave_the_body_its_least_height() {
+    let sect_pr = format!(
+        r#"<w:sectPr><w:headerReference w:type="default" r:id="{{h1}}"/><w:footerReference w:type="default" r:id="{{f1}}"/>{PAGE}</w:sectPr>"#
+    );
+    let doc = Doc {
+        body: body(lines(10), sect_pr),
+        stories: vec![("h1", lines(60)), ("f1", lines(60))],
+        even_and_odd: false,
+    };
+    let lines = doc.lines();
+    let on = |story: &str| -> Vec<f64> {
+        lines
+            .iter()
+            .filter(|l| l.0 == 1 && l.1 == story)
+            .map(|l| l.2)
+            .collect()
+    };
+    // The header takes its 33 lines down to 432 pt. The footer, ending
+    // 36 pt above the edge, keeps 36 pt of body above it: 288 pt, 24 lines.
+    let (header, footer, body) = (on("header1"), on("footer1"), on("body"));
+    assert_eq!(header.len(), 33);
+    assert_eq!((footer.len(), footer[0]), (24, 468.0));
+    assert_eq!(body, [432.0, 444.0, 456.0]);
+    let warnings = doc.settle().unwrap().warnings;
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.story == StoryId::Footer(1) && w.page == Some(1))
+    );
+}
+
+#[test]
 fn page_numbers_take_their_format_switch_and_the_section_s_format() {
     let footer = para(
         &[
@@ -530,6 +562,28 @@ fn a_field_ending_inside_an_earlier_field_keeps_its_stored_result() {
         char("end"),
     ));
     assert_eq!(footer_doc(footer, "").story_text("footer"), ["1x"]);
+}
+
+#[test]
+fn fields_with_empty_results_side_by_side_each_show_their_value() {
+    let pg_num = format!(r#"<w:r>{RPR}<w:pgNum/></w:r>"#);
+    let shown = |content: String| {
+        Doc {
+            body: body(lines(LINES_PER_PAGE + 1), sect(&["footer:default:f1"], "")),
+            stories: vec![("f1", para(&content))],
+            even_and_odd: false,
+        }
+        .story_text("footer")
+    };
+    assert_eq!(
+        shown(format!("{pg_num}{}", field("NUMPAGES", ""))),
+        ["12", "22"]
+    );
+    assert_eq!(shown(format!("{pg_num}{pg_num}")), ["11", "22"]);
+    assert_eq!(
+        shown(format!("{}{}", field("PAGE", ""), field("NUMPAGES", ""))),
+        ["12", "22"]
+    );
 }
 
 #[test]
