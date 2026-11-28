@@ -472,7 +472,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             return Ok(());
         }
         let left = self.column_left();
-        let mut y = self.notes.page_bottom - self.notes.area.height;
+        // A line taller than the page runs past its bottom, not its top.
+        let mut y = (self.notes.page_bottom - self.notes.area.height).max(self.top);
         let laid = std::mem::take(&mut self.notes.laid);
         let separator = self.notes.separators[usize::from(self.notes.area.continued)].take();
         let mut result = Ok(());

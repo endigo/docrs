@@ -797,6 +797,66 @@ fn layout_lines_shows_repeated_headers_and_continued_rows() {
 }
 
 #[test]
+fn layout_lines_puts_the_showcase_footnotes_where_word_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("showcase.docx");
+    let converted = bin()
+        .args(["--json", "from-markdown"])
+        .arg(examples("showcase.md"))
+        .arg("--reference")
+        .arg(examples("reference.docx"))
+        .arg("--toc")
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(converted.status.success());
+    let output = bin()
+        .args(["layout", "--lines"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let lines: Vec<serde_json::Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let cited = lines
+        .iter()
+        .find(|l| l["text"] == "Footnotes work too.1 A second reference uses another note.2")
+        .unwrap();
+    assert_eq!(cited["page"], 2);
+    let notes: Vec<(&str, f64)> = lines
+        .iter()
+        .filter(|l| l["story"] == "footnotes" && l["text"] != "")
+        .map(|l| (l["text"].as_str().unwrap(), l["baseline"].as_f64().unwrap()))
+        .collect();
+    // Word for Mac 16.115 draws them on page 2 at these baselines
+    // (pr-proof/corpus/reference.showcase-md).
+    let word = [
+        ("1 A short footnote with formatting and a link.", 746.16),
+        ("2 A footnote with two paragraphs.", 757.44),
+        (
+            "Its second paragraph is indented in the Markdown source.",
+            768.72,
+        ),
+    ];
+    assert_eq!(notes.len(), word.len(), "{notes:?}");
+    for ((text, baseline), (word_text, word_baseline)) in notes.iter().zip(word) {
+        assert_eq!(*text, word_text);
+        assert!((baseline - word_baseline).abs() < 0.5, "{text}: {baseline}");
+    }
+    assert!(
+        lines
+            .iter()
+            .filter(|l| l["story"] == "footnotes")
+            .all(|l| l["page"] == 2)
+    );
+}
+
+#[test]
 fn layout_lines_ends_quietly_when_its_reader_stops() {
     use std::io::{BufRead, BufReader};
     let dir = tempfile::tempdir().unwrap();

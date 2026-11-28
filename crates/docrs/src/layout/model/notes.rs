@@ -109,16 +109,15 @@ impl NoteNumbering {
     }
 }
 
-/// Both kinds' numbering for a section.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NoteSettings(pub [NoteNumbering; 2]);
-
 impl Default for NoteSettings {
-    /// Word's.
-    fn default() -> NoteSettings {
+    fn default() -> Self {
         NoteSettings::document(None)
     }
 }
+
+/// Both kinds' numbering for a section.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteSettings(pub [NoteNumbering; 2]);
 
 impl NoteSettings {
     pub fn get(&self, kind: NoteKind) -> &NoteNumbering {
@@ -126,7 +125,7 @@ impl NoteSettings {
     }
 
     /// The settings part's, else Word's defaults.
-    pub(super) fn document(settings: Option<&XmlTree>) -> NoteSettings {
+    pub(crate) fn document(settings: Option<&XmlTree>) -> NoteSettings {
         let read = |kind: NoteKind, name: &str| {
             let default = NoteNumbering::default_for(kind);
             match settings {
@@ -141,7 +140,7 @@ impl NoteSettings {
     }
 
     /// A section's own over the document's.
-    pub(super) fn section(&self, tree: &XmlTree, sect: NodeId) -> NoteSettings {
+    pub(crate) fn section(&self, tree: &XmlTree, sect: NodeId) -> NoteSettings {
         NoteSettings([
             self.0[0].over(tree, w_child(tree, sect, "footnotePr")),
             self.0[1].over(tree, w_child(tree, sect, "endnotePr")),

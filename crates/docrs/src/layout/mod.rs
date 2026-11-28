@@ -6,18 +6,21 @@
 //! labels and line spacing), paragraph spacing with contextual spacing,
 //! page breaks, keep-with-next, keep-lines, widow/orphan control, tables
 //! (rows as tall as their tallest cell, split between lines, repeated
-//! header rows), inline pictures, and each page's header and footer (first,
-//! even or default), which push the body down when taller than the margin.
+//! header rows), inline pictures, each page's header and footer (first,
+//! even or default), which push the body down when taller than the margin,
+//! footnotes at the foot of their page and endnotes after the last block.
 //! Page numbers, page counts, page references and document properties are
 //! computed; other fields show their stored result. Floating objects,
-//! footnotes, columns and multiple sections with different page setups are
-//! not modelled.
+//! columns and multiple sections with different page setups are not
+//! modelled.
 
 mod fields;
 pub(crate) mod flow;
 pub mod fonts;
 mod furniture;
 pub(crate) mod model;
+#[cfg(test)]
+mod note_tests;
 pub(crate) mod variation;
 
 use std::collections::{HashMap, HashSet};

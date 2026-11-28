@@ -49,6 +49,8 @@ pub(crate) use marks::any_border;
 pub(crate) use math::MathScripts;
 #[cfg(feature = "pdf")]
 pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
+#[cfg(feature = "pdf")]
+pub(crate) use notes::NotePosition;
 pub use notes::{NoteCounter, NoteId, NoteKind, NoteSettings, Notes};
 pub(crate) use props::on_off;
 use props::twips;

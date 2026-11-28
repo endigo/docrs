@@ -1,0 +1,439 @@
+//! Footnotes and endnotes through model and pagination.
+
+use super::flow::Sink;
+use super::model::{NoteId, NoteKind};
+use super::*;
+use crate::package::ct;
+use crate::wml::W;
+use crate::xml::parse_str;
+
+/// Arial 11 body text (12.65 points a line), Arial 10 notes (11.5).
+const STYLES: &str = r#"<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:rPr><w:sz w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>"#;
+
+/// A 216-point page with half-inch margins: a body from 36 to 180.
+const SECT: &str = r#"<w:sectPr><w:pgSz w:w="12240" w:h="4320"/><w:pgMar w:top="720" w:right="1440" w:bottom="720" w:left="1440" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>"#;
+const BODY_BOTTOM: f64 = 180.0;
+
+const SEPARATORS: &str = r#"<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>"#;
+
+fn para(text: &str) -> String {
+    format!(r#"<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>"#)
+}
+
+fn reference(local: &str, id: u32) -> String {
+    format!(
+        r#"<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:{local} w:id="{id}"/></w:r>"#
+    )
+}
+
+/// A paragraph ending in references to these footnotes.
+fn cited(text: &str, ids: &[u32]) -> String {
+    let refs: String = ids
+        .iter()
+        .map(|id| reference("footnoteReference", *id))
+        .collect();
+    format!(r#"<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r>{refs}</w:p>"#)
+}
+
+fn note_para(text: &str, mark: Option<&str>) -> String {
+    let mark = mark.map_or(String::new(), |local| {
+        format!(r#"<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:{local}/></w:r>"#)
+    });
+    format!(
+        r#"<w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr>{mark}<w:r><w:t xml:space="preserve"> {text}</w:t></w:r></w:p>"#
+    )
+}
+
+/// A footnote of these paragraphs, the first with the note's mark.
+fn footnote(id: u32, paras: &[&str]) -> String {
+    let body: String = paras
+        .iter()
+        .enumerate()
+        .map(|(i, text)| note_para(text, (i == 0).then_some("footnoteRef")))
+        .collect();
+    format!(r#"<w:footnote w:id="{id}">{body}</w:footnote>"#)
+}
+
+struct Parts<'a> {
+    body: &'a str,
+    footnotes: &'a str,
+    endnotes: &'a str,
+    settings: &'a str,
+}
+
+const NONE: Parts<'static> = Parts {
+    body: "",
+    footnotes: "",
+    endnotes: "",
+    settings: "",
+};
+
+fn replace(txn: &mut Txn<'_>, rel: &str, name: &str, content_type: &str, xml: String) {
+    let part = crate::parts::ensure_part(txn, rel, name, content_type, xml.as_bytes()).unwrap();
+    *txn.tree_mut(&part).unwrap() = parse_str(&xml).unwrap();
+}
+
+fn document(parts: Parts<'_>) -> Document {
+    let mut doc = Document::new();
+    let mut txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    *txn.tree_mut(&main).unwrap() = parse_str(&format!(
+        "<w:document xmlns:w=\"{W}\"><w:body>{}{SECT}</w:body></w:document>",
+        parts.body
+    ))
+    .unwrap();
+    let styles = txn.part_related_by(&main, rt::STYLES).unwrap().unwrap();
+    *txn.tree_mut(&styles).unwrap() =
+        parse_str(&format!("<w:styles xmlns:w=\"{W}\">{STYLES}</w:styles>")).unwrap();
+    replace(
+        &mut txn,
+        rt::SETTINGS,
+        "word/settings.xml",
+        ct::WML_SETTINGS,
+        format!(
+            "<w:settings xmlns:w=\"{W}\">{}</w:settings>",
+            parts.settings
+        ),
+    );
+    replace(
+        &mut txn,
+        rt::FOOTNOTES,
+        "word/footnotes.xml",
+        ct::WML_FOOTNOTES,
+        format!(
+            "<w:footnotes xmlns:w=\"{W}\">{SEPARATORS}{}</w:footnotes>",
+            parts.footnotes
+        ),
+    );
+    if !parts.endnotes.is_empty() {
+        let separators = SEPARATORS.replace("w:footnote", "w:endnote");
+        replace(
+            &mut txn,
+            rt::ENDNOTES,
+            "word/endnotes.xml",
+            ct::WML_ENDNOTES,
+            format!(
+                "<w:endnotes xmlns:w=\"{W}\">{separators}{}</w:endnotes>",
+                parts.endnotes
+            ),
+        );
+    }
+    let staged = txn.finish().unwrap();
+    doc.commit(staged).unwrap();
+    doc
+}
+
+fn records(doc: &Document) -> Vec<LineRecord> {
+    let txn = Txn::new(doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut out = Vec::new();
+    line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            out.push(line);
+            Ok(())
+        },
+    )
+    .unwrap();
+    out
+}
+
+fn of_story<'r>(records: &'r [LineRecord], story: &str) -> Vec<&'r LineRecord> {
+    records.iter().filter(|r| r.story == story).collect()
+}
+
+fn find<'r>(records: &'r [LineRecord], text: &str) -> &'r LineRecord {
+    records
+        .iter()
+        .find(|r| r.text == text)
+        .unwrap_or_else(|| panic!("no line {text:?} in {records:#?}"))
+}
+
+/// One-line paragraphs filling `count` lines.
+fn filler(count: usize) -> String {
+    (1..=count).map(|n| para(&format!("Line {n}"))).collect()
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 0.01
+}
+
+#[test]
+fn a_note_that_fits_sits_on_the_body_bottom_below_its_separator() {
+    let doc = document(Parts {
+        body: &cited("Text", &[1]),
+        footnotes: &footnote(1, &["Note one."]),
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "Text1").page, 1);
+    let notes = of_story(&records, "footnotes");
+    let [separator, note] = notes[..] else {
+        panic!("{notes:#?}")
+    };
+    assert_eq!(separator.text, "");
+    assert_eq!(note.text, "1 Note one.");
+    assert!(close(note.y + note.height, BODY_BOTTOM), "{note:?}");
+    assert!(
+        close(separator.y + separator.height, note.y),
+        "{separator:?}"
+    );
+    let layout = estimate(&doc);
+    assert_eq!(layout.pages, 1);
+    assert_eq!(
+        layout.placed.len(),
+        1,
+        "note paragraphs are not body paragraphs"
+    );
+}
+
+fn estimate(doc: &Document) -> Layout {
+    let txn = Txn::new(doc);
+    layout(&txn, doc.package().main_part_name(), Vec::new()).unwrap()
+}
+
+#[test]
+fn a_reference_line_that_fits_without_its_note_moves_with_it() {
+    // Ten lines leave 17.5 points: room for the line, not for the
+    // separator and the note too.
+    let body = filler(10) + &cited("Cited", &[1]);
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &footnote(1, &["The note."]),
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "Line 10").page, 1);
+    assert_eq!(find(&records, "Cited1").page, 2);
+    let notes = of_story(&records, "footnotes");
+    assert!(notes.iter().all(|n| n.page == 2), "{notes:#?}");
+    assert_eq!(notes.len(), 2);
+}
+
+#[test]
+fn a_long_note_goes_on_under_the_continuation_separator_each_line_once() {
+    let lines: Vec<String> = (1..=30).map(|n| format!("Note line {n}.")).collect();
+    let texts: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let body = cited("Cited", &[1]) + &para("After");
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &footnote(1, &texts),
+        ..NONE
+    });
+    let records = records(&doc);
+    let notes = of_story(&records, "footnotes");
+    let shown: Vec<&str> = notes
+        .iter()
+        .map(|n| n.text.as_str())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let mut expected = vec!["1 Note line 1.".to_string()];
+    expected.extend((2..=30).map(|n| format!(" Note line {n}.")));
+    assert_eq!(shown, expected, "every note line once, in order");
+    let pages: Vec<u32> = notes.iter().map(|n| n.page).collect();
+    assert_eq!((pages[0], *pages.last().unwrap()), (1, 3), "{pages:?}");
+    for page in [2, 3] {
+        let first = notes.iter().find(|n| n.page == page).unwrap();
+        assert_eq!(
+            first.text, "",
+            "page {page} opens with the continuation separator"
+        );
+    }
+    // Page 2 holds only the note; the body goes on above its end on page 3.
+    assert!(of_story(&records, "body").iter().all(|r| r.page != 2));
+    let after = find(&records, "After");
+    let last = notes.last().unwrap();
+    assert_eq!(after.page, 3);
+    assert!(after.y + after.height <= notes.iter().find(|n| n.page == 3).unwrap().y + 0.01);
+    assert!(close(last.y + last.height, BODY_BOTTOM));
+    assert_eq!(estimate(&doc).pages, 3);
+}
+
+#[test]
+fn two_references_on_one_line_take_both_notes_in_order() {
+    let body = format!(
+        r#"<w:p><w:r><w:t>A</w:t></w:r>{}<w:r><w:t xml:space="preserve"> B</w:t></w:r>{}</w:p>"#,
+        reference("footnoteReference", 7),
+        reference("footnoteReference", 3),
+    );
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &(footnote(3, &["Three."]) + &footnote(7, &["Seven."])),
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "A1 B2").page, 1);
+    let notes: Vec<&str> = of_story(&records, "footnotes")
+        .iter()
+        .map(|n| n.text.as_str())
+        .collect();
+    assert_eq!(notes, ["", "1 Seven.", "2 Three."]);
+}
+
+fn table(rows: &[String]) -> String {
+    let rows: String = rows
+        .iter()
+        .map(|cell| format!("<w:tr><w:tc><w:tcPr><w:tcW w:w=\"4000\" w:type=\"dxa\"/></w:tcPr>{cell}</w:tc></w:tr>"))
+        .collect();
+    format!("<w:tbl><w:tblGrid><w:gridCol w:w=\"4000\"/></w:tblGrid>{rows}</w:tbl>")
+}
+
+#[test]
+fn a_reference_in_a_table_cell_reserves_on_the_page_its_row_lands() {
+    let body = filler(9) + &table(&[para("Plain"), cited("Cell", &[1])]) + &para("");
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &footnote(1, &["From a cell."]),
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "Plain").page, 1);
+    assert_eq!(find(&records, "Cell1").page, 2);
+    let note = find(&records, "1 From a cell.");
+    assert_eq!(note.page, 2);
+    assert!(close(note.y + note.height, BODY_BOTTOM));
+}
+
+#[test]
+fn endnotes_follow_the_last_block_numbered_in_roman() {
+    let body = format!(
+        r#"<w:p><w:r><w:t>End</w:t></w:r>{}</w:p>"#,
+        reference("endnoteReference", 1)
+    );
+    let endnote = format!(
+        r#"<w:endnote w:id="1">{}</w:endnote>"#,
+        note_para("An endnote.", Some("endnoteRef"))
+    );
+    let doc = document(Parts {
+        body: &body,
+        endnotes: &endnote,
+        ..NONE
+    });
+    let records = records(&doc);
+    let cited = find(&records, "Endi");
+    let endnotes = of_story(&records, "endnotes");
+    let [separator, note] = endnotes[..] else {
+        panic!("{endnotes:#?}")
+    };
+    assert_eq!(note.text, "i An endnote.");
+    assert!(close(separator.y, cited.y + cited.height));
+    assert!(close(note.y, separator.y + separator.height));
+    assert!(of_story(&records, "footnotes").is_empty());
+    assert_eq!(estimate(&doc).placed.len(), 1);
+}
+
+#[test]
+fn footnote_numbers_restart_on_each_page_when_settings_say_so() {
+    let body =
+        cited("One", &[1]) + r#"<w:p><w:r><w:br w:type="page"/></w:r></w:p>"# + &cited("Two", &[2]);
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &(footnote(1, &["First."]) + &footnote(2, &["Second."])),
+        settings: r#"<w:footnotePr><w:numFmt w:val="lowerLetter"/><w:numRestart w:val="eachPage"/></w:footnotePr>"#,
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "Onea").page, 1);
+    assert_eq!(find(&records, "Twoa").page, 2);
+    assert_eq!(find(&records, "a First.").page, 1);
+    assert_eq!(find(&records, "a Second.").page, 2);
+}
+
+#[test]
+fn a_custom_mark_is_its_own_text_and_takes_no_number() {
+    let body = format!(
+        r#"<w:p><w:r><w:t>A</w:t></w:r><w:r><w:footnoteReference w:customMarkFollows="1" w:id="1"/><w:t>*</w:t></w:r>{}</w:p>"#,
+        reference("footnoteReference", 2)
+    );
+    let custom = r#"<w:footnote w:id="1"><w:p><w:r><w:t>* Custom.</w:t></w:r></w:p></w:footnote>"#;
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &(custom.to_string() + &footnote(2, &["Numbered."])),
+        ..NONE
+    });
+    let records = records(&doc);
+    assert_eq!(find(&records, "A*1").page, 1);
+    find(&records, "* Custom.");
+    find(&records, "1 Numbered.");
+}
+
+#[derive(Default)]
+struct Unplaced(Vec<NoteId>);
+
+impl Sink for Unplaced {
+    fn note_unplaced(&mut self, note: NoteId) -> Result<()> {
+        self.0.push(note);
+        Ok(())
+    }
+}
+
+fn paginate_into<S: Sink>(doc: &Document, sink: &mut S) -> Result<()> {
+    let txn = Txn::new(doc);
+    settle(&txn, doc.package().main_part_name(), &FontSet::default())?.paginate(sink)
+}
+
+#[test]
+fn a_note_whose_table_goes_on_to_the_next_page_is_reported_and_laid_out() {
+    let rows: Vec<String> = (1..=20).map(|n| para(&format!("Row {n}"))).collect();
+    let note = format!(
+        r#"<w:footnote w:id="1">{}{}</w:footnote>"#,
+        note_para("Table:", Some("footnoteRef")),
+        table(&rows)
+    );
+    let doc = document(Parts {
+        body: &cited("Cited", &[1]),
+        footnotes: &note,
+        ..NONE
+    });
+    let mut sink = Unplaced::default();
+    paginate_into(&doc, &mut sink).unwrap();
+    let note = NoteId {
+        kind: NoteKind::Footnote,
+        index: 0,
+    };
+    assert_eq!(sink.0, [note], "reported once");
+    let records = records(&doc);
+    for n in 1..=20 {
+        find(&records, &format!("Row {n}"));
+    }
+}
+
+#[test]
+fn a_note_taller_than_the_page_still_ends() {
+    let huge = r#"<w:footnote w:id="1"><w:p><w:r><w:rPr><w:sz w:val="300"/></w:rPr><w:t>Huge</w:t></w:r></w:p><w:p><w:r><w:t>After the huge line.</w:t></w:r></w:p></w:footnote>"#;
+    let doc = document(Parts {
+        body: &cited("Cited", &[1]),
+        footnotes: huge,
+        ..NONE
+    });
+    let records = records(&doc);
+    let huge = find(&records, "Huge");
+    assert_eq!(huge.page, 2);
+    assert!(
+        huge.height > BODY_BOTTOM - 36.0 && huge.y > 36.0,
+        "{huge:?}"
+    );
+    assert_eq!(find(&records, "After the huge line.").page, 3);
+}
+
+#[test]
+fn notes_count_toward_the_work_budget() {
+    let lines: Vec<String> = (1..=40).map(|n| format!("Note line {n}.")).collect();
+    let texts: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let notes: String = (1..=300).map(|id| footnote(id, &texts)).collect();
+    let body: String = (1..=300).map(|id| cited("Cited", &[id])).collect();
+    let doc = document(Parts {
+        body: &body,
+        footnotes: &notes,
+        ..NONE
+    });
+    let pages = estimate(&doc).pages;
+    assert!(pages > 300, "{pages}");
+    TEST_LAYOUT_WORK.set(Some(20_000));
+    let error = paginate_into(&doc, &mut Vec::new()).unwrap_err();
+    TEST_LAYOUT_WORK.set(None);
+    assert_eq!(error.reason(), "max_layout_work");
+}

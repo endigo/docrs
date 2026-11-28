@@ -48,6 +48,9 @@ use crate::{Document, Error, ErrorDetails, Limits, Result, WarningCount};
 /// The code of a construct the engine does not draw yet.
 pub const NOT_YET_DRAWN: &str = "pdf_not_yet_drawn";
 
+/// The code of notes the layout cannot place as Word does.
+pub const FOOTNOTE_LAYOUT_UNSUPPORTED: &str = "pdf_footnote_layout_unsupported";
+
 /// Every warning code, with a fixed description that quotes nothing from
 /// the input ([`PdfReport::redact`]).
 pub const WARNING_CODES: &[(&str, &str)] = &[
@@ -116,6 +119,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_justification_unsupported",
         "distributed, kashida or Thai justification is drawn as ordinary justification",
+    ),
+    (
+        FOOTNOTE_LAYOUT_UNSUPPORTED,
+        "footnotes or endnotes placed beneath the text, in columns or at section ends, or a note's table split across pages: the PDF engine cannot place them as Word does",
     ),
     (
         "pdf_link_scheme_skipped",
@@ -373,20 +380,32 @@ impl PdfReport {
         value
     }
 
-    /// Refuse a construct not drawn yet (`pdf_not_yet_drawn`) always, and
-    /// with `strict` any warning (`pdf_not_faithful`). The refusal's
+    /// Refuse a construct not drawn yet (`pdf_not_yet_drawn`) and notes
+    /// the layout cannot place (`pdf_footnote_layout_unsupported`) always,
+    /// and with `strict` any warning (`pdf_not_faithful`). The refusal's
     /// details count each code.
     pub fn check(&self, strict: bool) -> Result<()> {
-        let missing: Vec<&str> = self
-            .warnings
-            .iter()
-            .filter(|w| w.code == NOT_YET_DRAWN)
-            .map(|w| w.subject)
-            .collect();
+        let subjects = |code: &str| -> Vec<&str> {
+            self.warnings
+                .iter()
+                .filter(|w| w.code == code)
+                .map(|w| w.subject)
+                .collect()
+        };
+        let missing = subjects(NOT_YET_DRAWN);
+        let misplaced = subjects(FOOTNOTE_LAYOUT_UNSUPPORTED);
         let error = if !missing.is_empty() {
             Error::unsupported(
                 NOT_YET_DRAWN,
                 format!("the PDF engine does not draw {} yet", missing.join(", ")),
+            )
+        } else if !misplaced.is_empty() {
+            Error::unsupported(
+                FOOTNOTE_LAYOUT_UNSUPPORTED,
+                format!(
+                    "the PDF engine cannot place {} as Word does",
+                    misplaced.join(", ")
+                ),
             )
         } else if strict && !self.warnings.is_empty() {
             Error::unsupported(
