@@ -304,14 +304,27 @@ enum Command {
         #[arg(long = "font-dir", value_name = "DIR")]
         font_dirs: Vec<std::path::PathBuf>,
     },
-    /// PDF export (experimental; only the preflight report so far).
-    #[command(hide = true)]
+    /// Export a .docx as PDF (experimental). Text is drawn where the layout
+    /// estimate places it, in the document's embedded fonts or those given
+    /// with --font and --font-dir; constructs not drawn yet are refused.
     Pdf {
         /// The .docx file.
         input: std::path::PathBuf,
+        /// Output path (never the input).
+        #[arg(
+            long,
+            required_unless_present = "preflight",
+            conflicts_with = "preflight"
+        )]
+        out: Option<std::path::PathBuf>,
         /// Report what a PDF would leave out or change, without writing one.
-        #[arg(long, required = true)]
+        #[arg(long)]
         preflight: bool,
+        /// Refuse when the PDF would not show the document faithfully.
+        #[arg(long)]
+        strict: bool,
+        #[command(flatten)]
+        fonts: FontArgs,
     },
     /// Open and patch-save without edits (byte-identical when unchanged).
     Roundtrip {
@@ -338,6 +351,12 @@ struct FontArgs {
     font_dirs: Vec<std::path::PathBuf>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum OutputFormat {
+    Docx,
+    Pdf,
+}
+
 /// The options `from-markdown`, `from-html` and `from-json` share.
 #[derive(Args)]
 struct ConvertArgs {
@@ -350,6 +369,10 @@ struct ConvertArgs {
     /// Output path.
     #[arg(long)]
     out: std::path::PathBuf,
+    /// What to write: docx, or pdf (experimental; text drawn as `docrs pdf`
+    /// draws it). Never taken from the output's extension.
+    #[arg(long, value_enum, default_value = "docx")]
+    format: OutputFormat,
     /// Replace only the body paragraph reading exactly this text.
     #[arg(long, conflicts_with = "append")]
     placeholder: Option<String>,
@@ -362,7 +385,8 @@ struct ConvertArgs {
     /// Refuse when the reference document lacks a style (default: add it).
     #[arg(long)]
     strict_styles: bool,
-    /// Refuse instead of warning when something cannot be converted faithfully.
+    /// Refuse instead of warning when something cannot be converted (or,
+    /// with --format pdf, drawn) faithfully.
     #[arg(long)]
     strict: bool,
     /// Directory relative image paths resolve against (default: the source file's).
