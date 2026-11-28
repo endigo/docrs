@@ -87,3 +87,11 @@ swift tools/pdf/image_check.swift OUT
 ```
 
 Each line gives the largest channel difference, the mean and the share of pixels differing by more than 2 levels. A profiled or CMYK case may differ (the profile is not drawn); any other case that differs fails. `image_fixtures.swift` makes the encoder fixtures in `tests/fixtures/pdf/images` (`PROVENANCE.md` there).
+
+## Raster comparison (macOS; not in CI)
+
+```
+swiftc -O tools/pdf/rasterdiff.swift -o rasterdiff && ./rasterdiff OURS.pdf WORD.pdf [DIFF_PREFIX]
+```
+
+renders each page of both PDFs at 144 dpi with PDFKit and prints, per page, the share of pixels whose grey levels differ by more than 64 of 255. With `DIFF_PREFIX` it writes `DIFF_PREFIX-N.png`: our ink in red, Word's in blue, both in black. A fixture's threshold is its share from the first Word run.
