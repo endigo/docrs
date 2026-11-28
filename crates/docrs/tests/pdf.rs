@@ -1,5 +1,6 @@
 //! The PDF writer, read back by an independent reader.
 
+#[allow(dead_code)]
 #[path = "support/pdf.rs"]
 mod reader;
 

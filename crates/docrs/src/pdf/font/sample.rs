@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::{FontResources, Style};
 use crate::layout::fonts::Face;
 use crate::pdf::meta::Info;
+use crate::pdf::nav::Navigation;
 use crate::pdf::writer::{Dict, Writer, write_hex, write_name, write_number};
 use crate::{Limits, Result};
 
@@ -81,7 +82,9 @@ pub(crate) fn text_document(
         writer,
         &[(A4, content)],
         Dict::new().with("Font", resources),
+        Navigation::default(),
         info,
         producer,
     )
+    .map(|(bytes, _)| bytes)
 }

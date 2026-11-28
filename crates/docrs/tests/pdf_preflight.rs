@@ -373,7 +373,8 @@ fn cases() -> Vec<Case> {
             2,
             docx(
                 &para(
-                    &(r#"<w:hyperlink r:id="rIdL1">"#.to_string()
+                    &(r#"<w:bookmarkStart w:id="0" w:name="intro"/><w:hyperlink r:id="rIdL1">"#
+                        .to_string()
                         + &run("<w:t>run</w:t>")
                         + r#"</w:hyperlink><w:hyperlink r:id="rIdL2">"#
                         + &run("<w:t>file</w:t>")
@@ -389,6 +390,28 @@ fn cases() -> Vec<Case> {
                     ("rIdL2", "file:///etc/passwd"),
                     ("rIdL3", "https://example.com/"),
                 ],
+            ),
+        ),
+        case(
+            "pdf_link_target_missing",
+            "link",
+            2,
+            docx(
+                &(para(
+                    &(r#"<w:hyperlink w:anchor="Gone">"#.to_string()
+                        + &run("<w:t>gone</w:t>")
+                        + r#"</w:hyperlink><w:hyperlink w:anchor="INTRO">"#
+                        + &run("<w:t>intro</w:t>")
+                        + "</w:hyperlink>"),
+                ) + &para(
+                    &(run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+                        + &run(r#"<w:instrText> HYPERLINK \l "Nowhere" </w:instrText>"#)
+                        + &run(r#"<w:fldChar w:fldCharType="end"/>"#)),
+                ) + &para(
+                    r#"<w:bookmarkStart w:id="0" w:name="Intro"/><w:bookmarkEnd w:id="0"/>"#,
+                )),
+                &[],
+                &[],
             ),
         ),
     ]
