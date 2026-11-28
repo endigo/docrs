@@ -17,7 +17,7 @@ use crate::xml::NodeId;
 const CUSTOM_PROPERTIES: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties";
 
-/// A date or time field keeps its stored value.
+/// A field keeps its saved result where Word would compute it.
 pub(crate) const FIELD_CACHED: &str = "pdf_field_cached";
 /// A field switch layout does not apply.
 pub(crate) const FIELD_SWITCH_IGNORED: &str = "pdf_field_switch_ignored";

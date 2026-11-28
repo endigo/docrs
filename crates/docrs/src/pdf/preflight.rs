@@ -12,7 +12,7 @@ use crate::layout::model::{
     Parts, RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize,
     on_off, section_properties, shaded, story_references,
 };
-use crate::layout::{FieldShown, field_locked, field_shown};
+use crate::layout::{FIELD_FORMAT_APPROXIMATED, FieldShown, field_locked, field_shown};
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
 use crate::wml::{
@@ -177,6 +177,10 @@ struct TocEntry {
     text: bool,
     digit: bool,
     page_ref: bool,
+    /// The text so far ends in a digit, no tab after it.
+    ends_in_digit: bool,
+    /// A number as text just before a page reference field.
+    number_before_ref: bool,
 }
 
 /// A table being walked: its style context and the rows seen.
@@ -205,6 +209,10 @@ struct Scan<'s, 'd> {
     bookmarks: HashSet<String>,
     /// Links to bookmarks, checked once every story is read.
     anchors: Vec<(String, PdfLocation)>,
+    /// The first page number or page reference field Word computes.
+    page_field: Option<PdfLocation>,
+    /// A section numbers its pages with chapter numbers (`w:chapStyle`).
+    chapters: bool,
     tally: Tally,
 }
 
@@ -224,6 +232,8 @@ impl<'s, 'd> Scan<'s, 'd> {
             toc_entry: TocEntry::default(),
             bookmarks: HashSet::new(),
             anchors: Vec::new(),
+            page_field: None,
+            chapters: false,
             tally: Tally::default(),
         }
     }
@@ -433,7 +443,13 @@ impl<'s, 'd> Scan<'s, 'd> {
             "noBreakHyphen" => self.note_once(NOT_YET_DRAWN, "no-break hyphen"),
             "softHyphen" => self.note_once(NOT_YET_DRAWN, "soft hyphen"),
             "sectPr" if parent == Some("pPr") => self.note(NOT_YET_DRAWN, "section break"),
-            "tab" if parent == Some("r") => self.note_once(NOT_YET_DRAWN, "tab"),
+            "pgNumType" if parent == Some("sectPr") => {
+                self.chapters |= w_attr(tree, node, "chapStyle").is_some()
+            }
+            "tab" if parent == Some("r") => {
+                self.note_once(NOT_YET_DRAWN, "tab");
+                self.toc_entry.ends_in_digit = false;
+            }
             "ptab" => self.note_once(NOT_YET_DRAWN, "positional tab"),
             "br" if matches!(w_attr(tree, node, "type"), Some("page" | "column")) => {
                 self.note(NOT_YET_DRAWN, "page break")
@@ -601,6 +617,9 @@ impl<'s, 'd> Scan<'s, 'd> {
             entry.unnumbered |= unnumbered;
             entry.text |= !text.trim().is_empty();
             entry.digit |= text.chars().any(|c| c.is_ascii_digit());
+            if let Some(last) = text.trim_end().chars().last() {
+                entry.ends_in_digit = last.is_ascii_digit();
+            }
         }
         self.scripts(text);
     }
@@ -666,12 +685,13 @@ impl<'s, 'd> Scan<'s, 'd> {
         self.fields.iter().filter(|f| !f.open).find_map(|f| f.toc)
     }
 
-    /// A contents entry whose number is not a page reference field shows
-    /// its saved number. One without a number (`\n`, no digit) is drawn
-    /// as it is.
+    /// A contents entry whose number is not a page reference field, or
+    /// that has a number as text before one, shows its saved number. One
+    /// without a number (`\n`, no digit) is drawn as it is.
     fn toc_entry_end(&mut self) {
         let entry = std::mem::take(&mut self.toc_entry);
-        if entry.in_toc && entry.text && !entry.page_ref && !(entry.unnumbered && !entry.digit) {
+        let saved = !entry.page_ref || entry.number_before_ref;
+        if entry.in_toc && entry.text && saved && !(entry.unnumbered && !entry.digit) {
             self.note(FIELD, "TOC");
         }
     }
@@ -741,8 +761,14 @@ impl<'s, 'd> Scan<'s, 'd> {
             }
             command => match field_shown(instruction) {
                 FieldShown::Computed => {
+                    if matches!(command, "PAGE" | "PAGEREF") && !locked && self.page_field.is_none()
+                    {
+                        self.page_field = Some(self.location());
+                    }
                     if command == "PAGEREF" && self.in_toc().is_some() {
-                        self.toc_entry.page_ref = true;
+                        let entry = &mut self.toc_entry;
+                        entry.page_ref = true;
+                        entry.number_before_ref |= entry.ends_in_digit;
                     }
                 }
                 // Word keeps a locked field's result, as the PDF does.
@@ -890,6 +916,15 @@ impl<'s, 'd> Scan<'s, 'd> {
     }
 
     fn finish(mut self) -> PdfReport {
+        // Layout writes no chapter number before a page number.
+        if let Some(location) = self.page_field.take().filter(|_| self.chapters) {
+            self.tally.note(
+                FIELD_FORMAT_APPROXIMATED,
+                "page number",
+                Some(location),
+                None,
+            );
+        }
         for (anchor, location) in std::mem::take(&mut self.anchors) {
             if !is_document_start(&anchor) && !self.bookmarks.contains(&bookmark_key(&anchor)) {
                 self.tally

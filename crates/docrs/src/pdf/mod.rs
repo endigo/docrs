@@ -129,7 +129,7 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     ),
     (
         FIELD_CACHED,
-        "a date or time field shows the value saved in the document, not the current one",
+        "a field shows the result saved in the document, not the one Word would compute",
     ),
     (
         "pdf_decoration_approximated",
@@ -190,6 +190,25 @@ fn description(code: &str) -> &'static str {
             "the PDF would not show something faithfully",
             |(_, text)| text,
         )
+}
+
+/// What a warning of `code` on `subject` says.
+fn message(code: &str, subject: &str) -> &'static str {
+    match (code, subject) {
+        (FIELD_CACHED, "DATE" | "TIME" | "PRINTDATE") => {
+            "a date or time field shows the value saved in the document, not the current one"
+        }
+        (FIELD_CACHED, "TOC") => {
+            "a contents entry whose number is not only a page reference field shows the number saved in the document"
+        }
+        (FIELD_CACHED, "field without an end") => {
+            "a field without an end is not computed: the PDF shows the text saved in its place"
+        }
+        (FIELD_CACHED, _) => {
+            "a page field whose instruction the PDF engine does not read shows the number saved in the document"
+        }
+        _ => description(code),
+    }
 }
 
 /// Where a construct is.
@@ -292,7 +311,7 @@ impl Tally {
                     "{} ({}): {}",
                     entry.subject,
                     entry.count,
-                    description(entry.code)
+                    message(entry.code, entry.subject)
                 );
                 if !entry.samples.is_empty() {
                     let quoted: Vec<String> =
@@ -590,14 +609,14 @@ impl PdfReport {
         }
     }
 
-    /// Replace every message with its code's fixed description, every
-    /// location's part name with its story kind (`body`, `header`,
-    /// `footer`, `footnotes`, `endnotes`), and every family name the
-    /// bundled metrics table does not hold with `redacted`, so the report
-    /// holds nothing from the input.
+    /// Replace every message with its code and subject's fixed
+    /// description, every location's part name with its story kind
+    /// (`body`, `header`, `footer`, `footnotes`, `endnotes`), and every
+    /// family name the bundled metrics table does not hold with
+    /// `redacted`, so the report holds nothing from the input.
     pub fn redact(&mut self) {
         for warning in &mut self.warnings {
-            warning.message = description(warning.code).to_string();
+            warning.message = message(warning.code, warning.subject).to_string();
             for location in &mut warning.locations {
                 location.story = location.kind.to_string();
             }

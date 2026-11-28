@@ -1096,6 +1096,14 @@ fn fields_and_drawing_links_are_classified() {
         subjects(&report, "pdf_field_cached"),
         [("DATE", 1), ("TIME", 1), ("field without an end", 1)]
     );
+    let messages: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "pdf_field_cached")
+        .map(|w| w.message.as_str())
+        .collect();
+    assert!(messages[0].starts_with("DATE (1): a date or time field"));
+    assert!(messages[2].starts_with("field without an end (1): a field without an end"));
     assert_eq!(subjects(&report, "pdf_link_scheme_skipped"), [("link", 2)]);
     assert_eq!(subjects(&report, "pdf_link_target_missing"), [("link", 1)]);
     // The picture names no image: drawn as a placeholder.
@@ -1323,6 +1331,11 @@ fn contents_fields_are_drawn_and_mirrored_indents_are_ignored() {
     };
     let saved = plain(r#" TOC \o "1-3" "#, "Intro 2");
     assert_eq!(subjects(&saved, "pdf_field_cached"), [("TOC", 1)]);
+    assert!(
+        saved.warnings[0]
+            .message
+            .starts_with("TOC (1): a contents entry")
+    );
     let unnumbered = plain(r#" TOC \o "1-3" \n "#, "Intro");
     assert_eq!(subjects(&unnumbered, "pdf_field_cached"), []);
     let numbered = plain(r#" TOC \o "1-3" \n "#, "Intro 2");
