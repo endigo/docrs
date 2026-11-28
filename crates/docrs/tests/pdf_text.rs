@@ -1459,7 +1459,7 @@ fn what_layout_changes_in_a_story_is_reported_with_its_page() {
         .iter()
         .map(|w| {
             let at = &w.locations[0];
-            (w.code, w.subject, at.story.as_str(), at.page)
+            (w.code, w.subject, at.story.as_str(), at.ordinal, at.page)
         })
         .collect();
     assert_eq!(
@@ -1469,9 +1469,16 @@ fn what_layout_changes_in_a_story_is_reported_with_its_page() {
                 "pdf_field_format_approximated",
                 "page field",
                 "word/footer1.xml",
+                0,
                 None
             ),
-            ("pdf_story_overflow", "header", "word/header1.xml", Some(1)),
+            (
+                "pdf_story_overflow",
+                "header",
+                "word/header1.xml",
+                0,
+                Some(1)
+            ),
         ]
     );
     options.strict = true;

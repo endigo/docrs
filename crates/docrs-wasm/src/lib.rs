@@ -662,7 +662,7 @@ export interface ToPdfOptions extends PdfLimits {
 export interface PdfLocation {
   /** The part (`word/document.xml`, `word/header1.xml`, ...), or with `redact` its kind (`body`, `header`, ...). */
   story: string;
-  /** The story's paragraph it is in or after, from 1. */
+  /** The story's paragraph it is in or after, from 1 (0: before the first, or the story as a whole, as for what layout changes in it). */
   ordinal: number;
   page: number | null;
 }

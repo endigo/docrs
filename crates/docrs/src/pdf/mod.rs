@@ -219,7 +219,8 @@ pub struct PdfLocation {
     /// The part holding it (`word/document.xml`, `word/header1.xml`, …).
     pub story: String,
     /// The story's paragraph it is in or after, from 1 (0: before the
-    /// first; document-wide settings have no location).
+    /// first, or the story as a whole, as for what layout changes in it;
+    /// document-wide settings have no location).
     pub ordinal: usize,
     /// The page, once the document is laid out.
     pub page: Option<u32>,
