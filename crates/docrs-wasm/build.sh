@@ -14,7 +14,9 @@ case "$(wasm-bindgen --version 2>/dev/null)" in
 esac
 cargo build --manifest-path "$root/Cargo.toml" --locked --profile wasm -p docrs-wasm --target wasm32-unknown-unknown
 rm -rf "$here/pkg"
-wasm-bindgen --target nodejs --out-dir "$here/pkg" --out-name docrs \
+# The name section only names functions in stack traces (about 430 KB);
+# panic messages keep their text without it.
+wasm-bindgen --target nodejs --remove-name-section --out-dir "$here/pkg" --out-name docrs \
   "$root/target/wasm32-unknown-unknown/wasm/docrs_wasm.wasm"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
 node -e 'const [src, out, version] = process.argv.slice(1); const p = require(src);
