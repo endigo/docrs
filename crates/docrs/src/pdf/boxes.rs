@@ -54,20 +54,20 @@ impl Edge {
     }
 }
 
-/// The fill behind `boxed`'s text, inside its lines.
+/// The fill behind `boxed`'s text, below and above its lines.
 pub(super) fn fill(out: &mut Vec<u8>, boxed: &ParaBox, page_height: f64) -> Result<()> {
-    let Some((rgb, bottom)) = boxed.fill else {
+    let Some(fill) = boxed.fill else {
         return Ok(());
     };
     let inset = |line: Option<Border>| line.map_or(0.0, |b| b.thickness());
     let rect = Rect {
-        left: boxed.left + inset(boxed.left_line),
+        left: fill.left,
         top: boxed.top + inset(boxed.top_line),
-        right: boxed.right - inset(boxed.right_line),
-        bottom: bottom - inset(boxed.bottom_line),
+        right: fill.right,
+        bottom: fill.bottom - inset(boxed.bottom_line),
     };
     out.extend_from_slice(b"q ");
-    colour(out, rgb)?;
+    colour(out, fill.colour)?;
     out.extend_from_slice(b"rg ");
     rectangle(out, rect, page_height)?;
     out.extend_from_slice(b"f Q\n");
@@ -111,14 +111,14 @@ fn solid_lines(style: BorderStyle) -> &'static [f64] {
     }
 }
 
-/// A broken style's dash pattern, in drawn widths.
+/// A broken style's dash pattern, in drawn widths (Word for Mac's PDFs).
 fn dash(style: BorderStyle) -> Option<&'static [f64]> {
     Some(match style {
         BorderStyle::Dotted => &[1.0, 1.0],
-        BorderStyle::Dashed => &[4.0, 2.0],
+        BorderStyle::Dashed => &[4.0, 4.0],
         BorderStyle::DashSmallGap => &[4.0, 1.0],
-        BorderStyle::DotDash => &[4.0, 2.0, 1.0, 2.0],
-        BorderStyle::DotDotDash => &[4.0, 2.0, 1.0, 2.0, 1.0, 2.0],
+        BorderStyle::DotDash => &[7.0, 3.0, 3.0, 3.0],
+        BorderStyle::DotDotDash => &[6.0, 2.0, 2.0, 2.0, 2.0, 2.0],
         _ => return None,
     })
 }
@@ -201,6 +201,32 @@ mod tests {
             assert!((drawn(width) - word).abs() < 1e-9, "{width}");
         }
         assert_eq!(drawn(0.1), DEVICE);
+    }
+
+    #[test]
+    fn broken_lines_have_words_dashes() {
+        // Word for Mac's PDFs, 1 pt lines drawn 0.96 thick.
+        for (style, word) in [
+            (BorderStyle::Dotted, &[0.96, 0.96][..]),
+            (BorderStyle::Dashed, &[3.84, 3.84]),
+            (BorderStyle::DashSmallGap, &[3.84, 0.96]),
+            (BorderStyle::DotDash, &[6.72, 2.88, 2.88, 2.88]),
+            (
+                BorderStyle::DotDotDash,
+                &[5.76, 1.92, 1.92, 1.92, 1.92, 1.92],
+            ),
+        ] {
+            let ours: Vec<f64> = dash(style)
+                .unwrap()
+                .iter()
+                .map(|u| u * drawn(1.0))
+                .collect();
+            assert!(
+                ours.iter().zip(word).all(|(a, b)| (a - b).abs() < 1e-9),
+                "{style:?}"
+            );
+            assert_eq!(ours.len(), word.len());
+        }
     }
 
     #[test]

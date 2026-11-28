@@ -1682,12 +1682,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         (top, opening, closing): (f64, bool, bool),
         (after, gap): (f64, f64),
     ) {
-        let lines = (
-            joins.top(para).filter(|_| opening),
-            joins.bottom(para).filter(|_| closing),
-        );
         let column = (self.column_left(), self.text_width());
-        self.open_box = ParaBox::new(para, column, (top, self.y), lines).map(|mut boxed| {
+        let ends = (opening, closing);
+        self.open_box = ParaBox::new(para, column, (top, self.y), joins, ends).map(|mut boxed| {
             if opening {
                 boxed.reach_up(gap - after, joins.previous);
             }
