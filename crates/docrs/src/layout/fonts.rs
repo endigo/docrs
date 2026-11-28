@@ -1172,6 +1172,22 @@ const METRIC_ALIASES: &[(&str, &str)] = &[
     ("courier new", "liberation mono"),
 ];
 
+/// The code points where a metric alias's advance differs from Word's
+/// font: Word's Arial and Times New Roman draw U+2010 HYPHEN wider than
+/// their hyphen-minus; the Liberation fonts do not.
+const METRIC_ALIAS_DIFFERENCES: &[(&str, char)] = &[
+    ("arial", '\u{2010}'),
+    ("times new roman", '\u{2010}'),
+    ("times", '\u{2010}'),
+];
+
+/// Whether a metric alias of `family` draws `ch` at another advance than
+/// Word's font does, so a PDF drawn through it reports that character.
+pub(crate) fn metric_alias_differs(family: &str, ch: char) -> bool {
+    let family = family.trim().to_lowercase();
+    METRIC_ALIAS_DIFFERENCES.contains(&(family.as_str(), ch))
+}
+
 impl FontSet {
     pub fn builder() -> FontSetBuilder {
         FontSetBuilder {
@@ -1264,15 +1280,13 @@ impl FontSetBuilder {
     /// table) when neither the document nor this set has faces of
     /// `family`. Aliases are single-hop: `to` is not itself aliased. An
     /// alias to a family found nowhere is ignored. A PDF drawn through one
-    /// reports it (`pdf_font_substituted`).
+    /// reports it (`pdf_font_substituted`), unless it is one of the pairs
+    /// [`metric_aliases`](Self::metric_aliases) adds: those are tested, so
+    /// only a character where the pair differs from Word's font is reported.
     pub fn alias(&mut self, family: &str, to: &str) -> &mut Self {
-        self.aliases.insert(
-            family.trim().to_lowercase(),
-            Alias {
-                to: to.trim().to_lowercase(),
-                tested: false,
-            },
-        );
+        let (family, to) = (family.trim().to_lowercase(), to.trim().to_lowercase());
+        let tested = METRIC_ALIASES.contains(&(family.as_str(), to.as_str()));
+        self.aliases.insert(family, Alias { to, tested });
         self
     }
 
@@ -1281,7 +1295,8 @@ impl FontSetBuilder {
     /// Liberation Sans, Times New Roman and Times to Liberation Serif,
     /// Courier New to Liberation Mono. Off by default; aliases already set
     /// are kept. One exception: Word's Arial and Times New Roman draw
-    /// U+2010 HYPHEN wider than the Liberation fonts do.
+    /// U+2010 HYPHEN wider than the Liberation fonts do, so a PDF reports
+    /// each one drawn through them (`pdf_font_substituted`).
     pub fn metric_aliases(&mut self) -> &mut Self {
         for (family, to) in METRIC_ALIASES {
             self.aliases.entry(family.to_string()).or_insert(Alias {
@@ -2774,6 +2789,14 @@ mod font_set {
             FaceSource::Alias { tested: false },
             "set before"
         );
+        let fonts = builder.alias("Arial", " Liberation Sans ").build();
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        let arial = resolve(&mut book, "Arial", false, FontKind::Sans);
+        assert_eq!(
+            arial.source,
+            FaceSource::Alias { tested: true },
+            "a tested pair declared with alias()"
+        );
     }
 
     #[test]
@@ -2870,13 +2893,10 @@ mod font_set {
             }
             assert!(compared > 200, "{family}: {compared} code points");
         }
-        // Word's Arial and Times New Roman draw U+2010 HYPHEN wider than
-        // their hyphen-minus; the Liberation fonts do not.
-        let hyphen = [
-            ("arial", 0x2010),
-            ("times new roman", 0x2010),
-            ("times", 0x2010),
-        ];
-        assert_eq!(differ, hyphen);
+        let known: Vec<(&str, u32)> = METRIC_ALIAS_DIFFERENCES
+            .iter()
+            .map(|(family, ch)| (*family, *ch as u32))
+            .collect();
+        assert_eq!(differ, known);
     }
 }

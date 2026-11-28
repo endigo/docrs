@@ -682,6 +682,28 @@ export interface PdfReport {
   schema_version: 1;
   warnings: PdfWarning[];
   pages: number;
+  /** Each family and style the document asks for, and what drew it. */
+  fonts: PdfFontUse[];
+}
+
+/** A family and style a PDF's text asks for, and the face that drew it. */
+export interface PdfFontUse {
+  requested_family: string;
+  bold: boolean;
+  italic: boolean;
+  /** `null` for the built-in symbol font. */
+  selected_family: string | null;
+  source:
+    | "document"
+    | "supplied"
+    | "alias"
+    | "fallback"
+    | "glyph_fallback"
+    | "symbols"
+    | "symbol_fallback"
+    | "not_embedded";
+  /** Bold or italic drawn from another style. */
+  synthesized: boolean;
 }
 
 /** A PDF and its report. */
@@ -1877,6 +1899,10 @@ mod tests {
         assert_eq!(
             json_keys(&warning["locations"][0]),
             member_names(interface_body("PdfLocation"))
+        );
+        assert_eq!(
+            json_keys(&report["fonts"][0]),
+            member_names(interface_body("PdfFontUse"))
         );
 
         let error = timestamp_from_millis(-1.0).unwrap_err().to_json();

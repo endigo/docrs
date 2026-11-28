@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::font::{Shape, win_ansi};
 use super::symbols::meaning;
 use super::{PdfFontUse, PdfWarning};
-use crate::layout::fonts::{Face, FaceSource, FontBook, symbol_font};
+use crate::layout::fonts::{Face, FaceSource, FontBook, metric_alias_differs, symbol_font};
 use crate::layout::model::{Appearance, Block, Model, NoteId, NoteKind, Para, Piece, RunFace};
 use crate::layout::variation::Style;
 use crate::{Error, ErrorDetails, MissingFont, Result};
@@ -281,7 +281,8 @@ impl<'b> Chain<'b> {
             FaceSource::Document => ("document", None),
             FaceSource::Supplied => ("supplied", None),
             FaceSource::Alias { tested } => {
-                ("alias", substituted().filter(|_| !tested || run.restricted))
+                let silent = tested && !run.restricted && !metric_alias_differs(&run.family, drawn);
+                ("alias", substituted().filter(|_| !silent))
             }
             FaceSource::Fallback => ("fallback", substituted()),
             FaceSource::Glyph => {

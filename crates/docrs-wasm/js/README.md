@@ -179,7 +179,8 @@ const { fromHtml, toPdf } = require("docrs-wasm");
 const { docx, report, pdf, pdfReport } = fromHtml(html, { reference, fonts, pdf: true });
 const { pdf: only } = fromHtml(html, { reference, fonts, pdf: { strict: true }, docx: false });
 const { pdf: again } = toPdf(docx, { fonts, limits: "serverless" });
-// pdfReport: { schema_version: 1, pages, warnings: [{ code, subject, message, locations, count }] }
+// pdfReport: { schema_version: 1, pages, warnings: [{ code, subject, message, locations, count }],
+//              fonts: [{ requested_family, bold, italic, selected_family, source, synthesized }] }
 ```
 
 Without `pdf` a conversion's result and types are unchanged. `docx: false`

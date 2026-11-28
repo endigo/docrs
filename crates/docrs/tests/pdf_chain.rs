@@ -175,6 +175,39 @@ fn a_metric_alias_breaks_lines_as_words_font_does() {
 }
 
 #[test]
+fn a_tested_pair_declared_as_an_alias_is_silent_but_where_it_differs_from_words_font() {
+    let declared = set(vec![font(SERIF)], |b| {
+        b.alias("Times New Roman", "Liberation Serif");
+    });
+    let document = convert(PLAIN, InputFormat::Markdown, "times-new-roman.docx");
+    let (_, report, _) = pdf(&document, &options(&declared));
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let mut strict = options(&declared);
+    strict.strict = true;
+    render(&document, &strict).unwrap();
+    // Word's Times New Roman draws U+2010 HYPHEN wider than Liberation
+    // Serif does: each one drawn through the alias is reported.
+    let hyphens = "Co\u{2010}operation and re\u{2010}entry.\n";
+    let document = convert(hyphens, InputFormat::Markdown, "times-new-roman.docx");
+    for aliased in [
+        declared,
+        set(vec![font(SERIF)], |b| {
+            b.metric_aliases();
+        }),
+    ] {
+        let (_, report, _) = pdf(&document, &options(&aliased));
+        assert_eq!(codes(&report), [("pdf_font_substituted", 2)]);
+        assert!(
+            report.warnings[0]
+                .message
+                .contains("Times New Roman Regular (drawn in Liberation Serif)"),
+            "{}",
+            report.warnings[0].message
+        );
+    }
+}
+
+#[test]
 fn a_declared_fallback_draws_a_missing_family_and_says_so() {
     let document = html(&para("Calibri", "Calibri was never uploaded"));
     let refused = render(&document, &options(&fonts(&[INTER]))).unwrap_err();
