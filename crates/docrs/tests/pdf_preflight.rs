@@ -725,11 +725,14 @@ fn many_pictures_and_links_scan_in_linear_time() {
     );
     assert_eq!(subjects(&found, NOT_YET_DRAWN), [("image", 8_000)]);
 
-    // Linear work grows 4x with 4x the links, quadratic 16x; the ratio
-    // holds whatever the machine's speed.
-    let small = links_scan_time(25_000);
+    // 8x the links: linear work grows about 8x, quadratic about 64x.
+    let small = links_scan_time(12_500);
     let large = links_scan_time(100_000);
-    assert!(large < small * 8, "{small:?} then {large:?}");
+    assert!(
+        large < small * 24,
+        "{small:?} then {large:?} ({:.1}x)",
+        large.as_secs_f64() / small.as_secs_f64()
+    );
 }
 
 /// The fastest of three scans of `count` links.
