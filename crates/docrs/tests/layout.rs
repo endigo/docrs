@@ -1096,3 +1096,56 @@ fn toggles_take_the_nearest_style_in_a_chain_and_xor_across_levels() {
     assert_eq!(char_off, plain);
     assert_eq!(shown, plain, "hidden off based on hidden is shown");
 }
+
+#[test]
+fn each_line_rule_puts_the_baseline_where_word_does() {
+    // Word for Mac 16.115.2, Arial 11 (PR #60's spacing.docx): each
+    // paragraph's first baseline below its line top, and its line pitch.
+    // Word places lines on a 0.24-point grid.
+    let rules = [
+        ("w:line=\"276\" w:lineRule=\"auto\"", 10.32, 14.64),
+        ("w:line=\"360\" w:lineRule=\"exact\"", 14.34, 18.00),
+        ("w:line=\"360\" w:lineRule=\"atLeast\"", 15.54, 18.00),
+        ("w:line=\"200\" w:lineRule=\"exact\"", 8.10, 10.08),
+        ("w:line=\"240\" w:lineRule=\"auto\"", 10.18, 12.72),
+    ];
+    let text = "The quick brown fox jumps over the lazy dog while the five boxing wizards \
+                jump quickly and a wary jackal watches them from the hill.";
+    let body: String = rules
+        .iter()
+        .map(|(spacing, ..)| {
+            para(
+                text,
+                &format!("<w:spacing w:before=\"0\" w:after=\"0\" {spacing}/>"),
+            )
+        })
+        .collect();
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut lines = Vec::new();
+    docrs::layout::line_records(
+        &txn,
+        &main,
+        Vec::new(),
+        |_, _| Ok(()),
+        |line| {
+            lines.push(line);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(lines.len(), 2 * rules.len());
+    for ((spacing, below_top, pitch), pair) in rules.iter().zip(lines.chunks(2)) {
+        let ours = (
+            pair[0].baseline - pair[0].y,
+            pair[1].baseline - pair[0].baseline,
+        );
+        assert!(
+            (ours.0 - below_top).abs() <= 0.15 && (ours.1 - pitch).abs() <= 0.15,
+            "{spacing}: baseline {:.2} below the top and pitch {:.2}; Word {below_top} and {pitch}",
+            ours.0,
+            ours.1
+        );
+    }
+}
