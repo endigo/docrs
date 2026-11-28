@@ -348,6 +348,9 @@ pub struct Model {
     pub links: Vec<Link>,
     pub default_tab: f64,
     pub warnings: Vec<LayoutWarning>,
+    /// Before Word 2013 (compatibility mode under 15, or none), a paragraph
+    /// `pageBreakBefore` moves to a new page keeps some space before.
+    pub page_break_keeps_space: bool,
 }
 
 pub(super) struct Builder<'a> {
@@ -507,6 +510,9 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         links: builder.links,
         default_tab,
         warnings: builder.warnings,
+        page_break_keeps_space: settings
+            .and_then(crate::wml::compatibility_mode)
+            .is_none_or(|mode| mode < 15),
     })
 }
 

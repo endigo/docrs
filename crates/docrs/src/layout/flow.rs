@@ -553,7 +553,8 @@ fn gap(previous: Option<&Para>, para: &Para) -> f64 {
     })
 }
 
-/// The space above a paragraph `pageBreakBefore` moved to a new page: Word
+/// The space above a paragraph a page break moved to a new page (after a
+/// next-page section break, or `pageBreakBefore` before Word 2013): Word
 /// keeps what the previous paragraph's space after did not cover.
 fn space_after_break(previous: Option<&Para>, para: &Para) -> f64 {
     previous.map_or(para.before_spacing(), |previous| {
@@ -992,6 +993,8 @@ struct Flow<'m, 's, S: Sink> {
     /// Nothing placed in this section yet (its first page keeps space
     /// before).
     at_section_start: bool,
+    /// The paragraph that ended the previous section.
+    section_end: Option<&'m Para>,
     previous: Option<&'m Para>,
     last: Option<(u32, f64)>,
     work: u64,
@@ -1161,6 +1164,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             return Ok(());
         }
         self.section_first_page = self.page + 1;
+        self.section_end = self.previous;
         self.new_page()?;
         self.at_section_start = true;
         Ok(())
@@ -1173,7 +1177,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             // Automatic spacing is HTML's: none at the top of the document.
             if para.before_auto { 0.0 } else { para.before }
         } else if self.at_section_start {
-            para.before_spacing()
+            space_after_break(self.section_end, para)
         } else if self.at_top {
             0.0
         } else {
@@ -1186,7 +1190,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         if para.page_break_before && !self.at_top {
             let previous = self.previous;
             self.new_page()?;
-            self.y += space_after_break(previous, para);
+            if self.model.page_break_keeps_space {
+                self.y += space_after_break(previous, para);
+            }
         } else {
             self.y += self.space_above(para);
         }
@@ -1398,6 +1404,7 @@ fn paginate_within<S: Sink>(
         at_top: true,
         at_start: true,
         at_section_start: true,
+        section_end: None,
         previous: None,
         last: None,
         work: 0,
@@ -1429,6 +1436,27 @@ mod tests {
     use super::*;
     use crate::layout::fields::NumberFormat;
     use crate::layout::model::{Label, Page, Section, Slots};
+
+    fn spaced(style: &str, before: f64, after: f64, contextual: bool) -> Para {
+        Para {
+            style: style.into(),
+            before,
+            after,
+            contextual,
+            ..Para::default()
+        }
+    }
+
+    #[test]
+    fn a_page_break_keeps_the_space_before_less_the_previous_space_after() {
+        let next = spaced("Heading", 24.0, 0.0, false);
+        let after = |after| spaced("Body", 0.0, after, false);
+        assert_eq!(space_after_break(Some(&after(5.0)), &next), 19.0);
+        assert_eq!(space_after_break(Some(&after(30.0)), &next), 0.0);
+        assert_eq!(space_after_break(None, &next), 24.0);
+        let contextual = spaced("Spaced", 6.0, 18.0, true);
+        assert_eq!(space_after_break(Some(&contextual), &contextual), 0.0);
+    }
 
     const METRICS: [Metric; 1] = [Metric {
         height: 10.0,
@@ -1494,6 +1522,7 @@ mod tests {
             links: Vec::new(),
             default_tab: 36.0,
             warnings: Vec::new(),
+            page_break_keeps_space: true,
         }
     }
 
