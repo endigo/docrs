@@ -73,8 +73,22 @@ fn theme() -> String {
     ]
     .concat();
     let font = "<a:latin typeface=\"Arial\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/>";
+    let format = format_scheme();
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"{A}\" name=\"Office Theme\"><a:themeElements><a:clrScheme name=\"Office\">{scheme}</a:clrScheme><a:fontScheme name=\"Office\"><a:majorFont>{font}</a:majorFont><a:minorFont>{font}</a:minorFont></a:fontScheme><a:fmtScheme name=\"Office\"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"{A}\" name=\"Office Theme\"><a:themeElements><a:clrScheme name=\"Office\">{scheme}</a:clrScheme><a:fontScheme name=\"Office\"><a:majorFont>{font}</a:majorFont><a:minorFont>{font}</a:minorFont></a:fontScheme>{format}</a:themeElements></a:theme>"
+    )
+}
+
+/// Word refuses a theme whose four style lists have fewer than three entries.
+fn format_scheme() -> String {
+    let fill = "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>";
+    let fills = fill.repeat(3);
+    let lines = ["9525", "25400", "38100"]
+        .map(|w| format!("<a:ln w=\"{w}\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">{fill}<a:prstDash val=\"solid\"/></a:ln>"))
+        .concat();
+    let effects = "<a:effectStyle><a:effectLst/></a:effectStyle>".repeat(3);
+    format!(
+        "<a:fmtScheme name=\"Office\"><a:fillStyleLst>{fills}</a:fillStyleLst><a:lnStyleLst>{lines}</a:lnStyleLst><a:effectStyleLst>{effects}</a:effectStyleLst><a:bgFillStyleLst>{fills}</a:bgFillStyleLst></a:fmtScheme>"
     )
 }
 
@@ -381,6 +395,39 @@ fn the_committed_fixture_is_the_one_these_tests_build() {
         std::fs::read(&path).unwrap() == fixture(),
         "rerun with DOCRS_UPDATE_SNAPSHOTS=1"
     );
+}
+
+/// The number of elements directly inside the first `<a:{list}>`.
+fn entries(xml: &str, list: &str) -> usize {
+    let open = format!("<a:{list}>");
+    let start = xml.find(&open).unwrap() + open.len();
+    let inner = &xml[start..xml[start..].find(&format!("</a:{list}>")).unwrap() + start];
+    let mut depth = 0;
+    let mut count = 0;
+    for tag in inner.split('<').skip(1) {
+        if tag.starts_with('/') {
+            depth -= 1;
+        } else {
+            count += usize::from(depth == 0);
+            if !tag.split('>').next().unwrap().ends_with('/') {
+                depth += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn the_theme_has_three_entries_in_each_format_list() {
+    let theme = part_xml(&open_bytes(&fixture()), "word/theme/theme1.xml");
+    for list in [
+        "fillStyleLst",
+        "lnStyleLst",
+        "effectStyleLst",
+        "bgFillStyleLst",
+    ] {
+        assert_eq!(entries(&theme, list), 3, "{list}");
+    }
 }
 
 #[test]
