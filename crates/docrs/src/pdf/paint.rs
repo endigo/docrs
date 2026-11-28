@@ -11,10 +11,12 @@ use super::picture::{Pictures, Spot, inline_rect};
 use super::places::{Painted, Places};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
-use crate::layout::flow::{Line, PageStart, ParaBox, Point, Sink};
+use crate::layout::flow::{Line, PageStart, ParaBox, Point, RowSlice, Sink};
 use crate::layout::fonts::{Face, FontFile};
 use crate::layout::mark_characters;
+use crate::layout::model::Table;
 use crate::layout::model::{self, Appearance, Model, NoteId, Para, Piece, Rgb, StoryId, TabKind};
+use crate::layout::strokes::{Stroke, row_strokes};
 use crate::txn::Txn;
 use crate::{Error, Result};
 
@@ -45,6 +47,10 @@ pub(super) struct Painter<'m, 't, 'c, 'b> {
     pub pages: Vec<Page>,
     pub places: Places,
     page: Option<PageStart>,
+    /// Table cells' fills and border lines, the body's and the headers'
+    /// and footers' apart: the fills under the text, the lines over it.
+    cells: [Vec<u8>; 2],
+    strokes: [Vec<Stroke>; 2],
     /// Paragraph boxes' shading, drawn under the body's text (and over its
     /// behind-text pictures).
     fills: Vec<u8>,
@@ -150,10 +156,12 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
             pages: Vec::new(),
             places,
             page: None,
+            cells: Default::default(),
             fills: Vec::new(),
             content: Vec::new(),
             body_at: None,
             para_top: None,
+            strokes: Default::default(),
             state: PAGE_START,
             max_pages: limits.max_pages,
             drawn: 0,
@@ -171,11 +179,24 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
         let geometry = self.geometry(&page);
         let size = (geometry.width, geometry.height);
         let content = std::mem::take(&mut self.content);
-        let mut fills = std::mem::take(&mut self.fills);
         let (furniture, body) = content.split_at(self.body_at.take().unwrap_or(content.len()));
-        fills.extend_from_slice(body);
-        let stream = self.pictures.page_stream(furniture, &fills);
+        let [body_cells, furniture_cells] = std::mem::take(&mut self.cells);
+        let [body_strokes, furniture_strokes] = std::mem::take(&mut self.strokes);
+        let mut under = furniture_cells;
+        under.extend_from_slice(furniture);
+        let mut text = body_cells;
+        text.append(&mut self.fills);
+        text.extend_from_slice(body);
+        let taken = self.drawn + self.pictures.layered() as u64;
+        let cap = |other: &[u8]| super::table::Cap {
+            max: self.max_drawn,
+            taken: taken + other.len() as u64,
+        };
+        super::table::borders(&mut under, furniture_strokes, size.1, cap(&text))?;
+        super::table::borders(&mut text, body_strokes, size.1, cap(&under))?;
+        let stream = self.pictures.page_stream(&under, &text);
         self.drawn += stream.len() as u64;
+        self.check_drawn()?;
         let contents = super::page_content(&mut self.writer, &stream)?;
         self.pages.push(Page { size, contents });
         Ok(())
@@ -436,7 +457,8 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
     }
 
     fn check_drawn(&self) -> Result<()> {
-        let open = self.fills.len() + self.content.len() + self.pictures.layered();
+        let cells: usize = self.cells.iter().map(Vec::len).sum();
+        let open = cells + self.fills.len() + self.content.len() + self.pictures.layered();
         let drawn = self.drawn + open as u64;
         if drawn > self.max_drawn {
             return Err(Error::limit("max_pdf_content_bytes", self.max_drawn, drawn));
@@ -690,6 +712,14 @@ impl Sink for Painter<'_, '_, '_, '_> {
         let (origins, _) = line.origins(para);
         self.objects(line_pieces(para, line), &origins, at.x, baseline)?;
         self.anchors(at, para, line, &origins)?;
+        self.check_drawn()
+    }
+
+    fn row(&mut self, origin: Point, table: &Table, row: usize, slice: &RowSlice) -> Result<()> {
+        let height = self.page_height()?;
+        let layer = usize::from(is_furniture(table.story));
+        super::table::fills(&mut self.cells[layer], origin, (table, row), slice, height)?;
+        self.strokes[layer].extend(row_strokes(origin, table, row, slice));
         self.check_drawn()
     }
 

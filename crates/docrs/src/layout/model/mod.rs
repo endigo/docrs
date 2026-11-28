@@ -46,6 +46,7 @@ pub(crate) use build::field_link;
 pub(crate) use cascade::Parts;
 pub use colour::{Colour, Rgb};
 pub use edges::Edges;
+#[cfg(feature = "pdf")]
 pub(crate) use edges::rank;
 pub(crate) use formatting::Formatting;
 #[cfg(feature = "pdf")]
@@ -53,7 +54,7 @@ pub(crate) use formatting::ParaFormat;
 pub use look::{Appearance, Border, BorderStyle, Caps, Link, Strike, Underline, UnderlineStyle};
 pub(crate) use look::{ParaBorders, VAlign};
 #[cfg(feature = "pdf")]
-pub(crate) use marks::any_border;
+pub(crate) use marks::{approximated, diagonal, patterned};
 pub(crate) use math::MathScripts;
 #[cfg(feature = "pdf")]
 pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
@@ -66,9 +67,9 @@ pub(crate) use object::{Picture, Place, Position, Relative, is_watermark};
 pub(crate) use props::on_off;
 use props::twips;
 #[cfg(feature = "pdf")]
-pub(crate) use props::{Frame, RPr, horizontal, shaded};
+pub(crate) use props::{Frame, RPr, horizontal};
 #[cfg(feature = "pdf")]
-pub(crate) use table::TableCtx;
+pub(crate) use table::{TableCtx, header_rows};
 use theme::read_font_kinds;
 
 /// Page geometry in points.

@@ -8,27 +8,27 @@ use crate::layout::model::{Border, BorderStyle, Colour, Rgb};
 
 /// Word for Mac draws a line in whole 1/300ths of an inch, rounded down,
 /// with its inner edge where the border's width puts it (measured).
-const DEVICE: f64 = 0.24;
+pub(super) const DEVICE: f64 = 0.24;
 
 const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 };
 
 /// Points from the page's top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Rect {
-    left: f64,
-    top: f64,
-    right: f64,
-    bottom: f64,
+pub(super) struct Rect {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
 }
 
 /// One edge of a box: the outer edge `at` (an x for a side, else a y),
 /// `inward` the sign toward the text, and the `span` it runs along.
 #[derive(Clone, Copy)]
-struct Edge {
-    side: bool,
-    at: f64,
-    inward: f64,
-    span: (f64, f64),
+pub(super) struct Edge {
+    pub side: bool,
+    pub at: f64,
+    pub inward: f64,
+    pub span: (f64, f64),
 }
 
 impl Edge {
@@ -91,19 +91,28 @@ pub(super) fn lines(out: &mut Vec<u8>, boxed: &ParaBox, page_height: f64) -> Res
                 inward,
                 span,
             };
-            draw(out, &border, edge, page_height)?;
+            let thick = drawn(border.width);
+            let bands: Vec<(f64, f64)> = if dash(border.style).is_some() {
+                vec![(border.width - thick, border.width)]
+            } else {
+                solid_lines(border.style)
+                    .iter()
+                    .map(|end| (end * border.width - thick, end * border.width))
+                    .collect()
+            };
+            draw(out, &border, edge, &bands, page_height)?;
         }
     }
     Ok(())
 }
 
 /// The thickness Word draws a `width` line with.
-fn drawn(width: f64) -> f64 {
+pub(super) fn drawn(width: f64) -> f64 {
     ((width / DEVICE + 1e-6).floor() * DEVICE).max(DEVICE)
 }
 
 /// Where each line of a solid style ends, in widths from the outer edge.
-fn solid_lines(style: BorderStyle) -> &'static [f64] {
+pub(super) fn solid_lines(style: BorderStyle) -> &'static [f64] {
     match style {
         BorderStyle::Double => &[1.0, 3.0],
         BorderStyle::Triple => &[1.0, 3.0, 5.0],
@@ -112,7 +121,7 @@ fn solid_lines(style: BorderStyle) -> &'static [f64] {
 }
 
 /// A broken style's dash pattern, in drawn widths (Word for Mac's PDFs).
-fn dash(style: BorderStyle) -> Option<&'static [f64]> {
+pub(super) fn dash(style: BorderStyle) -> Option<&'static [f64]> {
     Some(match style {
         BorderStyle::Dotted => &[1.0, 1.0],
         BorderStyle::Dashed => &[4.0, 4.0],
@@ -123,16 +132,24 @@ fn dash(style: BorderStyle) -> Option<&'static [f64]> {
     })
 }
 
-fn draw(out: &mut Vec<u8>, border: &Border, edge: Edge, page_height: f64) -> Result<()> {
+/// `border` along `edge`, its lines filling `bands` (from the outer edge);
+/// a broken style is stroked along the middle of the first band.
+pub(super) fn draw(
+    out: &mut Vec<u8>,
+    border: &Border,
+    edge: Edge,
+    bands: &[(f64, f64)],
+    page_height: f64,
+) -> Result<()> {
     let rgb = match border.colour {
         Colour::Rgb(rgb) => rgb,
         _ => BLACK,
     };
-    let (width, thick) = (border.width, drawn(border.width));
+    let thick = drawn(border.width);
     out.extend_from_slice(b"q ");
     colour(out, rgb)?;
-    if let Some(pattern) = dash(border.style) {
-        let band = edge.band(width - thick, width);
+    if let (Some(pattern), Some(&(from, to))) = (dash(border.style), bands.first()) {
+        let band = edge.band(from, to);
         out.extend_from_slice(b"RG ");
         numbers(out, &[thick])?;
         out.extend_from_slice(b"w [");
@@ -153,18 +170,14 @@ fn draw(out: &mut Vec<u8>, border: &Border, edge: Edge, page_height: f64) -> Res
         return Ok(());
     }
     out.extend_from_slice(b"rg ");
-    for end in solid_lines(border.style) {
-        rectangle(
-            out,
-            edge.band(end * width - thick, end * width),
-            page_height,
-        )?;
+    for &(from, to) in bands {
+        rectangle(out, edge.band(from, to), page_height)?;
     }
     out.extend_from_slice(b"f Q\n");
     Ok(())
 }
 
-fn rectangle(out: &mut Vec<u8>, rect: Rect, page_height: f64) -> Result<()> {
+pub(super) fn rectangle(out: &mut Vec<u8>, rect: Rect, page_height: f64) -> Result<()> {
     numbers(
         out,
         &[
@@ -178,7 +191,7 @@ fn rectangle(out: &mut Vec<u8>, rect: Rect, page_height: f64) -> Result<()> {
     Ok(())
 }
 
-fn colour(out: &mut Vec<u8>, rgb: Rgb) -> Result<()> {
+pub(super) fn colour(out: &mut Vec<u8>, rgb: Rgb) -> Result<()> {
     numbers(out, &[rgb.r, rgb.g, rgb.b].map(|v| f64::from(v) / 255.0))
 }
 

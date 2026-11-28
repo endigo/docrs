@@ -205,6 +205,11 @@ impl PPr {
         matches!(self.bar, Some(Some(_)))
     }
 
+    /// Has a border or shading.
+    pub(crate) fn boxed(&self) -> bool {
+        self.shd.flatten().is_some() || self.borders.iter().flatten().flatten().next().is_some()
+    }
+
     /// Some edge, each inherited on its own, has a style the PDF draws as
     /// a single line.
     pub(crate) fn border_approximated(&self) -> bool {
@@ -221,13 +226,6 @@ impl RPr {
     pub(crate) fn bordered(&self) -> bool {
         matches!(self.bdr, Some(Some(_)))
     }
-}
-
-/// `w:shd` with a fill colour or a pattern, even in automatic colours.
-#[cfg(feature = "pdf")]
-pub(crate) fn shaded(tree: &XmlTree, shd: NodeId) -> bool {
-    w_attr(tree, shd, "fill").is_some_and(|fill| fill != "auto")
-        || !matches!(w_attr(tree, shd, "val"), None | Some("clear" | "nil"))
 }
 
 /// `w:textDirection` values that keep text horizontal.

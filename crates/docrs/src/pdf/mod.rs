@@ -23,6 +23,7 @@ mod picture;
 mod places;
 mod preflight;
 mod symbols;
+mod table;
 mod writer;
 
 pub use limits::PdfLimits;

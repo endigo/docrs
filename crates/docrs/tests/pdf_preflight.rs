@@ -636,19 +636,17 @@ fn a_converted_document_is_only_not_yet_drawn() {
         "{codes:?}"
     );
     let subjects: Vec<_> = report.warnings.iter().map(|w| w.subject).collect();
-    for subject in ["table", "footnote"] {
-        assert!(subjects.contains(&subject), "{subject}: {subjects:?}");
-    }
-    for drawn in ["text", "list", "link"] {
+    assert!(subjects.contains(&"footnote"), "{subjects:?}");
+    for drawn in ["text", "list", "link", "table", "border", "shading"] {
         assert!(!subjects.contains(&drawn), "{drawn}: {subjects:?}");
     }
-    let table = report
+    let footnote = report
         .warnings
         .iter()
-        .find(|w| w.subject == "table")
+        .find(|w| w.subject == "footnote")
         .unwrap();
     assert!(
-        table
+        footnote
             .locations
             .iter()
             .all(|l| l.page.is_none() && l.ordinal >= 1)
@@ -828,7 +826,7 @@ fn styled(body: &str) -> Document {
         r#"<w:style w:type="paragraph" w:styleId="Fancy"><w:basedOn w:val="Base"/><w:pPr><w:pageBreakBefore/><w:numPr><w:numId w:val="1"/></w:numPr><w:shd w:val="clear" w:fill="EEEEEE"/><w:framePr w:dropCap="drop" w:lines="3"/><w:bidi/></w:pPr></w:style>"#,
         r#"<w:style w:type="paragraph" w:styleId="Plain"><w:basedOn w:val="Base"/><w:pPr><w:pBdr><w:top w:val="none"/></w:pBdr></w:pPr></w:style>"#,
         r#"<w:style w:type="character" w:styleId="Mark"><w:rPr><w:rtl/><w:highlight w:val="yellow"/></w:rPr></w:style>"#,
-        r#"<w:style w:type="table" w:styleId="Grid"><w:tblPr><w:tblpPr w:tblpY="100"/><w:tblBorders><w:top w:val="single" w:sz="4"/></w:tblBorders></w:tblPr></w:style>"#,
+        r#"<w:style w:type="table" w:styleId="Grid"><w:tblPr><w:tblpPr w:tblpY="100"/><w:tblBorders><w:top w:val="wave" w:sz="4"/></w:tblBorders></w:tblPr></w:style>"#,
         r#"<w:style w:type="table" w:styleId="Shaded"><w:basedOn w:val="Grid"/><w:tblStylePr w:type="firstRow"><w:tcPr><w:shd w:val="clear" w:fill="DDDDDD"/></w:tcPr></w:tblStylePr></w:style>"#,
     );
     let numbering = concat!(
@@ -863,12 +861,15 @@ fn constructs_set_through_styles_are_reported() {
         + "</w:tc></w:tr></w:tbl>";
     let report = report(&styled(&body));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    for expected in [("border", 1), ("shading", 1), ("table", 1)] {
-        assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
+    for drawn in ["border", "shading", "table"] {
+        assert!(
+            not_drawn.iter().all(|(subject, _)| *subject != drawn),
+            "{drawn}: {not_drawn:?}"
+        );
     }
     assert_eq!(
         subjects(&report, "pdf_decoration_approximated"),
-        [("paragraph border", 1)]
+        [("paragraph border", 1), ("table border", 1)]
     );
     assert_eq!(
         subjects(&report, "pdf_layout_feature_ignored"),
@@ -881,25 +882,14 @@ fn constructs_set_through_styles_are_reported() {
 }
 
 #[test]
-fn the_converters_own_styles_are_reported() {
+fn the_converters_own_styles_are_drawn() {
     let convert = |markdown: &str| {
         let mut document = Document::new();
         insert_markdown(&mut document, markdown, &MarkdownOptions::default()).unwrap();
         report(&document)
     };
-    let has = |report: &PdfReport, subject: &str| {
-        report
-            .warnings
-            .iter()
-            .any(|w| w.code == NOT_YET_DRAWN && w.subject == subject)
-    };
-    let table = convert("| A | B |\n| - | - |\n| 1 | 2 |\n");
-    assert!(
-        has(&table, "border"),
-        "{:?}",
-        subjects(&table, NOT_YET_DRAWN)
-    );
     for drawn in [
+        "| A | B |\n| - | - |\n| 1 | 2 |\n",
         "```\nlet x = 1;\n```\n",
         "Above\n\n---\n\nBelow\n",
         "> Quoted\n",
@@ -1230,10 +1220,11 @@ fn row_shading_vml_links_and_computed_hyperlinks_are_checked() {
         ))
         + &para(&complex(" HYPERLINK ", &nested));
     let found = report(&docx(&body, &[], &[]));
+    // Word draws no fill from a row exception's shading, nor does the PDF.
     assert!(
-        subjects(&found, NOT_YET_DRAWN).contains(&("shading", 1)),
+        found.warnings.iter().all(|w| w.subject != "shading"),
         "{:?}",
-        subjects(&found, NOT_YET_DRAWN)
+        found.warnings
     );
     assert!(
         !subjects(&found, NOT_YET_DRAWN)
@@ -1529,4 +1520,56 @@ fn a_vml_picture_naming_no_part_is_not_yet_drawn() {
     let report = report(&docx(&body, &[], &[]));
     assert_eq!(subjects(&report, NOT_YET_DRAWN), [("image", 1)]);
     assert!(subjects(&report, "pdf_image_unsupported").is_empty());
+}
+
+#[test]
+fn diagonal_cell_borders_and_patterned_cell_shading_are_reported() {
+    let table = |style: &str, tc_pr: &str| {
+        format!(
+            r#"<w:tbl><w:tblPr><w:tblStyle w:val="{style}"/></w:tblPr><w:tr><w:tc><w:tcPr>{tc_pr}</w:tcPr>{}</w:tc></w:tr></w:tbl>"#,
+            para(&run("<w:t>cell</w:t>"))
+        )
+    };
+    let plain = table(
+        "None",
+        concat!(
+            r#"<w:tcBorders><w:tl2br w:val="nil"/><w:tr2bl w:val="none"/></w:tcBorders>"#,
+            r#"<w:shd w:val="clear" w:fill="EEEEEE"/>"#,
+        ),
+    );
+    let direct = table(
+        "None",
+        concat!(
+            r#"<w:tcBorders><w:tl2br w:val="double" w:sz="4"/></w:tcBorders>"#,
+            r#"<w:shd w:val="diagStripe" w:color="FF0000" w:fill="FFFFFF"/>"#,
+        ),
+    );
+    let styles = concat!(
+        r#"<w:style w:type="table" w:styleId="None"/>"#,
+        r#"<w:style w:type="table" w:styleId="Crossed"><w:tblStylePr w:type="firstRow"><w:tcPr><w:tcBorders><w:tr2bl w:val="single" w:sz="4"/></w:tcBorders><w:shd w:val="pct25" w:color="auto" w:fill="FFFFFF"/></w:tcPr></w:tblStylePr></w:style>"#,
+    );
+    let styled = |body: &str| {
+        report(&docx(
+            body,
+            &[xml_part("word/styles.xml", "styles", "styles", styles)],
+            &[],
+        ))
+    };
+    assert_eq!(
+        styled(&plain).warnings,
+        [],
+        "nil, none and clear draw nothing"
+    );
+    for body in [direct, table("Crossed", "")] {
+        let report = styled(&body);
+        assert_eq!(
+            subjects(&report, NOT_YET_DRAWN),
+            [("diagonal cell border", 1)]
+        );
+        assert_eq!(
+            subjects(&report, "pdf_decoration_approximated"),
+            [("table shading", 1)],
+            "a diagonal is not a border drawn as a single line"
+        );
+    }
 }
