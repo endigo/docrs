@@ -19,5 +19,12 @@ runs:
         cargo install wasm-bindgen-cli --locked --version "$v"
     - shell: bash
       run: crates/docrs-wasm/build.sh --pack
+    # The tests run on the package as npm installs it from the tarball, and
+    # compile a TypeScript consumer against its typings.
     - shell: bash
-      run: node --test crates/docrs-wasm/js/test.mjs
+      run: |
+        consumer="$RUNNER_TEMP/consumer"
+        mkdir -p "$consumer"
+        (cd "$consumer" && npm init -y > /dev/null && npm install --no-save "$GITHUB_WORKSPACE"/crates/docrs-wasm/pkg/docrs-wasm-*.tgz typescript@5.9.3)
+        DOCRS_WASM_PKG="$consumer/node_modules/docrs-wasm" DOCRS_TSC="$consumer/node_modules/.bin/tsc" \
+          node --test crates/docrs-wasm/js/test.mjs
