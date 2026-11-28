@@ -241,7 +241,7 @@ fn inflated_size(header: &Header) -> Result<usize> {
 /// allocated for them.
 const MAX_DEFLATE_RATIO: u64 = 1_033;
 
-/// The longest row decoded, filter byte excluded: 4 MiB, which is 262,144
+/// The longest row decoded, filter byte excluded: 4 MiB, which is 524,288
 /// pixels of 16-bit RGBA and 4,194,304 of 8-bit grey.
 const MAX_ROW_BYTES: usize = 4 << 20;
 

@@ -216,6 +216,7 @@ impl Error {
 
     /// Memory for `what` could not be reserved: the input needs more than
     /// this process has, which no budget names (no [`LimitExceeded`]).
+    #[cfg(feature = "pdf")]
     pub(crate) fn out_of_memory(what: impl fmt::Display) -> Self {
         Error {
             kind: ErrorKind::ResourceLimit,
@@ -228,6 +229,7 @@ impl Error {
     }
 
     /// The same error without its `source`, for an outcome given again.
+    #[cfg(feature = "pdf")]
     pub(crate) fn repeated(&self) -> Self {
         Error {
             kind: self.kind,

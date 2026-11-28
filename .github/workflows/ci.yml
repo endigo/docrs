@@ -27,6 +27,10 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: brew install qpdf
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The workspace build unifies features (tests enable `pdf`), so code
+      # that only a feature uses is checked without it here.
+      - run: cargo clippy -p docrs --lib -- -D warnings
+      - run: cargo clippy -p docrs --lib --features markdown -- -D warnings
       - run: cargo test --workspace --no-fail-fast
         env:
           DOCRS_PROPTEST_CASES: "400"
@@ -46,7 +50,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
+          components: clippy
       - run: cargo check --locked -p docrs --features pdf --target wasm32-unknown-unknown
+      - run: cargo clippy --locked -p docrs-wasm --target wasm32-unknown-unknown -- -D warnings
   wasm:
     runs-on: ubuntu-latest
     steps:
