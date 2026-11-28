@@ -105,12 +105,25 @@ pub struct LimitExceeded {
 }
 
 /// Structured detail of an error, for callers that act on what caused it.
-/// Holds codes and counts only, nothing from the input.
+/// Holds codes and counts, and the font families a document names when
+/// their programs are missing; nothing else from the input.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct ErrorDetails {
     /// The warnings behind the error, one entry per code.
     pub warnings: Vec<WarningCount>,
+    /// Each family and style a PDF needs a font program for.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing_fonts: Vec<MissingFont>,
+}
+
+/// A family and style with no font program to draw it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct MissingFont {
+    pub family: String,
+    pub bold: bool,
+    pub italic: bool,
 }
 
 /// How often a warning code occurred.

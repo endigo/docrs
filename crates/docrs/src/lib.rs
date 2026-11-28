@@ -69,7 +69,9 @@ pub mod wml;
 pub mod xml;
 
 pub use document::{Document, DocumentId};
-pub use error::{Error, ErrorDetails, ErrorKind, LimitExceeded, RefusalKind, Result, WarningCount};
+pub use error::{
+    Error, ErrorDetails, ErrorKind, LimitExceeded, MissingFont, RefusalKind, Result, WarningCount,
+};
 pub use limits::Limits;
 pub use package::zip_read::Tolerance;
 pub use replace::{ReplaceAllOptions, ReplaceAllReport, ReplaceOptions, ReplaceReport};

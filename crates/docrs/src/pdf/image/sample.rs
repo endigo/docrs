@@ -30,7 +30,10 @@ pub(crate) fn image_document(
         content.extend_from_slice(b" 0 0 cm ");
         write_name(&mut content, &placed.name)?;
         content.extend_from_slice(b" Do Q\n");
-        pages.push(((width, height), content));
+        pages.push((
+            (width, height),
+            crate::pdf::page_content(&mut writer, &content)?,
+        ));
         warnings.push(placed.warnings.clone());
     }
     let resources = Dict::new().with("XObject", resources.resources());

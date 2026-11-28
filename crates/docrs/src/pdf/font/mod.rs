@@ -76,7 +76,8 @@ struct Resource {
 }
 
 impl FontResources {
-    /// Face `index` of a font file at the instance `style` selects. The face
+    /// Face `index` of a font file at the instance `style` selects (`None`:
+    /// the default instance), as layout measured it. The face
     /// must read as layout reads fonts (`font_malformed`,
     /// `font_cmap_invalid`, `font_too_large`, …), and its licence must allow
     /// embedding (`pdf_font_embedding_restricted`). A file is read once. The
@@ -87,7 +88,7 @@ impl FontResources {
         &mut self,
         data: Arc<[u8]>,
         index: u32,
-        style: Style,
+        style: Option<Style>,
     ) -> Result<FaceRef> {
         let file = self.file(data);
         let info = self.info(file, index)?;
@@ -415,13 +416,13 @@ mod tests {
         );
         let first: Arc<[u8]> = std::fs::read(path).unwrap().into();
         let mut fonts = FontResources::default();
-        let face = fonts.add_face(first.clone(), 0, Style::REGULAR).unwrap();
+        let face = fonts.add_face(first.clone(), 0, None).unwrap();
         for _ in 0..3 {
             let copy: Arc<[u8]> = first.to_vec().into();
-            assert_eq!(fonts.add_face(copy, 0, Style::REGULAR).unwrap(), face);
+            assert_eq!(fonts.add_face(copy, 0, None).unwrap(), face);
         }
         assert_eq!((fonts.files.len(), fonts.seen.len()), (1, 1));
         assert!(Arc::ptr_eq(&fonts.files[0].data, &first));
-        assert_eq!(fonts.add_face(first, 0, Style::REGULAR).unwrap(), face);
+        assert_eq!(fonts.add_face(first, 0, None).unwrap(), face);
     }
 }

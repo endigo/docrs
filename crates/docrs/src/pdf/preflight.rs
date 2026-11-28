@@ -47,11 +47,12 @@ const REVISIONS: &str = "pdf_revisions_flattened";
 const FIELD: &str = "pdf_field_cached";
 const LINK: &str = "pdf_link_scheme_skipped";
 const LINK_TARGET: &str = "pdf_link_target_missing";
+const JUSTIFY: &str = "pdf_justification_unsupported";
 
 const RTL: &str = "right-to-left text";
 
 /// Subjects the painter draws; each painter PR adds its own.
-const DRAWN: &[&str] = &[];
+const DRAWN: &[&str] = &["text", "tab", "line break", "page break", "list"];
 
 /// What a PDF of `document` would leave out or change. Reads only.
 pub fn preflight(document: &Document) -> Result<PdfReport> {
@@ -312,9 +313,12 @@ impl<'s, 'd> Scan<'s, 'd> {
                 self.text(&text_of(tree, node));
                 return false;
             }
-            "sym" | "noBreakHyphen" | "softHyphen" => self.note_once(NOT_YET_DRAWN, "text"),
+            "sym" => self.note_once(NOT_YET_DRAWN, "symbol"),
+            "noBreakHyphen" => self.note_once(NOT_YET_DRAWN, "no-break hyphen"),
+            "softHyphen" => self.note_once(NOT_YET_DRAWN, "soft hyphen"),
+            "sectPr" if parent == Some("pPr") => self.note(NOT_YET_DRAWN, "section break"),
             "tab" if parent == Some("r") => self.note_once(NOT_YET_DRAWN, "tab"),
-            "ptab" => self.note_once(NOT_YET_DRAWN, "tab"),
+            "ptab" => self.note_once(NOT_YET_DRAWN, "positional tab"),
             "br" if matches!(w_attr(tree, node, "type"), Some("page" | "column")) => {
                 self.note(NOT_YET_DRAWN, "page break")
             }
@@ -420,6 +424,9 @@ impl<'s, 'd> Scan<'s, 'd> {
         if ppr.rotated == Some(true) {
             self.note(LAYOUT, "rotated text");
         }
+        if ppr.justified_otherwise() {
+            self.note(JUSTIFY, "distributed justification");
+        }
         self.para_rpr = rpr;
     }
 
@@ -433,6 +440,12 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
         if rpr.bordered() {
             self.note_once(NOT_YET_DRAWN, "border");
+        }
+        if rpr.underlined() {
+            self.note_once(NOT_YET_DRAWN, "underline");
+        }
+        if rpr.struck() {
+            self.note_once(NOT_YET_DRAWN, "strikethrough");
         }
     }
 
@@ -467,8 +480,14 @@ impl<'s, 'd> Scan<'s, 'd> {
     fn text(&mut self, text: &str) {
         if !text.is_empty() {
             self.note_once(NOT_YET_DRAWN, "text");
+            if matches!(self.kind, "header" | "footer") {
+                self.note_once(NOT_YET_DRAWN, self.kind);
+            }
         }
         for ch in text.chars() {
+            if ch == '\u{AD}' {
+                self.note_once(NOT_YET_DRAWN, "soft hyphen");
+            }
             if let Some(script) = unsupported_script(ch) {
                 self.note_once(TEXT, script);
             }
@@ -705,6 +724,7 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
         PdfReport {
             warnings: self.tally.finish(),
+            pages: None,
         }
     }
 }

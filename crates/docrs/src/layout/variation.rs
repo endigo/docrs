@@ -1,20 +1,30 @@
 //! Variable fonts: the `fvar` axes and named instances, and the one rule
-//! that turns a run's weight and italic into axis values. The PDF writer
-//! instances with it; layout is to measure the same instance with it.
+//! that turns a run's weight and italic into axis values: layout measures
+//! and the PDF writer embeds the same instance.
 
 #![cfg_attr(
     not(feature = "pdf"),
-    expect(dead_code, reason = "only the PDF writer instances fonts so far")
+    allow(dead_code, reason = "named instances are read for the PDF writer")
 )]
 
 use super::fonts::be16;
 use super::fonts::be32;
 
 /// The weight and italic a run asks for; a static face ignores both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Style {
     pub weight: u16,
     pub italic: bool,
+}
+
+impl Style {
+    /// A run's style: bold is weight 700, else 400.
+    pub(crate) fn of(bold: bool, italic: bool) -> Style {
+        Style {
+            weight: if bold { 700 } else { 400 },
+            italic,
+        }
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -117,7 +127,10 @@ impl Fvar {
     }
 
     /// The instance `style` selects: `wght` set to the weight, and `ital`
-    /// (else `slnt`) to its italic end when the style is italic.
+    /// (else `slnt`) to its italic end when the style is italic; every other
+    /// axis, `opsz` included, at its default. Word for Mac lays out at this
+    /// instance at every size (measured on Inter, Inter Italic and Fraunces,
+    /// 4–24 pt); it draws with an optical size but keeps these advances.
     pub(crate) fn variation(&self, style: Style) -> Variation {
         let has_ital = self.axes.iter().any(|axis| &axis.tag == b"ital");
         let mut variation = Variation::new();
@@ -215,6 +228,28 @@ mod tests {
         assert_eq!(fvar.axes.len(), 1);
         assert_eq!(fvar.axes[0].tag, *b"slnt");
         assert!(fvar.variation(style(700, false)).is_empty());
+    }
+
+    #[test]
+    fn the_optical_size_stays_at_its_default_and_the_weight_follows_the_style() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/fonts/inter/Inter[opsz,wght].ttf"
+        );
+        let font = std::fs::read(path).unwrap();
+        let ttf = crate::layout::fonts::Ttf::face(&font, 0).unwrap();
+        let inter = Fvar::read(ttf.table(b"fvar").unwrap());
+        assert!(inter.variation(Style::of(false, false)).is_empty());
+        assert_eq!(inter.variation(Style::of(true, false)), [(*b"wght", 700.0)]);
+        let fraunces = Fvar::read(&fvar(&[(*b"opsz", 9, 9, 144), (*b"wght", 100, 900, 900)]));
+        assert_eq!(
+            fraunces.variation(Style::of(false, false)),
+            [(*b"wght", 400.0)]
+        );
+        assert_eq!(
+            fraunces.variation(Style::of(true, false)),
+            [(*b"wght", 700.0)]
+        );
     }
 
     #[test]
