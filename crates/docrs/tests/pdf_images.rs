@@ -1391,6 +1391,75 @@ fn a_gif_with_an_empty_logical_screen_takes_its_frame_size() {
     assert_pixels("gif-zero-screen", &pdf, 20, 12, &spec.expected());
 }
 
+#[test]
+fn decoded_planes_grow_with_the_data_not_the_header() {
+    // 65,535 × 65,535 RGBA claims 17 GB of planes; the data holds one row,
+    // then enough junk to pass the deflate-ratio check.
+    let side = 65_535u32;
+    let mut png = Png::pattern(1, 1, 8, RGBA, false);
+    png.width = side;
+    png.height = side;
+    let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
+    z.write_all(&vec![0; side as usize * 4 + 1]).unwrap();
+    let mut data = z.finish().unwrap();
+    let rows = u64::from(side) * (u64::from(side) * 4 + 1);
+    data.resize((rows / 1_000) as usize, 0x55);
+    let file = png.encode_with(&data);
+    let start = std::time::Instant::now();
+    let err = document_with(&[("word/media/x", &file)], &PdfLimits::trusted()).unwrap_err();
+    assert_eq!(err.reason(), "pdf_image_malformed", "{err}");
+    assert!(start.elapsed().as_secs_f64() < 1.0, "{:?}", start.elapsed());
+}
+
+#[test]
+fn a_png_row_past_the_row_cap_is_unsupported() {
+    let mut png = Png::pattern(1, 1, 8, RGB, true);
+    png.width = 2_000_000;
+    let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
+    z.write_all(&vec![0; 2_000_000 * 3 + 1]).unwrap();
+    let file = png.encode_with(&z.finish().unwrap());
+    assert!(unsupported(&file).contains("rows of more than"));
+}
+
+#[test]
+fn bytes_after_the_zlib_stream_stay_out_of_the_pdf() {
+    let png = Png::pattern(16, 9, 8, RGB, false);
+    let compressed = png.compressed();
+    let mut padded = compressed.clone();
+    padded.extend_from_slice(&[0xAB; 1000]);
+    let (pdf, _) = case("png-trailing-junk", &png.encode_with(&padded), "png");
+    let (image, _) = xobject(&pdf);
+    assert_eq!(
+        pdf.raw_stream(stream(&pdf, image)).unwrap().1,
+        compressed.as_slice()
+    );
+    assert_pixels("png-trailing-junk", &pdf, 16, 9, &png.expected());
+}
+
+#[test]
+fn a_damaged_ancillary_chunk_is_skipped_and_a_critical_one_refused() {
+    let mut png = Png::pattern(8, 8, 4, PALETTE, false);
+    png.extra.push((*b"tEXt", b"Comment\0hello".to_vec()));
+    png.transparency = Some(vec![0, 0, 0]);
+    let mut file = png.encode();
+    let crc_of = |file: &[u8], kind: &[u8; 4]| {
+        let at = file.windows(4).position(|w| w == kind).unwrap();
+        let len = u32::from_be_bytes(file[at - 4..at].try_into().unwrap()) as usize;
+        at + 4 + len
+    };
+    let text = crc_of(&file, b"tEXt");
+    file[text] ^= 1;
+    let trns = crc_of(&file, b"tRNS");
+    file[trns] ^= 1;
+    let (pdf, _) = case("png-damaged-ancillary", &file, "png");
+    png.transparency = None;
+    assert_pixels("png-damaged-ancillary", &pdf, 8, 8, &png.expected());
+    assert!(xobject(&pdf).1.is_none(), "a damaged tRNS is absent");
+    let plte = crc_of(&file, b"PLTE");
+    file[plte] ^= 1;
+    assert!(malformed(&file).contains("CRC"));
+}
+
 /// After an intended change to the output, regenerate the file with
 /// `DOCRS_BLESS=1 cargo test -p docrs --test pdf_images output_matches_the_golden_file`,
 /// then run `qpdf --check` on it and review the diff.

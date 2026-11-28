@@ -1,6 +1,5 @@
-/// Budgets of one PDF export, on top of the package's [`crate::Limits`]
-/// (final.md §10). Pixel counts are in millions (M = 1,000,000), byte counts
-/// in MiB.
+/// Budgets of one PDF export, on top of the package's [`crate::Limits`].
+/// Pixel counts are in millions (1,000,000), byte counts in MiB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PdfLimits {

@@ -7,8 +7,8 @@ use std::io::{self, Read};
 use flate2::read::ZlibDecoder;
 
 use super::{
-    ANIMATED, Budget, Image, PROFILE_IGNORED, Samples, Space, be32, byte, bytes, malformed, plane,
-    too_large, zeroed,
+    ANIMATED, Budget, Image, PROFILE_IGNORED, Samples, Space, be32, byte, bytes, malformed,
+    too_large, unsupported, zeroed,
 };
 use crate::{Error, Result};
 
@@ -37,13 +37,14 @@ struct Chunks<'a> {
 }
 
 pub(super) fn read(data: &[u8], budget: &Budget) -> Result<Image> {
-    let (header, chunks) = read_chunks(data, budget)?;
+    let (header, mut chunks) = read_chunks(data, budget)?;
     let mut image = if header.depth == 8
         && matches!(header.color, GREY | RGB | PALETTE)
         && chunks.transparency.is_none()
         && !header.interlaced
     {
-        check_rows(&header, &chunks)?;
+        let stream = check_rows(&header, &chunks)?;
+        chunks.data.truncate(stream);
         Image {
             width: header.width,
             height: header.height,
@@ -81,12 +82,19 @@ fn read_chunks<'a>(data: &'a [u8], budget: &Budget) -> Result<(Header, Chunks<'a
         let mut crc = crc32fast::Hasher::new();
         crc.update(kind);
         crc.update(body);
-        if crc.finalize() != stored {
-            return Err(malformed("a PNG chunk fails its CRC"));
-        }
+        let intact = crc.finalize() == stored;
         at += 12 + length;
         if header.is_none() && kind != b"IHDR" {
             return Err(malformed("the PNG does not start with IHDR"));
+        }
+        let critical = kind.first().is_some_and(u8::is_ascii_uppercase);
+        if !intact {
+            // As libpng and browsers do: a damaged ancillary chunk is
+            // treated as absent.
+            if critical {
+                return Err(malformed("a PNG chunk fails its CRC"));
+            }
+            continue;
         }
         match kind {
             b"IHDR" if header.is_none() => {
@@ -106,9 +114,7 @@ fn read_chunks<'a>(data: &'a [u8], budget: &Budget) -> Result<(Header, Chunks<'a
             b"iCCP" => chunks.profile = true,
             b"acTL" => chunks.animated = true,
             b"IEND" => break,
-            [first, ..] if first.is_ascii_uppercase() => {
-                return Err(malformed("an unknown critical PNG chunk"));
-            }
+            _ if critical => return Err(malformed("an unknown critical PNG chunk")),
             _ => {}
         }
     }
@@ -235,6 +241,10 @@ fn inflated_size(header: &Header) -> Result<usize> {
 /// allocated for them.
 const MAX_DEFLATE_RATIO: u64 = 1_033;
 
+/// The longest row decoded, filter byte excluded: 4 MiB, which is 262,144
+/// pixels of 16-bit RGBA and 4,194,304 of 8-bit grey.
+const MAX_ROW_BYTES: usize = 4 << 20;
+
 /// Inflates and unfilters each row of every pass in turn, holding two rows
 /// at a time; returns the decoder after the last row.
 fn each_row<'a>(
@@ -247,6 +257,11 @@ fn each_row<'a>(
         return Err(malformed("the PNG image data ends early"));
     }
     let widest = row_bytes(header, header.width)?;
+    if widest > MAX_ROW_BYTES {
+        return Err(unsupported(format!(
+            "a PNG with rows of more than {MAX_ROW_BYTES} bytes"
+        )));
+    }
     let mut line = zeroed(widest + 1)?;
     let mut previous = zeroed(widest)?;
     let bpp = (channels(header.color) * usize::from(header.depth)).div_ceil(8);
@@ -276,8 +291,9 @@ fn each_row<'a>(
 
 /// Checks the passed-through data as decoding would, without keeping it:
 /// every row with a known filter, every index in the palette, and nothing
-/// after the last row, so the PDF holds no more than the image.
-fn check_rows(header: &Header, chunks: &Chunks) -> Result<()> {
+/// after the last row. Returns the length of the zlib stream, so the PDF
+/// holds no more than the image.
+fn check_rows(header: &Header, chunks: &Chunks) -> Result<usize> {
     let entries = chunks.palette.map_or(0, |palette| palette.len() / 3);
     let mut decoder = each_row(header, &chunks.data, |_, _, line| {
         if header.color == PALETTE && line.iter().any(|&index| usize::from(index) >= entries) {
@@ -286,7 +302,7 @@ fn check_rows(header: &Header, chunks: &Chunks) -> Result<()> {
         Ok(())
     })?;
     match decoder.read(&mut [0u8; 1]) {
-        Ok(0) => Ok(()),
+        Ok(0) => usize::try_from(decoder.total_in()).map_err(|_| too_large()),
         Ok(_) => Err(malformed("the PNG image data runs past its last row")),
         Err(_) => Err(malformed("the PNG image data is corrupt")),
     }
@@ -298,6 +314,7 @@ struct Target<'a> {
     palette: &'a [u8],
     transparency: Option<&'a [u8]>,
     components: usize,
+    /// Rows from the top, as many as the data has reached.
     color: Vec<u8>,
     alpha: Vec<u8>,
 }
@@ -310,14 +327,16 @@ fn decode(header: &Header, chunks: &Chunks) -> Result<Image> {
         palette: chunks.palette.unwrap_or_default(),
         transparency: chunks.transparency,
         components,
-        color: plane(header.width, header.height, components)?,
-        alpha: plane(header.width, header.height, 1)?,
+        color: Vec::new(),
+        alpha: Vec::new(),
     };
     each_row(header, &chunks.data, |pass, row, line| {
         let y = pass.y + row * pass.dy;
+        target.cover(y + 1)?;
         (0..pass.width)
             .try_for_each(|column| target.put(pass.x + column * pass.dx, y, line, column))
     })?;
+    target.cover(header.height)?;
     let space = if grey { Space::Gray } else { Space::Rgb };
     Ok(Image::decoded(
         header.width,
@@ -368,6 +387,20 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
 }
 
 impl Target<'_> {
+    /// Grows the planes to hold the first `rows` rows, so that memory follows
+    /// the data read and not the size the header claims.
+    fn cover(&mut self, rows: u32) -> Result<()> {
+        let pixels = |rows: u32| {
+            (self.header.width as usize)
+                .checked_mul(rows.min(self.header.height) as usize)
+                .ok_or_else(too_large)
+        };
+        let (len, full) = (pixels(rows)?, pixels(self.header.height)?);
+        let scale = |n: usize| n.checked_mul(self.components).ok_or_else(too_large);
+        grow(&mut self.alpha, len, full)?;
+        grow(&mut self.color, scale(len)?, scale(full)?)
+    }
+
     /// Pixel `column` of an unfiltered `line`, placed at `x`, `y`.
     fn put(&mut self, x: u32, y: u32, line: &[u8], column: u32) -> Result<()> {
         let header = self.header;
@@ -421,6 +454,22 @@ impl Target<'_> {
         }
         set(&mut self.alpha, pixel, alpha)
     }
+}
+
+/// `plane` zero-extended to `len`, its capacity at most doubling and never
+/// past `full`.
+fn grow(plane: &mut Vec<u8>, len: usize, full: usize) -> Result<()> {
+    if plane.len() >= len {
+        return Ok(());
+    }
+    if plane.capacity() < len {
+        let capacity = len.max(plane.capacity() * 2).min(full);
+        plane
+            .try_reserve_exact(capacity - plane.len())
+            .map_err(|_| Error::out_of_memory(format_args!("{capacity} bytes")))?;
+    }
+    plane.resize(len, 0);
+    Ok(())
 }
 
 fn set(plane: &mut [u8], at: usize, value: u8) -> Result<()> {
