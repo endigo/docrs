@@ -370,7 +370,7 @@ pub(super) struct Builder<'a> {
     properties: Properties,
     warnings: Vec<LayoutWarning>,
     /// Before Word 2013 (compatibility mode under 15, or none), a table
-    /// moves left by its first cell's left margin.
+    /// not nested in another moves left by its first cell's left margin.
     outdent_tables: bool,
 }
 

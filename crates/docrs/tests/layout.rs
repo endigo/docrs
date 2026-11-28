@@ -1222,6 +1222,19 @@ fn cell_side_margins_and_the_table_edge_follow_word() {
     assert_eq!(table_x(&normal, "", None), (66.6, 72.0));
     assert_eq!(table_x(&normal, "", Some(14)), (66.6, 72.0));
     assert_eq!(table_x(&normal, "", Some(15)), (72.0, 77.4));
+    // A nested table is not moved again: its text is 5.4 points inside the
+    // outer cell's content (Word: 95.28 where that content starts at 90.0).
+    let nested = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"9360\"/></w:tblGrid><w:tr><w:tc><w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}</w:tc></w:tr></w:tbl>{}<w:sectPr>{SECT_PR}</w:sectPr>",
+        para("Inner", ""),
+        para("", ""),
+        para("", "")
+    );
+    let doc =
+        Document::open_bytes(&package_with(&nested, &normal, None), &Limits::default()).unwrap();
+    let records = records_of(&doc);
+    let inner = text_lines(&records).find(|l| l.text == "Inner").unwrap().x;
+    assert_eq!(round(inner), 77.4);
 }
 
 /// A one-row table: a cell of `tall` paragraphs with exactly 800-point

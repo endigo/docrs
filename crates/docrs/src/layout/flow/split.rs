@@ -81,6 +81,15 @@ impl<'a, 'm> Rest<'a, 'm> {
             })
     }
 
+    /// The next line fits in `room` when this part's top is `top` below it.
+    fn fits_in(&self, top: f64, room: f64) -> bool {
+        self.part
+            .layout
+            .lines
+            .get(self.line)
+            .is_none_or(|line| top - self.start + line.offset + line.height <= room + EPSILON)
+    }
+
     /// The first cut below the next line.
     fn forced(&self) -> Option<usize> {
         let lines = &self.part.layout.lines;
@@ -143,13 +152,23 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 cuts.push(cut);
             }
             if self.at_top {
-                // A line that does not fit here fits on no later page: it
-                // is placed anyway, so each page places a line and the
-                // loop ends.
+                // Headers and footers leave each page its own room. A line
+                // taller than any page's room is placed now; else, as a
+                // paragraph's line, one is placed only when no cell can
+                // place one, so each page places a line and the loop ends.
+                let page = &self.model.sections[self.section()].page;
+                let most = available + page.height - page.top - page.bottom - self.body_height();
                 for (rest, cut) in rests.iter().zip(cuts.iter_mut()) {
-                    if !rest.places_a_line(*cut) {
+                    if !rest.places_a_line(*cut) && !rest.fits_in(rest.top(first), most) {
                         *cut = rest.forced();
                     }
+                }
+                if !rests
+                    .iter()
+                    .zip(&cuts)
+                    .any(|(rest, cut)| rest.places_a_line(*cut))
+                {
+                    cuts = rests.iter().map(Rest::forced).collect();
                 }
             } else if !rests
                 .iter()

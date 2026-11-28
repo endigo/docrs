@@ -195,7 +195,7 @@ impl Builder<'_> {
         let outdent = rows
             .first()
             .and_then(|row| row.cells.first())
-            .filter(|_| self.outdent_tables)
+            .filter(|_| self.outdent_tables && self.depth == 1)
             .map_or(0.0, |cell| cell.margins[2]);
         Table {
             story: self.story,

@@ -169,21 +169,20 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     if let Some(settings) = txn.part_related_by(&main, rt::SETTINGS)? {
         let settings = txn.tree(&settings)?;
         even_and_odd = w_child(settings, settings.root(), "evenAndOddHeaders").is_some();
-        let mode = crate::wml::compatibility_mode(settings).unwrap_or(
-            if w_child(settings, settings.root(), "compat").is_some() {
-                12
-            } else {
-                15
-            },
-        );
+        // Word lays out a document that names no mode as Word 2007 did.
+        let mode = crate::wml::compatibility_mode(settings).unwrap_or(12);
         if mode < 15 {
-            problem(
-                "old_compatibility_mode",
+            let version = word_version(mode);
+            let message = if w_child(settings, settings.root(), "compat").is_some() {
                 format!(
-                    "The template is in compatibility mode for {}; the output keeps it, so Word lays it out as that version did (save the template in a current format to change this).",
-                    word_version(mode)
-                ),
-            );
+                    "The template is in compatibility mode for {version}; the output keeps it, so Word lays it out as that version did (save the template in a current format to change this)."
+                )
+            } else {
+                format!(
+                    "The template names no compatibility mode, so Word lays it out as {version} did; a conversion that replaces the body writes Word 2013 mode, and one that appends or fills a placeholder keeps the template's settings (save the template in a current format to change this)."
+                )
+            };
+            problem("old_compatibility_mode", message);
         }
         compatibility = json!({ "mode": mode, "word": word_version(mode) });
     }
