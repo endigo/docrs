@@ -586,6 +586,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             preflight,
             strict,
             allow_unembedded,
+            navigation,
             fonts,
         } => {
             let (document, set_aside) = open_reference(Some(input), limits, false)?;
@@ -604,6 +605,8 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             let pdf = PdfFlags {
                 strict: *strict,
                 allow_unembedded: *allow_unembedded,
+                outline: !navigation.no_outline,
+                links: !navigation.no_links,
             };
             let report = write_pdf(&document, &fonts, pdf, limits, out)?;
             let mut value = json!({"schema": "docrs_pdf", "version": 1, "pdf": report.to_json(), "set_aside": set_aside, "out": out});
@@ -696,6 +699,8 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
 struct PdfFlags {
     strict: bool,
     allow_unembedded: bool,
+    outline: bool,
+    links: bool,
 }
 
 /// Renders `document` as PDF with `fonts` and writes it to `out` atomically.
@@ -710,6 +715,8 @@ fn write_pdf(
     options.fonts = fonts.set.clone();
     options.strict = flags.strict;
     options.allow_unembedded = flags.allow_unembedded;
+    options.outline = flags.outline;
+    options.links = flags.links;
     if *limits == Limits::trusted() {
         options.limits = docrs::pdf::PdfLimits::trusted();
     }
@@ -867,6 +874,7 @@ fn convert(
         no_cover_page,
         acknowledge_protection,
         strict_package,
+        navigation,
         fonts,
     } = source;
     let fonts = fonts::load(fonts)?;
@@ -950,6 +958,8 @@ fn convert(
             let flags = PdfFlags {
                 strict: *strict,
                 allow_unembedded: *allow_unembedded,
+                outline: !navigation.no_outline,
+                links: !navigation.no_links,
             };
             let pdf = write_pdf(&document, &fonts, flags, limits, out)?;
             value["pdf"] = pdf.to_json();

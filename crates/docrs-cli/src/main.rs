@@ -336,6 +336,8 @@ enum Command {
         #[arg(long)]
         allow_unembedded: bool,
         #[command(flatten)]
+        navigation: NavigationArgs,
+        #[command(flatten)]
         fonts: FontArgs,
     },
     /// Open and patch-save without edits (byte-identical when unchanged).
@@ -477,7 +479,21 @@ struct ConvertArgs {
     #[arg(long)]
     strict_package: bool,
     #[command(flatten)]
+    navigation: NavigationArgs,
+    #[command(flatten)]
     fonts: FontArgs,
+}
+
+/// What a PDF lets readers navigate by.
+#[derive(Args)]
+struct NavigationArgs {
+    /// With PDF output: no bookmarks of the headings.
+    #[arg(long)]
+    no_outline: bool,
+    /// With PDF output: no clickable links, and no destinations for the
+    /// document's bookmarks.
+    #[arg(long)]
+    no_links: bool,
 }
 
 fn exit_code(err: &Error) -> u8 {

@@ -1253,6 +1253,36 @@ fn a_declared_fallback_leaves_words_layout_alone() {
 }
 
 #[test]
+fn pdf_links_and_outline_can_be_left_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("linked.md");
+    std::fs::write(&source, "# Heading\n\nA [link](https://example.com).\n").unwrap();
+    let written = |flags: &[&str]| {
+        let out = dir.path().join(format!("linked{}.pdf", flags.join("")));
+        let output = bin()
+            .arg("from-markdown")
+            .arg(&source)
+            .arg("--reference")
+            .arg(repo("tests/fixtures/pdf/references/inter.docx"))
+            .args(["--format", "pdf", "--font-dir"])
+            .arg(repo(INTER_DIR))
+            .args(flags)
+            .arg("--out")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{flags:?}: {output:?}");
+        let bytes = std::fs::read(&out).unwrap();
+        let has = |key: &[u8]| bytes.windows(key.len()).any(|w| w == key);
+        (has(b"/Annots"), has(b"/Outlines"))
+    };
+    assert_eq!(written(&[]), (true, true));
+    assert_eq!(written(&["--no-links"]), (false, true));
+    assert_eq!(written(&["--no-outline"]), (true, false));
+    assert_eq!(written(&["--no-links", "--no-outline"]), (false, false));
+}
+
+#[test]
 fn pdf_refuses_to_write_over_its_input() {
     let dir = tempfile::tempdir().unwrap();
     let docx = inter_memo(dir.path());

@@ -98,6 +98,7 @@
 
 ### Command line
 
+- `docrs pdf` and the convert commands with `--format pdf` take `--no-outline` and `--no-links` (experimental): the PDF has no outline, or no clickable links and bookmark destinations.
 - `docrs pdf IN.docx --out OUT.pdf [--font FILE]… [--font-dir DIR]… [--strict]` writes a PDF (experimental; no longer hidden); `--preflight` still prints the report alone. The file is written atomically, and an output that is the input, through a symbolic or hard link (on every platform) or a directory the write would create (`new/../in.docx`, or a dangling symbolic link through one), is refused (`output_is_input`, exit 2), and a refusal creates nothing. A missing font program exits 3 with the families in `error.details.missing_fonts`. JSON: `docrs_pdf` with the report under `pdf`.
 - `from-markdown`, `from-html` and `from-json` take `--format docx|pdf` (default `docx`; never taken from the output's extension). With `pdf`, the converted document is written as `docrs pdf` writes it, `--strict` refuses a PDF warning too, and the JSON report has `pdf` instead of `save`.
 - `docrs layout` shows each paragraph's text as Word displays it (field results, tabs, line breaks, non-breaking hyphens and symbols, not field codes), and marks the paragraphs of a table of contents with `toc`.
