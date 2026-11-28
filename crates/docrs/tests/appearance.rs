@@ -1,7 +1,7 @@
 //! Run appearance in the layout model, read through `layout::line_records`:
 //! every property through the style chain and direct formatting. The
-//! fixture `tests/fixtures/pdf/appearance.docx` is `fixture()`, written
-//! with `DOCRS_UPDATE_SNAPSHOTS=1`.
+//! fixtures `tests/fixtures/pdf/appearance.docx` and `superscript.docx` are
+//! `fixture()` and `script_fixture()`, written with `DOCRS_UPDATE_SNAPSHOTS=1`.
 
 mod support;
 
@@ -328,6 +328,42 @@ fn fixture() -> Vec<u8> {
     package(&body(), &styles())
 }
 
+const SCRIPT_FONTS: [&str; 3] = ["Arial", "Times New Roman", "Liberation Serif"];
+const SCRIPT_SIZES: [u32; 3] = [8, 11, 24];
+/// Each script paragraph's runs after its plain label, with their properties.
+const SCRIPT_RUNS: [(&str, &str); 7] = [
+    ("<w:vertAlign w:val=\"superscript\"/>", "sup"),
+    ("", " x"),
+    ("<w:vertAlign w:val=\"subscript\"/>", "sub"),
+    ("", " x"),
+    ("<w:position w:val=\"6\"/>", "up3"),
+    ("", " x"),
+    ("<w:position w:val=\"-6\"/>", "down3"),
+];
+
+/// A paragraph per font and size: its label, then `SCRIPT_RUNS`.
+fn script_fixture() -> Vec<u8> {
+    let para_for = |font: &str, size: u32| {
+        let rpr = |extra: &str| {
+            format!(
+                "<w:rFonts w:ascii=\"{font}\" w:hAnsi=\"{font}\" w:cs=\"{font}\"/><w:sz w:val=\"{}\"/>{extra}",
+                size * 2
+            )
+        };
+        let label = run(&rpr(""), &format!("{font} {size} pt x"));
+        let runs: String = SCRIPT_RUNS
+            .iter()
+            .map(|(extra, text)| run(&rpr(extra), text))
+            .collect();
+        para("<w:spacing w:after=\"240\"/>", &(label + &runs))
+    };
+    let body: String = SCRIPT_FONTS
+        .iter()
+        .flat_map(|font| SCRIPT_SIZES.map(|size| para_for(font, size)))
+        .collect();
+    package(&body, "")
+}
+
 /// Each run's text with its look and link.
 fn runs(bytes: &[u8]) -> Vec<(String, Appearance, Option<Link>)> {
     let doc = Document::open_bytes(bytes, &Limits::default()).unwrap();
@@ -421,6 +457,18 @@ fn entries(xml: &str, list: &str) -> usize {
 }
 
 #[test]
+fn the_committed_script_fixture_is_the_one_these_tests_build() {
+    let path = repo_root().join("tests/fixtures/pdf/superscript.docx");
+    if std::env::var_os("DOCRS_UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, script_fixture()).unwrap();
+    }
+    assert!(
+        std::fs::read(&path).unwrap() == script_fixture(),
+        "rerun with DOCRS_UPDATE_SNAPSHOTS=1"
+    );
+}
+
+#[test]
 fn the_theme_has_three_entries_in_each_format_list() {
     let theme = part_xml(&open_bytes(&fixture()), "word/theme/theme1.xml");
     for list in [
@@ -508,6 +556,24 @@ fn caps_spacing_scale_and_shading_are_kept() {
     }
     assert_eq!(look(&runs, "theme-fill").shade, Some(rgb("4472C4")));
     assert_eq!(look(&runs, "rgb-red").shade, None);
+}
+
+#[test]
+fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
+    let runs = runs(&script_fixture());
+    for font in SCRIPT_FONTS {
+        for size in SCRIPT_SIZES {
+            let label = format!("{font} {size} pt x");
+            let at = runs.iter().position(|r| r.0 == label).unwrap();
+            let look = |i: usize| runs[at + i].1;
+            let size = f64::from(size);
+            assert_eq!((look(0).size, look(0).rise), (size, 0.0), "{label}");
+            assert_eq!(look(1).rise, size * 0.41, "{label} sup");
+            assert_eq!(look(3).rise, -size * 0.087, "{label} sub");
+            assert_eq!(look(5).rise, 3.0, "{label} up3");
+            assert_eq!(look(7).rise, -3.0, "{label} down3");
+        }
+    }
 }
 
 #[test]
