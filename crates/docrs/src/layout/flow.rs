@@ -1474,8 +1474,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             }
             let left = self.column_left();
             for line in &lines[index..index + fit] {
-                let refs = self.refs(para, line);
-                self.reserve(&refs, self.y + line.fit)?;
+                self.reserve_line(para, line, self.y)?;
                 self.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }

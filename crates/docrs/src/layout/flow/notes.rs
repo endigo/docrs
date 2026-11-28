@@ -78,7 +78,7 @@ pub(super) struct Notes<'m> {
     any: bool,
     laid: HashMap<NoteId, Laid<'m>>,
     /// The separator and the continuation separator, laid out as their
-    /// paragraphs: Word counts their spacing (the corpus agrees best so).
+    /// paragraphs.
     separators: [Option<CellLayout<'m>>; 2],
     placed: HashSet<NoteId>,
     unplaced: HashSet<NoteId>,
@@ -112,7 +112,7 @@ impl<'m> Notes<'m> {
     fn separator_height(&self, continued: bool) -> f64 {
         self.separators[usize::from(continued)]
             .as_ref()
-            .map_or(0.0, |s| s.content)
+            .map_or(0.0, |s| separator_height(s, continued))
     }
 
     fn laid(&self, note: NoteId) -> &Laid<'m> {
@@ -224,6 +224,34 @@ impl Area {
     }
 }
 
+/// Where a line at `top` ends for the notes below it. Without notes on
+/// its page, multiple spacing's extra may run past the bottom margin;
+/// above notes it may not, and a line citing footnotes keeps its
+/// paragraph's space after too (Word for Mac 16.115).
+fn note_bottom(area: &Area, refs: &[NoteId], para: &Para, line: &Line, top: f64) -> f64 {
+    let cites = refs.iter().any(|n| n.kind == NoteKind::Footnote);
+    if area.height == 0.0 && !cites {
+        return top + line.fit;
+    }
+    let ends = line.pieces.end as usize >= para.pieces.len();
+    let after = if cites && ends {
+        para.after_spacing()
+    } else {
+        0.0
+    };
+    top + line.height + after
+}
+
+/// The separator counts with its paragraph spacing, the continuation
+/// separator with its line alone (Word for Mac 16.115).
+fn separator_height(layout: &CellLayout<'_>, continued: bool) -> f64 {
+    if continued {
+        layout.lines.iter().map(|l| l.height).sum()
+    } else {
+        layout.content
+    }
+}
+
 /// The notes a line refers to, footnotes and endnotes alike.
 fn line_refs(para: &Para, line: &Line) -> Vec<NoteId> {
     if para.story != StoryId::Body {
@@ -328,14 +356,15 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         line_bottom: f64,
     ) -> Result<bool> {
         let refs = self.refs(para, line);
-        // Multiple spacing's extra height may run past the bottom margin
-        // but not into the notes (Word for Mac 16.115, one corpus case).
-        let line_bottom = if area.height > 0.0 || !refs.is_empty() {
-            line_bottom - line.fit + line.height
-        } else {
-            line_bottom
-        };
-        self.admit(area, &refs, line_bottom)
+        let bottom = note_bottom(area, &refs, para, line, line_bottom - line.fit);
+        self.admit(area, &refs, bottom)
+    }
+
+    /// `reserve` for a paragraph's line placed at `top`.
+    pub(super) fn reserve_line(&mut self, para: &Para, line: &Line, top: f64) -> Result<()> {
+        let refs = self.refs(para, line);
+        let bottom = note_bottom(&self.notes.area, &refs, para, line, top);
+        self.reserve(&refs, bottom)
     }
 
     pub(super) fn refs(&self, para: &Para, line: &Line) -> Vec<NoteId> {
@@ -476,7 +505,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         let mut y = (self.notes.page_bottom - self.notes.area.height).max(self.top);
         if let Some(separator) = separator {
             self.draw_separator(separator, left, y)?;
-            y += separator.content;
+            y += separator_height(separator, self.notes.area.continued);
         }
         for part in parts {
             let note = &laid[&part.note];
