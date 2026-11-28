@@ -1,14 +1,16 @@
 //! Effective paragraph, run and table formatting, resolved once for layout
 //! and the PDF preflight alike.
 
+use super::Align;
+use super::cascade::TableLook;
 #[cfg(feature = "pdf")]
 use super::marks::TableMarks;
 use super::numbering::Numbering;
 use super::props::{PPr, RPr, read_ppr, read_rpr};
 use super::styles::Styles;
-use super::table::TableCtx;
+use super::table::{TableCtx, TableFormat};
 use super::theme::{Theme, read_theme};
-use crate::wml::{w_attr, w_child};
+use crate::wml::{compat_setting, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
 
 pub(crate) struct Formatting {
@@ -16,6 +18,9 @@ pub(crate) struct Formatting {
     pub(super) numbering: Numbering,
     /// Its fonts for layout, its colours for the properties read on the way.
     pub(super) theme: Theme,
+    /// `overrideTableStyleFontSizeAndJustification`: the standard's style
+    /// order in tables, without Word 2007's exception for Normal.
+    table_style_order: bool,
 }
 
 /// A paragraph's style, its direct properties, and its effective paragraph
@@ -32,12 +37,16 @@ impl Formatting {
         styles: Option<&XmlTree>,
         numbering: Option<&XmlTree>,
         theme: Option<&XmlTree>,
+        settings: Option<&XmlTree>,
     ) -> Formatting {
         let theme = read_theme(theme);
         Formatting {
             styles: Styles::read(styles, &theme.palette),
             numbering: Numbering::read(numbering, &theme.palette),
             theme,
+            table_style_order: settings
+                .and_then(|s| compat_setting(s, "overrideTableStyleFontSizeAndJustification"))
+                .is_some_and(|v| matches!(v, "1" | "true" | "on")),
         }
     }
 
@@ -67,22 +76,19 @@ impl Formatting {
     fn para_props(&mut self, style: &str, direct: &PPr, table: Option<&TableCtx>) -> (PPr, RPr) {
         let mut ppr = self.styles.default_ppr.clone();
         let mut rpr = self.styles.default_rpr.clone();
-        if let Some(table) = table
-            && let Some(id) = &table.style
-        {
-            let chain = self.styles.chain(id);
-            ppr.merge(&chain.0);
-            rpr.layer(&chain.1);
-            if table.first_row
-                && let Some((p, r)) = self.styles.defs.get(id).and_then(|d| d.first_row.as_ref())
-            {
-                ppr.merge(p);
-                rpr.layer(r);
-            }
+        let table = table.map(|table| table.style.props(table.parts));
+        if let Some((table_ppr, table_rpr)) = &table {
+            ppr.merge(table_ppr);
+            rpr.layer(table_rpr);
         }
         let chain = self.styles.chain(style);
         ppr.merge(&chain.0);
         rpr.layer(&chain.1);
+        if let Some((table_ppr, table_rpr)) = &table
+            && !self.table_style_order
+        {
+            self.normal_gives_way(style, table_ppr, table_rpr, &mut ppr, &mut rpr);
+        }
         // Numbering's indents sit between the style and direct formatting.
         let num = direct.num.clone().or_else(|| ppr.num.clone());
         if let Some((id, ilvl)) = num {
@@ -93,6 +99,35 @@ impl Formatting {
         }
         ppr.merge(direct);
         (ppr, rpr)
+    }
+
+    /// Word 2007's exception: an 11 or 12 point size, or left alignment,
+    /// that the paragraph has from the default paragraph style gives way to
+    /// the table style's.
+    fn normal_gives_way(
+        &self,
+        style: &str,
+        table_ppr: &PPr,
+        table_rpr: &RPr,
+        ppr: &mut PPr,
+        rpr: &mut RPr,
+    ) {
+        let normal = self.styles.default_para.as_deref();
+        let from_normal = |pick: fn(&PPr, &RPr) -> bool| {
+            normal.is_some() && self.styles.set_by(style, pick) == normal
+        };
+        if table_rpr.size.is_some()
+            && matches!(rpr.size, Some(11.0 | 12.0))
+            && from_normal(|_, rpr| rpr.size.is_some())
+        {
+            rpr.size = table_rpr.size;
+        }
+        if table_ppr.align.is_some()
+            && ppr.align == Some(Align::Left)
+            && from_normal(|ppr, _| ppr.align.is_some())
+        {
+            ppr.align = table_ppr.align;
+        }
     }
 
     /// A run's effective properties over its paragraph's.
@@ -110,28 +145,19 @@ impl Formatting {
         rpr
     }
 
-    /// A table's style (its own, else the default) and whether its first
-    /// row takes the style's first-row look.
-    pub(crate) fn table(&self, tree: &XmlTree, tbl: NodeId) -> (Option<String>, bool) {
+    /// A table's style (its own, else the default) and its `w:tblLook`.
+    pub(crate) fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> TableFormat {
         let tbl_pr = w_child(tree, tbl, "tblPr");
-        let style = tbl_pr
+        let id = tbl_pr
             .and_then(|p| w_child(tree, p, "tblStyle"))
             .and_then(|s| w_attr(tree, s, "val"))
             .map(str::to_string)
             .or_else(|| self.styles.default_table.clone());
-        let first_row = tbl_pr
-            .and_then(|p| w_child(tree, p, "tblLook"))
-            .map(|l| {
-                w_attr(tree, l, "firstRow")
-                    .map(|v| v == "1" || v == "true")
-                    .unwrap_or_else(|| {
-                        w_attr(tree, l, "val")
-                            .and_then(|v| u32::from_str_radix(v, 16).ok())
-                            .is_some_and(|v| v & 0x20 != 0)
-                    })
-            })
-            .unwrap_or(true);
-        (style, first_row)
+        TableFormat {
+            style: self.styles.table_style(id.as_deref()),
+            id,
+            look: TableLook::read(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblLook"))),
+        }
     }
 
     /// What a table style and its `basedOn` chain draw around the cells.

@@ -1365,3 +1365,27 @@ fn only_justified_vertical_page_alignment_is_reported() {
         [("vertical page justification", 1)]
     );
 }
+
+#[test]
+fn table_layout_features_the_pdf_ignores_are_reported() {
+    let table = |tbl_pr: &str, tc_pr: &str| {
+        format!(
+            "<w:tbl><w:tblPr>{tbl_pr}</w:tblPr><w:tr><w:tc><w:tcPr>{tc_pr}</w:tcPr>{}</w:tc></w:tr></w:tbl>",
+            para(&run("<w:t>cell</w:t>"))
+        )
+    };
+    let body = table(r#"<w:tblCellSpacing w:w="58" w:type="dxa"/>"#, "")
+        + &table(r#"<w:tblCellSpacing w:w="0" w:type="dxa"/>"#, "")
+        + &table(r#"<w:tblpPr w:tblpX="2000" w:tblpY="2000"/>"#, "")
+        + &table("", r#"<w:textDirection w:val="btLr"/>"#)
+        + &para("");
+    let report = report(&docx(&body, &[], &[]));
+    assert_eq!(
+        subjects(&report, "pdf_layout_feature_ignored"),
+        [
+            ("cell spacing", 1),
+            ("floating tables", 1),
+            ("rotated cell text", 1)
+        ]
+    );
+}

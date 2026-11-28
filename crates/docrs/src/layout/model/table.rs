@@ -1,40 +1,45 @@
+use std::rc::Rc;
+
+use super::cascade::{Bands, Part, Parts, Position, Region, TableLook, parts_of};
 use super::colour::{Palette, Rgb};
-use super::look::{Border, BorderSource, CellBorders, VAlign, read_border};
-use super::props::{length, merge_sides, number, on_off, side, twips};
-use super::{Builder, Cell, Row, Table};
+use super::edges::{Edges, GridCell};
+use super::look::{EDGE_SIDES, Edge, VAlign, read_edge};
+use super::props::{side, twips};
+use super::styles::{TableStyle, band_size};
+use super::{Builder, Cell, Row, Table, TableAlign};
 use crate::wml::{w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
 /// Word's table grid holds at most 63 columns.
 const MAX_GRID_COLUMNS: usize = 63;
 
-/// A `w:tcPr`'s look; `Some(None)` is no fill, or a `none` border.
+/// A `w:tcPr`'s look; `Some(None)` is no fill.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct CellProps {
     fill: Option<Option<Rgb>>,
     valign: Option<VAlign>,
-    borders: [Option<Option<Border>>; 6],
+    /// By `EDGE_SIDES`.
+    borders: [Option<Edge>; 6],
 }
 
 impl CellProps {
     pub(super) fn merge(&mut self, other: &CellProps) {
         self.fill = other.fill.or(self.fill);
         self.valign = other.valign.or(self.valign);
-        merge_sides(&mut self.borders, &other.borders);
+        set(&mut self.borders, other.borders);
     }
 
-    /// The cell's own properties over its table style's.
-    fn over(&self, style: &CellProps) -> (Option<Rgb>, VAlign, CellBorders) {
-        let sourced = |direct: Option<Option<Border>>, style: Option<Option<Border>>| match direct {
-            Some(own) => Some((own, BorderSource::Direct)),
-            None => style.map(|b| (b, BorderSource::Style)),
-        };
-        let sides = std::array::from_fn(|i| sourced(self.borders[i], style.borders[i]));
-        (
-            self.fill.or(style.fill).flatten(),
-            self.valign.or(style.valign).unwrap_or_default(),
-            CellBorders::from_sides(sides),
-        )
+    pub(super) fn clear_borders(&mut self) {
+        self.borders = [None; 6];
+    }
+}
+
+/// Each value `top` sets replaces `base`'s.
+fn set<T: Copy, const N: usize>(base: &mut [Option<T>; N], top: [Option<T>; N]) {
+    for (slot, value) in base.iter_mut().zip(top) {
+        if value.is_some() {
+            *slot = value;
+        }
     }
 }
 
@@ -43,183 +48,380 @@ pub(super) fn read_cell_props(
     tc_pr: Option<NodeId>,
     palette: &Palette,
 ) -> CellProps {
-    let mut out = CellProps::default();
     let Some(tc_pr) = tc_pr else {
-        return out;
+        return CellProps::default();
     };
-    out.fill = w_child(tree, tc_pr, "shd").map(|shd| palette.shading(tree, shd));
-    out.valign = w_child(tree, tc_pr, "vAlign").and_then(|v| VAlign::read(w_attr(tree, v, "val")));
-    if let Some(borders) = w_child(tree, tc_pr, "tcBorders") {
-        for (slot, names) in out.borders.iter_mut().zip(CellBorders::SIDES) {
-            *slot = side(tree, borders, names).map(|s| read_border(tree, s, palette));
+    CellProps {
+        fill: w_child(tree, tc_pr, "shd").map(|shd| palette.shading(tree, shd)),
+        valign: w_child(tree, tc_pr, "vAlign").and_then(|v| VAlign::read(w_attr(tree, v, "val"))),
+        borders: read_edges(tree, w_child(tree, tc_pr, "tcBorders"), palette),
+    }
+}
+
+/// `w:tblBorders` or `w:tcBorders` sides, by `EDGE_SIDES`.
+pub(super) fn read_edges(
+    tree: &XmlTree,
+    borders: Option<NodeId>,
+    palette: &Palette,
+) -> [Option<Edge>; 6] {
+    let mut out = [None; 6];
+    if let Some(borders) = borders {
+        for (slot, names) in out.iter_mut().zip(EDGE_SIDES) {
+            *slot = side(tree, borders, names).map(|s| read_edge(tree, s, palette));
         }
     }
     out
 }
 
+/// What a cell's paragraphs take from its table.
 #[derive(Clone)]
 pub(crate) struct TableCtx {
-    pub(crate) style: Option<String>,
-    pub(crate) first_row: bool,
+    pub(super) style: Rc<TableStyle>,
+    pub(crate) parts: Parts,
 }
 
-impl Builder<'_> {
-    pub(super) fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> Table {
+impl TableCtx {
+    pub(crate) fn new(format: &TableFormat, parts: Parts) -> TableCtx {
+        TableCtx {
+            style: format.style.clone(),
+            parts,
+        }
+    }
+}
+
+/// A table's style, by name and resolved, and its `w:tblLook`.
+pub(crate) struct TableFormat {
+    pub(crate) id: Option<String>,
+    pub(super) style: Rc<TableStyle>,
+    pub(crate) look: TableLook,
+}
+
+/// For each of a cell's edges (top, left, bottom, right), the side of
+/// `EDGE_SIDES` a format covering `region` gives it: the region's own
+/// edge, else its inside one.
+fn sides_in(region: Region, row: usize, column: usize) -> [usize; 4] {
+    [
+        if row == region.top { 0 } else { 4 },
+        if column == region.left { 1 } else { 5 },
+        if row == region.bottom { 2 } else { 4 },
+        if column == region.right { 3 } else { 5 },
+    ]
+}
+
+/// A cell's candidate edges from cascade levels, nearest first: the first
+/// line or `nil` wins, and `none` defers to the next level (MS-OI29500
+/// §2.1.169).
+fn candidates(levels: &[([Option<Edge>; 6], [usize; 4])]) -> [Edge; 4] {
+    std::array::from_fn(|edge| {
+        levels
+            .iter()
+            .find_map(|(sides, map)| sides[map[edge]].filter(|side| *side != Edge::None))
+            .unwrap_or(Edge::None)
+    })
+}
+
+/// A row exception (`w:tblPrEx`): table properties for one row.
+struct Exception {
+    margins: [Option<f64>; 4],
+    borders: [Option<Edge>; 6],
+    fill: Option<Option<Rgb>>,
+}
+
+/// What reading a table's rows shares: the table-wide properties, and the
+/// grid as the rows extend it.
+struct TableReader {
+    format: TableFormat,
+    palette: Palette,
+    margins: [Option<f64>; 4],
+    borders: [Option<Edge>; 6],
+    fill: Option<Option<Rgb>>,
+    bands: Bands,
+    /// Column widths.
+    grid: Vec<f64>,
+    rows: usize,
+    /// The fill and alignment of each grid column's open vertical merge.
+    merges: Vec<Option<(Option<Rgb>, VAlign)>>,
+}
+
+impl TableReader {
+    fn new(builder: &mut Builder<'_>, tree: &XmlTree, tbl: NodeId) -> TableReader {
+        let palette = builder.fmt.theme.palette.clone();
         let tbl_pr = w_child(tree, tbl, "tblPr");
-        let (style, look_first_row) = self.fmt.table(tree, tbl);
-        let (mut table_margins, mut table_borders) = self.fmt.styles.table_look(style.as_deref());
+        let pr = |name: &str| tbl_pr.and_then(|p| w_child(tree, p, name));
+        let format = builder.fmt.table(tree, tbl);
+        let style = format.style.clone();
+        let mut table_margins = style.margins;
         // Word for Mac 16.115: a table on the default table style has 5.4
         // points each side unless that style sets them; one on a style of
         // its own, or in a document with no default table style, has none.
-        let own_style = tbl_pr
-            .and_then(|p| w_child(tree, p, "tblStyle"))
+        let default = builder.fmt.styles.default_table.as_deref();
+        let own_style = pr("tblStyle")
             .and_then(|s| w_attr(tree, s, "val"))
-            .is_some_and(|id| self.fmt.styles.default_table.as_deref() != Some(id));
-        if !own_style && self.fmt.styles.default_table.is_some() {
+            .is_some_and(|id| default != Some(id));
+        if !own_style && default.is_some() {
             for slot in &mut table_margins[2..] {
                 slot.get_or_insert(5.4);
             }
         }
-        let style_cell = self.fmt.styles.cell_props(style.as_deref());
-        let direct = margins(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblCellMar")));
-        for (slot, value) in table_margins.iter_mut().zip(direct) {
-            if value.is_some() {
-                *slot = value;
-            }
+        set(&mut table_margins, margins(tree, pr("tblCellMar")));
+        let mut borders = style.borders;
+        set(&mut borders, read_edges(tree, pr("tblBorders"), &palette));
+        TableReader {
+            margins: table_margins,
+            borders,
+            fill: pr("shd")
+                .map(|shd| palette.shading(tree, shd))
+                .or(style.fill),
+            bands: (
+                band_size(tree, tbl_pr, "tblStyleRowBandSize").unwrap_or(style.bands.0),
+                band_size(tree, tbl_pr, "tblStyleColBandSize").unwrap_or(style.bands.1),
+            ),
+            grid: w_child(tree, tbl, "tblGrid")
+                .map(|g| {
+                    w_children(tree, g, "gridCol")
+                        .map(|c| twips(tree, c, "w").unwrap_or(0.0))
+                        .take(MAX_GRID_COLUMNS)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            rows: w_children(tree, tbl, "tr").count(),
+            merges: vec![None; MAX_GRID_COLUMNS],
+            format,
+            palette,
         }
-        let direct = borders(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblBorders")));
-        for (slot, value) in table_borders.iter_mut().zip(direct) {
-            if value.is_some() {
-                *slot = value;
-            }
-        }
-        let [table_top, table_bottom, inside] = table_borders.map(|b| b.unwrap_or(0.0));
-        let row_count = w_children(tree, tbl, "tr").count();
-        // Explicit bottom borders of the previous row's cells.
-        let mut above_next = 0.0f64;
-        let grid: Vec<f64> = w_child(tree, tbl, "tblGrid")
-            .map(|g| {
-                w_children(tree, g, "gridCol")
-                    .map(|c| twips(tree, c, "w").unwrap_or(0.0))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut rows = Vec::new();
-        for (row_index, tr) in w_children(tree, tbl, "tr").enumerate() {
-            let tr_pr = w_child(tree, tr, "trPr");
-            let height = tr_pr
-                .and_then(|p| w_child(tree, p, "trHeight"))
-                .and_then(|h| {
-                    twips(tree, h, "val").map(|v| (v, w_attr(tree, h, "hRule") == Some("exact")))
-                });
-            let flag = |name: &str| {
-                tr_pr
-                    .and_then(|p| w_child(tree, p, name))
-                    .is_some_and(|n| on_off(tree, n))
+    }
+
+    fn row(
+        &mut self,
+        builder: &mut Builder<'_>,
+        tree: &XmlTree,
+        tr: NodeId,
+        index: usize,
+    ) -> (Row, Vec<GridCell>) {
+        let tr_pr = w_child(tree, tr, "trPr");
+        let prop = |name: &str| tr_pr.and_then(|p| w_child(tree, p, name));
+        let exception = w_child(tree, tr, "tblPrEx");
+        let ex = |name: &str| exception.and_then(|e| w_child(tree, e, name));
+        let mut exception = Exception {
+            margins: self.margins,
+            borders: read_edges(tree, ex("tblBorders"), &self.palette),
+            fill: ex("shd").map(|shd| self.palette.shading(tree, shd)),
+        };
+        set(&mut exception.margins, margins(tree, ex("tblCellMar")));
+        let tcs: Vec<NodeId> = w_children(tree, tr, "tc").collect();
+        let mut column = prop("gridBefore")
+            .and_then(|g| w_attr(tree, g, "val"))
+            .and_then(|v| v.parse::<usize>().ok())
+            .map_or(0, |before| before.min(MAX_GRID_COLUMNS - 1));
+        let mut cells = Vec::with_capacity(tcs.len());
+        let mut grid_row = Vec::with_capacity(tcs.len());
+        for (cell_index, &tc) in tcs.iter().enumerate() {
+            let at = Position {
+                row: index,
+                rows: self.rows,
+                column: cell_index,
+                columns: tcs.len(),
             };
-            let ctx = TableCtx {
-                style: style.clone(),
-                first_row: row_index == 0 && look_first_row,
-            };
-            let mut cells = Vec::new();
-            let mut column = 0;
-            let last = row_index + 1 == row_count;
-            let mut border_top = above_next;
-            let mut border_bottom = 0.0f64;
-            above_next = 0.0;
-            for tc in w_children(tree, tr, "tc") {
-                let tc_pr = w_child(tree, tc, "tcPr");
-                let [top, bottom, _] =
-                    borders(tree, tc_pr.and_then(|p| w_child(tree, p, "tcBorders")));
-                border_top =
-                    border_top.max(top.unwrap_or(if row_index == 0 { table_top } else { inside }));
-                if last {
-                    border_bottom = border_bottom.max(bottom.unwrap_or(table_bottom));
-                } else if let Some(bottom) = bottom {
-                    above_next = above_next.max(bottom);
-                }
-                let span = tc_pr
-                    .and_then(|p| w_child(tree, p, "gridSpan"))
-                    .and_then(|s| w_attr(tree, s, "val"))
-                    .and_then(|v| v.parse::<usize>().ok())
-                    .map_or(1, |span| span.clamp(1, MAX_GRID_COLUMNS));
-                let width: f64 = if grid.len() >= column + span {
-                    grid[column..column + span].iter().sum()
-                } else {
-                    tc_pr
-                        .and_then(|p| w_child(tree, p, "tcW"))
-                        .and_then(|w| twips(tree, w, "w"))
-                        .unwrap_or(72.0)
-                };
-                column += span;
-                let mut cell_margins = table_margins;
-                let own = margins(tree, tc_pr.and_then(|p| w_child(tree, p, "tcMar")));
-                for (slot, value) in cell_margins.iter_mut().zip(own) {
-                    if value.is_some() {
-                        *slot = value;
-                    }
-                }
-                let vmerge = match tc_pr.and_then(|p| w_child(tree, p, "vMerge")) {
-                    None => 0,
-                    Some(v) if w_attr(tree, v, "val") == Some("restart") => 1,
-                    Some(_) => 2,
-                };
-                let (fill, valign, cell_borders) =
-                    read_cell_props(tree, tc_pr, &self.fmt.theme.palette).over(&style_cell);
-                let mut blocks = Vec::new();
-                self.blocks(tree, tc, Some(&ctx), &mut blocks);
-                cells.push(Cell {
-                    width,
-                    margins: cell_margins.map(|margin| margin.unwrap_or(0.0)),
-                    blocks,
-                    vmerge,
-                    fill,
-                    valign,
-                    borders: cell_borders,
-                });
-            }
-            rows.push(Row {
-                cells,
-                height,
-                border_top,
-                border_bottom,
-                cant_split: flag("cantSplit"),
-                header: flag("tblHeader"),
-                node: Some(tr),
-            });
+            let (cell, grid_cell) = self.cell(builder, tree, tc, at, column, &exception);
+            column += grid_cell.span;
+            cells.push(cell);
+            grid_row.push(grid_cell);
         }
-        let indent = tbl_pr
-            .and_then(|p| w_child(tree, p, "tblInd"))
-            .and_then(|i| twips(tree, i, "w"))
+        let flag = |name: &str| prop(name).is_some_and(|n| super::on_off(tree, n));
+        let row = Row {
+            cells,
+            height: prop("trHeight").and_then(|h| {
+                twips(tree, h, "val").map(|v| (v, w_attr(tree, h, "hRule") == Some("exact")))
+            }),
+            border_top: 0.0,
+            border_bottom: 0.0,
+            cant_split: flag("cantSplit"),
+            header: flag("tblHeader"),
+            node: Some(tr),
+        };
+        (row, grid_row)
+    }
+
+    fn cell(
+        &mut self,
+        builder: &mut Builder<'_>,
+        tree: &XmlTree,
+        tc: NodeId,
+        at: Position,
+        column: usize,
+        exception: &Exception,
+    ) -> (Cell, GridCell) {
+        let tc_pr = w_child(tree, tc, "tcPr");
+        let prop = |name: &str| tc_pr.and_then(|p| w_child(tree, p, name));
+        let span = prop("gridSpan")
+            .and_then(|s| w_attr(tree, s, "val"))
+            .and_then(|v| v.parse::<usize>().ok())
+            .map_or(1, |span| span.clamp(1, MAX_GRID_COLUMNS));
+        let width = self.width(column, span, prop("tcW"), tree);
+        let vmerge = match prop("vMerge") {
+            None => 0,
+            Some(v) if w_attr(tree, v, "val") == Some("restart") => 1,
+            Some(_) => 2,
+        };
+        let regions = self.format.look.parts(at, self.bands);
+        let own = read_cell_props(tree, tc_pr, &self.palette);
+        let (fill, valign) = self.look(&regions, &own, exception, column, vmerge);
+        let grid_cell = GridCell {
+            column,
+            span,
+            merged_up: vmerge == 2,
+            edges: self.edges(&regions, &own, exception, at),
+        };
+        let mut cell_margins = exception.margins;
+        set(&mut cell_margins, margins(tree, prop("tcMar")));
+        let ctx = TableCtx::new(&self.format, parts_of(&regions));
+        let mut blocks = Vec::new();
+        builder.blocks(tree, tc, Some(&ctx), &mut blocks);
+        let cell = Cell {
+            width,
+            margins: cell_margins.map(|margin| margin.unwrap_or(0.0)),
+            blocks,
+            vmerge,
+            column,
+            fill,
+            valign,
+        };
+        (cell, grid_cell)
+    }
+
+    /// A cell's width from the grid, else its own; the grid grows to hold it.
+    fn width(&mut self, column: usize, span: usize, tc_w: Option<NodeId>, tree: &XmlTree) -> f64 {
+        let width = if self.grid.len() >= column + span {
+            self.grid[column..column + span].iter().sum()
+        } else {
+            tc_w.and_then(|w| twips(tree, w, "w")).unwrap_or(72.0)
+        };
+        while self.grid.len() < (column + span).min(MAX_GRID_COLUMNS) {
+            self.grid.push(width / span as f64);
+        }
+        width
+    }
+
+    /// A cell's fill and vertical alignment: its own, else its formats'
+    /// (the last to apply first), the style's, the row's and the table's;
+    /// a merge's continuation keeps its first cell's.
+    fn look(
+        &mut self,
+        regions: &[(Part, Region)],
+        own: &CellProps,
+        exception: &Exception,
+        column: usize,
+        vmerge: u8,
+    ) -> (Option<Rgb>, VAlign) {
+        let style = &self.format.style;
+        let mut props = CellProps {
+            fill: exception.fill.or(self.fill),
+            ..CellProps::default()
+        };
+        props.merge(&style.cell);
+        for look in regions.iter().filter_map(|(part, _)| style.part(*part)) {
+            props.merge(&look.cell);
+        }
+        props.merge(own);
+        let look = (props.fill.flatten(), props.valign.unwrap_or_default());
+        let open = &mut self.merges[column.min(MAX_GRID_COLUMNS - 1)];
+        match vmerge {
+            1 => *open = Some(look),
+            2 => return open.unwrap_or(look),
+            _ => *open = None,
+        }
+        look
+    }
+
+    /// A cell's candidate edges: its own, its formats' (the last to apply
+    /// first), the row's and the table's.
+    fn edges(
+        &self,
+        regions: &[(Part, Region)],
+        own: &CellProps,
+        exception: &Exception,
+        at: Position,
+    ) -> [Edge; 4] {
+        let style = &self.format.style;
+        let whole = Region {
+            top: 0,
+            bottom: at.rows - 1,
+            left: 0,
+            right: at.columns - 1,
+        };
+        let table_sides = sides_in(whole, at.row, at.column);
+        let mut levels = vec![(own.borders, [0, 1, 2, 3])];
+        levels.extend(regions.iter().rev().filter_map(|(part, region)| {
+            let look = style.part(*part)?;
+            Some((look.cell.borders, sides_in(*region, at.row, at.column)))
+        }));
+        levels.push((exception.borders, table_sides));
+        levels.push((self.borders, table_sides));
+        candidates(&levels)
+    }
+}
+
+impl Builder<'_> {
+    pub(super) fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> Table {
+        let mut reader = TableReader::new(self, tree, tbl);
+        let (mut rows, grid_rows): (Vec<Row>, Vec<Vec<GridCell>>) = w_children(tree, tbl, "tr")
+            .enumerate()
+            .map(|(index, tr)| reader.row(self, tree, tr, index))
+            .unzip();
+        let grid = reader.grid;
+        let edges = Edges::resolve(&grid_rows, grid.len());
+        border_heights(&mut rows, &edges, grid.len());
+        let tbl_pr = w_child(tree, tbl, "tblPr");
+        let pr = |name: &str| tbl_pr.and_then(|p| w_child(tree, p, name));
+        let align = match pr("jc").and_then(|jc| w_attr(tree, jc, "val")) {
+            Some("center") => TableAlign::Center,
+            Some("right" | "end") => TableAlign::Right,
+            _ => TableAlign::Left,
+        };
+        let mut indent = pr("tblInd")
+            .filter(|ind| w_attr(tree, *ind, "type").is_none_or(|t| t == "dxa"))
+            .and_then(|ind| twips(tree, ind, "w"))
             .unwrap_or(0.0);
-        let outdent = rows
-            .first()
-            .and_then(|row| row.cells.first())
-            .filter(|_| self.outdent_tables && self.depth == 1)
-            .map_or(0.0, |cell| cell.margins[2]);
+        if self.outdent_tables && self.depth == 1 && align == TableAlign::Left {
+            indent -= rows
+                .first()
+                .and_then(|row| row.cells.first())
+                .map_or(0.0, |cell| cell.margins[2]);
+        }
+        let mut x = 0.0;
+        let lines = std::iter::once(0.0)
+            .chain(grid.iter().map(|width| {
+                x += width;
+                x
+            }))
+            .collect();
         Table {
             story: self.story,
             rows,
-            left: indent - outdent,
+            grid: lines,
+            indent,
+            align,
+            edges,
         }
     }
 }
 
-/// Border widths in points from `w:tblBorders` or `w:tcBorders`: top,
-/// bottom and inside horizontal (`none` and `nil` are 0).
-pub(super) fn borders(tree: &XmlTree, node: Option<NodeId>) -> [Option<f64>; 3] {
-    let mut out = [None; 3];
-    if let Some(node) = node {
-        for (slot, name) in out.iter_mut().zip(["top", "bottom", "insideH"]) {
-            *slot = w_child(tree, node, name).map(|side| match w_attr(tree, side, "val") {
-                Some("none" | "nil") | None => 0.0,
-                Some(_) => w_attr(tree, side, "sz")
-                    .and_then(number)
-                    .map_or(0.25, |eighths| length(eighths / 8.0)),
-            });
+/// Word adds the widest border above each row, and below the last, to its
+/// height.
+fn border_heights(rows: &mut [Row], edges: &Edges, columns: usize) {
+    let widest = |line: usize| {
+        (0..columns)
+            .filter_map(|column| edges.horizontal(line, column))
+            .map(|border| border.width)
+            .fold(0.0, f64::max)
+    };
+    let count = rows.len();
+    for (index, row) in rows.iter_mut().enumerate() {
+        row.border_top = widest(index);
+        if index + 1 == count {
+            row.border_bottom = widest(count);
         }
     }
-    out
 }
 
 pub(super) fn margins(tree: &XmlTree, mar: Option<NodeId>) -> [Option<f64>; 4] {

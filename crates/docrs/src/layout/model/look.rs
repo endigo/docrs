@@ -228,8 +228,9 @@ pub enum Link {
     Anchor(String),
 }
 
-/// A paragraph or cell border line.
+/// A paragraph or cell border line. Experimental.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Border {
     pub style: BorderStyle,
     /// Points.
@@ -256,8 +257,9 @@ impl Border {
     }
 }
 
-/// `ST_Border` line styles; the picture borders are `Art`.
+/// `ST_Border` line styles; the picture borders are `Art`. Experimental.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BorderStyle {
     Single,
     Thick,
@@ -337,6 +339,36 @@ impl BorderStyle {
     ];
 }
 
+impl BorderStyle {
+    /// The `ST_Border` value; `art` for the picture borders.
+    pub fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, style)| *style == self)
+            .map_or("art", |(name, _)| name)
+    }
+
+    /// Its rank among equal-weight borders: lower wins.
+    pub(super) fn precedence(self) -> usize {
+        Self::NAMES
+            .iter()
+            .position(|(_, style)| *style == self)
+            .unwrap_or(Self::NAMES.len())
+    }
+
+    /// The factor of its width in a border's weight; dotted and dashed
+    /// borders weigh 1 whatever their width (MS-OI29500 §2.1.169).
+    pub(super) fn number(self) -> Option<u32> {
+        Some(match self {
+            BorderStyle::Dotted | BorderStyle::Dashed => return None,
+            BorderStyle::Single | BorderStyle::Art => 1,
+            BorderStyle::Thick => 2,
+            BorderStyle::Double => 3,
+            other => other.precedence() as u32 + 3,
+        })
+    }
+}
+
 /// Paragraph borders (`w:pBdr`).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ParaBorders {
@@ -371,54 +403,24 @@ impl ParaBorders {
     }
 }
 
-/// Where a cell's border was read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BorderSource {
-    /// The cell's own `w:tcBorders`.
-    Direct,
-    /// The table style's.
-    Style,
+/// A cell edge as one level of the table cascade sets it: `None` yields
+/// to the adjacent cell's edge, `Nil` hides both (MS-OI29500 §2.1.169).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Edge {
+    Line(Border),
+    None,
+    Nil,
 }
 
-/// A cell border side as read: `None` is `nil` or `none`, which clears the
-/// side, unlike a side nobody set.
-pub type CellBorder = (Option<Border>, BorderSource);
-
-/// Cell borders (`w:tcBorders`) as read, before table and adjacent-cell
-/// borders are weighed against them. `None` sides are not set.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct CellBorders {
-    pub top: Option<CellBorder>,
-    pub left: Option<CellBorder>,
-    pub bottom: Option<CellBorder>,
-    pub right: Option<CellBorder>,
-    pub inside_h: Option<CellBorder>,
-    pub inside_v: Option<CellBorder>,
-}
-
-impl CellBorders {
-    pub(super) const SIDES: [[&str; 2]; 6] = [
-        ["top", "top"],
-        ["left", "start"],
-        ["bottom", "bottom"],
-        ["right", "end"],
-        ["insideH", "insideH"],
-        ["insideV", "insideV"],
-    ];
-
-    pub(super) fn from_sides(
-        [top, left, bottom, right, inside_h, inside_v]: [Option<CellBorder>; 6],
-    ) -> Self {
-        CellBorders {
-            top,
-            left,
-            bottom,
-            right,
-            inside_h,
-            inside_v,
-        }
-    }
-}
+/// The sides of `w:tblBorders` and `w:tcBorders`, by `Side`.
+pub(super) const EDGE_SIDES: [[&str; 2]; 6] = [
+    ["top", "top"],
+    ["left", "start"],
+    ["bottom", "bottom"],
+    ["right", "end"],
+    ["insideH", "insideH"],
+    ["insideV", "insideV"],
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VAlign {
@@ -429,6 +431,15 @@ pub enum VAlign {
 }
 
 impl VAlign {
+    /// The share of a cell's spare height above its content.
+    pub(crate) fn share(self) -> f64 {
+        match self {
+            VAlign::Top => 0.0,
+            VAlign::Center => 0.5,
+            VAlign::Bottom => 1.0,
+        }
+    }
+
     pub(super) fn read(value: Option<&str>) -> Option<VAlign> {
         match value? {
             "top" => Some(VAlign::Top),
@@ -453,6 +464,15 @@ pub(super) fn read_underline(tree: &XmlTree, u: NodeId, palette: &Palette) -> Op
         .colour(tree, u, ["color", "themeColor", "themeTint", "themeShade"])
         .unwrap_or_default();
     Some(Underline { style, colour })
+}
+
+/// One side of a cell or table border element.
+pub(super) fn read_edge(tree: &XmlTree, side: NodeId, palette: &Palette) -> Edge {
+    match read_border(tree, side, palette) {
+        Some(border) => Edge::Line(border),
+        None if w_attr(tree, side, "val") == Some("nil") => Edge::Nil,
+        None => Edge::None,
+    }
 }
 
 /// One side of a border element: `None` is `none` or `nil`.
