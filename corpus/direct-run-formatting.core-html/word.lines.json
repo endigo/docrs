@@ -1,0 +1,40 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 1, "text": "Table of Contents", "x": 72, "top": 96.57, "width": 135.21, "height": 17.96, "baseline": 111.12},
+      {"page": 1, "text": "Advice ................................................................................................................................... 2", "x": 83, "top": 116.25, "width": 440.32, "height": 12.33, "baseline": 126.24},
+      {"page": 1, "text": "After ...................................................................................................................................... 2", "x": 83, "top": 134.73, "width": 440.32, "height": 12.33, "baseline": 144.72}
+    ]},
+    {"page": 2, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 2, "text": "Plain bold italic underlined struck", "x": 72, "top": 89.84, "width": 162.64, "height": 15.48, "baseline": 102},
+      {"page": 2, "text": "Advice", "x": 274.69, "top": 72.6, "width": 45.86, "height": 15.55, "baseline": 85.2},
+      {"page": 2, "text": "code sub sup a bold link red mono large shaded", "x": 237.67, "top": 89.84, "width": 226.34, "height": 15.48, "baseline": 102, "baselines": [97.44, 102, 102.96]},
+      {"page": 2, "text": "yellow", "x": 467.04, "top": 89.84, "width": 30.59, "height": 15.48, "baseline": 102},
+      {"page": 2, "text": "pale.", "x": 72, "top": 106.89, "width": 23.87, "height": 12.33, "baseline": 116.88},
+      {"page": 2, "text": "Right", "x": 497.62, "top": 128.49, "width": 25.71, "height": 12.33, "baseline": 138.48},
+      {"page": 2, "text": "Justified", "x": 72, "top": 150.09, "width": 40.38, "height": 12.33, "baseline": 160.08},
+      {"page": 2, "text": "• one", "x": 90, "top": 193.14, "width": 36.37, "height": 13.52, "baseline": 204.24},
+      {"page": 2, "text": "o nested", "x": 126, "top": 215.85, "width": 51.05, "height": 13.3, "baseline": 225.84},
+      {"page": 2, "text": "• two", "x": 90, "top": 237.06, "width": 35.14, "height": 13.52, "baseline": 248.16},
+      {"page": 2, "text": "3. third", "x": 90, "top": 260.01, "width": 39.42, "height": 12.33, "baseline": 270},
+      {"page": 2, "text": "4. fourth", "x": 90, "top": 281.61, "width": 46.14, "height": 12.33, "baseline": 291.6},
+      {"page": 2, "text": "• ☒ done", "x": 90, "top": 302.82, "width": 56.55, "height": 13.52, "baseline": 313.92},
+      {"page": 2, "text": "• ☐ open", "x": 90, "top": 326.34, "width": 56.55, "height": 13.52, "baseline": 337.44},
+      {"page": 2, "text": "quoted", "x": 96, "top": 350.01, "width": 33.67, "height": 12.33, "baseline": 360},
+      {"page": 2, "text": "fn main() {}", "x": 72, "top": 370.03, "width": 66.02, "height": 10.08, "baseline": 377.52},
+      {"page": 2, "text": "// two", "x": 72, "top": 381.79, "width": 33.03, "height": 10.08, "baseline": 389.28},
+      {"page": 2, "text": "Product Both", "x": 77.28, "top": 411.93, "width": 233.39, "height": 12.33, "baseline": 421.92},
+      {"page": 2, "text": "Two rows $1 x", "x": 77.28, "top": 425.61, "width": 335.28, "height": 12.33, "baseline": 435.6},
+      {"page": 2, "text": "y z", "x": 285.6, "top": 438.81, "width": 126.96, "height": 12.33, "baseline": 448.8},
+      {"page": 2, "text": "[Logo]", "x": 72, "top": 460.41, "width": 30.58, "height": 12.33, "baseline": 470.4},
+      {"page": 2, "text": "[Seal]", "x": 283.59, "top": 482.25, "width": 28.14, "height": 12.33, "baseline": 492.24},
+      {"page": 2, "text": "a line", "x": 72, "top": 503.85, "width": 26.31, "height": 12.33, "baseline": 513.84},
+      {"page": 2, "text": "break", "x": 72, "top": 517.53, "width": 27.54, "height": 12.33, "baseline": 527.52},
+      {"page": 2, "text": "Asset Description Value", "x": 77.28, "top": 540.09, "width": 366.57, "height": 12.33, "baseline": 550.08},
+      {"page": 2, "text": "Home Family home, owned jointly $1,200,000", "x": 77.28, "top": 553.77, "width": 392.28, "height": 12.33, "baseline": 563.76},
+      {"page": 2, "text": "After", "x": 72, "top": 577.8, "width": 32.65, "height": 15.55, "baseline": 590.4}
+    ]}
+  ]
+}

@@ -1,0 +1,581 @@
+{
+ "docrs": {
+  "commit": "933266ec056b824bbecff9008cd39627870e7c8e",
+  "dirty": true
+ },
+ "word": {
+  "version": "16.115.2",
+  "build": "16.115.26112215"
+ },
+ "macos": {
+  "version": "27.2.1",
+  "build": "26B131"
+ },
+ "families": [
+  "Aptos",
+  "Arial",
+  "Calibri",
+  "Cambria",
+  "Cambria Math",
+  "Consolas",
+  "Courier",
+  "Courier New",
+  "Garamond",
+  "Georgia",
+  "Helvetica",
+  "Inter",
+  "MS Gothic",
+  "Symbol",
+  "Times New Roman",
+  "Wingdings",
+  "ＭＳ ゴシック",
+  "ＭＳ 明朝"
+ ],
+ "fonts": [
+  {
+   "path": "/System/Library/Fonts/Courier.ttc",
+   "faces": [
+    "Courier Regular",
+    "Courier Bold",
+    "Courier Oblique",
+    "Courier Bold Oblique"
+   ],
+   "bytes": 1135004,
+   "sha256": "76cdad2ba4e8774223ed6184f530570261f9f7fb9beb5c68368e09234c0273ec"
+  },
+  {
+   "path": "/System/Library/Fonts/Helvetica.ttc",
+   "faces": [
+    "Helvetica Regular",
+    "Helvetica Bold",
+    "Helvetica Oblique",
+    "Helvetica Bold Oblique",
+    "Helvetica Light",
+    "Helvetica Light Oblique"
+   ],
+   "bytes": 2338064,
+   "sha256": "658718d77497145281cb0ec45ff2fe7c6e18062b2a38f837d0d792d9be3a9ba3"
+  },
+  {
+   "path": "/System/Library/Fonts/Symbol.ttf",
+   "faces": [
+    "Symbol Regular"
+   ],
+   "bytes": 78196,
+   "sha256": "447a0a83656747b74fe0193f9e34643e68feedb8566a6a1ca79afc2b8ab81673"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf",
+   "faces": [
+    "Arial Bold Italic"
+   ],
+   "bytes": 558672,
+   "sha256": "374b0190a9844343110d8f8ed1818117a4591803d022bbb2bd189d63a681e731"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+   "faces": [
+    "Arial Bold"
+   ],
+   "bytes": 750984,
+   "sha256": "d72db21f9242aedd6b917d8549ad5921766b24d5f8d0becfda2ff4c620b3c2e0"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Arial Italic.ttf",
+   "faces": [
+    "Arial Italic"
+   ],
+   "bytes": 553284,
+   "sha256": "ce1d2f1ab89db45f9796100eee960f5702a40e84c225c2b48c3ec3e81d153f98"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Arial.ttf",
+   "faces": [
+    "Arial Regular"
+   ],
+   "bytes": 773236,
+   "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf",
+   "faces": [
+    "Courier New Bold Italic"
+   ],
+   "bytes": 506640,
+   "sha256": "60e4c514200985d3f8405af039ffb89cd24b45fef5005b019825a4937b96135d"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",
+   "faces": [
+    "Courier New Bold"
+   ],
+   "bytes": 691796,
+   "sha256": "500df4e46b554ae7d646e8727952fd8c7e60e94423481f6b82325cfddba2ee6a"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Courier New Italic.ttf",
+   "faces": [
+    "Courier New Italic"
+   ],
+   "bytes": 589900,
+   "sha256": "b5c6d453f16fb1693652671fa2e11d8c8ad1cd0046c3f38ae2608d165838ecf1"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Courier New.ttf",
+   "faces": [
+    "Courier New Regular"
+   ],
+   "bytes": 684624,
+   "sha256": "c886ca3172d8ce9189976992d145ec090500a4ff516ecb9d4df56b1a78336247"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Georgia Bold Italic.ttf",
+   "faces": [
+    "Georgia Bold Italic"
+   ],
+   "bytes": 385768,
+   "sha256": "a2036878f47d0da1765869a8747cfb0079b6125776675bad352468b59ca4493d"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Georgia Bold.ttf",
+   "faces": [
+    "Georgia Bold"
+   ],
+   "bytes": 363800,
+   "sha256": "1cfa9abd55be746c798c22ef4eba88fce82257934897404be2dae53ed0a4142a"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Georgia Italic.ttf",
+   "faces": [
+    "Georgia Italic"
+   ],
+   "bytes": 400624,
+   "sha256": "7758840cacb7382db65aa038e9fd1194d077ba9b55fe748f9cfb196d2773ac4e"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Georgia.ttf",
+   "faces": [
+    "Georgia Regular"
+   ],
+   "bytes": 379588,
+   "sha256": "4f54eb299fccea7f103edeb0d92437359bfd4441811d53222b82b335369f6218"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Times New Roman Bold Italic.ttf",
+   "faces": [
+    "Times New Roman Bold Italic"
+   ],
+   "bytes": 620008,
+   "sha256": "906157e8294fdf168d83002eaabde01c2d30fc3f44977be89e33fa22f262002a"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf",
+   "faces": [
+    "Times New Roman Bold"
+   ],
+   "bytes": 832472,
+   "sha256": "50f5b1f27b7d34621090e437e8b1dd4510a22d2823fc876b3286bed327b64bbb"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf",
+   "faces": [
+    "Times New Roman Italic"
+   ],
+   "bytes": 660268,
+   "sha256": "7bb99c3a67697fbce15ab66d806d9a2151432ce1dab2eaba4156e1251da486c0"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+   "faces": [
+    "Times New Roman Regular"
+   ],
+   "bytes": 824920,
+   "sha256": "f3b4ffff71c2a0c7227d37497683b2498fb2d0a4e8beae26f022e3ccfcaabfa3"
+  },
+  {
+   "path": "/System/Library/Fonts/Supplemental/Wingdings.ttf",
+   "faces": [
+    "Wingdings Regular"
+   ],
+   "bytes": 86384,
+   "sha256": "709d5848799239f0c51c0544c471c8d02bcbf9f2bcdc49702ebca1691a4c760e"
+  },
+  {
+   "path": "~/Library/Fonts/Inter[opsz,wght].ttf",
+   "faces": [
+    "Inter Regular"
+   ],
+   "bytes": 876576,
+   "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Black-Italic.ttf",
+   "faces": [
+    "Aptos Black Italic"
+   ],
+   "bytes": 229792,
+   "sha256": "9b7323028937f6a5ea445621865dbbb485a2c035db2792524ee3ce9ff8ad2159"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Black.ttf",
+   "faces": [
+    "Aptos Black"
+   ],
+   "bytes": 221440,
+   "sha256": "407c5d894a8df502bfd7fe2a47dd048fe959f8068f2b98d2283116aaa81f6cb8"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Bold-Italic.ttf",
+   "faces": [
+    "Aptos Bold Italic"
+   ],
+   "bytes": 228648,
+   "sha256": "7d7ba35b867c5873274466c743a9812c7bca1a0828f137f7697ae311664f41b9"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Bold.ttf",
+   "faces": [
+    "Aptos Bold"
+   ],
+   "bytes": 221372,
+   "sha256": "cf4b35ac6d81e0eb42ffa44c3829b710c058de6fa3cf2c7cdad0407e22538877"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-ExtraBold-Italic.ttf",
+   "faces": [
+    "Aptos ExtraBold Italic"
+   ],
+   "bytes": 229204,
+   "sha256": "6a36ac8b21cfa7d9f9ea34bb9518afb91ebaf56d5d513c1576261afdad1b9637"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-ExtraBold.ttf",
+   "faces": [
+    "Aptos ExtraBold"
+   ],
+   "bytes": 221868,
+   "sha256": "1464246ed7f8f468f6580d6194413fb72ae3fbcbcdb7854a077c0c2abd47f4db"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Italic.ttf",
+   "faces": [
+    "Aptos Italic"
+   ],
+   "bytes": 227828,
+   "sha256": "888909eceb9acd84157078cc097c11f8a94a34ff3bd3fe08194ce7866f5998d1"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Light-Italic.ttf",
+   "faces": [
+    "Aptos Light Italic"
+   ],
+   "bytes": 226656,
+   "sha256": "4f68db848125ba35b9f489c47070972c9360a01212c5afbb8c56b11117668f4f"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-Light.ttf",
+   "faces": [
+    "Aptos Light"
+   ],
+   "bytes": 219448,
+   "sha256": "c8acea7ac6e48869022b204ebea274b8d031565cfc3ecef236b1301f8b6e2bd8"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-SemiBold-Italic.ttf",
+   "faces": [
+    "Aptos SemiBold Italic"
+   ],
+   "bytes": 227964,
+   "sha256": "12b714138eb3db111cad1675bba8be82a0a1a87eb7f13599598bc6a1804f0f11"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos-SemiBold.ttf",
+   "faces": [
+    "Aptos SemiBold"
+   ],
+   "bytes": 220984,
+   "sha256": "5aca9b5319c39f0ed30caf449087563391e05c6b84e196dd08a33b131ae444b5"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Aptos.ttf",
+   "faces": [
+    "Aptos Regular"
+   ],
+   "bytes": 220792,
+   "sha256": "95980114fcfd42f2f9c446dae429b70582bf2f03097d68433ea9e7d85a49da0b"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Calibri.ttf",
+   "faces": [
+    "Calibri Regular"
+   ],
+   "bytes": 1324384,
+   "sha256": "ea801e1f869b55464339058b1d4263d07cc074a18e20aa3ee1d07901423dee53"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Calibrib.ttf",
+   "faces": [
+    "Calibri Bold"
+   ],
+   "bytes": 1290132,
+   "sha256": "ac1cf97565de97cdc322228d875dc18c1131656c5138173e2c6d8ac7a37aa7f2"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Calibrii.ttf",
+   "faces": [
+    "Calibri Italic"
+   ],
+   "bytes": 1089300,
+   "sha256": "38e28b619448710314a298dd66305a3b8f494a854f19d40aa18b9872e61911fe"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Calibriz.ttf",
+   "faces": [
+    "Calibri Bold Italic"
+   ],
+   "bytes": 1049272,
+   "sha256": "77117338878fefc82770d27303bcca90e900f2ef59a0a87d294b7744ec158b5b"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Cambria.ttc",
+   "faces": [
+    "Cambria Regular",
+    "Cambria Math Regular"
+   ],
+   "bytes": 1328244,
+   "sha256": "ca2a527ab14967b1c7170a97329ed29f38af51b71c8c2073d89d1c055de22de1"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Cambriab.ttf",
+   "faces": [
+    "Cambria Bold"
+   ],
+   "bytes": 644284,
+   "sha256": "5f686e13ff1b0f4616d6f3e24bd4b916df671cfb44397f7ddfba3ee03eeee10a"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Cambriai.ttf",
+   "faces": [
+    "Cambria Italic"
+   ],
+   "bytes": 692332,
+   "sha256": "926b632b6ad114075c083539e3db300accdfac3afe2eabbec3e7e4792f3526ec"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Cambriaz.ttf",
+   "faces": [
+    "Cambria Bold Italic"
+   ],
+   "bytes": 682840,
+   "sha256": "dd7fc00fe4c8bd7755788d30632c16c81769f37459b0c9c2813c9c3ff3447c8a"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Consola.ttf",
+   "faces": [
+    "Consolas Regular"
+   ],
+   "bytes": 247080,
+   "sha256": "b1dc8633f1cca6a74b84a26e04d61dad05cb8151ee094964fdd30d4852386a6b"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Consolab.ttf",
+   "faces": [
+    "Consolas Bold"
+   ],
+   "bytes": 248428,
+   "sha256": "ee7e1ee08ad5cc2e292f77aebb7fdd8b11ddb58d3968707e850d94168554d67e"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Consolai.ttf",
+   "faces": [
+    "Consolas Italic"
+   ],
+   "bytes": 252772,
+   "sha256": "ad1158c5608b2f0f03a7e78e0181626ddebb6c49bd2385141027e2e827ca8f6a"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Consolaz.ttf",
+   "faces": [
+    "Consolas Bold Italic"
+   ],
+   "bytes": 256920,
+   "sha256": "fddcbcd483d3f60781b68fa74f763e20c0858570e81090ac8af62b460aa8f838"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/GARA.ttf",
+   "faces": [
+    "Garamond Regular"
+   ],
+   "bytes": 217296,
+   "sha256": "c66e667b08b85b2058ccc75ccc6549157b96e2589fb5e534e80c1dd3a19496dc"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/GARABD.ttf",
+   "faces": [
+    "Garamond Bold"
+   ],
+   "bytes": 217288,
+   "sha256": "1e568efed9d0c68f0ecd349ea9770d2df339eadbc1a625e188a3b4411d9c033c"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/GARABDIT.ttf",
+   "faces": [
+    "Garamond Bold Italic"
+   ],
+   "bytes": 184916,
+   "sha256": "272dce3ca72f1ca16fdb21b7faef7ffdd8878911e8709ec94d7d6eac1bdcdf76"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/GARAIT.ttf",
+   "faces": [
+    "Garamond Italic"
+   ],
+   "bytes": 207364,
+   "sha256": "0e5a5b226790f997d79b354fd0a44832752b6ec265c7b148a318b2d12b582e73"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/Wingdings.ttf",
+   "faces": [
+    "Wingdings Regular"
+   ],
+   "bytes": 83496,
+   "sha256": "472858c86b3af58a8d46d96ac423f861717c8164a8104432eb92278bbf921a73"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/arial.ttf",
+   "faces": [
+    "Arial Regular"
+   ],
+   "bytes": 369780,
+   "sha256": "15663c7e8495594c6136eb51b11983eb8f5bbcdd07bb2c327e0d1e83415b0f06"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/arialbd.ttf",
+   "faces": [
+    "Arial Bold"
+   ],
+   "bytes": 368096,
+   "sha256": "b018b20bd6392de9ad3c5f0a1dcd23ad1fdf94227652fd92541521c32d8e5fc1"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/arialbi.ttf",
+   "faces": [
+    "Arial Bold Italic"
+   ],
+   "bytes": 279164,
+   "sha256": "399f00fe9cca7136639df72e976914c3713cbb321374e52def9ab5a10815904e"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/ariali.ttf",
+   "faces": [
+    "Arial Italic"
+   ],
+   "bytes": 282392,
+   "sha256": "541466c87057d2f665fe190ec1e8011c82326ef9aaae0c318244db88b1ee63f5"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/ariblk.ttf",
+   "faces": [
+    "Arial Black"
+   ],
+   "bytes": 115188,
+   "sha256": "9e9c2aa04b1bf967d4e32a9818066c8508ef659622f3a17ff48b1de65bdd6907"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/calibril.ttf",
+   "faces": [
+    "Calibri Light"
+   ],
+   "bytes": 1126316,
+   "sha256": "8c3ce077b95ad9764e839a8103c9e8370ed82309eba7d1e9c1e9f9435487e8d1"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/calibrili.ttf",
+   "faces": [
+    "Calibri Light Italic"
+   ],
+   "bytes": 956748,
+   "sha256": "fffbd1578355dae5f4c330aa1556fb68a1af5fd4b318469d64aba452910764da"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/msgothic.ttc",
+   "faces": [
+    "MS Gothic Regular"
+   ],
+   "bytes": 9216016,
+   "sha256": "dc68e70dce920b8fc279e56ee86a67950d192d02506515f848dd4d0d12e1bde9"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/symbol.ttf",
+   "faces": [
+    "Symbol Regular"
+   ],
+   "bytes": 69876,
+   "sha256": "08253a10a93a80f978d88087000e6a6f4952aeffc2e972e81f6f84bbfa679fe4"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/times.ttf",
+   "faces": [
+    "Times New Roman Regular"
+   ],
+   "bytes": 1188156,
+   "sha256": "e77f429f5cde743c30216c2d5917706d09ddd938990f4f5ae98bfd4b5c7d0495"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/timesbd.ttf",
+   "faces": [
+    "Times New Roman Bold"
+   ],
+   "bytes": 1168472,
+   "sha256": "3750f5d563d062ed8c4e2a0516da3374b8fbcdedee0608e107efd97ded80bcae"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/timesbi.ttf",
+   "faces": [
+    "Times New Roman Bold Italic"
+   ],
+   "bytes": 874408,
+   "sha256": "baad72fc175225bd00e60ce280841131ba8a170be3646901d38a9855ff1bdabc"
+  },
+  {
+   "path": "/Applications/Microsoft Word.app/Contents/Resources/DFonts/timesi.ttf",
+   "faces": [
+    "Times New Roman Italic"
+   ],
+   "bytes": 932820,
+   "sha256": "f957cbaf4af5b52260462b486dd10a01507184dc39cdbbb3364e428b800b37e6"
+  },
+  {
+   "path": "~/Library/Group Containers/UBF8T346G9.Office/FontCache/4/CloudFonts/Aptos Display/25576969643.ttf",
+   "faces": [
+    "Aptos Display Bold Italic"
+   ],
+   "bytes": 229100,
+   "sha256": "67efa2915e860d32365f01fae22400a0ab5a36d7942dd2024dd210910894f0f2"
+  },
+  {
+   "path": "~/Library/Group Containers/UBF8T346G9.Office/FontCache/4/CloudFonts/Aptos Display/30169865670.ttf",
+   "faces": [
+    "Aptos Display"
+   ],
+   "bytes": 221112,
+   "sha256": "af7a83e6f1d18b62535a8ee97939ab8653d5ac1fe1861cdb8fce829d3878d901"
+  },
+  {
+   "path": "~/Library/Group Containers/UBF8T346G9.Office/FontCache/4/CloudFonts/Aptos Display/31638818185.ttf",
+   "faces": [
+    "Aptos Display Italic"
+   ],
+   "bytes": 228224,
+   "sha256": "a47bafebfe957f26bd59cfd2d063950c547cb505ce0c8e0951f496dc5eaae432"
+  },
+  {
+   "path": "~/Library/Group Containers/UBF8T346G9.Office/FontCache/4/CloudFonts/Aptos Display/32677218994.ttf",
+   "faces": [
+    "Aptos Display Bold"
+   ],
+   "bytes": 221832,
+   "sha256": "e66a3774f5c9f2799f1a7f4734f5d1ad942cc9aeb173eb2c94bc09a5f1bf1142"
+  }
+ ]
+}

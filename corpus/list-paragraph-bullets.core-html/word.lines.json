@@ -1,0 +1,37 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 1, "text": "Table of Contents", "x": 72, "top": 90.05, "width": 117.05, "height": 19.63, "baseline": 105.36},
+      {"page": 1, "text": "Advice ................................................................................................................................................. 2", "x": 83, "top": 117.17, "width": 440.32, "height": 13.48, "baseline": 127.68},
+      {"page": 1, "text": "After ................................................................................................................................................... 2", "x": 83, "top": 136.61, "width": 440.32, "height": 13.48, "baseline": 147.12}
+    ]},
+    {"page": 2, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 2, "text": "Advice", "x": 279.56, "top": 72.14, "width": 36.16, "height": 15.82, "baseline": 84.48},
+      {"page": 2, "text": "Plain bold italic underlined struck code sub sup a bold link red mono large shaded yellow pale.", "x": 72, "top": 93.29, "width": 415.37, "height": 16.41, "baseline": 106.08, "baselines": [102, 106.08, 107.04]},
+      {"page": 2, "text": "Right", "x": 500.16, "top": 116.93, "width": 23.16, "height": 13.48, "baseline": 127.44},
+      {"page": 2, "text": "Justified", "x": 72, "top": 137.57, "width": 36.95, "height": 13.48, "baseline": 148.08},
+      {"page": 2, "text": "• one", "x": 90, "top": 178.5, "width": 35.08, "height": 14.06, "baseline": 189.6},
+      {"page": 2, "text": "o nested", "x": 126, "top": 193.49, "width": 48.5, "height": 13.82, "baseline": 204},
+      {"page": 2, "text": "• two", "x": 90, "top": 207.78, "width": 35.37, "height": 14.06, "baseline": 218.88},
+      {"page": 2, "text": "3. third", "x": 90, "top": 231.17, "width": 39.63, "height": 13.48, "baseline": 241.68},
+      {"page": 2, "text": "4. fourth", "x": 90, "top": 251.57, "width": 46.25, "height": 13.48, "baseline": 262.08},
+      {"page": 2, "text": "• ☒ done", "x": 90, "top": 273.78, "width": 54.35, "height": 14.06, "baseline": 284.88},
+      {"page": 2, "text": "• ☐ open", "x": 90, "top": 289.38, "width": 54.33, "height": 14.06, "baseline": 300.48},
+      {"page": 2, "text": "quoted", "x": 96, "top": 312.77, "width": 32.31, "height": 13.48, "baseline": 323.28},
+      {"page": 2, "text": "fn main() {}", "x": 72, "top": 333.79, "width": 66.02, "height": 10.08, "baseline": 341.28},
+      {"page": 2, "text": "// two", "x": 72, "top": 345.55, "width": 33.03, "height": 10.08, "baseline": 353.04},
+      {"page": 2, "text": "Product Both", "x": 77.28, "top": 375.89, "width": 230.14, "height": 13.48, "baseline": 386.4},
+      {"page": 2, "text": "Two rows $1 x", "x": 77.28, "top": 390.29, "width": 334.54, "height": 13.48, "baseline": 400.8},
+      {"page": 2, "text": "y z", "x": 285.6, "top": 404.21, "width": 125.8, "height": 13.48, "baseline": 414.72},
+      {"page": 2, "text": "[Logo]", "x": 72, "top": 424.61, "width": 28.33, "height": 13.48, "baseline": 435.12},
+      {"page": 2, "text": "[Seal]", "x": 285.07, "top": 445.01, "width": 25.17, "height": 13.48, "baseline": 455.52},
+      {"page": 2, "text": "a line", "x": 72, "top": 465.65, "width": 24.07, "height": 13.48, "baseline": 476.16},
+      {"page": 2, "text": "break", "x": 72, "top": 480.05, "width": 25.38, "height": 13.48, "baseline": 490.56},
+      {"page": 2, "text": "Asset Description Value", "x": 77.28, "top": 501.65, "width": 363.31, "height": 13.48, "baseline": 512.16},
+      {"page": 2, "text": "Home Family home, owned jointly $1,200,000", "x": 77.28, "top": 516.05, "width": 387.32, "height": 13.48, "baseline": 526.56},
+      {"page": 2, "text": "After", "x": 72, "top": 542.54, "width": 27.65, "height": 15.82, "baseline": 554.88}
+    ]}
+  ]
+}

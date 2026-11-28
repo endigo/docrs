@@ -1,0 +1,42 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 1, "text": "Table of Contents", "x": 56.64, "top": 131.33, "width": 117.05, "height": 19.63, "baseline": 146.64},
+      {"page": 1, "text": "Advice ........................................................................................................................................................... 2", "x": 67.64, "top": 158.45, "width": 470.92, "height": 13.48, "baseline": 168.96},
+      {"page": 1, "text": "After .............................................................................................................................................................. 2", "x": 67.64, "top": 178.13, "width": 470.92, "height": 13.48, "baseline": 188.64},
+      {"page": 1, "text": "General advice warning: this document is a synthetic template sample.", "x": 182.65, "top": 803.9, "width": 229.81, "height": 9.67, "baseline": 811.44}
+    ]},
+    {"page": 2, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 2, "text": "Example Wealth Partners", "x": 389.34, "top": 38.45, "width": 113.33, "height": 13.48, "baseline": 48.96},
+      {"page": 2, "text": "Level 1, 1 Example Street, Sydney NSW 2000", "x": 304.09, "top": 51.89, "width": 198.59, "height": 13.48, "baseline": 62.4},
+      {"page": 2, "text": "Advice", "x": 279.5, "top": 113.42, "width": 36.16, "height": 15.82, "baseline": 125.76},
+      {"page": 2, "text": "Plain bold italic underlined struck code sub sup a bold link red mono large shaded yellow pale.", "x": 56.64, "top": 134.81, "width": 415.37, "height": 16.41, "baseline": 147.6, "baselines": [143.52, 147.6, 148.56]},
+      {"page": 2, "text": "Right", "x": 515.4, "top": 158.45, "width": 23.16, "height": 13.48, "baseline": 168.96},
+      {"page": 2, "text": "Justified", "x": 56.64, "top": 178.85, "width": 36.95, "height": 13.48, "baseline": 189.36},
+      {"page": 2, "text": "• one", "x": 74.64, "top": 220.02, "width": 35.08, "height": 14.06, "baseline": 231.12},
+      {"page": 2, "text": "o nested", "x": 110.64, "top": 241.01, "width": 48.5, "height": 13.82, "baseline": 251.52},
+      {"page": 2, "text": "• two", "x": 74.64, "top": 261.54, "width": 35.37, "height": 14.06, "baseline": 272.64},
+      {"page": 2, "text": "3. third", "x": 74.64, "top": 282.53, "width": 39.63, "height": 13.48, "baseline": 293.04},
+      {"page": 2, "text": "4. fourth", "x": 74.64, "top": 302.93, "width": 46.25, "height": 13.48, "baseline": 313.44},
+      {"page": 2, "text": "• ☒ done", "x": 74.64, "top": 323.46, "width": 54.35, "height": 14.06, "baseline": 334.56},
+      {"page": 2, "text": "• ☐ open", "x": 74.64, "top": 344.82, "width": 54.33, "height": 14.06, "baseline": 355.92},
+      {"page": 2, "text": "quoted", "x": 80.64, "top": 366.29, "width": 32.31, "height": 13.48, "baseline": 376.8},
+      {"page": 2, "text": "fn main() {}", "x": 56.64, "top": 387.31, "width": 66.02, "height": 10.08, "baseline": 394.8},
+      {"page": 2, "text": "// two", "x": 56.64, "top": 399.07, "width": 33.03, "height": 10.08, "baseline": 406.56},
+      {"page": 2, "text": "Product Both", "x": 62.16, "top": 429.17, "width": 244.06, "height": 13.48, "baseline": 439.68},
+      {"page": 2, "text": "Two rows $1 x", "x": 62.16, "top": 443.57, "width": 356.86, "height": 13.48, "baseline": 454.08},
+      {"page": 2, "text": "y z", "x": 284.4, "top": 457.49, "width": 134.2, "height": 13.48, "baseline": 468},
+      {"page": 2, "text": "[Logo]", "x": 56.64, "top": 477.89, "width": 28.33, "height": 13.48, "baseline": 488.4},
+      {"page": 2, "text": "[Seal]", "x": 285.01, "top": 498.53, "width": 25.17, "height": 13.48, "baseline": 509.04},
+      {"page": 2, "text": "a line", "x": 56.64, "top": 518.93, "width": 24.07, "height": 13.48, "baseline": 529.44},
+      {"page": 2, "text": "break", "x": 56.64, "top": 533.57, "width": 25.38, "height": 13.48, "baseline": 544.08},
+      {"page": 2, "text": "Asset Description Value", "x": 62.16, "top": 554.93, "width": 384.19, "height": 13.48, "baseline": 565.44},
+      {"page": 2, "text": "Home Family home, owned jointly $1,200,000", "x": 62.16, "top": 569.33, "width": 408.2, "height": 13.48, "baseline": 579.84},
+      {"page": 2, "text": "After", "x": 56.64, "top": 595.82, "width": 27.65, "height": 15.82, "baseline": 608.16},
+      {"page": 2, "text": "Example Wealth Partners Pty Ltd ABN 00 000 000 000 is a Corporate Authorised Representative of Example Licensee Pty Ltd AFSL 000000.", "x": 56.64, "top": 794.06, "width": 447.56, "height": 9.67, "baseline": 801.6},
+      {"page": 2, "text": "Page 2 of 2", "x": 502.63, "top": 803.9, "width": 35.87, "height": 9.67, "baseline": 811.44}
+    ]}
+  ]
+}

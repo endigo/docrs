@@ -1,0 +1,31 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 1, "text": "Table of Contents", "x": 72, "top": 90.57, "width": 135.21, "height": 17.96, "baseline": 105.12},
+      {"page": 1, "text": "Summary ............................................................................................................................................ 2", "x": 83, "top": 116.16, "width": 440.34, "height": 11.26, "baseline": 125.28},
+      {"page": 1, "text": "Results ................................................................................................................................................ 2", "x": 83, "top": 133.44, "width": 440.34, "height": 11.26, "baseline": 142.56},
+      {"page": 1, "text": "Next steps ........................................................................................................................................... 2", "x": 83, "top": 150.96, "width": 440.34, "height": 11.26, "baseline": 160.08}
+    ]},
+    {"page": 2, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 2, "text": "Summary", "x": 72, "top": 72.51, "width": 59.23, "height": 14.48, "baseline": 84.24},
+      {"page": 2, "text": "Revenue grew 18% in North America; see the results table.", "x": 72, "top": 92.4, "width": 262.38, "height": 11.26, "baseline": 101.52},
+      {"page": 2, "text": "Results", "x": 72, "top": 117.15, "width": 46.92, "height": 14.48, "baseline": 128.88},
+      {"page": 2, "text": "Region", "x": 78, "top": 140.16, "width": 33.94, "height": 11.26, "baseline": 149.28},
+      {"page": 2, "text": "Q1", "x": 387.56, "top": 140.16, "width": 13.38, "height": 11.26, "baseline": 149.28},
+      {"page": 2, "text": "Q2", "x": 504.49, "top": 140.16, "width": 13.38, "height": 11.26, "baseline": 149.28},
+      {"page": 2, "text": "North America", "x": 78, "top": 157.92, "width": 63.94, "height": 11.26, "baseline": 167.04},
+      {"page": 2, "text": "1,200", "x": 375.88, "top": 157.92, "width": 25.07, "height": 11.26, "baseline": 167.04},
+      {"page": 2, "text": "1,420", "x": 492.81, "top": 157.92, "width": 25.07, "height": 11.26, "baseline": 167.04},
+      {"page": 2, "text": "Europe", "x": 78, "top": 175.68, "width": 32.29, "height": 11.26, "baseline": 184.8},
+      {"page": 2, "text": "980", "x": 384.22, "top": 175.68, "width": 16.73, "height": 11.26, "baseline": 184.8},
+      {"page": 2, "text": "1,010", "x": 492.81, "top": 175.68, "width": 25.07, "height": 11.26, "baseline": 184.8},
+      {"page": 2, "text": "Next steps", "x": 72, "top": 202.83, "width": 65.7, "height": 14.48, "baseline": 214.56},
+      {"page": 2, "text": "1. Confirm the Europe forecast.", "x": 90, "top": 222.72, "width": 145.81, "height": 11.26, "baseline": 231.84},
+      {"page": 2, "text": "2.", "x": 90, "top": 240.62, "width": 8.36, "height": 11.6, "baseline": 250.08},
+      {"page": 2, "text": "Circulate the review by Friday.1", "x": 108, "top": 240.62, "width": 138, "height": 11.6, "baseline": 250.08, "baselines": [246.48, 250.08]},
+      {"page": 2, "text": "1 Friday 23 October 2026.", "x": 72, "top": 758.3, "width": 114.27, "height": 11.6, "baseline": 767.76, "baselines": [764.16, 767.76]}
+    ]}
+  ]
+}

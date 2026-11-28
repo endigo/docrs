@@ -1,0 +1,40 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 612, "height": 792, "lines": [
+      {"page": 1, "text": "Onboarding checklist", "x": 90, "top": 96.6, "width": 143.09, "height": 15.55, "baseline": 109.2},
+      {"page": 1, "text": "The first list covers the first day.", "x": 90, "top": 114.81, "width": 154.71, "height": 12.33, "baseline": 124.8},
+      {"page": 1, "text": "1.", "x": 90, "top": 135.45, "width": 9.19, "height": 12.33, "baseline": 145.44},
+      {"page": 1, "text": "Collect your laptop from the IT desk.", "x": 108, "top": 135.45, "width": 176.76, "height": 12.33, "baseline": 145.44},
+      {"page": 1, "text": "2. Set up your accounts:", "x": 90, "top": 149.85, "width": 124.46, "height": 12.33, "baseline": 159.84},
+      {"page": 1, "text": "1.", "x": 108, "top": 174.57, "width": 9.19, "height": 12.33, "baseline": 184.56},
+      {"page": 1, "text": "Sign in to email and change the temporary password.", "x": 126, "top": 174.57, "width": 259.99, "height": 12.33, "baseline": 184.56},
+      {"page": 1, "text": "2. Turn on two-factor sign-in.", "x": 108, "top": 188.97, "width": 145.79, "height": 12.33, "baseline": 198.96},
+      {"page": 1, "text": "3.", "x": 108, "top": 203.61, "width": 9.19, "height": 12.33, "baseline": 213.6},
+      {"page": 1, "text": "Join the team chat channels:", "x": 126, "top": 203.61, "width": 140.08, "height": 12.33, "baseline": 213.6},
+      {"page": 1, "text": "• General", "x": 126, "top": 227.7, "width": 57.14, "height": 13.52, "baseline": 238.8},
+      {"page": 1, "text": "• Announcements", "x": 126, "top": 243.06, "width": 97.56, "height": 13.52, "baseline": 254.16},
+      {"page": 1, "text": "• Your own team's channel", "x": 126, "top": 258.42, "width": 141.23, "height": 13.52, "baseline": 269.52},
+      {"page": 1, "text": "3.", "x": 90, "top": 284.01, "width": 9.19, "height": 12.33, "baseline": 294},
+      {"page": 1, "text": "4.", "x": 90, "top": 298.65, "width": 9.19, "height": 12.33, "baseline": 308.64},
+      {"page": 1, "text": "Read the security policy and sign the acknowledgement.", "x": 108, "top": 284.01, "width": 274.71, "height": 12.33, "baseline": 294},
+      {"page": 1, "text": "Meet your buddy for lunch.", "x": 108, "top": 298.65, "width": 130.24, "height": 12.33, "baseline": 308.64},
+      {"page": 1, "text": "Some things are worth knowing from the start:", "x": 90, "top": 323.13, "width": 224.45, "height": 12.33, "baseline": 333.12},
+      {"page": 1, "text": "• The office opens at eight and closes at seven.", "x": 90, "top": 343.14, "width": 241.94, "height": 13.52, "baseline": 354.24},
+      {"page": 1, "text": "• Visitors sign in at reception.", "x": 90, "top": 358.5, "width": 152.58, "height": 13.52, "baseline": 369.6},
+      {"page": 1, "text": "• Contractors also need a badge from facilities.", "x": 108, "top": 383.7, "width": 238.83, "height": 13.52, "baseline": 394.8},
+      {"page": 1, "text": "• Delivery drivers wait in the lobby.", "x": 108, "top": 399.06, "width": 178.87, "height": 13.52, "baseline": 410.16},
+      {"page": 1, "text": "• The kitchen is cleaned every afternoon at three.", "x": 90, "top": 424.5, "width": 250.48, "height": 13.52, "baseline": 435.6},
+      {"page": 1, "text": "The second list covers the first week. It starts again at one.", "x": 90, "top": 450.09, "width": 286.25, "height": 12.33, "baseline": 460.08},
+      {"page": 1, "text": "1.", "x": 90, "top": 470.49, "width": 9.19, "height": 12.33, "baseline": 480.48},
+      {"page": 1, "text": "2.", "x": 90, "top": 485.13, "width": 9.19, "height": 12.33, "baseline": 495.12},
+      {"page": 1, "text": "Book the induction sessions you have not attended.", "x": 108, "top": 470.49, "width": 251.5, "height": 12.33, "baseline": 480.48},
+      {"page": 1, "text": "Agree your first goals with your manager.", "x": 108, "top": 485.13, "width": 200.62, "height": 12.33, "baseline": 495.12},
+      {"page": 1, "text": "• Keep them to three or fewer.", "x": 108, "top": 509.22, "width": 157.45, "height": 13.52, "baseline": 520.32},
+      {"page": 1, "text": "• Write each one down with a date.", "x": 108, "top": 524.58, "width": 180.66, "height": 13.52, "baseline": 535.68},
+      {"page": 1, "text": "3.", "x": 90, "top": 550.17, "width": 9.19, "height": 12.33, "baseline": 560.16},
+      {"page": 1, "text": "Review the handbook and ask about anything unclear.", "x": 108, "top": 550.17, "width": 264.96, "height": 12.33, "baseline": 560.16}
+    ]}
+  ]
+}

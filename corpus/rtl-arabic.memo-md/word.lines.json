@@ -1,0 +1,44 @@
+{
+  "schema": "docrs_pdf_lines",
+  "version": 1,
+  "pages": [
+    {"page": 1, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 1, "text": "2", "x": 71.9, "top": 116.34, "width": 6.67, "height": 13.4, "baseline": 127.2},
+      {"page": 1, "text": "2", "x": 71.9, "top": 136.26, "width": 6.67, "height": 13.4, "baseline": 147.12},
+      {"page": 1, "text": "2", "x": 71.9, "top": 155.94, "width": 6.67, "height": 13.4, "baseline": 166.8},
+      {"page": 1, "text": ".", "x": 136.69, "top": 116.34, "width": 3.34, "height": 13.4, "baseline": 127.2},
+      {"page": 1, "text": ".", "x": 130.03, "top": 155.94, "width": 3.34, "height": 13.4, "baseline": 166.8},
+      {"page": 1, "text": ".", "x": 146.7, "top": 136.26, "width": 3.34, "height": 13.4, "baseline": 147.12},
+      {"page": 1, "text": ".", "x": 243.38, "top": 116.34, "width": 3.34, "height": 13.4, "baseline": 127.2},
+      {"page": 1, "text": ".", "x": 236.71, "top": 155.94, "width": 3.34, "height": 13.4, "baseline": 166.8},
+      {"page": 1, "text": ".", "x": 253.38, "top": 136.26, "width": 3.34, "height": 13.4, "baseline": 147.12},
+      {"page": 1, "text": ".", "x": 350.07, "top": 116.34, "width": 3.34, "height": 13.4, "baseline": 127.2},
+      {"page": 1, "text": ".", "x": 343.4, "top": 155.94, "width": 3.34, "height": 13.4, "baseline": 166.8},
+      {"page": 1, "text": ".", "x": 360.07, "top": 136.26, "width": 3.34, "height": 13.4, "baseline": 147.12},
+      {"page": 1, "text": "Table of Contents", "x": 396.9, "top": 90.57, "width": 126.42, "height": 17.96, "baseline": 105.12},
+      {"page": 1, "text": ".", "x": 456.76, "top": 116.34, "width": 3.34, "height": 13.4, "baseline": 127.2},
+      {"page": 1, "text": "Summary", "x": 460.86, "top": 116.34, "width": 51.34, "height": 13.4, "baseline": 127.2},
+      {"page": 1, "text": ".", "x": 466.76, "top": 136.26, "width": 3.34, "height": 13.4, "baseline": 147.12},
+      {"page": 1, "text": "Results", "x": 472.19, "top": 136.26, "width": 40.02, "height": 13.4, "baseline": 147.12},
+      {"page": 1, "text": ".", "x": 450.09, "top": 155.94, "width": 3.34, "height": 13.4, "baseline": 166.8},
+      {"page": 1, "text": "Next steps", "x": 455.51, "top": 155.94, "width": 56.69, "height": 13.4, "baseline": 166.8}
+    ]},
+    {"page": 2, "width": 595.2, "height": 841.92, "lines": [
+      {"page": 2, "text": "Summary", "x": 467.58, "top": 72.51, "width": 55.62, "height": 14.48, "baseline": 84.24},
+      {"page": 2, "text": "18%Revenue grew .", "x": 147.84, "top": 92.58, "width": 181.61, "height": 13.4, "baseline": 103.44},
+      {"page": 2, "text": "results tablein North America; see the", "x": 272.92, "top": 92.58, "width": 243.61, "height": 13.4, "baseline": 103.44},
+      {"page": 2, "text": "Results", "x": 479.85, "top": 119.55, "width": 43.3, "height": 14.48, "baseline": 131.28},
+      {"page": 2, "text": "Region Q1 Q2", "x": 243.26, "top": 140.58, "width": 184.42, "height": 13.4, "baseline": 151.44},
+      {"page": 2, "text": "North America 1,200 1,420", "x": 207.23, "top": 155.46, "width": 234.47, "height": 13.4, "baseline": 166.32},
+      {"page": 2, "text": "Europe 980 1,010", "x": 245.22, "top": 169.62, "width": 196.48, "height": 13.4, "baseline": 180.48},
+      {"page": 2, "text": "1", "x": 321.84, "top": 237.15, "width": 4.4, "height": 8.85, "baseline": 244.32},
+      {"page": 2, "text": "Confirm the Europe forecast.", "x": 337.13, "top": 216.66, "width": 146.74, "height": 13.4, "baseline": 227.52},
+      {"page": 2, "text": "Circulate the review by Friday.", "x": 329.14, "top": 237.54, "width": 152.06, "height": 13.4, "baseline": 248.4, "baselines": [244.32, 248.4]},
+      {"page": 2, "text": "Next steps", "x": 461.79, "top": 196.59, "width": 61.36, "height": 14.48, "baseline": 208.32},
+      {"page": 2, "text": "1.", "x": 498.53, "top": 216.66, "width": 1.67, "height": 13.4, "baseline": 227.52},
+      {"page": 2, "text": "2.", "x": 498.53, "top": 237.54, "width": 1.67, "height": 13.4, "baseline": 248.4},
+      {"page": 2, "text": "Friday 23 October 2026.", "x": 411.76, "top": 758.64, "width": 99.55, "height": 11.26, "baseline": 767.76},
+      {"page": 2, "text": "1", "x": 519.84, "top": 758.3, "width": 3.6, "height": 7.24, "baseline": 764.16}
+    ]}
+  ]
+}
