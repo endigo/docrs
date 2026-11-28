@@ -524,22 +524,30 @@ fn each_fixture_reports_its_code_and_count() {
     }
 }
 
-/// Raised when an image is read, not by preflight; `pdf_images.rs` has
-/// their fixtures.
-const IMAGE_CODES: [&str; 2] = ["pdf_image_profile_ignored", "pdf_image_animated"];
+/// Raised when an image is read or the document laid out, not by
+/// preflight; `pdf_images.rs` and `pdf_text.rs` have their fixtures.
+/// Codes the painter's tests cover: images, drawing and what layout
+/// changes in the stories it draws.
+const LATER_CODES: [&str; 5] = [
+    "pdf_image_profile_ignored",
+    "pdf_image_animated",
+    "pdf_field_switch_ignored",
+    "pdf_field_format_approximated",
+    "pdf_story_overflow",
+];
 
 #[test]
 fn every_code_has_a_fixture() {
     let covered: Vec<&str> = cases().iter().map(|c| c.code).collect();
     for (code, description) in WARNING_CODES {
         assert!(
-            covered.contains(code) || IMAGE_CODES.contains(code) || DRAWING_CODES.contains(code),
+            covered.contains(code) || LATER_CODES.contains(code) || DRAWING_CODES.contains(code),
             "{code} has no fixture"
         );
         assert!(!description.is_empty());
     }
     assert_eq!(
-        covered.len() + IMAGE_CODES.len() + DRAWING_CODES.len(),
+        covered.len() + LATER_CODES.len() + DRAWING_CODES.len(),
         WARNING_CODES.len()
     );
 }
@@ -980,7 +988,7 @@ fn constructs_word_draws_are_not_skipped_silently() {
 }
 
 #[test]
-fn what_the_painter_does_not_draw_yet_stays_refused() {
+fn what_the_painter_does_not_draw_yet_stays_refused_and_header_text_does_not() {
     let body = para(&run(r#"<w:sym w:font="Wingdings" w:char="F04A"/>"#))
         + &para(&run("<w:t>soft</w:t><w:softHyphen/><w:t>after</w:t>"))
         + &text_para("hy\u{AD}phen")
@@ -994,7 +1002,7 @@ fn what_the_painter_does_not_draw_yet_stays_refused() {
     ));
     assert_eq!(
         subjects(&report, NOT_YET_DRAWN),
-        [("soft hyphen", 2), ("section break", 1), ("header", 1),]
+        [("soft hyphen", 2), ("section break", 1),]
     );
 }
 
@@ -1064,7 +1072,7 @@ fn fields_and_drawing_links_are_classified() {
     let report = report(&docx(&body, &[], &[("rIdL1", "file:///etc/passwd")]));
     assert_eq!(
         subjects(&report, "pdf_field_cached"),
-        [("DATE", 1), ("TIME", 1)]
+        [("DATE", 1), ("TIME", 1), ("field without an end", 1)]
     );
     assert_eq!(subjects(&report, "pdf_link_scheme_skipped"), [("link", 2)]);
     assert_eq!(subjects(&report, "pdf_link_target_missing"), [("link", 1)]);
@@ -1237,7 +1245,7 @@ fn a_link_on_a_shape_in_a_vml_group_is_checked() {
 }
 
 #[test]
-fn contents_fields_show_their_saved_results_and_mirrored_indents_are_ignored() {
+fn contents_fields_are_drawn_and_mirrored_indents_are_ignored() {
     let field = |instruction: &str| {
         run(r#"<w:fldChar w:fldCharType="begin"/>"#)
             + &run(&format!("<w:instrText>{instruction}</w:instrText>"))
@@ -1246,7 +1254,14 @@ fn contents_fields_show_their_saved_results_and_mirrored_indents_are_ignored() {
             + &run(r#"<w:fldChar w:fldCharType="end"/>"#)
     };
     let mirrored = r#"<w:pPr><w:mirrorIndents/><w:ind w:left="720"/></w:pPr>"#;
-    let body = para(&field(r#" TOC \o "1-3" \h "#))
+    // A contents whose entry's number is a page reference.
+    let contents = run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+        + &run(r#"<w:instrText> TOC \o "1-3" \h </w:instrText>"#)
+        + &run(r#"<w:fldChar w:fldCharType="separate"/>"#)
+        + &run("<w:t>Intro</w:t>")
+        + &field(r#" PAGEREF _Toc1 \h "#);
+    let body = para(&contents)
+        + &para(&run(r#"<w:fldChar w:fldCharType="end"/>"#))
         + &para(&field(r#" PAGEREF _Toc1 \h "#))
         + &para(&(mirrored.to_string() + &run("<w:t>mirrored</w:t>")))
         + &para(
@@ -1254,20 +1269,38 @@ fn contents_fields_show_their_saved_results_and_mirrored_indents_are_ignored() {
                 + &run("<w:t>by style</w:t>")),
         );
     let styles = r#"<w:style w:type="paragraph" w:styleId="Facing"><w:pPr><w:mirrorIndents/></w:pPr></w:style>"#;
-    let report = report(&docx(
+    let found = report(&docx(
         &body,
         &[xml_part("word/styles.xml", "styles", "styles", styles)],
         &[],
     ));
-    assert_eq!(subjects(&report, NOT_YET_DRAWN), []);
+    assert_eq!(subjects(&found, NOT_YET_DRAWN), []);
+    assert_eq!(subjects(&found, "pdf_field_cached"), []);
     assert_eq!(
-        subjects(&report, "pdf_field_cached"),
-        [("TOC", 1), ("PAGEREF", 1)]
-    );
-    assert_eq!(
-        subjects(&report, "pdf_layout_feature_ignored"),
+        subjects(&found, "pdf_layout_feature_ignored"),
         [("mirrored indents", 2)]
     );
+    // One whose entries hold their numbers as text keeps them; one without
+    // numbers (`\n`) is drawn as it is.
+    let plain = |instruction: &str, entry: &str| {
+        report(&docx(
+            &para(
+                &(run(r#"<w:fldChar w:fldCharType="begin"/>"#)
+                    + &run(&format!("<w:instrText>{instruction}</w:instrText>"))
+                    + &run(r#"<w:fldChar w:fldCharType="separate"/>"#)
+                    + &run(&format!("<w:t>{entry}</w:t>"))
+                    + &run(r#"<w:fldChar w:fldCharType="end"/>"#)),
+            ),
+            &[],
+            &[],
+        ))
+    };
+    let saved = plain(r#" TOC \o "1-3" "#, "Intro 2");
+    assert_eq!(subjects(&saved, "pdf_field_cached"), [("TOC", 1)]);
+    let unnumbered = plain(r#" TOC \o "1-3" \n "#, "Intro");
+    assert_eq!(subjects(&unnumbered, "pdf_field_cached"), []);
+    let numbered = plain(r#" TOC \o "1-3" \n "#, "Intro 2");
+    assert_eq!(subjects(&numbered, "pdf_field_cached"), [("TOC", 1)]);
 }
 
 #[test]

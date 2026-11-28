@@ -590,6 +590,11 @@ fn refresh_writes_roman_and_restarted_page_numbers() {
 
     let decimal_zero = roman.replace("lowerRoman", "decimalZero");
     let mut doc = open(&package_with(&decimal_zero, "", None));
+    assert_eq!(refresh(&mut doc), 2);
+    assert_eq!(entry_numbers(&doc), ["02", "03"]);
+
+    let words = roman.replace("lowerRoman", "cardinalText");
+    let mut doc = open(&package_with(&words, "", None));
     assert_eq!(refresh(&mut doc), 0);
     assert_eq!(entry_numbers(&doc), ["7", "9"]);
 }
@@ -1564,22 +1569,6 @@ fn each_line_rule_puts_the_baseline_where_word_does() {
             ours.1
         );
     }
-}
-
-/// `(bookmark, number shown)` of each contents entry: a hyperlink to the
-/// bookmark holding a PAGEREF field, its number the last text in it.
-fn toc_entries(doc: &Document) -> Vec<(String, String)> {
-    let xml = document_xml(doc);
-    xml.split("<w:hyperlink w:anchor=\"")
-        .skip(1)
-        .filter_map(|chunk| {
-            let chunk = &chunk[..chunk.find("</w:hyperlink>")?];
-            chunk.contains("PAGEREF").then_some(())?;
-            let bookmark = chunk[..chunk.find('"')?].to_string();
-            let last = &chunk[chunk.rfind("<w:t>")? + 5..];
-            Some((bookmark, last[..last.find('<')?].to_string()))
-        })
-        .collect()
 }
 
 /// The page number at the end of each contents line, as the settled

@@ -24,28 +24,6 @@ pub(crate) const FIELD_SWITCH_IGNORED: &str = "pdf_field_switch_ignored";
 /// A number format layout does not write is written in arabic.
 pub(crate) const FIELD_FORMAT_APPROXIMATED: &str = "pdf_field_format_approximated";
 
-/// Every warning code layout gives, with a fixed description that quotes
-/// nothing from the input, for the PDF report.
-#[allow(dead_code, reason = "the PDF painter reports them")]
-pub(crate) const WARNING_CODES: &[(&str, &str)] = &[
-    (
-        FIELD_CACHED,
-        "a date or time field shows the value saved in the document, not the current one",
-    ),
-    (
-        FIELD_SWITCH_IGNORED,
-        "a page reference's \\p switch is ignored: it shows the page number, not \"above\" or \"below\"",
-    ),
-    (
-        FIELD_FORMAT_APPROXIMATED,
-        "a page number asked in words, as an ordinal or through a numeric picture is shown in arabic digits",
-    ),
-    (
-        super::furniture::STORY_OVERFLOW,
-        "a header or footer reaching past the middle of the page is cut off",
-    ),
-];
-
 /// Letters are written up to this many repeats (zz…z, 780), arabic past it.
 const MAX_LETTER_REPEATS: i64 = 30;
 
@@ -60,10 +38,15 @@ pub(crate) enum NumberFormat {
     UpperRoman,
     LowerLetter,
     UpperLetter,
+    /// `- 1 -`.
+    NumberInDash,
+    /// At least two digits: `01`.
+    DecimalZero,
 }
 
 impl NumberFormat {
-    /// `w:pgNumType w:fmt`; `None` for a format layout does not write.
+    /// `w:pgNumType w:fmt`; `None` for a format layout does not write
+    /// (words, ordinals, other scripts), which it writes in arabic.
     pub(crate) fn of_section(fmt: Option<&str>) -> Option<NumberFormat> {
         Some(match fmt {
             None | Some("decimal") => NumberFormat::Arabic,
@@ -71,6 +54,8 @@ impl NumberFormat {
             Some("upperRoman") => NumberFormat::UpperRoman,
             Some("lowerLetter") => NumberFormat::LowerLetter,
             Some("upperLetter") => NumberFormat::UpperLetter,
+            Some("numberInDash") => NumberFormat::NumberInDash,
+            Some("decimalZero") => NumberFormat::DecimalZero,
             Some(_) => return None,
         })
     }
@@ -84,16 +69,9 @@ impl NumberFormat {
             "alphabetic" => NumberFormat::LowerLetter,
             "ALPHABETIC" => NumberFormat::UpperLetter,
             _ if value.eq_ignore_ascii_case("arabic") => NumberFormat::Arabic,
-            _ if [
-                "upper",
-                "lower",
-                "firstcap",
-                "caps",
-                "mergeformat",
-                "charformat",
-            ]
-            .iter()
-            .any(|text| value.eq_ignore_ascii_case(text)) =>
+            _ if ["mergeformat", "charformat"]
+                .iter()
+                .any(|text| value.eq_ignore_ascii_case(text)) =>
             {
                 return Ok(None);
             }
@@ -133,7 +111,49 @@ impl NumberFormat {
                 let letter = char::from(base + ((n - 1) % 26) as u8);
                 std::iter::repeat_n(letter, ((n - 1) / 26 + 1) as usize).collect()
             }
+            NumberFormat::NumberInDash => format!("- {n} -"),
+            NumberFormat::DecimalZero if (0..10).contains(&n) => format!("0{n}"),
             _ => n.to_string(),
+        }
+    }
+}
+
+/// A `\\*` case switch, applied to the value as written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Case {
+    #[default]
+    AsIs,
+    Upper,
+    Lower,
+    /// `FirstCap` and `Caps`: a page number is one word.
+    Capital,
+}
+
+impl Case {
+    fn of_switch(value: &str) -> Option<Case> {
+        let is = |name: &str| value.eq_ignore_ascii_case(name);
+        Some(if is("upper") {
+            Case::Upper
+        } else if is("lower") {
+            Case::Lower
+        } else if is("firstcap") || is("caps") {
+            Case::Capital
+        } else {
+            return None;
+        })
+    }
+
+    pub(crate) fn apply(self, text: String) -> String {
+        match self {
+            Case::AsIs => text,
+            Case::Upper => text.to_uppercase(),
+            Case::Lower => text.to_lowercase(),
+            Case::Capital => {
+                let mut chars = text.chars();
+                chars.next().map_or(String::new(), |first| {
+                    first.to_uppercase().chain(chars).collect()
+                })
+            }
         }
     }
 }
@@ -178,50 +198,92 @@ pub(crate) enum FieldKind {
     Text(String),
 }
 
-/// A field instruction read: its kind when layout computes it, and the
-/// warning it gives.
+/// A field instruction read: its kind when layout computes it, the case
+/// its value is written in, and the warnings it gives with their subjects.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Instruction {
     pub kind: Option<FieldKind>,
-    pub warnings: Vec<&'static str>,
+    pub case: Case,
+    pub warnings: Vec<(&'static str, &'static str)>,
+}
+
+/// An instruction's words: quoted operands as written, and unquoted ones
+/// split before each switch, so `PAGE\\*roman` reads as `PAGE \\* roman`.
+fn words(code: &str) -> Option<Vec<(String, bool)>> {
+    let mut out = Vec::new();
+    for token in fieldcode::tokens(code).ok()? {
+        if token.quoted {
+            out.push((token.value, true));
+            continue;
+        }
+        let mut rest = token.value.as_str();
+        while !rest.is_empty() {
+            let end = match rest.strip_prefix('\\') {
+                Some(after) => 1 + after.chars().next().map_or(0, char::len_utf8),
+                None => rest.find('\\').unwrap_or(rest.len()),
+            };
+            out.push((rest[..end].to_string(), false));
+            rest = &rest[end..];
+        }
+    }
+    Some(out)
+}
+
+/// The command of `code`, upper-cased, when its first word is one.
+fn command(words: &[(String, bool)]) -> Option<String> {
+    words
+        .first()
+        .filter(|(_, quoted)| !quoted)
+        .map(|(word, _)| word.to_ascii_uppercase())
 }
 
 /// Reads `instruction` (a `w:instrText` run's text or `w:fldSimple`'s
 /// `w:instr`).
 pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
-    let Ok(tokens) = fieldcode::tokens(code) else {
+    let Some(words) = words(code) else {
         return Instruction::default();
     };
-    let Some((command, rest)) = tokens.split_first().filter(|(c, _)| !c.quoted) else {
+    let Some(command) = command(&words) else {
         return Instruction::default();
     };
-    let command = command.value.to_ascii_uppercase();
     let mut format = NumberFormat::Section;
+    let mut case = Case::AsIs;
     let mut operands = Vec::new();
     let mut warnings = Vec::new();
-    let mut rest = rest.iter();
-    while let Some(token) = rest.next() {
-        if token.quoted || !token.value.starts_with('\\') {
-            operands.push(token.value.as_str());
+    let mut rest = words[1..].iter();
+    while let Some((word, quoted)) = rest.next() {
+        if *quoted || !word.starts_with('\\') {
+            operands.push(word.as_str());
             continue;
         }
-        match token.value.as_str() {
-            "\\*" => match rest.next().map(|t| NumberFormat::of_switch(&t.value)) {
-                Some(Ok(Some(f))) => format = f,
-                Some(Err(())) => {
-                    format = NumberFormat::Arabic;
-                    warnings.push(FIELD_FORMAT_APPROXIMATED);
+        match word.as_str() {
+            "\\*" => {
+                let Some((value, _)) = rest.next() else {
+                    continue;
+                };
+                if let Some(switch) = Case::of_switch(value) {
+                    case = switch;
+                    continue;
                 }
-                _ => {}
-            },
+                match NumberFormat::of_switch(value) {
+                    Ok(Some(f)) => format = f,
+                    Err(()) => {
+                        format = NumberFormat::Arabic;
+                        warnings.push((FIELD_FORMAT_APPROXIMATED, "page field"));
+                    }
+                    Ok(None) => {}
+                }
+            }
             "\\#" => {
                 rest.next();
-                warnings.push(FIELD_FORMAT_APPROXIMATED);
+                warnings.push((FIELD_FORMAT_APPROXIMATED, "page field"));
             }
             "\\@" => {
                 rest.next();
             }
-            s if s.eq_ignore_ascii_case("\\p") => warnings.push(FIELD_SWITCH_IGNORED),
+            s if s.eq_ignore_ascii_case("\\p") => {
+                warnings.push((FIELD_SWITCH_IGNORED, "page reference"))
+            }
             _ => {}
         }
     }
@@ -235,8 +297,11 @@ pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
         },
         ("DATE" | "TIME" | "PRINTDATE", _) => {
             return Instruction {
-                kind: None,
-                warnings: vec![FIELD_CACHED],
+                warnings: cached(&command)
+                    .map(|s| (FIELD_CACHED, s))
+                    .into_iter()
+                    .collect(),
+                ..Instruction::default()
             };
         }
         // With an operand, these set the property instead.
@@ -257,8 +322,61 @@ pub(crate) fn instruction(code: &str, properties: &Properties) -> Instruction {
     }
     Instruction {
         kind: Some(kind),
+        case,
         warnings,
     }
+}
+
+/// The page and date fields a PDF shows as saved when layout does not
+/// compute them, as subjects.
+fn cached(command: &str) -> Option<&'static str> {
+    [
+        "PAGE",
+        "NUMPAGES",
+        "SECTIONPAGES",
+        "PAGEREF",
+        "DATE",
+        "TIME",
+        "PRINTDATE",
+    ]
+    .into_iter()
+    .find(|known| *known == command)
+}
+
+/// Whether the field begun by `node` (`w:fldChar` or `w:fldSimple`) is
+/// locked: Word keeps its result and does not update it.
+pub(crate) fn locked(tree: &crate::xml::XmlTree, node: NodeId) -> bool {
+    crate::wml::w_attr(tree, node, "fldLock").is_some_and(crate::styles::on_off)
+}
+
+/// How a PDF shows a field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Shown {
+    /// Computed from the PDF's pages (a page reference once its bookmark
+    /// is placed).
+    Computed,
+    /// Its saved result, though Word would compute it: the subject.
+    Cached(&'static str),
+    /// Its saved result; the PDF engine does not draw it yet.
+    Other,
+}
+
+/// How a PDF shows the field with instruction `code`, as layout reads it.
+#[cfg_attr(
+    not(feature = "pdf"),
+    allow(dead_code, reason = "the PDF preflight asks")
+)]
+pub(crate) fn shown(code: &str) -> Shown {
+    let read = instruction(code, &Properties::new());
+    if matches!(read.kind, Some(ref kind) if !matches!(kind, FieldKind::Text(_))) {
+        return Shown::Computed;
+    }
+    let command = code
+        .split(|c: char| c.is_whitespace() || c == '\\')
+        .find(|word| !word.is_empty())
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    cached(&command).map_or(Shown::Other, Shown::Cached)
 }
 
 /// Document properties by lower-cased name: the core properties under
@@ -312,8 +430,54 @@ fn related<'t>(txn: &'t Txn<'_>, rel: &str) -> Option<&'t crate::xml::XmlTree> {
 #[derive(Debug, Clone)]
 pub(crate) struct FieldSpan {
     pub kind: FieldKind,
+    pub case: Case,
     pub pieces: Range<u32>,
     pub pen: super::model::FieldPen,
+}
+
+impl FieldSpan {
+    /// Every character the value can show, as its case writes it; a page
+    /// number in its section's format may show any of `sections`'. A
+    /// property's value is shown already, so it has none here.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn value_chars(&self, sections: &[NumberFormat]) -> Vec<char> {
+        let format = match &self.kind {
+            FieldKind::Page(format)
+            | FieldKind::NumPages(format)
+            | FieldKind::SectionPages(format)
+            | FieldKind::PageRef { format, .. } => *format,
+            FieldKind::Text(_) => return Vec::new(),
+        };
+        let formats: Vec<NumberFormat> = if format == NumberFormat::Section {
+            sections.to_vec()
+        } else {
+            vec![format]
+        };
+        // Arabic digits for every format: each writes some numbers in arabic.
+        let mut chars: Vec<char> = ('0'..='9').collect();
+        for format in formats {
+            match format {
+                NumberFormat::LowerRoman => chars.extend("ivxlcdm".chars()),
+                NumberFormat::UpperRoman => chars.extend("IVXLCDM".chars()),
+                NumberFormat::LowerLetter => chars.extend('a'..='z'),
+                NumberFormat::UpperLetter => chars.extend('A'..='Z'),
+                NumberFormat::NumberInDash => chars.extend(['-', ' ']),
+                _ => {}
+            }
+        }
+        let mut chars: Vec<char> = match self.case {
+            Case::AsIs => chars,
+            Case::Upper => chars.iter().flat_map(|c| c.to_uppercase()).collect(),
+            Case::Lower => chars.iter().flat_map(|c| c.to_lowercase()).collect(),
+            Case::Capital => chars
+                .iter()
+                .flat_map(|c| std::iter::once(*c).chain(c.to_uppercase()))
+                .collect(),
+        };
+        chars.sort_unstable();
+        chars.dedup();
+        chars
+    }
 }
 
 /// The page a value is computed for: its shown number, its section's
@@ -337,17 +501,30 @@ pub(crate) struct Values {
     pub pages: Option<u32>,
     pub section_pages: Vec<u32>,
     pub bookmarks: HashMap<String, Number>,
-    /// The page of each body paragraph holding a page field.
-    pub paragraphs: HashMap<NodeId, Number>,
+    /// The pages of each body paragraph holding a page field: each line's
+    /// first piece and its page, in order.
+    pub paragraphs: HashMap<NodeId, Vec<(u32, Number)>>,
+}
+
+/// The page of each line of the body's paragraphs: the line's first piece
+/// and its physical page, in order.
+pub(crate) type LinePages = HashMap<NodeId, Vec<(u32, u32)>>;
+
+/// The entry of the line holding piece `at`: the last starting at or
+/// before it, else the first.
+pub(crate) fn line_at<T: Copy>(lines: &[(u32, T)], at: u32) -> Option<T> {
+    let holding = lines.partition_point(|(start, _)| *start <= at);
+    lines.get(holding.saturating_sub(1)).map(|(_, page)| *page)
 }
 
 impl Values {
     /// What a pass gave: its page count and numbers, each bookmark's page
-    /// and the page of each body paragraph in `page_fields`.
+    /// and the page of each line of the body paragraphs in `page_fields`.
     pub(crate) fn of(
         pages: &Pages,
         bookmarks: &HashMap<String, u32>,
         placed: &[Placed],
+        lines: &LinePages,
         page_fields: &HashSet<NodeId>,
     ) -> Values {
         let number = |page: u32| pages.numbers.get(page as usize - 1).copied();
@@ -362,9 +539,19 @@ impl Values {
         let mut paragraphs = HashMap::new();
         for entry in placed {
             if let Some(node) = entry.node.filter(|n| page_fields.contains(n))
-                && let Some(number) = number(entry.page)
+                && let Some(first) = number(entry.page)
             {
-                paragraphs.entry(node).or_insert(number);
+                paragraphs.entry(node).or_insert_with(|| {
+                    let by_line = lines.get(&node).into_iter().flatten();
+                    let by_line: Vec<(u32, Number)> = by_line
+                        .filter_map(|(start, page)| Some((*start, number(*page)?)))
+                        .collect();
+                    if by_line.is_empty() {
+                        vec![(0, first)]
+                    } else {
+                        by_line
+                    }
+                });
             }
         }
         Values {
@@ -438,12 +625,15 @@ pub(crate) struct Context<'v> {
 }
 
 impl Context<'_> {
-    /// `None` keeps the stored result.
-    fn value(&self, kind: &FieldKind, node: Option<NodeId>) -> Option<String> {
+    /// The value of a field at piece `at` of its paragraph `node`, as the
+    /// previous pass laid it out; `None` keeps the stored result.
+    fn value(&self, kind: &FieldKind, node: Option<NodeId>, at: u32) -> Option<String> {
         let values = self.values;
         let page = || {
-            self.page
-                .or_else(|| node.and_then(|n| values.paragraphs.get(&n).copied()))
+            self.page.or_else(|| {
+                let lines = values.paragraphs.get(&node?)?;
+                line_at(lines, at)
+            })
         };
         match kind {
             FieldKind::Page(format) => page().map(|p| p.write(*format)),
@@ -489,12 +679,15 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
         if start < done || end < start || end > para.pieces.len() as i64 {
             continue;
         }
+        // Where the previous pass laid the field out.
+        let laid = span.pieces.start;
         let (start, end) = (start as u32, end as u32);
         span.pieces = start..end;
         done = i64::from(end);
-        let Some(text) = context.value(&span.kind, para.node) else {
+        let Some(text) = context.value(&span.kind, para.node, laid) else {
             continue;
         };
+        let text = span.case.apply(text);
         let pieces: Vec<Piece> = text.chars().map(|ch| span.pen.piece(ch)).collect();
         let added = pieces.len() as u32;
         para.pieces.splice(start as usize..end as usize, pieces);
@@ -507,6 +700,9 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
             let by = |at: usize| (at as i64 + moved) as usize;
             equation.pieces = by(equation.pieces.start)..by(equation.pieces.end);
         }
+        for bookmark in para.bookmarks.iter_mut().filter(|b| b.piece >= end) {
+            bookmark.piece = (i64::from(bookmark.piece) + moved) as u32;
+        }
         shift += moved;
         span.pieces = start..start + added;
         done = i64::from(start + added);
@@ -518,12 +714,57 @@ pub(crate) fn per_page(blocks: &[Block]) -> bool {
     spans(blocks).any(|span| !matches!(span.kind, FieldKind::Text(_)))
 }
 
-/// A warning layout gives, and where.
+/// A warning layout gives, what it is about, and where.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LayoutWarning {
     pub code: &'static str,
+    pub subject: &'static str,
     pub story: StoryId,
     pub page: Option<u32>,
+}
+
+/// Whether a page field of `blocks` writes its number in its section's
+/// format.
+pub(crate) fn takes_section_format(blocks: &[Block]) -> bool {
+    spans(blocks).any(|span| {
+        matches!(
+            span.kind,
+            FieldKind::Page(NumberFormat::Section)
+                | FieldKind::PageRef {
+                    format: NumberFormat::Section,
+                    ..
+                }
+        )
+    })
+}
+
+/// Whether `blocks` have a page number or page reference field, in any
+/// format.
+pub(crate) fn takes_page_number(blocks: &[Block]) -> bool {
+    spans(blocks).any(|span| matches!(span.kind, FieldKind::Page(_) | FieldKind::PageRef { .. }))
+}
+
+/// A page reference whose bookmark `values` do not place keeps its saved
+/// result: one warning per story of `stories` holding one.
+pub(crate) fn unplaced_references<'b>(
+    stories: impl IntoIterator<Item = (StoryId, &'b [Block])>,
+    values: &Values,
+) -> Vec<LayoutWarning> {
+    stories
+        .into_iter()
+        .filter(|(_, blocks)| {
+            spans(blocks).any(|span| match &span.kind {
+                FieldKind::PageRef { bookmark, .. } => !values.bookmarks.contains_key(bookmark),
+                _ => false,
+            })
+        })
+        .map(|(story, _)| LayoutWarning {
+            code: FIELD_CACHED,
+            subject: "PAGEREF",
+            story,
+            page: None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -581,18 +822,85 @@ mod tests {
                 format: NumberFormat::Section
             })
         );
-        assert_eq!(read.warnings, [FIELD_SWITCH_IGNORED]);
+        assert_eq!(read.warnings, [(FIELD_SWITCH_IGNORED, "page reference")]);
         assert!(kind(" PAGEREF _Toc1 \\h ").warnings.is_empty());
     }
 
     #[test]
+    fn a_switch_written_against_a_word_is_read() {
+        assert_eq!(
+            kind("PAGE\\* roman").kind,
+            Some(FieldKind::Page(NumberFormat::LowerRoman))
+        );
+        assert_eq!(
+            kind("PAGE \\*ROMAN").kind,
+            Some(FieldKind::Page(NumberFormat::UpperRoman))
+        );
+    }
+
+    #[test]
+    fn a_case_switch_applies_to_the_written_number() {
+        let read = kind(" PAGE \\* roman \\* Upper ");
+        assert_eq!(read.kind, Some(FieldKind::Page(NumberFormat::LowerRoman)));
+        assert_eq!(read.case.apply(NumberFormat::LowerRoman.write(14)), "XIV");
+        assert_eq!(kind("PAGE \\* FirstCap").case.apply("xiv".into()), "Xiv");
+        assert_eq!(kind("PAGE \\* Lower").case.apply("XIV".into()), "xiv");
+        assert!(kind("PAGE \\* Upper").warnings.is_empty());
+    }
+
+    #[test]
+    fn section_formats_in_dashes_and_two_digits_are_written() {
+        let of = |fmt| NumberFormat::of_section(Some(fmt));
+        assert_eq!(of("numberInDash").unwrap().write(3), "- 3 -");
+        assert_eq!(of("decimalZero").unwrap().write(3), "03");
+        assert_eq!(of("decimalZero").unwrap().write(12), "12");
+        assert_eq!(of("decimal"), Some(NumberFormat::Arabic));
+        assert_eq!(NumberFormat::of_section(None), Some(NumberFormat::Arabic));
+        for fmt in ["cardinalText", "ordinal", "ordinalText", "hex", "chicago"] {
+            assert_eq!(of(fmt), None, "{fmt}");
+        }
+    }
+
+    /// The preflight and layout read a field alike: each probe of the
+    /// PR 73 review.
+    #[test]
+    fn a_pdf_shows_a_field_computed_only_where_layout_computes_it() {
+        for (code, want) in [
+            (" PAGE ", Shown::Computed),
+            (" PAGE\\* roman ", Shown::Computed),
+            (" PAGE \\* roman \\* Upper ", Shown::Computed),
+            (" NUMPAGES ", Shown::Computed),
+            (" SECTIONPAGES \\* Arabic ", Shown::Computed),
+            (" PAGEREF far \\h ", Shown::Computed),
+            (" PAGE \\* Ordinal ", Shown::Computed),
+            (" PAGE extra ", Shown::Cached("PAGE")),
+            (" PAGE \" ", Shown::Cached("PAGE")),
+            (" PAGEREF ", Shown::Cached("PAGEREF")),
+            (" PAGEREF \\h ", Shown::Cached("PAGEREF")),
+            (" NUMPAGES 3 ", Shown::Cached("NUMPAGES")),
+            (" DATE \\@ \"d MMMM\" ", Shown::Cached("DATE")),
+            (" TIME ", Shown::Cached("TIME")),
+            (" PRINTDATE ", Shown::Cached("PRINTDATE")),
+            (" REF _Ref1 \\h ", Shown::Other),
+            (" TITLE ", Shown::Other),
+            (" SEQ Figure ", Shown::Other),
+        ] {
+            assert_eq!(shown(code), want, "{code}");
+        }
+    }
+
+    #[test]
     fn dates_keep_their_stored_value_and_warn() {
-        for code in [" DATE \\@ \"d MMMM yyyy\" ", "TIME", "PRINTDATE"] {
+        for (code, subject) in [
+            (" DATE \\@ \"d MMMM yyyy\" ", "DATE"),
+            ("TIME", "TIME"),
+            ("PRINTDATE", "PRINTDATE"),
+        ] {
             assert_eq!(
                 kind(code),
                 Instruction {
-                    kind: None,
-                    warnings: vec![FIELD_CACHED]
+                    warnings: vec![(FIELD_CACHED, subject)],
+                    ..Instruction::default()
                 }
             );
         }

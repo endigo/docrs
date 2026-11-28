@@ -12,6 +12,7 @@ use crate::layout::model::{
     RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize, on_off,
     section_properties, shaded, story_references,
 };
+use crate::layout::{FieldShown, field_locked, field_shown};
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
 use crate::wml::{A, M, PIC, R, W, WP, first_choice_children, paragraph_text, w_attr, w_child};
@@ -159,6 +160,21 @@ fn shown_stories(
 struct Field {
     instruction: String,
     open: bool,
+    /// `w:fldLock`: Word keeps its result.
+    locked: bool,
+    /// A contents: `Some(true)` when it has `\n` (entries without numbers).
+    toc: Option<bool>,
+}
+
+/// A paragraph of a contents' result: whether it has text, a digit, and a
+/// page reference field, and whether its contents has `\n`.
+#[derive(Default)]
+struct TocEntry {
+    in_toc: bool,
+    unnumbered: bool,
+    text: bool,
+    digit: bool,
+    page_ref: bool,
 }
 
 /// A table being walked: its style context and the rows seen.
@@ -181,6 +197,8 @@ struct Scan<'s, 'd> {
     para_rpr: RPr,
     tables: Vec<TableScan>,
     fields: Vec<Field>,
+    /// The current paragraph, when it is in a contents' result.
+    toc_entry: TocEntry,
     /// By [`bookmark_key`].
     bookmarks: HashSet<String>,
     /// Links to bookmarks, checked once every story is read.
@@ -201,6 +219,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             para_rpr: RPr::default(),
             tables: Vec::new(),
             fields: Vec::new(),
+            toc_entry: TocEntry::default(),
             bookmarks: HashSet::new(),
             anchors: Vec::new(),
             tally: Tally::default(),
@@ -319,6 +338,7 @@ impl<'s, 'd> Scan<'s, 'd> {
         self.para_rpr = RPr::default();
         self.tables.clear();
         self.fields.clear();
+        self.toc_entry = TocEntry::default();
         Ok(())
     }
 
@@ -329,6 +349,9 @@ impl<'s, 'd> Scan<'s, 'd> {
                 if tree.is(child, W, "tbl") {
                     self.tables.pop();
                 }
+            }
+            if tree.is(child, W, "p") {
+                self.toc_entry_end();
             }
         }
         Ok(())
@@ -434,8 +457,13 @@ impl<'s, 'd> Scan<'s, 'd> {
             }
             "footnoteReference" | "footnoteRef" => self.note(NOT_YET_DRAWN, "footnote"),
             "endnoteReference" | "endnoteRef" => self.note(NOT_YET_DRAWN, "endnote"),
-            "fldSimple" => self.field(w_attr(tree, node, "instr").unwrap_or("")),
-            "fldChar" => self.field_char(w_attr(tree, node, "fldCharType")),
+            "fldSimple" => {
+                let instruction = w_attr(tree, node, "instr").unwrap_or("");
+                self.field(instruction, field_locked(tree, node), true)
+            }
+            "fldChar" => {
+                self.field_char(w_attr(tree, node, "fldCharType"), field_locked(tree, node))
+            }
             "instrText" => {
                 if let Some(field) = self.fields.last_mut().filter(|f| f.open) {
                     field.instruction.push_str(&text_of(tree, node));
@@ -486,6 +514,7 @@ impl<'s, 'd> Scan<'s, 'd> {
     fn paragraph(&mut self, tree: &XmlTree, p: NodeId) {
         self.ordinal += 1;
         self.in_paragraph.clear();
+        self.toc_entry = TocEntry::default();
         let table = self.tables.last().map(|t| &t.ctx);
         let ParaFormat { ppr, rpr, .. } = self.formatting.paragraph(tree, p, table);
         if ppr.page_break_before == Some(true) {
@@ -558,9 +587,13 @@ impl<'s, 'd> Scan<'s, 'd> {
     fn text(&mut self, text: &str) {
         if !text.is_empty() {
             self.note_once(NOT_YET_DRAWN, "text");
-            if matches!(self.kind, "header" | "footer") {
-                self.note_once(NOT_YET_DRAWN, self.kind);
-            }
+        }
+        if let Some(unnumbered) = self.in_toc() {
+            let entry = &mut self.toc_entry;
+            entry.in_toc = true;
+            entry.unnumbered |= unnumbered;
+            entry.text |= !text.trim().is_empty();
+            entry.digit |= text.chars().any(|c| c.is_ascii_digit());
         }
         self.scripts(text);
     }
@@ -621,11 +654,28 @@ impl<'s, 'd> Scan<'s, 'd> {
         self.anchors.push((anchor.to_string(), location));
     }
 
-    fn field_char(&mut self, kind: Option<&str>) {
+    /// `Some` in a contents' result: whether its contents has `\n`.
+    fn in_toc(&self) -> Option<bool> {
+        self.fields.iter().filter(|f| !f.open).find_map(|f| f.toc)
+    }
+
+    /// A contents entry whose number is not a page reference field shows
+    /// its saved number. One without a number (`\n`, no digit) is drawn
+    /// as it is.
+    fn toc_entry_end(&mut self) {
+        let entry = std::mem::take(&mut self.toc_entry);
+        if entry.in_toc && entry.text && !entry.page_ref && !(entry.unnumbered && !entry.digit) {
+            self.note(FIELD, "TOC");
+        }
+    }
+
+    fn field_char(&mut self, kind: Option<&str>, locked: bool) {
         match kind {
             Some("begin") => self.fields.push(Field {
                 instruction: String::new(),
                 open: true,
+                locked,
+                toc: None,
             }),
             Some("separate") => self.close_instruction(),
             Some("end") => {
@@ -639,32 +689,41 @@ impl<'s, 'd> Scan<'s, 'd> {
     fn close_instruction(&mut self) {
         if let Some(field) = self.fields.last_mut().filter(|f| f.open) {
             field.open = false;
+            let locked = field.locked;
             let instruction = std::mem::take(&mut field.instruction);
-            self.field(&instruction);
+            self.field(&instruction, locked, false);
         }
     }
 
-    /// Fields a story leaves without `separate` or `end`.
+    /// Fields a story leaves without `end`: the PDF shows what layout
+    /// read of them, not what Word would.
     fn close_fields(&mut self) {
         while !self.fields.is_empty() {
             self.close_instruction();
             self.fields.pop();
+            self.note(FIELD, "field without an end");
         }
     }
 
-    fn field(&mut self, instruction: &str) {
+    /// `simple`: a `w:fldSimple`, whose result holds no field.
+    fn field(&mut self, instruction: &str, locked: bool, simple: bool) {
         let command = instruction
             .split(|c: char| c.is_whitespace() || c == '\\')
             .find(|token| !token.is_empty())
             .unwrap_or("")
             .to_ascii_uppercase();
         match command.as_str() {
-            "DATE" => self.note(FIELD, "DATE"),
-            "TIME" => self.note(FIELD, "TIME"),
-            "PRINTDATE" => self.note(FIELD, "PRINTDATE"),
-            // Drawn as saved until the PDF computes its own page numbers.
-            "TOC" => self.note(FIELD, "TOC"),
-            "PAGEREF" => self.note(FIELD, "PAGEREF"),
+            // A contents is drawn as its entries; each entry's number is
+            // computed when it is a page reference field.
+            "TOC" if simple => self.note(FIELD, "TOC"),
+            "TOC" => {
+                let unnumbered = instruction
+                    .split_whitespace()
+                    .any(|word| word.eq_ignore_ascii_case("\\n"));
+                if let Some(field) = self.fields.last_mut() {
+                    field.toc = Some(unnumbered);
+                }
+            }
             "HYPERLINK" => {
                 match field_link(instruction) {
                     Some(Link::Uri(target)) => self.link(&target, TEXT_LINK),
@@ -673,7 +732,17 @@ impl<'s, 'd> Scan<'s, 'd> {
                     _ => self.note_with(LINK, "link", "computed".to_string()),
                 }
             }
-            _ => self.note(NOT_YET_DRAWN, "field"),
+            command => match field_shown(instruction) {
+                FieldShown::Computed => {
+                    if command == "PAGEREF" && self.in_toc().is_some() {
+                        self.toc_entry.page_ref = true;
+                    }
+                }
+                // Word keeps a locked field's result, as the PDF does.
+                FieldShown::Cached(_) if locked => {}
+                FieldShown::Cached(subject) => self.note(FIELD, subject),
+                FieldShown::Other => self.note(NOT_YET_DRAWN, "field"),
+            },
         }
     }
 

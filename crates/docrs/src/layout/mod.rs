@@ -56,7 +56,15 @@ use crate::txn::Txn;
 use crate::wml::{R, W, set_leading_text, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Error, Result};
-use fields::{Context, LayoutWarning, Values};
+pub(crate) use fields::LayoutWarning;
+use fields::{Context, Values};
+#[cfg(feature = "pdf")]
+pub(crate) use fields::{
+    FIELD_CACHED, FIELD_FORMAT_APPROXIMATED, FIELD_SWITCH_IGNORED, NumberFormat,
+    Shown as FieldShown, locked as field_locked, shown as field_shown,
+};
+#[cfg(feature = "pdf")]
+pub(crate) use furniture::STORY_OVERFLOW;
 use model::StoryId;
 
 /// The estimated layout of a document's body.
@@ -191,11 +199,11 @@ pub fn layout_with(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Layout>
     let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts, LayoutTarget::Word)?;
     let values = Values::default();
     show_body(&mut model, &values);
-    let mut placed = Vec::new();
-    let pages = flow::paginate(&model, &values, &mut placed)?;
+    let mut record = PassRecord::default();
+    let pages = flow::paginate(&model, &values, &mut record)?;
     Ok(Layout {
-        bookmarks: bookmark_pages(&model, &placed),
-        placed,
+        bookmarks: bookmark_pages(&model, &record),
+        placed: record.placed,
         pages: pages.count,
         first_page_number: first_page_number(&model),
         missing_fonts: missing_fonts(&book.missing, unread),
@@ -217,16 +225,22 @@ fn show_body(model: &mut model::Model, values: &Values) {
     fields::show(&mut model.blocks, &context);
 }
 
-/// The physical page of each body bookmark: its paragraph's first.
-fn bookmark_pages(model: &model::Model, placed: &[Placed]) -> HashMap<String, u32> {
-    let mut by_node: HashMap<(StoryId, NodeId), Vec<String>> = HashMap::new();
+/// The physical page of each body bookmark: that of the line it starts in.
+fn bookmark_pages(model: &model::Model, record: &PassRecord) -> HashMap<String, u32> {
+    let mut by_node: HashMap<(StoryId, NodeId), Vec<model::Bookmark>> = HashMap::new();
     collect_bookmarks(&model.blocks, &mut by_node);
     let mut bookmarks = HashMap::new();
-    for entry in placed {
-        if let Some(names) = entry.node.and_then(|n| by_node.get(&(StoryId::Body, n))) {
-            for name in names {
-                bookmarks.entry(name.clone()).or_insert(entry.page);
-            }
+    for entry in &record.placed {
+        let Some(node) = entry.node else {
+            continue;
+        };
+        let Some(names) = by_node.get(&(StoryId::Body, node)) else {
+            continue;
+        };
+        let lines = record.lines.get(&node).map_or(&[][..], Vec::as_slice);
+        for bookmark in names {
+            let page = fields::line_at(lines, bookmark.piece).unwrap_or(entry.page);
+            bookmarks.entry(bookmark.name.clone()).or_insert(page);
         }
     }
     bookmarks
@@ -243,9 +257,12 @@ pub(crate) struct Settled {
     model: model::Model,
     values: Values,
     pub layout: Layout,
-    #[allow(dead_code, reason = "the PDF painter reports them")]
+    #[allow(dead_code, reason = "the PDF report will give them")]
     pub passes: usize,
-    #[allow(dead_code, reason = "the PDF painter reports them")]
+    #[cfg_attr(
+        not(feature = "pdf"),
+        allow(dead_code, reason = "the PDF report gives them")
+    )]
     pub warnings: Vec<LayoutWarning>,
 }
 
@@ -259,6 +276,16 @@ impl Settled {
     #[allow(dead_code, reason = "the PDF painter reads it")]
     pub(crate) fn model(&self) -> &model::Model {
         &self.model
+    }
+
+    /// The part of a header or footer; `None` for the body.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn story_part(&self, story: StoryId) -> Option<&str> {
+        self.model
+            .stories
+            .iter()
+            .find(|s| s.id == story)
+            .map(|s| s.part.as_str())
     }
 }
 
@@ -283,10 +310,21 @@ pub(crate) fn settle(
         show_body(&mut model, &values);
         let mut record = PassRecord::default();
         let pages = flow::paginate(&model, &values, &mut record)?;
-        let bookmarks = bookmark_pages(&model, &record.placed);
-        let next = Values::of(&pages, &bookmarks, &record.placed, &page_fields);
+        let bookmarks = bookmark_pages(&model, &record);
+        let next = Values::of(
+            &pages,
+            &bookmarks,
+            &record.placed,
+            &record.lines,
+            &page_fields,
+        );
         let signature = signature(&next, record.breaks.finish());
         if !feeds_back || seen.last() == Some(&signature) {
+            let mut warnings = pages.warnings;
+            let stories = model.stories.iter().filter(|s| model.shows(s.id));
+            let stories = stories.map(|s| (s.id, s.blocks.as_slice()));
+            let body = std::iter::once((StoryId::Body, model.blocks.as_slice()));
+            warnings.extend(fields::unplaced_references(body.chain(stories), &values));
             let layout = Layout {
                 bookmarks,
                 placed: record.placed,
@@ -301,7 +339,7 @@ pub(crate) fn settle(
                 values,
                 layout,
                 passes,
-                warnings: pages.warnings,
+                warnings,
             };
             return Ok((settled, book));
         }
@@ -334,12 +372,14 @@ fn signature(values: &Values, breaks: u64) -> u64 {
     hasher.finish()
 }
 
-/// Where each body paragraph landed and where every line broke.
+/// Where each body paragraph landed, where every line broke, and the page
+/// of each body line.
 #[derive(Default)]
 struct PassRecord {
     placed: Vec<Placed>,
     breaks: DefaultHasher,
     page: u32,
+    lines: fields::LinePages,
 }
 
 impl flow::Sink for PassRecord {
@@ -350,6 +390,16 @@ impl flow::Sink for PassRecord {
 
     fn line(&mut self, _: flow::Point, para: &model::Para, line: &flow::Line) -> Result<()> {
         (self.page, para.story, para.node, line.pieces.start).hash(&mut self.breaks);
+        if let (StoryId::Body, Some(node)) = (para.story, para.node) {
+            let lines = self.lines.entry(node).or_default();
+            // A table header row drawn again keeps its first page.
+            if lines
+                .last()
+                .is_none_or(|(start, _)| *start < line.pieces.start)
+            {
+                lines.push((line.pieces.start, self.page));
+            }
+        }
         Ok(())
     }
 
@@ -1060,13 +1110,15 @@ fn by_look(
     runs
 }
 
-fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId), Vec<String>>) {
+fn collect_bookmarks(
+    blocks: &[model::Block],
+    out: &mut HashMap<(StoryId, NodeId), Vec<model::Bookmark>>,
+) {
     for block in blocks {
         match block {
             model::Block::Para(para) => {
                 if let (Some(node), false) = (para.node, para.bookmarks.is_empty()) {
-                    let names = para.bookmarks.iter().map(|b| b.name.clone()).collect();
-                    out.insert((para.story, node), names);
+                    out.insert((para.story, node), para.bookmarks.clone());
                 }
             }
             model::Block::Table(table) => {
@@ -1112,7 +1164,13 @@ mod tests {
         ];
         let mut map = HashMap::new();
         collect_bookmarks(&blocks, &mut map);
-        assert_eq!(map[&(StoryId::Body, NodeId(3))], ["inBody"]);
-        assert_eq!(map[&(StoryId::Header(1), NodeId(3))], ["inHeader"]);
+        let names = |key| {
+            map[&key]
+                .iter()
+                .map(|b: &Bookmark| b.name.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names((StoryId::Body, NodeId(3))), ["inBody"]);
+        assert_eq!(names((StoryId::Header(1), NodeId(3))), ["inHeader"]);
     }
 }

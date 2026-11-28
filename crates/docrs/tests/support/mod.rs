@@ -65,6 +65,22 @@ pub fn document_xml(doc: &Document) -> String {
     part_xml(doc, "word/document.xml")
 }
 
+/// `(bookmark, number shown)` of each contents entry: a hyperlink to the
+/// bookmark holding a PAGEREF field, its number the last text in it.
+pub fn toc_entries(doc: &Document) -> Vec<(String, String)> {
+    let xml = document_xml(doc);
+    xml.split("<w:hyperlink w:anchor=\"")
+        .skip(1)
+        .filter_map(|chunk| {
+            let chunk = &chunk[..chunk.find("</w:hyperlink>")?];
+            chunk.contains("PAGEREF").then_some(())?;
+            let bookmark = chunk[..chunk.find('"')?].to_string();
+            let last = &chunk[chunk.rfind("<w:t>")? + 5..];
+            Some((bookmark, last[..last.find('<')?].to_string()))
+        })
+        .collect()
+}
+
 /// A 3×2 PNG at 150 dpi, as hex.
 pub const PNG_150DPI: &str = "89504e470d0a1a0a0000000d49484452000000030000000208020000001216f14d0000000970485973000017120000171201679fd2520000000b49444154789c6360800100000a00017f80745e0000000049454e44ae426082";
 

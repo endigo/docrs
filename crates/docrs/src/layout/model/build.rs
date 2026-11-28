@@ -10,7 +10,7 @@ use super::{
     RunFace,
 };
 use crate::fields::fieldcode;
-use crate::layout::fields::{FieldKind, FieldSpan, LayoutWarning, instruction};
+use crate::layout::fields::{Case, FieldKind, FieldSpan, LayoutWarning, instruction, locked};
 use crate::layout::fonts::{Face, FaceSource, FontKind, Resolved};
 use crate::layout::variation::Style;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
@@ -40,21 +40,25 @@ struct Field {
     /// A HYPERLINK field's target, for its result.
     link: Option<u32>,
     live: Option<LiveField>,
+    /// `w:fldLock`: it keeps its result.
+    locked: bool,
 }
 
 /// A field layout computes, open: where its result starts in its
 /// paragraph's pieces and fields.
 struct LiveField {
     kind: FieldKind,
+    case: Case,
     piece: u32,
     span: usize,
     pen: FieldPen,
 }
 
 impl LiveField {
-    fn new(kind: FieldKind, para: &Para, pen: FieldPen) -> LiveField {
+    fn new((kind, case): (FieldKind, Case), para: &Para, pen: FieldPen) -> LiveField {
         LiveField {
             kind,
+            case,
             piece: para.pieces.len() as u32,
             span: para.fields.len(),
             pen,
@@ -75,6 +79,7 @@ impl LiveField {
         }
         para.fields.push(FieldSpan {
             kind: self.kind,
+            case: self.case,
             pieces: self.piece..para.pieces.len() as u32,
             pen: self.pen,
         });
@@ -156,11 +161,12 @@ impl Builder<'_> {
 
     /// Reads a field's instruction where its result shows: its warning,
     /// and its kind when layout computes it.
-    fn field_kind(&mut self, code: &str) -> Option<FieldKind> {
+    fn field_kind(&mut self, code: &str) -> Option<(FieldKind, Case)> {
         let read = instruction(code, &self.properties);
-        for code in read.warnings {
+        for (code, subject) in read.warnings {
             let warning = LayoutWarning {
                 code,
+                subject,
                 story: self.story,
                 page: None,
             };
@@ -168,7 +174,7 @@ impl Builder<'_> {
                 self.warnings.push(warning);
             }
         }
-        read.kind
+        read.kind.map(|kind| (kind, read.case))
     }
 
     /// `w:hyperlink`'s target: its relationship's, with its bookmark as the
@@ -188,7 +194,12 @@ impl Builder<'_> {
 
     /// The pen for a field of `kind`, with the face of the chain that
     /// draws each character its value can show that the run's face lacks.
-    fn field_pen(&mut self, kind: &FieldKind, rpr: &RPr, link: Option<u32>) -> FieldPen {
+    fn field_pen(
+        &mut self,
+        (kind, case): &(FieldKind, Case),
+        rpr: &RPr,
+        link: Option<u32>,
+    ) -> FieldPen {
         let measurer = self.measurer(rpr);
         let look = self.look(rpr, &measurer, link);
         let pen = Pen {
@@ -202,7 +213,7 @@ impl Builder<'_> {
             .chain('A'..='Z')
             .collect();
         if let FieldKind::Text(text) = kind {
-            shown.extend(text.chars());
+            shown.extend(case.apply(text.clone()).chars());
         }
         shown.sort_unstable();
         shown.dedup();
@@ -589,7 +600,9 @@ impl Builder<'_> {
                     };
                     let shown = !fields.iter().any(|f| f.part == FieldPart::Code);
                     let live = match w_attr(tree, child, "instr") {
-                        Some(code) if name == "fldSimple" && shown => self.field_kind(code),
+                        Some(code) if name == "fldSimple" && shown && !locked(tree, child) => {
+                            self.field_kind(code)
+                        }
                         _ => None,
                     };
                     let outer = self.link;
@@ -662,6 +675,7 @@ impl Builder<'_> {
                         code: String::new(),
                         link: None,
                         live: None,
+                        locked: locked(tree, child),
                     }),
                     Some("separate") => {
                         let Some((last, outer)) = fields.split_last_mut() else {
@@ -670,7 +684,7 @@ impl Builder<'_> {
                         last.part = FieldPart::Result;
                         let target = field_link(&last.code);
                         last.link = target.map(|t| self.link(t));
-                        if outer.iter().any(|f| f.part == FieldPart::Code) {
+                        if last.locked || outer.iter().any(|f| f.part == FieldPart::Code) {
                             continue;
                         }
                         let code = std::mem::take(&mut last.code);
@@ -680,7 +694,21 @@ impl Builder<'_> {
                         }
                     }
                     Some("end") => {
-                        if let Some(live) = fields.pop().and_then(|f| f.live) {
+                        let Some(field) = fields.pop() else {
+                            continue;
+                        };
+                        let outer_code = fields.iter().any(|f| f.part == FieldPart::Code);
+                        let live = match field.part {
+                            // No result: Word shows the value where the field ends.
+                            FieldPart::Code if !outer_code && !field.locked => {
+                                self.field_kind(&field.code).map(|kind| {
+                                    let pen = self.field_pen(&kind, &rpr, link);
+                                    LiveField::new(kind, para, pen)
+                                })
+                            }
+                            _ => field.live,
+                        };
+                        if let Some(live) = live {
                             live.close(para);
                         }
                     }
@@ -713,7 +741,7 @@ impl Builder<'_> {
                     }
                 }
                 "pgNum" => {
-                    let kind = FieldKind::Page(Default::default());
+                    let kind = (FieldKind::Page(Default::default()), Case::AsIs);
                     let pen = self.field_pen(&kind, &rpr, link);
                     LiveField::new(kind, para, pen).close(para);
                 }

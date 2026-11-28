@@ -45,9 +45,13 @@ use serde::Serialize;
 use writer::{Dict, Object, Ref, Writer, count, name};
 
 use crate::coreprops::core_properties;
-use crate::layout::fonts::{FaceSource, bundled};
-use crate::layout::model::Piece;
-use crate::layout::{Face, FontSet, LayoutTarget, model_of, settle};
+use crate::layout::fonts::{FaceSource, FontBook, bundled};
+use crate::layout::model::{Piece, StoryId};
+use crate::layout::{
+    FIELD_CACHED, FIELD_FORMAT_APPROXIMATED, FIELD_SWITCH_IGNORED, Face, FontSet, LayoutTarget,
+    STORY_OVERFLOW, Settled, model_of, settle,
+};
+use crate::package::rels::rt;
 use crate::txn::Txn;
 use crate::{Document, Error, ErrorDetails, Limits, Result, WarningCount};
 
@@ -119,12 +123,24 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "tracked changes and comments are not shown: the PDF shows the text as if every change were accepted",
     ),
     (
-        "pdf_field_cached",
+        FIELD_CACHED,
         "a date or time field shows the value saved in the document, not the current one",
     ),
     (
         "pdf_decoration_approximated",
         "a border style the PDF does not draw is drawn as a single line",
+    ),
+    (
+        FIELD_SWITCH_IGNORED,
+        "a page reference's \\p switch is ignored: it shows the page number, not \"above\" or \"below\"",
+    ),
+    (
+        FIELD_FORMAT_APPROXIMATED,
+        "a page number asked in words, as an ordinal or through a numeric picture is shown in arabic digits",
+    ),
+    (
+        STORY_OVERFLOW,
+        "a header or footer reaching past the middle of the page is cut off",
     ),
     (
         "pdf_justification_unsupported",
@@ -377,8 +393,11 @@ const PRODUCER: &str = concat!("docrs ", env!("CARGO_PKG_VERSION"));
 /// next face of that chain, a symbol in the built-in symbol font. A family
 /// and style with no program refuses (`pdf_font_program_missing`, every
 /// one listed in the error's details) unless `allow_unembedded`, and so
-/// does a character nothing draws (`pdf_glyph_missing`). With `strict`,
-/// any warning refuses. Reads only; the document is unchanged.
+/// does a character nothing draws (`pdf_glyph_missing`). Page numbers,
+/// page counts and page references, the contents' included, show the PDF's
+/// own pages, and what layout changes in the stories some page shows is
+/// reported. With `strict`, any warning refuses. Reads only; the document
+/// is unchanged.
 pub fn render(document: &Document, options: &PdfOptions) -> Result<(Vec<u8>, PdfReport)> {
     let mut report = preflight(document)?;
     report.check(options.strict)?;
@@ -387,6 +406,53 @@ pub fn render(document: &Document, options: &PdfOptions) -> Result<(Vec<u8>, Pdf
     report.check(options.strict)?;
     report.pages = Some(pages);
     Ok((bytes, report))
+}
+
+/// The layout a PDF draws, its fields showing the PDF's own pages, and
+/// the font book that measured it.
+fn settle_for_pdf(txn: &Txn<'_>, options: &PdfOptions) -> Result<(Settled, FontBook)> {
+    let target = LayoutTarget::Pdf {
+        allow_unembedded: options.allow_unembedded,
+    };
+    let main = txn.document().package().main_part_name();
+    settle(txn, main, &options.fonts, target)
+}
+
+/// What layout changes in the stories some page shows: stories cut off,
+/// page numbers written otherwise, page references it cannot place.
+/// What `reported` already holds is not repeated.
+fn layout_warnings(
+    txn: &Txn<'_>,
+    settled: &Settled,
+    main: &str,
+    reported: &[PdfWarning],
+) -> Result<Vec<PdfWarning>> {
+    let notes = |rel| txn.part_related_by(main, rel);
+    let parts = [notes(rt::FOOTNOTES)?, notes(rt::ENDNOTES)?];
+    let mut tally = Tally::default();
+    let model = settled.model();
+    for warning in settled.warnings.iter().filter(|w| model.shows(w.story)) {
+        if reported
+            .iter()
+            .any(|r| r.code == warning.code && r.subject == warning.subject)
+        {
+            continue;
+        }
+        let location = PdfLocation {
+            story: match warning.story {
+                StoryId::Footnotes => parts[0].as_deref(),
+                StoryId::Endnotes => parts[1].as_deref(),
+                story => settled.story_part(story),
+            }
+            .unwrap_or(main)
+            .to_string(),
+            ordinal: 0,
+            page: warning.page,
+            kind: warning.story.kind(),
+        };
+        tally.note(warning.code, warning.subject, Some(location), None);
+    }
+    Ok(tally.finish())
 }
 
 /// Lays out and draws `document`, adding what its fonts change and what
@@ -400,16 +466,15 @@ fn paint(
 ) -> Result<(Vec<u8>, u32)> {
     let txn = Txn::new(document);
     let main = document.package().main_part_name();
-    let target = LayoutTarget::Pdf {
-        allow_unembedded: options.allow_unembedded,
-    };
-    let (settled, mut book) = settle(&txn, main, &options.fonts, target)?;
+    let (settled, mut book) = settle_for_pdf(&txn, options)?;
     let model = settled.model();
     let mut chain = chain::Chain::new(&mut book, options.allow_unembedded, stand_in.is_some());
     chain.check(model)?;
     let (warnings, fonts) = chain.report();
     report.warnings.extend(warnings);
     report.fonts = fonts;
+    let changed = layout_warnings(&txn, &settled, main, &report.warnings)?;
+    report.warnings.extend(changed);
     report.check(options.strict)?;
     let limits = &options.limits;
     let places = places::Places::new(options.links, options.outline);
@@ -808,6 +873,18 @@ pub fn render_unchecked_for_tests(
 ) -> Result<(Vec<u8>, PdfReport)> {
     let mut report = PdfReport::default();
     paint(document, options, None, &mut report).map(|(bytes, _)| (bytes, report))
+}
+
+/// The settled layout [`render`] draws, for tests only (`test-support`
+/// feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn layout_for_tests(document: &Document, fonts: &FontSet) -> Result<crate::layout::Layout> {
+    let options = PdfOptions {
+        fonts: fonts.clone(),
+        ..PdfOptions::default()
+    };
+    settle_for_pdf(&Txn::new(document), &options).map(|(settled, _)| settled.layout)
 }
 
 /// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).
