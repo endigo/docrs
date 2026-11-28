@@ -1104,7 +1104,17 @@ fromHtml("<p>x</p>", { docx: false });
 const conversion: PdfConversionOptions = { pdf: true };
 // @ts-expect-error a PdfConversionOptions conversion may have no docx
 fromHtml("<p>x</p>", conversion).docx;
-void viaVariable; void wrapper; void returned; void off;
+function exportPdf(html: string, options?: PdfConversionOptions) {
+  // @ts-expect-error options that may carry pdf, or be undefined, do not pick the plain overload
+  return fromHtml(html, options);
+}
+declare const mixed: FromMarkdownOptions | PdfConversionOptions;
+// @ts-expect-error a union that may carry pdf does not pick the plain overload
+fromHtml("<p>x</p>", mixed);
+declare const mine: FromMarkdownOptions & { pdf?: boolean };
+// @ts-expect-error an options type with pdf?: boolean does not pick the plain overload
+fromMarkdown("# A", mine);
+void viaVariable; void wrapper; void exportPdf; void returned; void off;
 const both: FromMarkdownResult & PdfOutput = fromHtml("<p>x</p>", { fonts, pdf: true });
 const report: PdfReport = both.pdfReport;
 const pages: number = report.pages;

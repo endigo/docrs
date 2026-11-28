@@ -719,27 +719,29 @@ export interface UsedFontsOptions {
 }
 
 type WithPdf = { pdf: true | PdfOptions };
+/** The plain overload refuses an options type that can carry `pdf` or `docx`, which TypeScript would not split across the overloads. */
+type NoPdf = { pdf?: never; docx?: never };
 
 /** Convert Markdown into a .docx styled by a reference document, and with `pdf` draw it as a PDF too. */
 export function fromMarkdown(markdown: string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 export function fromMarkdown(markdown: string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
 export function fromMarkdown(markdown: string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
 export function fromMarkdown(markdown: string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
-export function fromMarkdown(markdown: string, options?: FromMarkdownOptions): FromMarkdownResult;
+export function fromMarkdown(markdown: string, options?: FromMarkdownOptions & NoPdf): FromMarkdownResult;
 
 /** Convert editor HTML (TipTap's `editor.getHTML()` and similar) like `fromMarkdown`; pictures get no captions unless `captions: true`. */
 export function fromHtml(html: string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 export function fromHtml(html: string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
 export function fromHtml(html: string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
 export function fromHtml(html: string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
-export function fromHtml(html: string, options?: FromMarkdownOptions): FromMarkdownResult;
+export function fromHtml(html: string, options?: FromMarkdownOptions & NoPdf): FromMarkdownResult;
 
 /** Convert a TipTap document (`editor.getJSON()`, as the object or as JSON text) like `fromMarkdown`; pictures get no captions unless `captions: true`. */
 export function fromJson(document: object | string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
 export function fromJson(document: object | string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
 export function fromJson(document: object | string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
 export function fromJson(document: object | string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
-export function fromJson(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult;
+export function fromJson(document: object | string, options?: FromMarkdownOptions & NoPdf): FromMarkdownResult;
 
 /** @deprecated Use `fromJson`. */
 export function fromTiptap(document: object | string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
@@ -750,7 +752,7 @@ export function fromTiptap(document: object | string, options: FromMarkdownOptio
 /** @deprecated Use `fromJson`. */
 export function fromTiptap(document: object | string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
 /** @deprecated Use `fromJson`. */
-export function fromTiptap(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult;
+export function fromTiptap(document: object | string, options?: FromMarkdownOptions & NoPdf): FromMarkdownResult;
 
 /**
  * Draw a .docx as a PDF, as `docrs pdf` does (experimental). A family and style with no font
