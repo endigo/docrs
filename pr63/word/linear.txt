@@ -1,0 +1,14 @@
+math objects: 6
+1 display type equation display inline justification equation justification inline
+1: 𝑎^2+𝑏^2=𝑐^2
+2 display type equation display inline justification equation justification inline
+2: (𝑛+1)/2
+3 display type equation display inline justification equation justification inline
+3: √(𝑥^2+𝑦^2 )
+4 display type equation display professional justification equation justification center group
+4: ∑_(𝑖=1)^𝑛▒𝑖=(𝑛(𝑛+1))/2
+5 display type equation display professional justification equation justification center group
+5: 𝐴=(■(𝑎&𝑏@𝑐&𝑑))
+6 display type equation display professional justification equation justification center group
+6: lim┬(𝑥→0)   sin⁡𝑥/𝑥=1
+
