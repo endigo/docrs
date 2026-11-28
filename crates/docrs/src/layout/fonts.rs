@@ -107,7 +107,7 @@ pub(crate) enum FontError {
 }
 
 impl FontError {
-    fn into_error(self) -> Error {
+    pub(crate) fn into_error(self) -> Error {
         let (reason, message) = match self {
             FontError::Malformed(table) => (
                 "font_malformed",
@@ -233,7 +233,7 @@ impl Face {
     /// format 4 or 12).
     pub fn try_parse(data: &[u8], family: &str, bold: bool, italic: bool) -> Result<Face> {
         let mut budget = FILE_BUDGET;
-        Ttf::new(data)
+        Ttf::face(data, 0)
             .and_then(|ttf| Face::from_ttf(&ttf, family, bold, italic, &mut budget))
             .map_err(FontError::into_error)
     }
@@ -254,6 +254,16 @@ impl Face {
             source: FileSource::Part { name, key },
             offset,
         }))
+    }
+
+    /// Face `index` of a font file, read as a font set reads it, within
+    /// one file's parse budget.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn read_at(data: &Arc<[u8]>, index: usize) -> Result<Face> {
+        let mut budget = FILE_BUDGET;
+        read_face(data, index, &mut budget)
+            .map(|named| named.face)
+            .map_err(FontError::into_error)
     }
 
     fn with_file(self, file: FontFile) -> Face {
@@ -480,8 +490,10 @@ fn read_face(data: &Arc<[u8]>, index: usize, budget: &mut usize) -> Parsed<Named
         return Err(FontError::Malformed("table directory"));
     }
     let ttf = Ttf::new_at(data, offset)?;
-    let [Some(family), Some(subfamily), full, postscript] =
-        ttf.table(b"name").map(names).unwrap_or_default()
+    let [Some(family), Some(subfamily), full, postscript] = ttf
+        .table(b"name")
+        .map(|table| names(table, [1, 2, 4, 6]))
+        .unwrap_or_default()
     else {
         return Err(FontError::Unnamed);
     };
@@ -544,7 +556,7 @@ fn document_style(family: String, subfamily: &str) -> (String, bool, bool) {
 /// yields to editable or preview and print (bits 2, 3), as versions before
 /// 3 allow; bitmap only (bit 9) and no subsetting (bit 8) exist from
 /// version 2.
-fn licence(ttf: &Ttf<'_>) -> (bool, bool) {
+pub(crate) fn licence(ttf: &Ttf<'_>) -> (bool, bool) {
     let Some(os2) = ttf.table(b"OS/2") else {
         return (true, true);
     };
@@ -563,13 +575,12 @@ fn face_view(data: &[u8], index: usize) -> Option<usize> {
     }
 }
 
-/// Name ids 1, 2, 4 and 6 (family, subfamily, full and PostScript name):
-/// Windows English, else Unicode, else Macintosh Roman.
-fn names(table: &[u8]) -> [Option<String>; 4] {
-    const IDS: [u16; 4] = [1, 2, 4, 6];
-    let mut best: [Option<(u8, String)>; 4] = Default::default();
+/// Names `ids` from a name table: Windows English, else Unicode, else
+/// Macintosh Roman.
+pub(crate) fn names<const N: usize>(table: &[u8], ids: [u16; N]) -> [Option<String>; N] {
+    let mut best: [Option<(u8, String)>; N] = std::array::from_fn(|_| None);
     let (Some(count), Some(strings)) = (be16(table, 2), be16(table, 4)) else {
-        return Default::default();
+        return std::array::from_fn(|_| None);
     };
     for index in 0..usize::from(count) {
         let at = 6 + 12 * index;
@@ -588,7 +599,7 @@ fn names(table: &[u8]) -> [Option<String>; 4] {
             (1, 0) => 1,
             _ => continue,
         };
-        let Some(slot) = IDS.iter().position(|wanted| *wanted == id) else {
+        let Some(slot) = ids.iter().position(|wanted| *wanted == id) else {
             continue;
         };
         if best[slot].as_ref().is_some_and(|(kept, _)| *kept >= rank) {
@@ -614,30 +625,29 @@ fn names(table: &[u8]) -> [Option<String>; 4] {
     best.map(|name| name.map(|(_, text)| text))
 }
 
-fn be16(data: &[u8], at: usize) -> Option<u16> {
+pub(crate) fn be16(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes(
         data.get(at..at.checked_add(2)?)?.try_into().ok()?,
     ))
 }
 
-fn be32(data: &[u8], at: usize) -> Option<u32> {
+pub(crate) fn be32(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(
         data.get(at..at.checked_add(4)?)?.try_into().ok()?,
     ))
 }
 
-/// The table directory of the first face of a font file.
-struct Ttf<'a> {
+/// The table directory of one face of a font file.
+pub(crate) struct Ttf<'a> {
     data: &'a [u8],
     tables: Vec<([u8; 4], usize, usize)>,
 }
 
 impl<'a> Ttf<'a> {
-    fn new(data: &'a [u8]) -> Parsed<Ttf<'a>> {
-        Ttf::new_at(
-            data,
-            face_view(data, 0).ok_or(FontError::Malformed("ttcf"))?,
-        )
+    /// Face `index` of a font file or collection.
+    pub(crate) fn face(data: &'a [u8], index: u32) -> Parsed<Ttf<'a>> {
+        let view = face_view(data, index as usize).ok_or(FontError::Malformed("ttcf"))?;
+        Ttf::new_at(data, view)
     }
 
     fn new_at(data: &'a [u8], offset: usize) -> Parsed<Ttf<'a>> {
@@ -662,9 +672,17 @@ impl<'a> Ttf<'a> {
         Ok(Ttf { data, tables })
     }
 
-    fn table(&self, tag: &[u8; 4]) -> Option<&'a [u8]> {
+    pub(crate) fn table(&self, tag: &[u8; 4]) -> Option<&'a [u8]> {
         let (_, start, length) = self.tables.iter().find(|(t, _, _)| t == tag)?;
         self.data.get(*start..start + length)
+    }
+
+    /// The tables in directory order, as `(tag, data)`.
+    #[cfg(feature = "pdf")]
+    pub(crate) fn tables(&self) -> impl Iterator<Item = ([u8; 4], &'a [u8])> + '_ {
+        self.tables
+            .iter()
+            .map(|&(tag, start, length)| (tag, &self.data[start..start + length]))
     }
 }
 
@@ -1442,7 +1460,7 @@ mod hostile {
     }
 
     fn read(font: &[u8], budget: &mut usize) -> Parsed<Face> {
-        Face::from_ttf(&Ttf::new(font)?, "Test", false, false, budget)
+        Face::from_ttf(&Ttf::face(font, 0)?, "Test", false, false, budget)
     }
 
     fn refusal(font: &[u8]) -> Option<FontError> {

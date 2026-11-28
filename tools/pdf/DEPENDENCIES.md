@@ -23,9 +23,11 @@ averages between 6 and 17.
   decoder still to come. Each of those PRs should measure its own size; if
   they do not fit, the choice is between raising the budget, stripping the
   wasm `name` section, or deferring variable fonts.
-- **This change is not made here.** The release profile and the crate type
-  change in the PR that adds `subsetter`, so they are measured together with
-  the code that needs them.
+- **Made with `subsetter`:** the PR that embeds fonts (`pdf/font`) made
+  `docrs-wasm` a `cdylib` only and added a `wasm` profile (release with fat
+  LTO and one codegen unit) that `crates/docrs-wasm/build.sh` builds with.
+  `[profile.release]` is unchanged, so CI's release builds of the CLI and
+  `docrs-compat` keep their speed. Its measurements are in the last section.
 - **Fonts:** `subsetter` with `variable-fonts` for all TrueType subsetting,
   static fonts included.
 - **PNG:** decoded in-house on the existing `flate2`. Dimensions must be
@@ -138,4 +140,55 @@ printable ASCII and `–—‘’“”…é`, 103 code points:
 - **Measuring:** `Face::parse` reads only a variable font's default
   instance. At 700 its advances are off by up to 282 units (Inter) and 244
   (Roboto Flex) per 2048. Measuring a variable font at a weight needs the
-  instanced advances.
+  instanced advances: wave 3 (the painter) closes this with one source of advances: layout's `FontBook` gives a face per (file, face, `Style`) whose advances are that instance's, chosen by the same Style-to-axis rule the PDF uses (`layout::variation::Fvar::variation`, which `FaceInfo::instance` calls), and a check that each CID's `/W` equals layout's advance for its glyph.
+
+## With font embedding (`pdf/font`)
+
+Measured on 2026-11-27 when `subsetter` 0.2.6 (variable fonts) became a
+dependency of the `pdf` feature, on the same machine (Rust 1.97.1,
+`wasm-bindgen` 0.2.129, Node 26.13.1, load averages 9 to 12). Sizes are of
+`docrs_bg.wasm` from `crates/docrs-wasm/build.sh`; "no name" is the same
+file without its `name` section.
+
+| Build | Raw | Gzip | Raw, no name | Gzip, no name |
+| --- | ---: | ---: | ---: | ---: |
+| `pdf/engine` before (today's profile, `cdylib + rlib`) | 3,360,100 | 1,315,573 | 2,811,690 | 1,257,787 |
+| this branch (fat LTO, 1 codegen unit, opt 3, `cdylib`) | 3,179,627 | 1,317,611 | 2,889,964 | 1,281,874 |
+| the same, `wasm` profile, on #48 (re-measured) | 3,184,234 | 1,319,191 | 2,893,578 | 1,283,214 |
+| this branch + `pdf` + `test-support`, nothing calling them | 3,181,209 | 1,318,086 | | |
+| this branch + a probe export that embeds a font | **3,982,595** | 1,575,260 | 3,598,408 | 1,527,545 |
+
+- **Shipped package:** `docrs-wasm` does not enable `pdf` yet, so the
+  published wasm is the second row, 180 KB smaller than before. The third
+  row is the same build from the `wasm` profile after rebasing on #48
+  (FontSet); the 4.6 KB is #48's code.
+- **Budget:** once the PDF export reaches the npm package, the font path
+  costs about 801 KB raw (the probe against the `pdf` + `test-support` row: `subsetter`,
+  `skrifa`, `write-fonts`, the PDF writer and `pdf/font`), which puts the
+  wasm at 3.98 MB, over the 3.9 MB budget before the painter and PNG
+  decoder. Without the `name` section it is 3.60 MB. The probe export
+  calls `text_document_for_tests` (`test-support`), which writes a one-page
+  PDF with a line of text in the given font.
+- **`fromHtml`:** this branch against `pdf/engine`, same input and method
+  as above (3 warm-up calls, median of 15, 8 rounds alternating which build
+  runs first). Medians of the round medians: 66.7 ms before, 63.2 ms after
+  (−5.2%). Round medians, before: 63.2 63.4 64.9 65.3 68.1 69.9 70.4 76.4;
+  after: 59.8 60.6 60.9 62.3 64.1 64.5 76.8 108.3 (the first round ran
+  under a load spike).
+
+### The new dependency tree
+
+`cargo tree -p docrs --features pdf` adds, with `subsetter`: `skrifa`
+0.42.1, `read-fonts` 0.39.2, `write-fonts` 0.48.1, `font-types` 0.11.3,
+`kurbo` 0.13.1, `rustc-hash` 2.1.3, `bytemuck` (+ derive), `smallvec`,
+`arrayvec`, `indexmap`, `hashbrown`, `equivalent`, `log` and `polycool`.
+
+- **Licences:** all MIT OR Apache-2.0; `bytemuck` also offers Zlib.
+- **MSRV:** the highest is 1.85; `cargo +1.88.0 check --workspace
+  --all-targets --features docrs/pdf` passes.
+- **Unsafe code:** `subsetter`, `skrifa` and `read-fonts` deny or forbid it.
+  `write-fonts`, `kurbo`, `polycool` and `rustc-hash` have none. `font-types`
+  has 3 uses; `bytemuck`, `smallvec`, `arrayvec`, `indexmap`, `hashbrown`
+  and `log` are the usual collection and casting crates with their own.
+- **wasm32:** `cargo check -p docrs --features pdf --target
+  wasm32-unknown-unknown` passes, as CI runs it.

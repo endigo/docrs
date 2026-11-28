@@ -56,3 +56,7 @@ belong to their owners.
 ## Fonts
 
 `tests/fixtures/fonts/` holds openly licensed fonts the PDF fixtures use, each with its licence; `tests/fixtures/fonts/PROVENANCE.md` gives their sources and hashes.
+
+## PDF feature dependencies
+
+The experimental `pdf` feature links `subsetter` (Laurenz Mädje, Laurenz Stampfl) and, through it, `skrifa`, `read-fonts`, `write-fonts` and `font-types` (Google's fontations) and `kurbo`, each under the MIT or Apache-2.0 licence, at the user's choice.
