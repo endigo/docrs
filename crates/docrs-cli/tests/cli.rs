@@ -1026,13 +1026,15 @@ fn pdf_refuses_to_write_over_its_input() {
     let dir = tempfile::tempdir().unwrap();
     let docx = inter_memo(dir.path());
     let before = std::fs::read(&docx).unwrap();
-    let hard = dir.path().join("hard.pdf");
-    std::fs::hard_link(&docx, &hard).unwrap();
     let through_new_directory = dir.path().join("new").join("..").join("memo.docx");
-    let outs = vec![docx.clone(), hard, through_new_directory];
+    let outs = vec![docx.clone(), through_new_directory];
+    // Hard and symbolic links are recognised on Unix only.
     #[cfg(unix)]
     let outs = {
         let mut outs = outs;
+        let hard = dir.path().join("hard.pdf");
+        std::fs::hard_link(&docx, &hard).unwrap();
+        outs.push(hard);
         let soft = dir.path().join("soft.pdf");
         std::os::unix::fs::symlink(&docx, &soft).unwrap();
         outs.push(soft);
