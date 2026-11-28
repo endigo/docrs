@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use super::nav::{LinkId, Navigation, Rect};
 use crate::layout::flow::{Line, Point};
 use crate::layout::model::{Align, Model, Para, Piece, StoryId};
+use crate::xml::NodeId;
 
 /// Word's link rectangles reach this far, in points, past the text's ends
 /// (measured in Word for Mac's PDFs).
@@ -20,8 +21,8 @@ pub(super) struct Places {
     /// The hyperlink the last linked piece painted belongs to.
     open: Option<Occurrence>,
     /// Each hyperlink's id by its paragraph and first piece, so a repeated
-    /// header row's links keep theirs.
-    occurrences: HashMap<(*const Para, u32), LinkId>,
+    /// header row's links and a page header's keep theirs.
+    occurrences: HashMap<(ParaKey, u32), LinkId>,
     lines: usize,
     /// A repeated header row paints its paragraphs again.
     outlined: HashSet<*const Para>,
@@ -30,11 +31,15 @@ pub(super) struct Places {
 /// One hyperlink in the document: consecutive pieces of a paragraph with
 /// the same link.
 struct Occurrence {
-    para: *const Para,
+    para: ParaKey,
     piece: u32,
     link: u32,
     id: LinkId,
 }
+
+/// A paragraph by its story and its node in the story's part: a header or
+/// footer with a field is painted from a copy laid out for each page.
+type ParaKey = (StoryId, Option<NodeId>);
 
 /// A line painted on `page`, `at` its column's left and its top from the
 /// top of a page `height` tall.
@@ -140,7 +145,7 @@ impl Places {
     /// The hyperlink piece `piece` of `para` belongs to: the open one when
     /// it continues it.
     fn occurrence(&mut self, para: &Para, piece: u32, link: u32) -> LinkId {
-        let para = para as *const Para;
+        let para = (para.story, para.node);
         if let Some(open) = self
             .open
             .as_mut()

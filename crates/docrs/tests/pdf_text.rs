@@ -15,7 +15,9 @@ use docrs::clock::Timestamp;
 use docrs::layout::fonts::FontKind;
 use docrs::layout::{FontBook, FontSet};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
-use docrs::pdf::{PdfOptions, layout_for_tests, paint_for_tests, preflight, render};
+use docrs::pdf::{
+    PdfOptions, layout_for_tests, paint_for_tests, preflight, render, render_unchecked_for_tests,
+};
 use docrs::txn::Txn;
 use docrs::{Document, Limits, Tolerance};
 use reader::{Pdf, Value, tokenize_content};
@@ -1156,6 +1158,45 @@ fn exact(ppr: &str, content: &str) -> String {
 /// `body` closed by a [`LETTER`] section with `refs` and `extra`.
 fn sectioned(body: String, refs: &str, extra: &str) -> String {
     body + &format!("<w:sectPr>{refs}{LETTER}{extra}</w:sectPr>")
+}
+
+/// A header and a footer with a page field are laid out again on each
+/// page; each one's link to a missing bookmark is counted once.
+#[test]
+fn a_broken_link_in_a_header_and_a_footer_with_a_field_is_counted_once_each() {
+    let story = |target: &str| {
+        let link = format!(
+            r#"<w:hyperlink w:anchor="{target}">{}</w:hyperlink>"#,
+            text("Link")
+        );
+        exact("", &[link, serif_field("PAGE", "1")].concat())
+    };
+    let body: String = (1..=4)
+        .map(|n| exact(r#"<w:pageBreakBefore/>"#, &text(&format!("Page {n}"))))
+        .collect();
+    let body = sectioned(
+        body,
+        r#"<w:headerReference w:type="default" r:id="rheader1"/><w:footerReference w:type="default" r:id="rfooter1"/>"#,
+        "",
+    );
+    let document = package(
+        &body,
+        &[
+            ("header1", "header", "hdr", &story("nowhere")),
+            ("footer1", "footer", "ftr", &story("elsewhere")),
+        ],
+    );
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    let (bytes, report) = render_unchecked_for_tests(&document, &options).unwrap();
+    assert_eq!(page_lines(&bytes).len(), 4);
+    let missing: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "pdf_link_target_missing")
+        .map(|w| w.count)
+        .collect();
+    assert_eq!(missing, [2]);
 }
 
 #[test]
