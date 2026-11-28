@@ -180,12 +180,16 @@ fn choice_is_supported(tree: &XmlTree, choice: NodeId) -> bool {
 
 /// The settings part's `w:compatSetting compatibilityMode`, when it has one.
 pub(crate) fn compatibility_mode(settings: &XmlTree) -> Option<i64> {
+    compat_setting(settings, "compatibilityMode").and_then(|v| v.parse().ok())
+}
+
+/// The value of the settings part's `w:compatSetting` named `name`.
+pub(crate) fn compat_setting<'t>(settings: &'t XmlTree, name: &str) -> Option<&'t str> {
     w_child(settings, settings.root(), "compat")
         .into_iter()
         .flat_map(|compat| w_children(settings, compat, "compatSetting"))
-        .find(|s| w_attr(settings, *s, "name") == Some("compatibilityMode"))
+        .find(|s| w_attr(settings, *s, "name") == Some(name))
         .and_then(|s| w_attr(settings, s, "val"))
-        .and_then(|v| v.parse().ok())
 }
 
 /// lxml `element.text = value`: replace the character data before the first

@@ -1094,6 +1094,20 @@ fn record_json(record: &docrs::layout::Record, round: impl Fn(f64) -> f64) -> se
                         "width": round(cell.width),
                         "from": round(cell.from),
                         "to": round(cell.to),
+                        "fill": cell.fill.map(|rgb| rgb.to_string()),
+                    })
+                })
+                .collect();
+            let edges: Vec<_> = row
+                .edges
+                .iter()
+                .map(|edge| {
+                    json!({
+                        "from": [round(edge.from.0), round(edge.from.1)],
+                        "to": [round(edge.to.0), round(edge.to.1)],
+                        "style": edge.border.style.name(),
+                        "width": round(edge.border.width),
+                        "colour": edge.border.colour.to_string(),
                     })
                 })
                 .collect();
@@ -1111,6 +1125,7 @@ fn record_json(record: &docrs::layout::Record, round: impl Fn(f64) -> f64) -> se
                 "last": row.last,
                 "repeat": row.repeat,
                 "cells": cells,
+                "edges": edges,
             })
         }
         _ => serde_json::Value::Null,

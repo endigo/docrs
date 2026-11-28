@@ -1711,6 +1711,297 @@ fn contents_page_numbers_are_the_layout_s_on_every_contents_fixture() {
     assert!(checked >= 300, "{checked}");
 }
 
+/// Each line and row part of `tests/fixtures/layout/tables/<name>`.
+fn table_fixture(name: &str) -> Vec<Record> {
+    let path = repo_root().join("tests/fixtures/layout/tables").join(name);
+    records_of(&Document::open_path(path, &Limits::default()).unwrap())
+}
+
+/// The vertical edge at `x` of a row part, if any.
+fn vertical_at(row: &RowRecord, x: f64) -> Option<&docrs::layout::EdgeRecord> {
+    row.edges
+        .iter()
+        .find(|e| e.from.0 == e.to.0 && (e.from.0 - x).abs() < 0.01)
+}
+
+/// The horizontal edges of a row part at `y`, as (from x, to x, colour).
+fn horizontal_at(row: &RowRecord, y: f64) -> Vec<(f64, f64, String)> {
+    row.edges
+        .iter()
+        .filter(|e| e.from.1 == e.to.1 && (e.from.1 - y).abs() < 0.01)
+        .map(|e| (e.from.0, e.to.0, e.border.colour.to_string()))
+        .collect()
+}
+
+fn hex(fill: Option<docrs::layout::Rgb>) -> Option<String> {
+    fill.map(|rgb| rgb.to_string())
+}
+
+#[test]
+fn each_border_conflict_goes_to_word_s_ranking() {
+    use docrs::layout::BorderStyle::*;
+    let records = table_fixture("conflicts.docx");
+    let rows: Vec<&RowRecord> = row_parts(&records).collect();
+    // The shared edge is 150 points from the table's left.
+    let shared: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            vertical_at(row, row.x + 150.0)
+                .map(|e| (e.border.style, e.border.width, e.border.colour.to_string()))
+        })
+        .collect();
+    let line = |style, width: f64, colour: &str| Some((style, width, colour.to_string()));
+    // Word for Mac 16.115's PDF of the fixture, case by case.
+    assert_eq!(
+        shared,
+        [
+            line(Single, 1.5, "0070C0"),
+            line(Double, 0.5, "C00000"),
+            // The double's two lines and gap weigh 36 against the single's 12.
+            line(Double, 0.5, "C00000"),
+            line(Single, 0.25, "0070C0"),
+            line(Single, 3.0, "FF0000"),
+            line(Single, 3.0, "FF00FF"),
+            line(Thick, 3.0, "0070C0"),
+            // nil yields: the right cell's line is drawn.
+            line(Thick, 3.0, "0070C0"),
+            line(Single, 3.0, "00B050"),
+        ]
+    );
+}
+
+#[test]
+fn spans_and_merges_draw_no_inner_edges_and_tables_sit_where_aligned() {
+    let records = table_fixture("spans.docx");
+    let rows: Vec<&RowRecord> = row_parts(&records).collect();
+    let left = rows[0].x;
+    assert_eq!(left, 72.0, "compatibility mode 15: no outdent");
+    assert!(
+        vertical_at(rows[0], left + 100.0).is_none(),
+        "inside the span"
+    );
+    assert!(vertical_at(rows[0], left + 200.0).is_some());
+    // Rows 3 and 4 continue the merge in column 1: no edge above them there.
+    for row in &rows[2..4] {
+        assert_eq!(
+            horizontal_at(row, row.y).first().map(|e| e.0),
+            Some(left + 100.0)
+        );
+    }
+    assert!(
+        vertical_at(rows[3], left + 200.0).is_none(),
+        "row 4 spans columns 2-3"
+    );
+    let fills: Vec<_> = rows[1..4]
+        .iter()
+        .map(|row| hex(row.cells[0].fill))
+        .collect();
+    assert_eq!(fills, vec![Some("FFC000".to_string()); 3]);
+    assert_eq!(rows[5].x, 72.0 + (468.0 - 200.0) / 2.0, "centred");
+    assert_eq!(rows[6].x, 144.0, "indented an inch");
+    let text = text_lines(&records).find(|l| l.text == "Indented").unwrap();
+    assert_eq!(text.x, 144.0 + 5.4);
+}
+
+#[test]
+fn a_cut_row_closes_on_its_page_and_opens_on_the_next_and_its_merge_keeps_its_fill() {
+    let records = table_fixture("seams.docx");
+    let parts: Vec<&RowRecord> = row_parts(&records).filter(|r| r.row == 1).collect();
+    let [first, second] = parts[..2] else {
+        panic!("{parts:?}")
+    };
+    assert_eq!((first.page, first.first, first.last), (1, true, false));
+    assert_eq!((second.page, second.first, second.last), (2, false, true));
+    let line = |from: f64, to: f64, colour: &str| (from, to, colour.to_string());
+    // As Word draws the cut: the table's bottom border (green) on page 1,
+    // across the merge too, and its top border (red) on page 2.
+    assert_eq!(
+        horizontal_at(first, first.y + first.height),
+        [line(72.0, 372.0, "00B050")]
+    );
+    assert_eq!(
+        horizontal_at(second, second.y),
+        [line(72.0, 372.0, "C00000")]
+    );
+    let blue = |from: f64, to: f64| line(from, to, "0070C0");
+    // Below the part that ends the row the merge goes on: column 2 only.
+    assert_eq!(
+        horizontal_at(second, second.y + second.height),
+        [blue(222.0, 372.0)]
+    );
+    let merged = row_parts(&records).find(|r| r.row == 2).unwrap();
+    for part in [first, second, merged] {
+        assert_eq!(
+            hex(part.cells[0].fill).as_deref(),
+            Some("FFC000"),
+            "{part:?}"
+        );
+    }
+    let top = row_parts(&records).find(|r| r.row == 0).unwrap();
+    assert_eq!(horizontal_at(top, top.y)[0].2, "C00000", "the table's top");
+}
+
+#[test]
+fn cells_align_their_content_vertically_in_the_row() {
+    let records = table_fixture("seams.docx");
+    let row = row_parts(&records).last().unwrap();
+    let y = |text: &str| text_lines(&records).find(|l| l.text == text).unwrap().y;
+    let (top, centre, bottom) = (y("Top"), y("Centre"), y("Bottom"));
+    assert_eq!(top, row.y + 1.0, "below the 1-point top border");
+    // Centred content sits half the spare room down, bottom content all of it.
+    let spare = (centre - top) * 2.0;
+    assert!(spare > 40.0, "{top} {centre}");
+    assert!(
+        (bottom - top - spare).abs() < 0.01,
+        "{top} {centre} {bottom}"
+    );
+}
+
+#[test]
+fn the_cascade_follows_the_look_and_not_cnf_style() {
+    let records = table_fixture("cascade.docx");
+    let rows: Vec<&RowRecord> = row_parts(&records).collect();
+    let fills = |table: usize| -> Vec<Vec<Option<String>>> {
+        rows[table * 6..table * 6 + 6]
+            .iter()
+            .map(|row| row.cells.iter().map(|c| hex(c.fill)).collect())
+            .collect()
+    };
+    let f = |s: &str| Some(s.to_string());
+    let all = fills(0);
+    assert_eq!(
+        all[0],
+        [
+            f("7030A0"),
+            f("2F5496"),
+            f("2F5496"),
+            f("2F5496"),
+            f("2F5496"),
+            f("C00000")
+        ],
+        "corners over the first row"
+    );
+    // Word: column bands over row bands.
+    assert_eq!(
+        all[1],
+        [
+            f("A9D08E"),
+            f("E2EFD9"),
+            f("FBE4D5"),
+            f("E2EFD9"),
+            f("FBE4D5"),
+            f("F4B084")
+        ],
+        "column bands over the row bands"
+    );
+    assert_eq!(all[2], all[1]);
+    assert_eq!(
+        all[5],
+        [
+            f("00B0F0"),
+            f("8EA9DB"),
+            f("8EA9DB"),
+            f("8EA9DB"),
+            f("8EA9DB"),
+            f("FFC000")
+        ]
+    );
+    assert_eq!(fills(1), all, "the bitmask reads as the attributes");
+    // w:val="04A0" w:firstColumn="0": the bitmask is ignored and the
+    // attributes left out are on, so the header, the last row and column
+    // with their corners show, with no first column and no bands.
+    let header_only = fills(2);
+    let body = [None, None, None, None, None, f("F4B084")];
+    assert_eq!(
+        header_only,
+        [
+            vec![
+                f("2F5496"),
+                f("2F5496"),
+                f("2F5496"),
+                f("2F5496"),
+                f("2F5496"),
+                f("C00000")
+            ],
+            body.to_vec(),
+            body.to_vec(),
+            body.to_vec(),
+            body.to_vec(),
+            vec![
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("8EA9DB"),
+                f("FFC000")
+            ],
+        ]
+    );
+    // Row 3's cnfStyle claims the first row in vain, and row 5's exception
+    // draws no fill.
+    assert_eq!(fills(3), header_only);
+    let exception = rows[3 * 6 + 4];
+    let inside = vertical_at(exception, exception.x + 78.0).unwrap();
+    assert_eq!(
+        (inside.border.width, inside.border.colour.to_string()),
+        (3.0, "00B050".to_string())
+    );
+}
+
+/// A Markdown table converted into a v2 template's table style.
+fn converted_table(template: &str) -> Vec<Record> {
+    let root = repo_root();
+    let reference = root
+        .join("tests/fixtures/markdown/templates/v2")
+        .join(template);
+    let reference = Document::open_path(reference, &Limits::default()).unwrap();
+    let markdown = "| Region | Q1 | Q2 |\n| -- | --: | --: |\n| North | 1 | 2 |\n| South | 3 | 4 |\n| East | 5 | 6 |\n";
+    let options = docrs::markdown::MarkdownOptions::default();
+    let (doc, _) = docrs::markdown::convert(markdown, Some(reference), &options).unwrap();
+    records_of(&doc)
+}
+
+#[test]
+fn converted_tables_take_the_banded_template_s_header_fill_and_bands() {
+    let records = converted_table("banded-table-style.docx");
+    let rows: Vec<&RowRecord> = row_parts(&records).collect();
+    let fills: Vec<_> = rows.iter().map(|row| hex(row.cells[1].fill)).collect();
+    let f = |s: &str| Some(s.to_string());
+    assert_eq!(fills, [f("2F5496"), f("DEEAF6"), None, f("DEEAF6")]);
+    // Top, bottom and inside lines only, all BFBFBF.
+    for row in &rows {
+        assert!(row.edges.iter().all(|e| e.from.1 == e.to.1), "{row:?}");
+        assert!(
+            row.edges
+                .iter()
+                .all(|e| e.border.colour.to_string() == "BFBFBF")
+        );
+    }
+    let header = text_lines(&records).find(|l| l.text == "Region").unwrap();
+    assert_eq!(header.x, rows[0].x + 5.65, "the style's 113-twip margin");
+}
+
+#[test]
+fn converted_tables_take_the_builtin_grid_style_s_borders_and_fills() {
+    let records = converted_table("builtin-table-style-only.docx");
+    let rows: Vec<&RowRecord> = row_parts(&records).collect();
+    let fills: Vec<_> = rows.iter().map(|row| hex(row.cells[0].fill)).collect();
+    let f = |s: &str| Some(s.to_string());
+    assert_eq!(fills, [f("4472C4"), f("D9E2F3"), None, f("D9E2F3")]);
+    let row = rows[1];
+    let verticals = row.edges.iter().filter(|e| e.from.0 == e.to.0).count();
+    assert_eq!(
+        verticals,
+        row.cells.len() + 1,
+        "outer and inside vertical lines"
+    );
+    assert!(
+        row.edges
+            .iter()
+            .all(|e| e.border.colour.to_string() == "8EAADB")
+    );
+}
+
 /// Word for Mac 16.115.2's first baseline on page 2 of each document in
 /// `tests/fixtures/pdf/page-top` (Save As PDF, PR #62): 82.32 with no space
 /// above, 101.28 with 24 pt before less the previous paragraph's 5 pt after.

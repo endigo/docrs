@@ -223,13 +223,19 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     })
                     .collect(),
             };
-            let left = self.column_left() + table.left;
+            let left = self.table_left(table);
             self.row(Point { x: left, y: self.y }, table, row_index, &slice)?;
-            for (rest, cut) in rests.iter_mut().zip(&cuts) {
+            for ((rest, cut), cell) in rests.iter_mut().zip(&cuts).zip(&row.cells) {
                 if rest.done {
                     continue;
                 }
-                let top = rest.top(first);
+                // Only the row's last part aligns its content vertically.
+                let shift = if last && cell.vmerge == 0 {
+                    cell.valign.share() * (height - rest.height(cell)).max(0.0)
+                } else {
+                    0.0
+                };
+                let top = rest.top(first) + shift;
                 let end = rest.end(*cut);
                 let origin = Point {
                     x: left + rest.part.x,

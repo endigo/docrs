@@ -10,7 +10,9 @@
 //! character styles, and direct formatting is absolute.
 
 mod build;
+mod cascade;
 mod colour;
+mod edges;
 mod equation;
 mod formatting;
 mod look;
@@ -39,16 +41,16 @@ use crate::xml::{NodeId, XmlTree};
 pub(crate) use build::Measurer;
 #[cfg(feature = "pdf")]
 pub(crate) use build::field_link;
+#[cfg(feature = "pdf")]
+pub(crate) use cascade::Parts;
 pub use colour::{Colour, Rgb};
+pub use edges::Edges;
+pub(crate) use edges::rank;
 pub(crate) use formatting::Formatting;
 #[cfg(feature = "pdf")]
 pub(crate) use formatting::ParaFormat;
-#[cfg(any(test, feature = "pdf"))]
-pub(crate) use look::BorderStyle;
-use look::CellBorders;
-pub(crate) use look::VAlign;
-pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
-pub(crate) use look::{Border, ParaBorders};
+pub use look::{Appearance, Border, BorderStyle, Caps, Link, Strike, Underline, UnderlineStyle};
+pub(crate) use look::{ParaBorders, VAlign};
 #[cfg(feature = "pdf")]
 pub(crate) use marks::any_border;
 pub(crate) use math::MathScripts;
@@ -356,12 +358,11 @@ pub struct Cell {
     pub blocks: Vec<Block>,
     /// 0: none, 1: restart, 2: continue.
     pub vmerge: u8,
-    #[allow(dead_code, reason = "the PDF painter reads it")]
+    /// The first grid column it covers.
+    pub column: usize,
+    /// A merge's continuation takes the fill and alignment of its first cell.
     pub fill: Option<Rgb>,
-    #[allow(dead_code, reason = "the PDF painter reads it")]
     pub valign: VAlign,
-    #[allow(dead_code, reason = "the PDF painter reads them")]
-    pub borders: CellBorders,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -378,13 +379,52 @@ pub struct Row {
     pub node: Option<NodeId>,
 }
 
+/// A table's horizontal alignment (`w:jc` in `w:tblPr`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Table {
     pub story: StoryId,
     pub rows: Vec<Row>,
-    /// The table's left edge from the column's: `w:tblInd`, less the first
-    /// cell's left margin before Word 2013.
-    pub left: f64,
+    /// Grid line x positions from the table's left edge: one more than
+    /// its columns.
+    pub grid: Vec<f64>,
+    /// `w:tblInd`; before Word 2013 less the first cell's left margin, so
+    /// that its text lines up with the body's.
+    pub indent: f64,
+    pub align: TableAlign,
+    pub edges: Edges,
+}
+
+impl Table {
+    pub fn width(&self) -> f64 {
+        self.grid.last().copied().unwrap_or(0.0)
+    }
+
+    /// Its left edge from the left of a column `room` wide.
+    pub fn left(&self, room: f64) -> f64 {
+        match self.align {
+            TableAlign::Left => self.indent,
+            TableAlign::Center => (room - self.width()) / 2.0,
+            TableAlign::Right => room - self.width(),
+        }
+    }
+
+    /// Each cell's left edge in `row`, from the table's: its grid line, or
+    /// the previous cell's right edge past the grid's last column.
+    pub fn cell_lefts(&self, row: usize) -> impl Iterator<Item = f64> + '_ {
+        self.rows[row].cells.iter().scan(0.0, |x, cell| {
+            let left = self.grid.get(cell.column).copied().unwrap_or(*x);
+            *x = left + cell.width;
+            Some(left)
+        })
+    }
 }
 
 /// What writes a field's value: its result's font and look.
@@ -503,8 +543,9 @@ pub(super) struct Builder<'a> {
     depth: usize,
     properties: Properties,
     warnings: Vec<LayoutWarning>,
-    /// Before Word 2013 (compatibility mode under 15, or none), a table
-    /// not nested in another moves left by its first cell's left margin.
+    /// Before Word 2013 (compatibility mode under 15, or none), a left-
+    /// aligned table not nested in another moves left by its first cell's
+    /// left margin.
     outdent_tables: bool,
     spread_breaks: bool,
     /// The last display equation of the paragraph being read.
@@ -541,6 +582,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             part(txn, main, rt::STYLES),
             part(txn, main, rt::NUMBERING),
             part(txn, main, rt::THEME),
+            settings,
         ),
         kinds: read_font_kinds(part(txn, main, rt::FONT_TABLE)),
         fonts,

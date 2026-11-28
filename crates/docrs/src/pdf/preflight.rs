@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
 use super::{FOOTNOTE_LAYOUT_UNSUPPORTED, NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
-    CAMBRIA_MATH, Formatting, Frame, Link, NoteKind, NotePosition, NoteSettings, ParaFormat, RPr,
-    StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize, on_off,
+    CAMBRIA_MATH, Formatting, Frame, Link, NoteKind, NotePosition, NoteSettings, ParaFormat, Parts,
+    RPr, StoryRef, TableCtx, any_border, field_link, horizontal, linear_text, linearize, on_off,
     section_properties, shaded, story_references,
 };
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
@@ -67,6 +67,7 @@ pub fn preflight(document: &Document) -> Result<PdfReport> {
         related(&txn, main, rt::STYLES)?,
         related(&txn, main, rt::NUMBERING)?,
         related(&txn, main, rt::THEME)?,
+        related(&txn, main, rt::SETTINGS)?,
     );
     let mut scan = Scan::new(&txn, formatting);
     scan.story(main, "body", tree, body.unwrap_or(tree.root()))?;
@@ -388,7 +389,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             "tr" => {
                 if let Some(table) = self.tables.last_mut() {
                     table.rows += 1;
-                    table.ctx.first_row = table.rows == 1 && table.look_first_row;
+                    table.ctx.parts = Parts::first_row(table.rows == 1 && table.look_first_row);
                 }
             }
             "t" => {
@@ -406,6 +407,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             }
             "br" | "cr" => self.note_once(NOT_YET_DRAWN, "line break"),
             "tblpPr" => self.note(LAYOUT, "floating tables"),
+            "tblCellSpacing" if spaced(tree, node) => self.note(LAYOUT, "cell spacing"),
             "tblBorders" | "tcBorders" if any_border(tree, node) => {
                 self.note(NOT_YET_DRAWN, "border")
             }
@@ -529,8 +531,8 @@ impl<'s, 'd> Scan<'s, 'd> {
     /// noted as the walk reaches them.
     fn table(&mut self, tree: &XmlTree, tbl: NodeId) {
         self.note(NOT_YET_DRAWN, "table");
-        let (style, look_first_row) = self.formatting.table(tree, tbl);
-        let marks = self.formatting.table_marks(style.as_deref());
+        let format = self.formatting.table(tree, tbl);
+        let marks = self.formatting.table_marks(format.id.as_deref());
         if marks.border {
             self.note(NOT_YET_DRAWN, "border");
         }
@@ -544,11 +546,8 @@ impl<'s, 'd> Scan<'s, 'd> {
             self.note(TEXT, RTL);
         }
         self.tables.push(TableScan {
-            ctx: TableCtx {
-                style,
-                first_row: false,
-            },
-            look_first_row,
+            ctx: TableCtx::new(&format, Parts::default()),
+            look_first_row: format.look.first_row(),
             rows: 0,
         });
     }
@@ -844,6 +843,13 @@ fn footnote_columns(tree: &XmlTree, sect: NodeId) -> u32 {
         .and_then(|c| tree.attr(c, Some(W), "val"))
         .and_then(|v| v.parse().ok())
         .unwrap_or(1)
+}
+
+/// `w:tblCellSpacing` other than zero.
+fn spaced(tree: &XmlTree, spacing: NodeId) -> bool {
+    w_attr(tree, spacing, "w")
+        .and_then(|w| w.parse::<f64>().ok())
+        .is_some_and(|w| w != 0.0)
 }
 
 fn columns(tree: &XmlTree, cols: NodeId) -> usize {

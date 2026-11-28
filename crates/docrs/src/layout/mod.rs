@@ -22,6 +22,7 @@ mod furniture;
 pub(crate) mod model;
 #[cfg(test)]
 mod note_tests;
+mod strokes;
 pub(crate) mod variation;
 
 use std::collections::{HashMap, HashSet};
@@ -40,7 +41,9 @@ pub fn set_test_layout_work(budget: Option<u64>) {
 }
 pub use fonts::{Face, FontBook, FontFile, FontInfo, FontSet, FontSetBuilder};
 #[doc(hidden)]
-pub use model::{Appearance, Caps, Colour, Link, Rgb, Strike, Underline, UnderlineStyle};
+pub use model::{
+    Appearance, Border, BorderStyle, Caps, Colour, Link, Rgb, Strike, Underline, UnderlineStyle,
+};
 
 use fonts::{FontError, Parsed};
 
@@ -772,6 +775,19 @@ pub struct RowRecord {
     /// A header row repeated on a page the table continues on.
     pub repeat: bool,
     pub cells: Vec<CellRecord>,
+    /// Its borders after conflicts: above, below and beside its cells.
+    pub edges: Vec<EdgeRecord>,
+}
+
+/// A border line of a [`RowRecord`], centred on its grid line, points from
+/// the page's top-left corner. Experimental.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct EdgeRecord {
+    pub from: (f64, f64),
+    pub to: (f64, f64),
+    pub border: Border,
 }
 
 /// A cell of a [`RowRecord`]. Experimental.
@@ -785,6 +801,8 @@ pub struct CellRecord {
     /// the lines whose top is in `from..to`.
     pub from: f64,
     pub to: f64,
+    /// Drawn behind the cell's part.
+    pub fill: Option<Rgb>,
 }
 
 /// A line or a row part, in the order they are laid out. Experimental.
@@ -931,20 +949,25 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
         row: usize,
         slice: &flow::RowSlice,
     ) -> Result<()> {
-        let cells = &table.rows[row].cells;
-        let mut x = origin.x;
-        let cells = cells
+        let cells = table.rows[row]
+            .cells
             .iter()
+            .zip(table.cell_lefts(row))
             .zip(&slice.cells)
-            .map(|(cell, content)| {
-                let record = CellRecord {
-                    x,
-                    width: cell.width,
-                    from: content.start,
-                    to: content.end,
-                };
-                x += cell.width;
-                record
+            .map(|((cell, left), content)| CellRecord {
+                x: origin.x + left,
+                width: cell.width,
+                from: content.start,
+                to: content.end,
+                fill: cell.fill,
+            })
+            .collect();
+        let edges = strokes::row_strokes(origin, table, row, slice)
+            .into_iter()
+            .map(|stroke| EdgeRecord {
+                from: (stroke.from.x, stroke.from.y),
+                to: (stroke.to.x, stroke.to.y),
+                border: stroke.border,
             })
             .collect();
         (self.each)(Record::Row(RowRecord {
@@ -955,12 +978,13 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
             row,
             x: origin.x,
             y: origin.y,
-            width: x - origin.x,
+            width: table.width(),
             height: slice.height,
             first: slice.first,
             last: slice.last,
             repeat: slice.repeat,
             cells,
+            edges,
         }))
     }
 }

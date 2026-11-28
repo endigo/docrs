@@ -900,8 +900,9 @@ fn cell_layout<'m>(
                 if let Some(previous) = previous {
                     y += previous.after_spacing();
                 }
+                let left = table.left(width);
                 for (row_index, row) in table.rows.iter().enumerate() {
-                    let layout = row_layout(row, metrics, default_tab);
+                    let layout = row_layout(table, row_index, metrics, default_tab);
                     out.work += layout.work;
                     out.paras
                         .extend(layout.paras.iter().map(|para| para.shifted(y)));
@@ -920,7 +921,7 @@ fn cell_layout<'m>(
                         });
                     } else {
                         for part in &layout.cells {
-                            let top = y + part.top;
+                            let top = y + part.top + part.shift;
                             let first = part.layout.lines.first().map_or(0.0, |l| l.offset);
                             out.lines
                                 .extend(part.layout.lines.iter().map(|line| CellLine {
@@ -935,14 +936,14 @@ fn cell_layout<'m>(
                     }
                     out.drawn.push(Drawn {
                         offset: y,
-                        x: table.left,
+                        x: left,
                         item: Item::Row(table, row_index, RowSlice::whole(&layout)),
                     });
                     for part in layout.cells {
                         out.drawn
                             .extend(part.layout.drawn.into_iter().map(|drawn| Drawn {
-                                offset: drawn.offset + part.top + y,
-                                x: drawn.x + part.x + table.left,
+                                offset: drawn.offset + part.top + part.shift + y,
+                                x: drawn.x + part.x + left,
                                 item: drawn.item,
                             }));
                     }
@@ -970,6 +971,9 @@ fn cell_layout<'m>(
 struct CellPart<'m> {
     layout: CellLayout<'m>,
     top: f64,
+    /// Below `top` when the row is drawn whole: the content's share of the
+    /// room its vertical alignment leaves.
+    shift: f64,
     x: f64,
 }
 
@@ -982,30 +986,46 @@ struct RowLayout<'m> {
     work: u64,
 }
 
-fn row_layout<'m>(row: &'m Row, metrics: &[Metric], default_tab: f64) -> RowLayout<'m> {
+fn row_layout<'m>(
+    table: &'m Table,
+    row: usize,
+    metrics: &[Metric],
+    default_tab: f64,
+) -> RowLayout<'m> {
+    let lefts = table.cell_lefts(row);
+    let row = &table.rows[row];
     let mut height = 0.0f64;
-    let mut paras = Vec::new();
     let mut cells = Vec::new();
     let mut work = 1;
-    let mut x = 0.0;
-    for cell in &row.cells {
+    for (cell, x) in row.cells.iter().zip(lefts) {
         let width = (cell.width - cell.margins[2] - cell.margins[3]).max(1.0);
         let layout = cell_layout(&cell.blocks, metrics, width, default_tab, true);
         if cell.vmerge != 2 {
             height = height.max(layout.content + cell.margins[0] + cell.margins[1]);
         }
-        let top = row.border_top + cell.margins[0];
-        paras.extend(layout.paras.iter().map(|para| para.shifted(top)));
         work += layout.work;
         cells.push(CellPart {
             layout,
-            top,
+            top: row.border_top + cell.margins[0],
+            shift: 0.0,
             x: x + cell.margins[2],
         });
-        x += cell.width;
     }
     if let Some((value, exact)) = row.height {
         height = if exact { value } else { height.max(value) };
+    }
+    let mut paras = Vec::new();
+    for (part, cell) in cells.iter_mut().zip(&row.cells) {
+        if cell.vmerge == 0 {
+            let room = height - part.layout.content - cell.margins[0] - cell.margins[1];
+            part.shift = cell.valign.share() * room.max(0.0);
+        }
+        paras.extend(
+            part.layout
+                .paras
+                .iter()
+                .map(|para| para.shifted(part.top + part.shift)),
+        );
     }
     height += row.border_top + row.border_bottom;
     RowLayout {
@@ -1249,8 +1269,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(lines)
     }
 
-    fn row_layout(&mut self, row: &'m Row) -> Result<RowLayout<'m>> {
-        let layout = row_layout(row, self.metrics(), self.model.default_tab);
+    fn row_layout(&mut self, table: &'m Table, row: usize) -> Result<RowLayout<'m>> {
+        let layout = row_layout(table, row, self.metrics(), self.model.default_tab);
         self.charge(layout.work)?;
         Ok(layout)
     }
@@ -1421,6 +1441,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         page.left + page.gutter
     }
 
+    fn table_left(&self, table: &Table) -> f64 {
+        self.column_left() + table.left(self.text_width())
+    }
+
     fn line(&mut self, at: Point, para: &'m Para, line: &Line) -> Result<()> {
         self.charge(1)?;
         if self.hold(|| HeldItem::Line(at, para, line.clone())) {
@@ -1447,7 +1471,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         y: f64,
         repeat: bool,
     ) -> Result<()> {
-        let left = self.column_left() + table.left;
+        let left = self.table_left(table);
         let paper = if table.rows[row].header || table.rows[row].cant_split {
             self.model.sections[self.section()].page.height
         } else {
@@ -1462,7 +1486,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             for drawn in &part.layout.drawn {
                 let at = Point {
                     x: left + part.x + drawn.x,
-                    y: y + part.top + drawn.offset,
+                    y: y + part.top + part.shift + drawn.offset,
                 };
                 match &drawn.item {
                     Item::Line(para, line) if at.y < paper => self.line(at, para, line)?,
@@ -1700,13 +1724,12 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.close_box(after, after, None)?;
         self.y += after;
         let headers = table.rows.iter().take_while(|r| r.header).count();
-        let header_layouts = table.rows[..headers]
-            .iter()
-            .map(|row| self.row_layout(row))
+        let header_layouts = (0..headers)
+            .map(|row| self.row_layout(table, row))
             .collect::<Result<Vec<_>>>()?;
         let header_height: f64 = header_layouts.iter().map(|layout| layout.height).sum();
         for (row_index, row) in table.rows.iter().enumerate() {
-            let layout = self.row_layout(row)?;
+            let layout = self.row_layout(table, row_index)?;
             let headers = (row_index >= headers && headers > 0)
                 .then_some((header_layouts.as_slice(), header_height));
             let refs = notes::row_refs(&layout, |_, _| true);
@@ -1804,10 +1827,10 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             index += 1;
         }
         if let Some(Block::Table(table)) = blocks.get(index)
-            && let Some(row) = table.rows.first()
+            && !table.rows.is_empty()
         {
             let after = previous.map_or(0.0, |p| p.after_spacing());
-            need += after + self.row_layout(row)?.height;
+            need += after + self.row_layout(table, 0)?.height;
         }
         if !self.at_top && self.y + need > self.bottom + EPSILON && need <= self.body_height() {
             self.new_page()?;
