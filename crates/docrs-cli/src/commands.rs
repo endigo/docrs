@@ -495,7 +495,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         Error::io("write_failed", format!("writing a line: {err}"), err)
                     })
                 };
-                let result = docrs::layout::line_records_with(
+                let result = docrs::layout::records_with(
                     &txn,
                     &main,
                     &fonts.set,
@@ -504,29 +504,7 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         let links: Vec<_> = links.iter().map(link_json).collect();
                         write(json!({"looks": looks, "links": links}))
                     },
-                    |line| {
-                        let runs: Vec<_> = line
-                            .runs
-                            .iter()
-                            .map(|run| json!({"text": run.text, "look": run.look}))
-                            .collect();
-                        write(json!({
-                            "page": line.page,
-                            "story": line.story,
-                            "x": round(line.x),
-                            "y": round(line.y),
-                            "width": round(line.width),
-                            "height": round(line.height),
-                            "baseline": round(line.baseline),
-                            "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
-                            "slack": round(line.slack),
-                            "gaps": line.gaps,
-                            "last": line.last,
-                            "align": line.align,
-                            "text": line.text,
-                            "runs": runs,
-                        }))
-                    },
+                    |record| write(record_json(&record, round)),
                 );
                 return match result {
                     Err(_) if closed.get() => Ok(0),
@@ -937,6 +915,63 @@ fn open_reference(
     match path {
         Some(path) => Document::open_path_with(path, limits, tolerance),
         None => Ok((Document::new(), Vec::new())),
+    }
+}
+
+/// A `layout --lines` line, or a row part (with a `row` key).
+fn record_json(record: &docrs::layout::Record, round: impl Fn(f64) -> f64) -> serde_json::Value {
+    match record {
+        docrs::layout::Record::Line(line) => {
+            let runs: Vec<_> = line
+                .runs
+                .iter()
+                .map(|run| json!({"text": run.text, "look": run.look}))
+                .collect();
+            json!({
+                "page": line.page,
+                "story": line.story,
+                "x": round(line.x),
+                "y": round(line.y),
+                "width": round(line.width),
+                "height": round(line.height),
+                "baseline": round(line.baseline),
+                "tabs": line.tabs.iter().map(|(from, to)| [round(*from), round(*to)]).collect::<Vec<_>>(),
+                "slack": round(line.slack),
+                "gaps": line.gaps,
+                "last": line.last,
+                "align": line.align,
+                "text": line.text,
+                "runs": runs,
+            })
+        }
+        docrs::layout::Record::Row(row) => {
+            let cells: Vec<_> = row
+                .cells
+                .iter()
+                .map(|cell| {
+                    json!({
+                        "x": round(cell.x),
+                        "width": round(cell.width),
+                        "from": round(cell.from),
+                        "to": round(cell.to),
+                    })
+                })
+                .collect();
+            json!({
+                "row": row.row,
+                "page": row.page,
+                "story": row.story,
+                "x": round(row.x),
+                "y": round(row.y),
+                "width": round(row.width),
+                "height": round(row.height),
+                "first": row.first,
+                "last": row.last,
+                "repeat": row.repeat,
+                "cells": cells,
+            })
+        }
+        _ => serde_json::Value::Null,
     }
 }
 

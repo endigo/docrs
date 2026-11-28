@@ -4,7 +4,7 @@
 
 mod support;
 
-use docrs::layout::{fonts::deobfuscate, layout};
+use docrs::layout::{LineRecord, Record, RowRecord, fonts::deobfuscate, layout};
 use docrs::txn::Txn;
 use docrs::{Document, Limits};
 use support::*;
@@ -705,9 +705,14 @@ fn tables_nested_past_32_levels_keep_their_paragraphs() {
             "<w:tbl><w:tr><w:tc><w:p><w:bookmarkStart w:id=\"{level}\" w:name=\"level{level}\"/><w:r><w:t>{level}</w:t></w:r></w:p>{body}<w:p/></w:tc></w:tr></w:tbl>"
         );
     }
+    // 51 lines of 12.65 points fill the first page; the row splits there.
     let estimate = estimate(&format!("{body}{}", para("after", "")), "");
-    for level in [32, 33, 60] {
-        assert_eq!(estimate.bookmark_page(&format!("level{level}")), Some(1));
+    for (level, page) in [(32, 1), (33, 1), (51, 1), (52, 2), (60, 2)] {
+        assert_eq!(
+            estimate.bookmark_page(&format!("level{level}")),
+            Some(page),
+            "{level}"
+        );
     }
 }
 
@@ -922,6 +927,387 @@ fn a_body_row_taller_than_the_page_keeps_all_its_lines() {
     )
     .unwrap();
     assert_eq!(drawn, 150);
+}
+
+fn records_of(doc: &Document) -> Vec<Record> {
+    let txn = Txn::new(doc);
+    let main = doc.package().main_part_name().to_string();
+    let mut records = Vec::new();
+    docrs::layout::records_with(
+        &txn,
+        &main,
+        &docrs::layout::FontSet::default(),
+        |_, _| Ok(()),
+        |record| {
+            records.push(record);
+            Ok(())
+        },
+    )
+    .unwrap();
+    records
+}
+
+/// Each line and row part of `tests/fixtures/layout/geometry/<name>`.
+fn geometry(name: &str) -> Vec<Record> {
+    let path = repo_root()
+        .join("tests/fixtures/layout/geometry")
+        .join(name);
+    records_of(&Document::open_path(path, &Limits::default()).unwrap())
+}
+
+fn text_lines(records: &[Record]) -> impl Iterator<Item = &LineRecord> {
+    records.iter().filter_map(|record| match record {
+        Record::Line(line) => Some(line),
+        _ => None,
+    })
+}
+
+fn row_parts(records: &[Record]) -> impl Iterator<Item = &RowRecord> {
+    records.iter().filter_map(|record| match record {
+        Record::Row(row) => Some(row),
+        _ => None,
+    })
+}
+
+fn page_of(records: &[Record], text: &str) -> u32 {
+    text_lines(records)
+        .find(|line| line.text == text)
+        .unwrap_or_else(|| panic!("{text}"))
+        .page
+}
+
+/// Each part's cells start where the part before ended.
+fn assert_continued(parts: &[&RowRecord]) {
+    for pair in parts.windows(2) {
+        for (before, after) in pair[0].cells.iter().zip(&pair[1].cells) {
+            assert_eq!(before.to, after.from, "{parts:?}");
+        }
+    }
+}
+
+#[test]
+fn a_row_over_three_pages_splits_on_each_its_cells_apart() {
+    let records = geometry("row-three-pages.docx");
+    let parts: Vec<&RowRecord> = row_parts(&records).filter(|row| row.row == 1).collect();
+    let flags: Vec<_> = parts.iter().map(|p| (p.page, p.first, p.last)).collect();
+    assert_eq!(
+        flags,
+        [(1, true, false), (2, false, false), (3, false, true)]
+    );
+    assert_continued(&parts);
+    assert!(text_lines(&records).all(|line| line.baseline <= 720.0));
+    // 80 lines beside 40: the short cell ends on page 2, empty on page 3.
+    for (text, page) in [
+        ("Line 30", 1),
+        ("Line 31", 2),
+        ("Line 62", 2),
+        ("Line 63", 3),
+        ("Note 30", 1),
+        ("Note 31", 2),
+        ("Note 40", 2),
+        ("End of table.", 3),
+    ] {
+        assert_eq!(page_of(&records, text), page, "{text}");
+    }
+    let note = &parts[2].cells[1];
+    assert_eq!(note.from, note.to);
+}
+
+#[test]
+fn two_header_rows_repeat_on_every_page_of_a_200_row_table() {
+    let records = geometry("header-rows.docx");
+    for page in 1..=7 {
+        let heads: Vec<_> = row_parts(&records)
+            .filter(|row| row.page == page && row.row < 2)
+            .map(|row| (row.row, row.repeat))
+            .collect();
+        let repeat = page > 1;
+        assert_eq!(heads, [(0, repeat), (1, repeat)], "page {page}");
+        let names = text_lines(&records).filter(|line| line.page == page && line.text == "Name");
+        assert_eq!(names.count(), 1, "page {page}");
+    }
+    let body: Vec<_> = row_parts(&records).filter(|row| row.row >= 2).collect();
+    assert_eq!(body.len(), 200);
+    assert!(body.iter().all(|row| row.first && row.last && !row.repeat));
+    // Word for Mac 16.115: Row 28 ends 0.4 points above the bottom margin
+    // and Row 29's space after does not fit, so Row 29 moves whole.
+    for (row, page) in [(28, 1), (29, 2), (57, 2), (58, 3), (145, 6), (200, 7)] {
+        assert_eq!(page_of(&records, &format!("Row {row}")), page, "Row {row}");
+    }
+    // Repeated headers are drawn, not placed: each paragraph is placed once.
+    let doc = Document::open_path(
+        repo_root().join("tests/fixtures/layout/geometry/header-rows.docx"),
+        &Limits::default(),
+    )
+    .unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    let estimate = layout(&txn, &main, Vec::new()).unwrap();
+    assert_eq!(estimate.pages, 7);
+    let tree = txn.tree(&main).unwrap();
+    let names = estimate
+        .placed
+        .iter()
+        .filter(|p| !p.row_end && p.node.is_some_and(|n| tree.text_content(n) == "Name"));
+    assert_eq!(names.count(), 1);
+}
+
+#[test]
+fn cant_split_rows_move_whole_and_one_taller_than_the_page_is_cut() {
+    let records = geometry("cant-split.docx");
+    let parts = |row: usize| -> Vec<(u32, bool, bool)> {
+        row_parts(&records)
+            .filter(|part| part.row == row)
+            .map(|part| (part.page, part.first, part.last))
+            .collect()
+    };
+    assert_eq!(parts(0), [(1, true, false), (2, false, true)]);
+    assert_eq!(parts(2), [(3, true, true)]);
+    assert_eq!(parts(3), [(4, true, true)]);
+    assert_eq!(
+        (page_of(&records, "Split 6"), page_of(&records, "Split 7")),
+        (1, 2)
+    );
+    assert_eq!(
+        (page_of(&records, "Kept 1"), page_of(&records, "Kept 8")),
+        (3, 3)
+    );
+    let tall: Vec<_> = text_lines(&records)
+        .filter(|line| line.text.starts_with("Tall "))
+        .collect();
+    // Word for Mac 16.115 draws 37 of the 60 lines: line 37's top is
+    // 789.69, above the paper's edge, and its baseline below it.
+    assert!(tall.iter().all(|line| line.page == 4 && line.y < 792.0));
+    assert_eq!(tall.len(), 37);
+    let cut = row_parts(&records).find(|part| part.row == 3).unwrap();
+    assert!(cut.y + cut.height <= 792.0 + 0.01);
+    assert_eq!(page_of(&records, "After the tall row"), 5);
+}
+
+#[test]
+fn a_nested_table_splits_with_the_cell_holding_it() {
+    let records = geometry("nested-split.docx");
+    // The nested table is 4,400 twips wide.
+    let nested: Vec<&RowRecord> = row_parts(&records)
+        .filter(|row| (row.width - 220.0).abs() < 0.01)
+        .collect();
+    let flags: Vec<_> = nested.iter().map(|p| (p.page, p.first, p.last)).collect();
+    assert_eq!(flags, [(1, true, false), (2, false, true)]);
+    assert_continued(&nested);
+    let outer: Vec<&RowRecord> = row_parts(&records)
+        .filter(|row| (row.width - 468.0).abs() < 0.01)
+        .collect();
+    assert_eq!(outer.len(), 2);
+    assert_continued(&outer);
+    for (text, page) in [
+        ("Inner 1", 1),
+        ("Inner 7", 1),
+        ("Inner 8", 2),
+        ("Side 4", 1),
+        ("After the nested table", 2),
+    ] {
+        assert_eq!(page_of(&records, text), page, "{text}");
+    }
+    // The nested row's second part starts at the top of the outer cell's.
+    assert_eq!((nested[1].y, outer[1].y), (72.0, 72.0));
+    // No style sets cell margins: the text starts at the cell's edge.
+    let x = |text: &str| text_lines(&records).find(|l| l.text == text).unwrap().x;
+    assert_eq!(
+        (x("Inner 8"), x("Side 1"), x("Outer cell")),
+        (72.0, 182.0, 306.0)
+    );
+}
+
+#[test]
+fn a_nested_row_whose_line_moves_has_no_part_on_the_page_before() {
+    // 80 bordered one-line rows nested in one cell: each row's 0.5-point
+    // top border sits above its line, so a cut before a row's line falls
+    // just below the row's top.
+    let borders: String = ["top", "bottom", "insideH"]
+        .iter()
+        .map(|side| format!("<w:{side} w:val=\"single\" w:sz=\"4\"/>"))
+        .collect();
+    let rows: String = (1..=80)
+        .map(|i| {
+            format!(
+                "<w:tr><w:tc>{}</w:tc></w:tr>",
+                para(&format!("Nested {i}"), "")
+            )
+        })
+        .collect();
+    let body = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"9360\"/></w:tblGrid><w:tr><w:tc><w:tbl><w:tblPr><w:tblBorders>{borders}</w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w=\"4400\"/></w:tblGrid>{rows}</w:tbl>{}</w:tc></w:tr></w:tbl>{}",
+        para("", ""),
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let records = records_of(&doc);
+    let nested: Vec<&RowRecord> = row_parts(&records)
+        .filter(|row| (row.width - 220.0).abs() < 0.01)
+        .collect();
+    assert_eq!(nested.len(), 80);
+    for part in nested {
+        let line = page_of(&records, &format!("Nested {}", part.row + 1));
+        assert_eq!(
+            (part.page, part.first, part.last),
+            (line, true, true),
+            "{part:?}"
+        );
+        assert!(
+            part.y >= 72.0 && part.y + part.height <= 720.0 + 0.01,
+            "{part:?}"
+        );
+    }
+}
+
+/// Where a one-cell table's row and text start, with `styles` and the
+/// table's own style `own`, in compatibility mode `mode` (no settings part
+/// when `None`).
+fn table_x(styles: &str, own: &str, mode: Option<u32>) -> (f64, f64) {
+    let tbl_pr = if own.is_empty() {
+        String::new()
+    } else {
+        format!("<w:tblPr><w:tblStyle w:val=\"{own}\"/></w:tblPr>")
+    };
+    let body = format!(
+        "<w:tbl>{tbl_pr}<w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}<w:sectPr>{SECT_PR}</w:sectPr>",
+        para("Cell", ""),
+        para("", "")
+    );
+    let settings = mode.map(|mode| {
+        format!("<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"{mode}\"/></w:compat>")
+    });
+    let doc = Document::open_bytes(
+        &package_with(&body, styles, settings.as_deref()),
+        &Limits::default(),
+    )
+    .unwrap();
+    let records = records_of(&doc);
+    let row = row_parts(&records).next().unwrap().x;
+    let text = text_lines(&records).find(|l| l.text == "Cell").unwrap().x;
+    (round(row), round(text))
+}
+
+fn round(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
+#[test]
+fn cell_side_margins_and_the_table_edge_follow_word() {
+    // Word for Mac 16.115 (cell edge, text x): the text x includes the
+    // first glyph's side bearing, about 0.25 to 0.5 points.
+    let style = |id: &str, extra: &str| {
+        format!("<w:style w:type=\"table\" {extra} w:styleId=\"{id}\"><w:name w:val=\"{id}\"/>")
+    };
+    let margins = "<w:tblPr><w:tblCellMar><w:left w:w=\"108\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>";
+    let bare_normal = format!("{}</w:style>", style("TableNormal", "w:default=\"1\""));
+    let normal = format!("{}{margins}", style("TableNormal", "w:default=\"1\""));
+    let plain = format!("{}<w:tblPr/></w:style>", style("Plain", ""));
+    let plain_based = format!(
+        "{}<w:basedOn w:val=\"TableNormal\"/><w:tblPr/></w:style>",
+        style("PlainBased", "")
+    );
+    let styles = format!("{normal}{plain}{plain_based}");
+    // No default table style: no margins (72.0, 72.48).
+    assert_eq!(table_x("", "", None), (72.0, 72.0));
+    // A default table style without margins: Word's 5.4, and before Word
+    // 2013 the table moves left by them (67.0, 72.0).
+    assert_eq!(table_x(&bare_normal, "", None), (66.6, 72.0));
+    // A style of the table's own not based on Table Normal: none (72.0, 72.24).
+    assert_eq!(table_x(&styles, "Plain", None), (72.0, 72.0));
+    // One based on it inherits its 5.4 (67.0, 72.0).
+    assert_eq!(table_x(&styles, "PlainBased", None), (66.6, 72.0));
+    // Table Normal's 108 twips: no settings and mode 14 move the table
+    // left (67.0, 72.0); mode 15 keeps its edge at the margin (72.0, 77.76).
+    assert_eq!(table_x(&normal, "", None), (66.6, 72.0));
+    assert_eq!(table_x(&normal, "", Some(14)), (66.6, 72.0));
+    assert_eq!(table_x(&normal, "", Some(15)), (72.0, 77.4));
+    // A nested table is not moved again: its text is 5.4 points inside the
+    // outer cell's content (Word: 95.28 where that content starts at 90.0).
+    let nested = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"9360\"/></w:tblGrid><w:tr><w:tc><w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}</w:tc></w:tr></w:tbl>{}<w:sectPr>{SECT_PR}</w:sectPr>",
+        para("Inner", ""),
+        para("", ""),
+        para("", "")
+    );
+    let doc =
+        Document::open_bytes(&package_with(&nested, &normal, None), &Limits::default()).unwrap();
+    let records = records_of(&doc);
+    let inner = text_lines(&records).find(|l| l.text == "Inner").unwrap().x;
+    assert_eq!(round(inner), 77.4);
+}
+
+/// A one-row table: a cell of `tall` paragraphs with exactly 800-point
+/// lines beside a cell of `lines` one-line paragraphs.
+fn tall_lines_table(tall: usize, lines: usize) -> String {
+    let cell = |paras: String| {
+        format!("<w:tc><w:tcPr><w:tcW w:w=\"4680\" w:type=\"dxa\"/></w:tcPr>{paras}</w:tc>")
+    };
+    let exact = "<w:spacing w:line=\"16000\" w:lineRule=\"exact\"/>";
+    let tall: String = (1..=tall)
+        .map(|i| para(&format!("Tall {i}"), exact))
+        .collect();
+    let short: String = (1..=lines)
+        .map(|i| para(&format!("Short {i}"), ""))
+        .collect();
+    format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr>{}{}</w:tr></w:tbl>{}",
+        cell(tall),
+        cell(short),
+        para("After", "")
+    )
+}
+
+#[test]
+fn a_line_taller_than_the_page_takes_a_page_of_its_own_in_a_row() {
+    // Each page places at least one line of the row, so the split ends.
+    let doc = Document::open_bytes(
+        &styled_package(&tall_lines_table(3, 60), ""),
+        &Limits::default(),
+    )
+    .unwrap();
+    let records = records_of(&doc);
+    for (text, page) in [
+        ("Tall 1", 1),
+        ("Short 51", 1),
+        ("Tall 2", 2),
+        ("Short 52", 2),
+        ("Short 60", 2),
+        ("Tall 3", 3),
+        ("After", 4),
+    ] {
+        assert_eq!(page_of(&records, text), page, "{text}");
+    }
+}
+
+#[test]
+fn the_work_budget_bounds_a_row_split_over_many_pages() {
+    // A row of 40 cells, each of 400 lines, under a header row of 40
+    // cells, splits over eight pages. It takes 81,348 units: each part
+    // looks at its own lines only, where looking at every line on each
+    // page would take over 128,000.
+    let cell = |paras: String| {
+        format!("<w:tc><w:tcPr><w:tcW w:w=\"234\" w:type=\"dxa\"/></w:tcPr>{paras}</w:tc>")
+    };
+    let header: String = (0..40).map(|_| cell(para("H", ""))).collect();
+    let body: String = (0..40)
+        .map(|_| cell((0..400).map(|_| para("x", "")).collect()))
+        .collect();
+    let table = format!(
+        "<w:tbl><w:tr><w:trPr><w:tblHeader/></w:trPr>{header}</w:tr><w:tr>{body}</w:tr></w:tbl>{}",
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&table, ""), &Limits::default()).unwrap();
+    let txn = Txn::new(&doc);
+    let main = doc.package().main_part_name().to_string();
+    assert_eq!(layout(&txn, &main, Vec::new()).unwrap().pages, 9);
+    docrs::layout::set_test_layout_work(Some(80_000));
+    let error = layout(&txn, &main, Vec::new()).unwrap_err();
+    docrs::layout::set_test_layout_work(Some(90_000));
+    let within = layout(&txn, &main, Vec::new());
+    docrs::layout::set_test_layout_work(None);
+    assert_eq!(error.reason(), "max_layout_work");
+    assert_eq!(within.unwrap().pages, 9);
 }
 
 fn inter() -> docrs::layout::FontSet {
@@ -1182,13 +1568,17 @@ fn drawn_contents_numbers(
     let txn = Txn::new(doc);
     let main = doc.package().main_part_name().to_string();
     let mut out = Vec::new();
-    docrs::layout::line_records_with(
+    docrs::layout::records_with(
         &txn,
         &main,
         fonts,
         |_, _| Ok(()),
-        |line| {
-            if line.story == "body" && !line.tabs.is_empty() && out.len() < count {
+        |record| {
+            if let Record::Line(line) = record
+                && line.story == "body"
+                && !line.tabs.is_empty()
+                && out.len() < count
+            {
                 out.push(line.text.rsplit('\t').next().unwrap_or("").to_string());
             }
             Ok(())

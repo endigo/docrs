@@ -68,6 +68,18 @@ impl Builder<'_> {
         let tbl_pr = w_child(tree, tbl, "tblPr");
         let (style, look_first_row) = self.fmt.table(tree, tbl);
         let (mut table_margins, mut table_borders) = self.fmt.styles.table_look(style.as_deref());
+        // Word for Mac 16.115: a table on the default table style has 5.4
+        // points each side unless that style sets them; one on a style of
+        // its own, or in a document with no default table style, has none.
+        let own_style = tbl_pr
+            .and_then(|p| w_child(tree, p, "tblStyle"))
+            .and_then(|s| w_attr(tree, s, "val"))
+            .is_some_and(|id| self.fmt.styles.default_table.as_deref() != Some(id));
+        if !own_style && self.fmt.styles.default_table.is_some() {
+            for slot in &mut table_margins[2..] {
+                slot.get_or_insert(5.4);
+            }
+        }
         let style_cell = self.fmt.styles.cell_props(style.as_deref());
         let direct = margins(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblCellMar")));
         for (slot, value) in table_margins.iter_mut().zip(direct) {
@@ -158,12 +170,7 @@ impl Builder<'_> {
                 self.blocks(tree, tc, Some(&ctx), &mut blocks);
                 cells.push(Cell {
                     width,
-                    margins: [
-                        cell_margins[0].unwrap_or(0.0),
-                        cell_margins[1].unwrap_or(0.0),
-                        cell_margins[2].unwrap_or(5.4),
-                        cell_margins[3].unwrap_or(5.4),
-                    ],
+                    margins: cell_margins.map(|margin| margin.unwrap_or(0.0)),
                     blocks,
                     vmerge,
                     fill,
@@ -181,9 +188,19 @@ impl Builder<'_> {
                 node: Some(tr),
             });
         }
+        let indent = tbl_pr
+            .and_then(|p| w_child(tree, p, "tblInd"))
+            .and_then(|i| twips(tree, i, "w"))
+            .unwrap_or(0.0);
+        let outdent = rows
+            .first()
+            .and_then(|row| row.cells.first())
+            .filter(|_| self.outdent_tables && self.depth == 1)
+            .map_or(0.0, |cell| cell.margins[2]);
         Table {
             story: self.story,
             rows,
+            left: indent - outdent,
         }
     }
 }

@@ -129,13 +129,15 @@ impl Doc<'_> {
     fn lines(&self) -> Vec<(u32, String, f64, String)> {
         let mut out = Vec::new();
         self.with(|txn, main| {
-            line_records_with(
+            records_with(
                 txn,
                 main,
                 &FontSet::default(),
                 |_, _| Ok(()),
-                |line| {
-                    out.push((line.page, line.story, line.y, line.text));
+                |record| {
+                    if let Record::Line(line) = record {
+                        out.push((line.page, line.story, line.y, line.text));
+                    }
                     Ok(())
                 },
             )
@@ -702,4 +704,41 @@ fn placed_paragraphs_stay_the_body_s_with_stories_laid_out() {
             .collect::<Vec<_>>()
     });
     assert_eq!(texts, ["Line 1", "Line 2"]);
+}
+
+#[test]
+fn a_split_row_waits_for_a_page_with_room_for_its_line() {
+    // Even pages lose 144 points to a 15-line header: 504 points of body
+    // against 648 on odd pages. A 560-point line fits only an odd page.
+    let cell = |paras: String| {
+        format!(r#"<w:tc><w:tcPr><w:tcW w:w="4680" w:type="dxa"/></w:tcPr>{paras}</w:tc>"#)
+    };
+    let tall = format!(
+        r#"<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="11200" w:lineRule="exact"/></w:pPr>{}</w:p>"#,
+        run("Tall")
+    );
+    let short = |label: &str, count: usize| -> String {
+        (1..=count)
+            .map(|n| para(&run(&format!("{label} {n}"))))
+            .collect()
+    };
+    let table = format!(
+        r#"<w:tbl><w:tblGrid><w:gridCol w:w="4680"/><w:gridCol w:w="4680"/></w:tblGrid><w:tr>{}{}</w:tr></w:tbl>{}"#,
+        cell(short("A", LINES_PER_PAGE) + &tall),
+        cell(short("B", 120)),
+        para("")
+    );
+    let doc = Doc {
+        body: body(table, sect(&["header:default:h1", "header:even:h2"], "")),
+        stories: vec![("h1", para("")), ("h2", lines(15))],
+        even_and_odd: true,
+    };
+    let lines = doc.lines();
+    let at = |text: &str| {
+        let line = lines.iter().find(|l| l.1 == "body" && l.3 == text).unwrap();
+        (line.0, line.2)
+    };
+    assert_eq!(at("A 54").0, 1);
+    assert_eq!(at("B 55").0, 2);
+    assert_eq!(at("Tall"), (3, 72.0));
 }

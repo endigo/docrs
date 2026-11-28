@@ -1395,6 +1395,20 @@ fn inspection_reports_what_a_conversion_takes() {
         problems.iter().any(|p| p["code"] == "style_added"),
         "{problems:?}"
     );
+    // A settings part naming no compatibility mode is Word 2007's.
+    let settings =
+        r#"<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>"#;
+    let bytes = support::package_with_settings(support::DOCUMENT_XML, settings);
+    let doc = Document::open_bytes(&bytes, &Limits::default()).unwrap();
+    let inspection = docrs::markdown::inspect(&doc, &MarkdownOptions::default()).unwrap();
+    assert_eq!(inspection["compatibility"]["mode"], 12, "{inspection}");
+    let problems = inspection["problems"].as_array().unwrap();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p["code"] == "old_compatibility_mode"),
+        "{problems:?}"
+    );
 }
 
 // `html-converted-template.docx` (tools/markdown/make_html_converted_template.py):

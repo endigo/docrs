@@ -274,9 +274,11 @@ pub struct Row {
 
 #[derive(Debug, Clone, Default)]
 pub struct Table {
-    #[allow(dead_code, reason = "the PDF painter reads it")]
     pub story: StoryId,
     pub rows: Vec<Row>,
+    /// The table's left edge from the column's: `w:tblInd`, less the first
+    /// cell's left margin before Word 2013.
+    pub left: f64,
 }
 
 /// What writes a field's value: its result's font and look.
@@ -367,6 +369,9 @@ pub(super) struct Builder<'a> {
     depth: usize,
     properties: Properties,
     warnings: Vec<LayoutWarning>,
+    /// Before Word 2013 (compatibility mode under 15, or none), a table
+    /// not nested in another moves left by its first cell's left margin.
+    outdent_tables: bool,
 }
 
 fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
@@ -376,6 +381,7 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
 
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
+    let settings = part(txn, main, rt::SETTINGS);
     let mut builder = Builder {
         fmt: Formatting::read(
             part(txn, main, rt::STYLES),
@@ -396,8 +402,10 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         depth: 0,
         properties: super::fields::properties(txn),
         warnings: Vec::new(),
+        outdent_tables: settings
+            .and_then(crate::wml::compatibility_mode)
+            .is_none_or(|mode| mode < 15),
     };
-    let settings = part(txn, main, rt::SETTINGS);
     let default_tab = settings
         .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))
         .unwrap_or(36.0);

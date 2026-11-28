@@ -9,6 +9,8 @@
 //! widow/orphan control; table rows are as tall as their tallest cell and
 //! split across pages between lines.
 
+mod split;
+
 use std::ops::Range;
 
 use super::fields::Values;
@@ -564,14 +566,31 @@ fn gap(previous: Option<&Para>, para: &Para) -> f64 {
     after.max(before)
 }
 
-/// A line of a cell's content: top relative to the content, height, and
-/// its place in its paragraph (for widow control when a row splits).
+/// A place a row can split before: a line of a cell's content (a nested
+/// table's included), or a nested row that cannot split. Top relative to
+/// the content.
 struct CellLine {
     offset: f64,
     height: f64,
-    index: usize,
-    count: usize,
-    widow_control: bool,
+    /// Where the content splits when this line is the first to move: its
+    /// top, or a nested row's top for the row's first lines, so the row's
+    /// top border and end move with them.
+    cut: f64,
+    /// Where the row splits instead when this is the first line that does
+    /// not fit: the line before it, when widow control would otherwise
+    /// leave one line of the paragraph behind or send one ahead.
+    widow_cut: Option<f64>,
+}
+
+impl CellLine {
+    fn shifted(&self, by: f64) -> CellLine {
+        CellLine {
+            offset: self.offset + by,
+            height: self.height,
+            cut: self.cut + by,
+            widow_cut: self.widow_cut.map(|cut| cut + by),
+        }
+    }
 }
 
 /// A paragraph (or a nested row's end) and its offset from the top of the
@@ -595,7 +614,7 @@ impl ParaOffset {
 /// What a cell draws: a paragraph's line or a nested table's row.
 pub(super) enum Item<'m> {
     Line(&'m Para, Line),
-    Row(&'m Table, usize, f64),
+    Row(&'m Table, usize, RowSlice),
 }
 
 /// An item, its top from the top of the content holding it and its x from
@@ -607,9 +626,12 @@ pub(super) struct Drawn<'m> {
 }
 
 pub(super) struct CellLayout<'m> {
+    /// Top down.
     lines: Vec<CellLine>,
-    /// Paragraphs (and nested row ends) with their offsets.
+    /// Paragraphs (and nested row ends) with their offsets, in document
+    /// order.
     paras: Vec<ParaOffset>,
+    /// Top down.
     pub drawn: Vec<Drawn<'m>>,
     pub content: f64,
     pub work: u64,
@@ -650,15 +672,19 @@ fn cell_layout<'m>(
                 let para_lines = lines(para, metrics, width, default_tab);
                 let count = para_lines.len();
                 out.work += (para.pieces.len() + count) as u64;
+                let mut above = y;
                 for (index, line) in para_lines.into_iter().enumerate() {
                     let height = line.height;
+                    let widow = para.widow_control
+                        && count >= 2
+                        && (index == 1 || (index >= 2 && count - index == 1));
                     out.lines.push(CellLine {
                         offset: y,
                         height,
-                        index,
-                        count,
-                        widow_control: para.widow_control,
+                        cut: y,
+                        widow_cut: widow.then_some(above),
                     });
+                    above = y;
                     out.drawn.push(Drawn {
                         offset: y,
                         x: 0.0,
@@ -682,23 +708,39 @@ fn cell_layout<'m>(
                         offset: y,
                         row_end: true,
                     });
-                    out.lines.push(CellLine {
-                        offset: y,
-                        height: layout.height,
-                        index: 0,
-                        count: 1,
-                        widow_control: false,
-                    });
+                    let lineless = layout.cells.iter().all(|p| p.layout.lines.is_empty());
+                    if row.cant_split || row.header || lineless {
+                        out.lines.push(CellLine {
+                            offset: y,
+                            height: layout.height,
+                            cut: y,
+                            widow_cut: None,
+                        });
+                    } else {
+                        for part in &layout.cells {
+                            let top = y + part.top;
+                            let first = part.layout.lines.first().map_or(0.0, |l| l.offset);
+                            out.lines
+                                .extend(part.layout.lines.iter().map(|line| CellLine {
+                                    cut: if line.offset <= first + EPSILON {
+                                        y
+                                    } else {
+                                        line.cut + top
+                                    },
+                                    ..line.shifted(top)
+                                }));
+                        }
+                    }
                     out.drawn.push(Drawn {
                         offset: y,
-                        x: 0.0,
-                        item: Item::Row(table, row_index, layout.height),
+                        x: table.left,
+                        item: Item::Row(table, row_index, RowSlice::whole(&layout)),
                     });
                     for part in layout.cells {
                         out.drawn
                             .extend(part.layout.drawn.into_iter().map(|drawn| Drawn {
                                 offset: drawn.offset + part.top + y,
-                                x: drawn.x + part.x,
+                                x: drawn.x + part.x + table.left,
                                 item: drawn.item,
                             }));
                     }
@@ -717,22 +759,10 @@ fn cell_layout<'m>(
         }
     }
     out.content = y;
+    // A nested row's cells put their lines side by side.
+    out.lines.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+    out.drawn.sort_by(|a, b| a.offset.total_cmp(&b.offset));
     out
-}
-
-/// The line of a cell its row splits before, widow control applied; none
-/// when the cell fits in `available`.
-fn cut(part: &CellPart<'_>, available: f64) -> Option<usize> {
-    let lines = &part.layout.lines;
-    let k = lines
-        .iter()
-        .position(|line| part.top + line.offset + line.height > available + EPSILON)?;
-    let line = &lines[k];
-    // No paragraph leaves one line behind or sends one line ahead.
-    let widow = line.widow_control
-        && line.count >= 2
-        && (line.index == 1 || (line.index >= 2 && line.count - line.index == 1));
-    Some(if widow { k - 1 } else { k })
 }
 
 /// A cell's layout and its content's offset from the row's top-left.
@@ -810,19 +840,60 @@ pub(crate) struct PageStart {
 }
 
 /// The part of a row on one page.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RowSlice {
     pub height: f64,
+    /// The row's top is on this page, and its bottom.
     pub first: bool,
     pub last: bool,
+    /// A header row drawn again on a page the table continues on.
+    pub repeat: bool,
+    /// Each cell's content on this page, points from the content's top:
+    /// the lines whose top is in the range.
+    pub cells: Vec<Range<f64>>,
 }
 
 impl RowSlice {
-    pub(super) fn whole(height: f64) -> RowSlice {
+    /// Its height no more than `max`.
+    fn cut_at(self, max: f64) -> RowSlice {
         RowSlice {
-            height,
+            height: self.height.min(max),
+            ..self
+        }
+    }
+
+    fn whole(layout: &RowLayout<'_>) -> RowSlice {
+        RowSlice {
+            height: layout.height,
             first: true,
             last: true,
+            repeat: false,
+            cells: layout
+                .cells
+                .iter()
+                .map(|part| 0.0..part.layout.content)
+                .collect(),
+        }
+    }
+
+    /// The part of this whole row from `from` to `to`, points from its top.
+    fn part(&self, row: &Row, from: f64, to: f64) -> RowSlice {
+        let cells = self
+            .cells
+            .iter()
+            .zip(&row.cells)
+            .map(|(whole, cell)| {
+                let top = row.border_top + cell.margins[0];
+                let clamp = |at: f64| (at - top).clamp(whole.start, whole.end);
+                clamp(from)..clamp(to)
+            })
+            .collect();
+        RowSlice {
+            height: to - from,
+            first: from <= EPSILON,
+            last: to >= self.height - EPSILON,
+            repeat: self.repeat,
+            cells,
         }
     }
 }
@@ -885,6 +956,9 @@ pub(super) fn layout_work() -> u64 {
     }
     MAX_LAYOUT_WORK
 }
+
+/// A table's header rows and their height.
+type Headers<'a, 'm> = (&'a [RowLayout<'m>], f64);
 
 struct Flow<'m, 's, S: Sink> {
     model: &'m Model,
@@ -1011,47 +1085,37 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.sink.row(origin, table, row, slice)
     }
 
-    /// Draw a slice of `table`'s row `row` with its top at `y`, and the
-    /// cell items `top` gives a top within the slice. Word cuts a header or
-    /// can't-split row that runs off the paper: lines whose height less
-    /// descent is past its edge are not drawn (measured at single spacing,
-    /// where that is the baseline).
-    fn draw_slice(
+    /// Draw `table`'s row `row` whole with its top at `y`. Word cuts a
+    /// header or can't-split row that runs off the paper: lines whose top
+    /// is past its edge are not drawn.
+    fn draw_row(
         &mut self,
         (table, row): (&'m Table, usize),
         layout: &RowLayout<'m>,
         y: f64,
-        slice: RowSlice,
-        top: impl Fn(usize, &CellPart<'m>, &Drawn<'m>) -> Option<f64>,
+        repeat: bool,
     ) -> Result<()> {
-        let left = self.column_left();
+        let left = self.column_left() + table.left;
         let paper = if table.rows[row].header || table.rows[row].cant_split {
             self.model.sections[self.section()].page.height
         } else {
             f64::INFINITY
         };
         let slice = RowSlice {
-            height: slice.height.min(paper - y),
-            ..slice
+            repeat,
+            ..RowSlice::whole(layout)
         };
-        self.row(Point { x: left, y }, table, row, &slice)?;
-        for (cell, part) in layout.cells.iter().enumerate() {
+        self.row(Point { x: left, y }, table, row, &slice.cut_at(paper - y))?;
+        for part in &layout.cells {
             for drawn in &part.layout.drawn {
-                let Some(top) = top(cell, part, drawn) else {
-                    continue;
-                };
                 let at = Point {
                     x: left + part.x + drawn.x,
-                    y: y + top,
+                    y: y + part.top + drawn.offset,
                 };
                 match &drawn.item {
-                    Item::Line(para, line)
-                        if at.y + line.height - line.below <= paper + EPSILON =>
-                    {
-                        self.line(at, para, line)?
-                    }
-                    Item::Row(table, row, height) if at.y < paper => {
-                        self.row(at, table, *row, &RowSlice::whole(height.min(paper - at.y)))?
+                    Item::Line(para, line) if at.y < paper => self.line(at, para, line)?,
+                    Item::Row(table, row, slice) if at.y < paper => {
+                        self.row(at, table, *row, &slice.clone().cut_at(paper - at.y))?
                     }
                     _ => {}
                 }
@@ -1060,33 +1124,16 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(())
     }
 
-    fn draw_row(
-        &mut self,
-        table: &'m Table,
-        row: usize,
-        layout: &RowLayout<'m>,
-        y: f64,
-    ) -> Result<()> {
-        let slice = RowSlice::whole(layout.height);
-        self.draw_slice((table, row), layout, y, slice, |_, part, drawn| {
-            Some(part.top + drawn.offset)
-        })
-    }
-
-    fn repeat_headers(
-        &mut self,
-        table: &'m Table,
-        headers: &[RowLayout<'m>],
-        height: f64,
-    ) -> Result<()> {
+    fn repeat_headers(&mut self, table: &'m Table, headers: Headers<'_, 'm>) -> Result<()> {
+        let (layouts, height) = headers;
         // Word repeats no header taller than the page body.
         if height > self.body_height() + EPSILON {
             return Ok(());
         }
         let mut y = self.y;
-        for (row, layout) in headers.iter().enumerate() {
+        for (row, layout) in layouts.iter().enumerate() {
             self.charge(layout.work)?;
-            self.draw_row(table, row, layout, y)?;
+            self.draw_row((table, row), layout, y, true)?;
             y += layout.height;
         }
         self.y += height;
@@ -1189,9 +1236,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 self.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }
-            self.at_top = false;
-            self.at_start = false;
-            self.at_section_start = false;
+            self.placed_something();
             index += fit;
             if index < lines.len() || lines[index - 1].page_break {
                 self.new_page()?;
@@ -1229,21 +1274,24 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         let header_height: f64 = header_layouts.iter().map(|layout| layout.height).sum();
         for (row_index, row) in table.rows.iter().enumerate() {
             let layout = self.row_layout(row)?;
-            let fits = self.y + layout.height <= self.bottom + EPSILON;
-            if !fits && !self.at_top {
+            let headers = (row_index >= headers && headers > 0)
+                .then_some((header_layouts.as_slice(), header_height));
+            if self.y + layout.height > self.bottom + EPSILON {
                 let splittable = !row.cant_split && !row.header && layout.height > 0.0;
-                let repeat = row_index >= headers && headers > 0;
-                let headers = if repeat {
-                    Some((header_layouts.as_slice(), header_height))
-                } else {
-                    None
-                };
                 if splittable && self.split_row(table, row_index, &layout, headers)? {
                     continue;
                 }
-                self.new_page()?;
-                if let Some((layouts, height)) = headers {
-                    self.repeat_headers(table, layouts, height)?;
+                if !self.at_top {
+                    self.new_page()?;
+                    if let Some(headers) = headers {
+                        self.repeat_headers(table, headers)?;
+                    }
+                    if splittable
+                        && self.y + layout.height > self.bottom + EPSILON
+                        && self.split_row(table, row_index, &layout, headers)?
+                    {
+                        continue;
+                    }
                 }
             }
             for para in &layout.paras {
@@ -1255,114 +1303,18 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 y: self.y + row.border_top + row.cells.first().map_or(0.0, |c| c.margins[0]),
                 row_end: true,
             })?;
-            self.draw_row(table, row_index, &layout, self.y)?;
+            self.draw_row((table, row_index), &layout, self.y, false)?;
             self.y += layout.height;
-            self.at_top = false;
-            self.at_start = false;
-            self.at_section_start = false;
+            self.placed_something();
         }
         self.previous = None;
         Ok(())
     }
 
-    /// Split a row across the page break between lines; false when no
-    /// line of any cell fits on this page.
-    fn split_row(
-        &mut self,
-        table: &'m Table,
-        row_index: usize,
-        layout: &RowLayout<'m>,
-        headers: Option<(&[RowLayout<'m>], f64)>,
-    ) -> Result<bool> {
-        let row = &table.rows[row_index];
-        let available = self.bottom - self.y;
-        if available <= 0.0 {
-            return Ok(false);
-        }
-        let cuts: Vec<Option<usize>> = layout
-            .cells
-            .iter()
-            .map(|part| cut(part, available))
-            .collect();
-        if cuts.iter().all(|cut| *cut == Some(0)) {
-            return Ok(false);
-        }
-        let cuts: Vec<Option<f64>> = cuts
-            .iter()
-            .zip(&layout.cells)
-            .map(|(cut, part)| cut.map(|k| part.layout.lines[k].offset))
-            .collect();
-        let mut rest = 0.0f64;
-        let mut moved: Vec<ParaOffset> = Vec::new();
-        let mut kept: Vec<ParaOffset> = Vec::new();
-        for ((cell, part), cut) in row.cells.iter().zip(&layout.cells).zip(&cuts) {
-            let Some(cut) = *cut else {
-                kept.extend(part.layout.paras.iter().map(|para| para.shifted(part.top)));
-                continue;
-            };
-            rest = rest.max(part.layout.content - cut + cell.margins[0] + cell.margins[1]);
-            for para in &part.layout.paras {
-                if para.offset >= cut - EPSILON {
-                    moved.push(ParaOffset {
-                        offset: para.offset - cut + cell.margins[0],
-                        ..*para
-                    });
-                } else {
-                    kept.push(para.shifted(part.top));
-                }
-            }
-        }
-        let first = RowSlice {
-            height: available,
-            first: true,
-            last: false,
-        };
-        self.draw_slice(
-            (table, row_index),
-            layout,
-            self.y,
-            first,
-            |cell, part, drawn| {
-                cuts[cell]
-                    .is_none_or(|cut| drawn.offset < cut - EPSILON)
-                    .then_some(part.top + drawn.offset)
-            },
-        )?;
-        for para in kept {
-            self.place(para)?;
-        }
-        self.emit(Placed {
-            node: row.node,
-            page: self.page,
-            y: self.y,
-            row_end: true,
-        })?;
-        self.new_page()?;
-        if let Some((layouts, height)) = headers {
-            self.repeat_headers(table, layouts, height)?;
-        }
-        let second = RowSlice {
-            height: rest,
-            first: false,
-            last: true,
-        };
-        self.draw_slice(
-            (table, row_index),
-            layout,
-            self.y,
-            second,
-            |cell, _, drawn| {
-                let cut = cuts[cell]?;
-                (drawn.offset >= cut - EPSILON)
-                    .then(|| drawn.offset - cut + row.cells[cell].margins[0])
-            },
-        )?;
-        for para in moved {
-            self.place(para)?;
-        }
-        self.y += rest;
+    fn placed_something(&mut self) {
         self.at_top = false;
-        Ok(true)
+        self.at_start = false;
+        self.at_section_start = false;
     }
 
     /// Before a keep-with-next chain: break the page when the chain and
@@ -1960,7 +1912,7 @@ mod tests {
         struct Slices(Vec<RowSlice>);
         impl Sink for Slices {
             fn row(&mut self, _: Point, _: &Table, _: usize, slice: &RowSlice) -> Result<()> {
-                self.0.push(*slice);
+                self.0.push(slice.clone());
                 Ok(())
             }
         }
