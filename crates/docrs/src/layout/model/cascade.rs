@@ -158,6 +158,9 @@ pub(super) struct Position {
     pub(super) rows: usize,
     pub(super) column: usize,
     pub(super) columns: usize,
+    /// The table's leading `w:tblHeader` rows: Word gives each of them the
+    /// first row's look, so with two or more the first row spans them.
+    pub(super) heads: usize,
 }
 
 /// The cells a conditional format covers, inclusive.
@@ -175,11 +178,13 @@ pub(super) type Bands = (usize, usize);
 
 impl TableLook {
     /// The formats that reach the cell at `at`, each with the cells it
-    /// covers; bands skip a shown first and last row or column.
+    /// covers; bands skip a shown first and last row or column. The first
+    /// row is every leading header row, and at least row 0.
     pub(super) fn parts(self, at: Position, bands: Bands) -> Vec<(Part, Region)> {
         let last_row = at.rows.saturating_sub(1);
         let last_column = at.columns.saturating_sub(1);
-        let first_row = self.first_row && at.row == 0;
+        let heads = at.heads.clamp(1, at.rows.max(1));
+        let first_row = self.first_row && at.row < heads;
         let last_row_on = self.last_row && at.row == last_row;
         let first_column = self.first_column && at.column == 0;
         let last_column_on = self.last_column && at.column == last_column;
@@ -190,8 +195,7 @@ impl TableLook {
             right: last_column,
         };
         let mut out = Vec::new();
-        let band = |index: usize, skip_first: bool, skip_last: bool, last: usize, size: usize| {
-            let from = usize::from(skip_first);
+        let band = |index: usize, from: usize, skip_last: bool, last: usize, size: usize| {
             let to = if skip_last {
                 last.checked_sub(1)?
             } else {
@@ -208,8 +212,13 @@ impl TableLook {
             ))
         };
         if self.row_bands
-            && let Some((odd, top, bottom)) =
-                band(at.row, self.first_row, self.last_row, last_row, bands.0)
+            && let Some((odd, top, bottom)) = band(
+                at.row,
+                if self.first_row { heads } else { 0 },
+                self.last_row,
+                last_row,
+                bands.0,
+            )
         {
             let part = if odd {
                 Part::Band1Horz
@@ -228,7 +237,7 @@ impl TableLook {
         if self.column_bands
             && let Some((odd, left, right)) = band(
                 at.column,
-                self.first_column,
+                usize::from(self.first_column),
                 self.last_column,
                 last_column,
                 bands.1,
@@ -258,6 +267,10 @@ impl TableLook {
             bottom: index,
             ..rows
         };
+        let heading = Region {
+            bottom: heads - 1,
+            ..rows
+        };
         let cell = Region {
             top: at.row,
             bottom: at.row,
@@ -267,7 +280,7 @@ impl TableLook {
         let candidates = [
             (Part::FirstCol, first_column, column(0)),
             (Part::LastCol, last_column_on, column(last_column)),
-            (Part::FirstRow, first_row, row(0)),
+            (Part::FirstRow, first_row, heading),
             (Part::LastRow, last_row_on, row(last_row)),
             (Part::NeCell, first_row && last_column_on, cell),
             (Part::NwCell, first_row && first_column, cell),
@@ -319,6 +332,7 @@ mod tests {
             rows: 6,
             column,
             columns: 4,
+            heads: 0,
         };
         look.parts(at, (1, 1))
             .into_iter()
@@ -372,12 +386,43 @@ mod tests {
     }
 
     #[test]
+    fn every_leading_header_row_is_a_first_row_and_bands_start_below() {
+        let all = look(r#"w:val="04A0""#);
+        let at = |row| Position {
+            row,
+            rows: 8,
+            column: 1,
+            columns: 3,
+            heads: 3,
+        };
+        let heading = Region {
+            top: 0,
+            bottom: 2,
+            left: 0,
+            right: 2,
+        };
+        for row in 0..3 {
+            assert_eq!(all.parts(at(row), (1, 1)), [(Part::FirstRow, heading)]);
+        }
+        let band = |row| all.parts(at(row), (1, 1))[0].0;
+        assert_eq!(band(3), Part::Band1Horz);
+        assert_eq!(band(4), Part::Band2Horz);
+        let no_first_row = look(r#"w:val="0480""#);
+        assert_eq!(
+            no_first_row.parts(at(0), (1, 1))[0].0,
+            Part::Band1Horz,
+            "header rows without the first row's look band as body rows"
+        );
+    }
+
+    #[test]
     fn a_band_of_two_rows_covers_both() {
         let at = |row| Position {
             row,
             rows: 7,
             column: 0,
             columns: 1,
+            heads: 0,
         };
         let look = look(r#"w:val="0420""#);
         let bands: Vec<_> = (1..7)
@@ -418,6 +463,7 @@ mod tests {
             rows: 6,
             column: 0,
             columns: 1,
+            heads: 0,
         };
         let band = look(r#"w:val="0420""#).parts(at, (usize::MAX, 1))[0];
         assert_eq!(

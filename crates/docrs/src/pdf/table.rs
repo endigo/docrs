@@ -48,10 +48,18 @@ pub(super) fn fills(
 
 /// A page's border lines, each maximal run once. The sides are drawn
 /// first, so the horizontal lines draw the corners they cross, as in Word.
-pub(super) fn borders(out: &mut Vec<u8>, strokes: Vec<Stroke>, page_height: f64) -> Result<()> {
+/// `strokes` as runs onto `out`, failing once `out` passes `cap` bytes, so
+/// a page's border bytes are capped as they are written.
+pub(super) fn borders(
+    out: &mut Vec<u8>,
+    strokes: Vec<Stroke>,
+    page_height: f64,
+    cap: Cap,
+) -> Result<()> {
     let mut runs = runs(strokes);
     runs.sort_by_key(horizontal);
     for stroke in runs {
+        cap.check(out.len())?;
         let (at, from, to) = span(&stroke);
         let edge = Edge {
             side: !horizontal(&stroke),
@@ -71,7 +79,29 @@ pub(super) fn borders(out: &mut Vec<u8>, strokes: Vec<Stroke>, page_height: f64)
         };
         boxes::draw(out, &stroke.border, edge, &bands, page_height)?;
     }
-    Ok(())
+    cap.check(out.len())
+}
+
+/// The content budget left for one buffer: `max` bytes in all, `taken`
+/// already counted elsewhere.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Cap {
+    pub(super) max: u64,
+    pub(super) taken: u64,
+}
+
+impl Cap {
+    fn check(self, len: usize) -> Result<()> {
+        let drawn = self.taken.saturating_add(len as u64);
+        if drawn > self.max {
+            return Err(crate::Error::limit(
+                "max_pdf_content_bytes",
+                self.max,
+                drawn,
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn horizontal(stroke: &Stroke) -> bool {

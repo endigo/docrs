@@ -54,7 +54,7 @@ pub(crate) use formatting::ParaFormat;
 pub use look::{Appearance, Border, BorderStyle, Caps, Link, Strike, Underline, UnderlineStyle};
 pub(crate) use look::{ParaBorders, VAlign};
 #[cfg(feature = "pdf")]
-pub(crate) use marks::approximated;
+pub(crate) use marks::{approximated, diagonal, patterned};
 pub(crate) use math::MathScripts;
 #[cfg(feature = "pdf")]
 pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
@@ -69,7 +69,7 @@ use props::twips;
 #[cfg(feature = "pdf")]
 pub(crate) use props::{Frame, RPr, horizontal};
 #[cfg(feature = "pdf")]
-pub(crate) use table::TableCtx;
+pub(crate) use table::{TableCtx, header_rows};
 use theme::read_font_kinds;
 
 /// Page geometry in points.

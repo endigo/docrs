@@ -610,3 +610,96 @@ fn a_tables_fill_in_a_header_is_under_the_headers_text() {
     assert!(coloured(page, 0x404040).iter().all(|line| line.over_text));
     assert_eq!(page_texts(&bytes)[0], "LetterheadBody");
 }
+
+/// `body` in a package whose styles part holds `styles`.
+fn styled_document(body: &str, styles: &str) -> Document {
+    const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{W}"><w:body>{body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#
+    );
+    let styles = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="{W}">{styles}</w:styles>"#
+    );
+    let types = CT_XML.replace(
+        "</Types>",
+        r#"<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>"#,
+    );
+    let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
+    open_bytes(&build_zip(&[
+        RawMember::new("[Content_Types].xml", types.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", xml.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/styles.xml", styles.as_bytes()),
+    ]))
+}
+
+#[test]
+fn every_leading_header_row_takes_the_first_rows_look() {
+    // direct-formatted-table.nested-json: five tblHeader rows under a look
+    // with firstRow, each drawn in the first row's fill as Word does.
+    let style = |first_row: &str| {
+        format!(
+            r#"<w:style w:type="table" w:styleId="Heads"><w:tblStylePr w:type="firstRow">{first_row}</w:tblStylePr><w:tblStylePr w:type="band1Horz"><w:tcPr><w:shd w:val="clear" w:fill="DDEBF7"/></w:tcPr></w:tblStylePr></w:style>"#
+        )
+    };
+    let tbl_pr = r#"<w:tblStyle w:val="Heads"/><w:tblLook w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>"#;
+    let rows: Vec<String> = (0..7)
+        .map(|n| {
+            let tr_pr = if n < 3 { "<w:tblHeader/>" } else { "" };
+            row(
+                tr_pr,
+                &[cell("", &para(&format!("r{n}"))), cell("", &para("v"))],
+            )
+        })
+        .collect();
+    let body = table(tbl_pr, 2, &rows);
+    let head_fill = r#"<w:tcPr><w:shd w:val="clear" w:fill="1F4E79"/></w:tcPr>"#;
+    let document = styled_document(&body, &style(head_fill));
+    let records = row_records(&document);
+    let page = &shapes(&pdf(&document))[0];
+    let tops = |colour: u32| {
+        let mut tops: Vec<f64> = coloured(page, colour).iter().map(|s| s.top).collect();
+        tops.dedup_by(|a, b| close(*a, *b));
+        tops
+    };
+    let at = |rows: &[usize]| -> Vec<f64> { rows.iter().map(|&r| device(records[r].y)).collect() };
+    let heads = tops(0x1F4E79);
+    assert_eq!(heads.len(), 3, "{heads:?}");
+    assert!(heads.iter().zip(at(&[0, 1, 2])).all(|(a, b)| close(*a, b)));
+    let bands = tops(0xDDEBF7);
+    assert_eq!(
+        bands.len(),
+        2,
+        "bands start below the header rows: {bands:?}"
+    );
+    assert!(bands.iter().zip(at(&[3, 5])).all(|(a, b)| close(*a, b)));
+
+    // The preflight's scan sees the first row's paragraph look in each.
+    let boxed = r#"<w:pPr><w:shd w:val="clear" w:fill="EEEEEE"/></w:pPr>"#;
+    let report = preflight(&styled_document(&body, &style(boxed))).unwrap();
+    let found: Vec<_> = report
+        .warnings
+        .iter()
+        .map(|w| (w.subject, w.count))
+        .collect();
+    assert_eq!(found, [("paragraph border or shading in a table cell", 6)]);
+}
+
+#[test]
+fn the_content_cap_counts_border_bytes_as_they_are_written() {
+    let rows: Vec<String> = (0..40)
+        .map(|_| row("", &vec![cell("", "<w:p/>"); 4]))
+        .collect();
+    let document = document(&table(&all_borders("dotDotDash", 4, "404040"), 4, &rows));
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    options.limits.max_output_bytes = 100;
+    let err = render(&document, &options).unwrap_err();
+    let limit = err.limit_exceeded().unwrap();
+    assert_eq!(limit.limit, "max_pdf_content_bytes");
+    assert!(
+        limit.observed < limit.allowed + 200,
+        "stopped within a run of the cap, not at the page's close: {limit:?}"
+    );
+}

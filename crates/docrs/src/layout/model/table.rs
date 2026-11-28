@@ -140,6 +140,8 @@ struct TableReader {
     /// Column widths.
     grid: Vec<f64>,
     rows: usize,
+    /// Leading `w:tblHeader` rows.
+    heads: usize,
     /// The fill and alignment of each grid column's open vertical merge.
     merges: Vec<Option<(Option<Rgb>, VAlign)>>,
 }
@@ -186,6 +188,7 @@ impl TableReader {
                 })
                 .unwrap_or_default(),
             rows: w_children(tree, tbl, "tr").count(),
+            heads: header_rows(tree, tbl),
             merges: vec![None; MAX_GRID_COLUMNS],
             format,
             palette,
@@ -221,6 +224,7 @@ impl TableReader {
                 rows: self.rows,
                 column: cell_index,
                 columns: tcs.len(),
+                heads: self.heads,
             };
             let (cell, grid_cell) = self.cell(builder, tree, tc, at, column, &exception);
             column += grid_cell.span;
@@ -476,4 +480,16 @@ pub(super) fn margins(tree: &XmlTree, mar: Option<NodeId>) -> [Option<f64>; 4] {
         }
     }
     out
+}
+
+/// The count of `tbl`'s leading rows marked `w:tblHeader`, which Word
+/// repeats on each page and gives the first row's look.
+pub(crate) fn header_rows(tree: &XmlTree, tbl: NodeId) -> usize {
+    w_children(tree, tbl, "tr")
+        .take_while(|&tr| {
+            w_child(tree, tr, "trPr")
+                .and_then(|pr| w_child(tree, pr, "tblHeader"))
+                .is_some_and(|h| super::on_off(tree, h))
+        })
+        .count()
 }

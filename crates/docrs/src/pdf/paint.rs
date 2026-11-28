@@ -184,11 +184,16 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
         let [body_strokes, furniture_strokes] = std::mem::take(&mut self.strokes);
         let mut under = furniture_cells;
         under.extend_from_slice(furniture);
-        super::table::borders(&mut under, furniture_strokes, size.1)?;
         let mut text = body_cells;
         text.append(&mut self.fills);
         text.extend_from_slice(body);
-        super::table::borders(&mut text, body_strokes, size.1)?;
+        let taken = self.drawn + self.pictures.layered() as u64;
+        let cap = |other: &[u8]| super::table::Cap {
+            max: self.max_drawn,
+            taken: taken + other.len() as u64,
+        };
+        super::table::borders(&mut under, furniture_strokes, size.1, cap(&text))?;
+        super::table::borders(&mut text, body_strokes, size.1, cap(&under))?;
         let stream = self.pictures.page_stream(&under, &text);
         self.drawn += stream.len() as u64;
         self.check_drawn()?;

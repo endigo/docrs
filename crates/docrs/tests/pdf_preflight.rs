@@ -1521,3 +1521,55 @@ fn a_vml_picture_naming_no_part_is_not_yet_drawn() {
     assert_eq!(subjects(&report, NOT_YET_DRAWN), [("image", 1)]);
     assert!(subjects(&report, "pdf_image_unsupported").is_empty());
 }
+
+#[test]
+fn diagonal_cell_borders_and_patterned_cell_shading_are_reported() {
+    let table = |style: &str, tc_pr: &str| {
+        format!(
+            r#"<w:tbl><w:tblPr><w:tblStyle w:val="{style}"/></w:tblPr><w:tr><w:tc><w:tcPr>{tc_pr}</w:tcPr>{}</w:tc></w:tr></w:tbl>"#,
+            para(&run("<w:t>cell</w:t>"))
+        )
+    };
+    let plain = table(
+        "None",
+        concat!(
+            r#"<w:tcBorders><w:tl2br w:val="nil"/><w:tr2bl w:val="none"/></w:tcBorders>"#,
+            r#"<w:shd w:val="clear" w:fill="EEEEEE"/>"#,
+        ),
+    );
+    let direct = table(
+        "None",
+        concat!(
+            r#"<w:tcBorders><w:tl2br w:val="double" w:sz="4"/></w:tcBorders>"#,
+            r#"<w:shd w:val="diagStripe" w:color="FF0000" w:fill="FFFFFF"/>"#,
+        ),
+    );
+    let styles = concat!(
+        r#"<w:style w:type="table" w:styleId="None"/>"#,
+        r#"<w:style w:type="table" w:styleId="Crossed"><w:tblStylePr w:type="firstRow"><w:tcPr><w:tcBorders><w:tr2bl w:val="single" w:sz="4"/></w:tcBorders><w:shd w:val="pct25" w:color="auto" w:fill="FFFFFF"/></w:tcPr></w:tblStylePr></w:style>"#,
+    );
+    let styled = |body: &str| {
+        report(&docx(
+            body,
+            &[xml_part("word/styles.xml", "styles", "styles", styles)],
+            &[],
+        ))
+    };
+    assert_eq!(
+        styled(&plain).warnings,
+        [],
+        "nil, none and clear draw nothing"
+    );
+    for body in [direct, table("Crossed", "")] {
+        let report = styled(&body);
+        assert_eq!(
+            subjects(&report, NOT_YET_DRAWN),
+            [("diagonal cell border", 1)]
+        );
+        assert_eq!(
+            subjects(&report, "pdf_decoration_approximated"),
+            [("table shading", 1)],
+            "a diagonal is not a border drawn as a single line"
+        );
+    }
+}
