@@ -173,7 +173,8 @@ impl ParaBox {
     /// The paragraph that follows on this page, `gap` below this box, of
     /// which `after` is this paragraph's space after. The fill reaches a
     /// shaded paragraph that joins, down to its between line; the side lines
-    /// run through `after` unshaded, else end with the fill (measured).
+    /// run through `after`, but end with the fill of a shaded paragraph that
+    /// ends its group (measured).
     pub(super) fn reach_down(&mut self, after: f64, gap: f64, next: Option<&Para>) {
         match (&mut self.fill, next) {
             (Some(fill), Some(next)) if next.shade.is_some() => {
@@ -181,7 +182,7 @@ impl ParaBox {
                 fill.bottom += gap + between.map_or(0.0, |b| b.space);
                 self.sides.1 = self.bottom + gap;
             }
-            (None, _) if self.bottom_line.is_none() => self.sides.1 += after,
+            (None, _) | (Some(_), Some(_)) if self.bottom_line.is_none() => self.sides.1 += after,
             _ => {}
         }
     }
@@ -484,6 +485,45 @@ mod tests {
             .collect();
         assert_eq!(fills, [Some((grey, 30.0)), Some((grey, 40.0))]);
         assert_eq!(spans(&drawn), [(1, 10.0, 20.0), (1, 30.0, 40.0)]);
+    }
+
+    #[test]
+    fn side_lines_run_on_from_a_shaded_paragraph_to_an_unshaded_one_that_joins() {
+        let boxed = ParaBorders {
+            top: Some(line(1.0, 2.0)),
+            bottom: Some(line(1.0, 2.0)),
+            between: Some(line(0.5, 1.0)),
+            left: Some(line(0.5, 4.0)),
+            right: Some(line(0.5, 4.0)),
+        };
+        let grey = Rgb {
+            r: 0xF5,
+            g: 0xF5,
+            b: 0xF5,
+        };
+        let member = |shade| {
+            with(
+                boxed,
+                Para {
+                    shade,
+                    after: 6.0,
+                    ..para(1, 20.0)
+                },
+            )
+        };
+        let drawn = draw(
+            vec![
+                member(Some(grey)),
+                member(None),
+                member(Some(grey)),
+                member(Some(grey)),
+            ],
+            200.0,
+        );
+        let sides: Vec<_> = drawn.boxes.iter().map(|(_, b)| b.sides).collect();
+        for pair in sides.windows(2) {
+            assert_eq!(pair[0].1, pair[1].0, "{sides:?}");
+        }
     }
 
     #[test]

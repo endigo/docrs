@@ -788,3 +788,41 @@ fn a_bottom_aligned_page_moves_its_paragraph_boxes_down_with_their_lines() {
         "{boxed:?} {line:?}"
     );
 }
+
+#[test]
+fn bordered_endnote_paragraphs_join_among_themselves_and_not_the_body() {
+    let body =
+        boxed_cited("End", &[]).replace("</w:p>", &(reference("endnoteReference", 1) + "</w:p>"));
+    let boxed = |text: &str, mark| {
+        note_para(text, mark).replacen(
+            "</w:pPr>",
+            r#"<w:pBdr><w:bottom w:val="single" w:sz="24" w:space="12" w:color="000000"/></w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="DDDDDD"/></w:pPr>"#,
+            1,
+        )
+    };
+    let endnote = format!(
+        r#"<w:endnote w:id="1">{}{}</w:endnote>"#,
+        boxed("First.", Some("endnoteRef")),
+        boxed("Second.", None)
+    );
+    let doc = document(Parts {
+        body: &body,
+        endnotes: &endnote,
+        ..NONE
+    });
+    let records = records(&doc);
+    let mut sink = Boxes::default();
+    paginate_into(&doc, &mut sink).unwrap();
+    let [(1, cited), (1, first), (1, second)] = sink.boxes[..] else {
+        panic!("{:#?}", sink.boxes)
+    };
+    let rule = cited.bottom_line;
+    assert!(rule.is_some());
+    assert_eq!((first.bottom_line, second.bottom_line), (None, rule));
+    assert!(close(first.top, find(&records, "i First.").y), "{first:?}");
+    assert!(
+        close(second.top, find(&records, " Second.").y),
+        "{second:?}"
+    );
+    assert!(close(first.fill.unwrap().bottom, second.top), "{first:?}");
+}
