@@ -1685,3 +1685,54 @@ fn contents_page_numbers_are_the_layout_s_on_every_contents_fixture() {
     }
     assert!(checked >= 300, "{checked}");
 }
+
+/// Word for Mac 16.115.2's first baseline on page 2 of each document in
+/// `tests/fixtures/pdf/page-top` (Save As PDF, PR #62): 82.32 with no space
+/// above, 101.28 with 24 pt before less the previous paragraph's 5 pt after.
+/// `m14`/`m15` is the compatibility mode (none in the numbered cases),
+/// `fe` adds `useFELayout`.
+const PAGE_TOP_WORD: [(&str, f64); 14] = [
+    ("0-control-pbb-0-before", 82.32),
+    ("1-pbb-after-exceeds-before", 82.32),
+    ("2-pbb-contextual", 82.32),
+    ("3-br-page-then-24-before", 82.32),
+    ("4-section-next-page", 101.28),
+    ("5-pbb-before-exceeds-after", 101.28),
+    ("pbb-m14-fe", 101.28),
+    ("pbb-m14-nofe", 101.28),
+    ("pbb-m15-fe", 82.32),
+    ("pbb-m15-nofe", 82.32),
+    ("section-m14-fe", 101.28),
+    ("section-m14-nofe", 101.28),
+    ("section-m15-fe", 101.28),
+    ("section-m15-nofe", 101.28),
+];
+
+#[test]
+fn the_space_kept_at_the_top_of_page_2_is_word_s() {
+    for (name, word) in PAGE_TOP_WORD {
+        let path = repo_root().join(format!("tests/fixtures/pdf/page-top/{name}.docx"));
+        let doc = Document::open_path(path, &Limits::default()).unwrap();
+        let txn = Txn::new(&doc);
+        let main = doc.package().main_part_name().to_string();
+        let mut baseline = None;
+        docrs::layout::line_records(
+            &txn,
+            &main,
+            Vec::new(),
+            |_, _| Ok(()),
+            |line| {
+                if line.page == 2 && line.story == "body" && baseline.is_none() {
+                    baseline = Some(line.baseline);
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        let baseline = baseline.unwrap();
+        assert!(
+            (baseline - word).abs() <= 0.1,
+            "{name}: {baseline} against Word's {word}"
+        );
+    }
+}

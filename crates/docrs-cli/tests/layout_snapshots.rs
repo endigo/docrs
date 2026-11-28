@@ -301,12 +301,11 @@ fn layout_matches_the_snapshots() {
 const BASELINE_TOLERANCE: f64 = 0.3;
 
 /// What a fixture's baselines are held to: the lines that must match one
-/// of Word's, the residual allowed and the last page compared.
+/// of Word's and the residual allowed.
 struct BaselineCheck {
     case: &'static str,
     matched: usize,
     within: f64,
-    last_page: u32,
 }
 
 const fn check(case: &'static str, matched: usize) -> BaselineCheck {
@@ -314,7 +313,6 @@ const fn check(case: &'static str, matched: usize) -> BaselineCheck {
         case,
         matched,
         within: BASELINE_TOLERANCE,
-        last_page: u32::MAX,
     }
 }
 
@@ -334,17 +332,10 @@ const BASELINE_CHECKS: [BaselineCheck; 10] = [
         within: 0.65,
         ..check("table-times-new-roman", 15)
     },
-    // From page 2, Word sets the first heading 19 pt lower (its 24 pt
-    // space before less the previous paragraph's 5 pt after; a separate
-    // PR). 15 of toc-inter's 16 page-1 lines match Word's.
-    BaselineCheck {
-        last_page: 1,
-        ..check("toc-arial", 16)
-    },
-    BaselineCheck {
-        last_page: 1,
-        ..check("toc-inter", 15)
-    },
+    // Every page: "Introduction" keeps 24 pt before less 5 pt after at the
+    // top of page 2 (`pageBreakBefore`, compatibility mode 14).
+    check("toc-arial", 151),
+    check("toc-inter", 151),
 ];
 
 fn letters(text: &str) -> String {
@@ -396,11 +387,11 @@ fn laid_out_lines(fixture: &Fixture) -> Result<Vec<serde_json::Value>, String> {
         .collect()
 }
 
-/// Our baseline less Word's for each line with text up to `last_page`,
-/// headers and footers included.
+/// Our baseline less Word's for each line with text, headers and footers
+/// included.
 /// Word's line is the nearest on the page with the same text, the same
 /// after a list label, or starting with it (Word joins a row's cells).
-fn baseline_residuals(ours: &[serde_json::Value], word: &[WordLine], last_page: u32) -> Vec<f64> {
+fn baseline_residuals(ours: &[serde_json::Value], word: &[WordLine]) -> Vec<f64> {
     let mut used = vec![false; word.len()];
     let mut residuals = Vec::new();
     for line in ours {
@@ -412,7 +403,7 @@ fn baseline_residuals(ours: &[serde_json::Value], word: &[WordLine], last_page: 
             continue;
         };
         let text = letters(text);
-        if text.is_empty() || page > u64::from(last_page) {
+        if text.is_empty() {
             continue;
         }
         let whole = |w: &WordLine| w.letters.ends_with(&text) && w.letters.len() <= text.len() + 3;
@@ -454,7 +445,7 @@ fn baselines_match_words() {
             failures.push(format!("{case}: not in BASELINE_CHECKS"));
             continue;
         };
-        let residuals = baseline_residuals(&ours, &word, expected.last_page);
+        let residuals = baseline_residuals(&ours, &word);
         let worst = residuals
             .iter()
             .copied()

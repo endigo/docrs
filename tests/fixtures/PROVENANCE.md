@@ -24,5 +24,9 @@ under `markdown/` are committed `.docx` files, described in
 `crates/docrs-cli/tests/layout_snapshots.rs` (`tools/pdf/README.md`).
 `pdf/` holds the PDF engine's fixture sources and their reference
 documents (`pdf/README.md`), and images from real encoders
-(`pdf/images/PROVENANCE.md`). `fonts/` holds openly licensed fonts the
+(`pdf/images/PROVENANCE.md`). `pdf/page-top/` holds 14 minimal documents
+generated for the Word checks (WordprocessingML only, no `docProps`)
+for PR #62; Word for Mac 16.115.2 saved each as PDF (File → Save As → PDF),
+and those PDFs are on the `pr-proof` branch under `pr62/word/`. The test
+records Word's page-2 baseline for each. `fonts/` holds openly licensed fonts the
 fixtures use, with their licences (`fonts/PROVENANCE.md`).
