@@ -332,9 +332,9 @@ fn strict_refuses_any_warning_and_not_yet_drawn_always_refuses() {
         render(&arabic, &options).unwrap_err().reason(),
         "pdf_glyph_missing"
     );
-    let note = markdown("Cited.[^1]\n\n[^1]: The note.\n");
+    let hyphen = markdown("A soft hy\u{AD}phen.\n");
     assert_eq!(
-        render(&note, &options).unwrap_err().reason(),
+        render(&hyphen, &options).unwrap_err().reason(),
         "pdf_not_yet_drawn"
     );
     let (_, report) = render(&memo(), &options).unwrap();
