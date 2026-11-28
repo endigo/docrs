@@ -512,3 +512,85 @@ fn keep_with_next_does_not_count_notes_yet() {
     assert_eq!(find(&records, "Heading").page, 1);
     assert_eq!(find(&records, "Cited1").page, 2);
 }
+
+/// One cell of eight one-line paragraphs with 18 points after each, the
+/// one at `cited` (from 1) citing `note`, after one body line: the cell's
+/// lines end 12.65, 43.3, 73.95, 104.6 and 135.25 points below its top,
+/// so four fit on the page, leaving 26.75 points.
+fn spaced_cell(cited: usize, note: &str) -> Vec<LineRecord> {
+    let spaced = |text: &str, refs: &str| {
+        format!(
+            r#"<w:p><w:pPr><w:spacing w:before="0" w:after="360"/></w:pPr><w:r><w:t>{text}</w:t></w:r>{refs}</w:p>"#
+        )
+    };
+    let cell: String = (1..=8)
+        .map(|n| match n == cited {
+            true => spaced("Cited", &reference("footnoteReference", 1)),
+            false => spaced(&format!("Row line {n}"), ""),
+        })
+        .collect();
+    let doc = document(Parts {
+        body: &(filler(1) + &table(&[cell]) + &para("")),
+        footnotes: note,
+        ..NONE
+    });
+    records(&doc)
+}
+
+/// Footnote 1: three paragraphs of `size` half-points.
+fn sized_note(size: u32) -> String {
+    let lines: String = (1..=3)
+        .map(|n| {
+            format!(
+                r#"<w:p><w:r><w:rPr><w:sz w:val="{size}"/></w:rPr><w:t>Note line {n}.</w:t></w:r></w:p>"#
+            )
+        })
+        .collect();
+    format!(r#"<w:footnote w:id="1">{lines}</w:footnote>"#)
+}
+
+/// The page of each of the cell's lines, the cited one as `0`.
+fn cell_pages(records: &[LineRecord]) -> Vec<(u32, u32)> {
+    records
+        .iter()
+        .filter_map(|r| {
+            let line = match r.text.as_str() {
+                "Cited1" => 0,
+                text => text.strip_prefix("Row line ")?.parse().ok()?,
+            };
+            Some((line, r.page))
+        })
+        .collect()
+}
+
+#[test]
+fn a_splitting_cell_keeps_its_lines_when_their_note_fits() {
+    // The separator and the one-line note (24.15) fit under four lines.
+    let records = spaced_cell(2, &footnote(1, &["Note line 1."]));
+    let pages = cell_pages(&records);
+    assert_eq!(pages[..5], [(1, 1), (0, 1), (3, 1), (4, 1), (5, 2)]);
+    assert_eq!(find(&records, "1 Note line 1.").page, 1);
+}
+
+#[test]
+fn a_splitting_cell_gives_up_its_cited_last_line_with_its_note() {
+    // A 16.1-point note line does not fit under the separator below four
+    // lines: one retry drops the fourth, which cites it.
+    let records = spaced_cell(4, &sized_note(28));
+    let pages = cell_pages(&records);
+    assert_eq!(pages[..4], [(1, 1), (2, 1), (3, 1), (0, 2)]);
+    assert_eq!(find(&records, "Note line 1.").page, 2);
+    assert!(of_story(&records, "footnotes").iter().all(|n| n.page != 1));
+}
+
+#[test]
+fn a_splitting_cell_gives_up_lines_until_its_note_starts() {
+    // A 46-point note line fits under two lines, not three or four: two
+    // retries, and the cited second line stays with the note's start.
+    let records = spaced_cell(2, &sized_note(80));
+    let pages = cell_pages(&records);
+    assert_eq!(pages[..3], [(1, 1), (0, 1), (3, 2)]);
+    let first = find(&records, "Note line 1.");
+    assert_eq!(first.page, 1);
+    assert!(close(first.y + first.height, BODY_BOTTOM), "{first:?}");
+}
