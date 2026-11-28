@@ -318,13 +318,16 @@ const fn check(case: &'static str, matched: usize) -> BaselineCheck {
     }
 }
 
-const BASELINE_CHECKS: [BaselineCheck; 9] = [
+const BASELINE_CHECKS: [BaselineCheck; 10] = [
     check("memo-arial", 47),
     check("memo-times-new-roman", 44),
     check("memo-inter", 49),
     check("lists-arial", 24),
-    check("cover-page", 10),
+    // With its page-2 header and footer.
+    check("cover-page", 12),
     check("memo-aptos", 46),
+    // Every page's header and footer, and the body.
+    check("stories-arial", 115),
     // Only a row's first cell matches Word's line, which joins the row.
     // Word's header row is 0.54 pt taller, which moves every line below it.
     BaselineCheck {
@@ -333,15 +336,14 @@ const BASELINE_CHECKS: [BaselineCheck; 9] = [
     },
     // From page 2, Word sets the first heading 19 pt lower (its 24 pt
     // space before less the previous paragraph's 5 pt after; a separate
-    // PR). Seven of toc-inter's contents entries show other page numbers
-    // than Word's, so only 9 of its 16 page-1 lines match.
+    // PR). 15 of toc-inter's 16 page-1 lines match Word's.
     BaselineCheck {
         last_page: 1,
         ..check("toc-arial", 16)
     },
     BaselineCheck {
         last_page: 1,
-        ..check("toc-inter", 9)
+        ..check("toc-inter", 15)
     },
 ];
 
@@ -394,7 +396,8 @@ fn laid_out_lines(fixture: &Fixture) -> Result<Vec<serde_json::Value>, String> {
         .collect()
 }
 
-/// Our baseline less Word's for each body line with text up to `last_page`.
+/// Our baseline less Word's for each line with text up to `last_page`,
+/// headers and footers included.
 /// Word's line is the nearest on the page with the same text, the same
 /// after a list label, or starting with it (Word joins a row's cells).
 fn baseline_residuals(ours: &[serde_json::Value], word: &[WordLine], last_page: u32) -> Vec<f64> {
@@ -409,7 +412,7 @@ fn baseline_residuals(ours: &[serde_json::Value], word: &[WordLine], last_page: 
             continue;
         };
         let text = letters(text);
-        if line["story"] != "body" || text.is_empty() || page > u64::from(last_page) {
+        if text.is_empty() || page > u64::from(last_page) {
             continue;
         }
         let whole = |w: &WordLine| w.letters.ends_with(&text) && w.letters.len() <= text.len() + 3;
