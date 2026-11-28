@@ -572,6 +572,10 @@ fn gap(previous: Option<&Para>, para: &Para) -> f64 {
 struct CellLine {
     offset: f64,
     height: f64,
+    /// Where the content splits when this line is the first to move: its
+    /// top, or a nested row's top for the row's first lines, so the row's
+    /// top border and end move with them.
+    cut: f64,
     /// Where the row splits instead when this is the first line that does
     /// not fit: the line before it, when widow control would otherwise
     /// leave one line of the paragraph behind or send one ahead.
@@ -583,6 +587,7 @@ impl CellLine {
         CellLine {
             offset: self.offset + by,
             height: self.height,
+            cut: self.cut + by,
             widow_cut: self.widow_cut.map(|cut| cut + by),
         }
     }
@@ -676,6 +681,7 @@ fn cell_layout<'m>(
                     out.lines.push(CellLine {
                         offset: y,
                         height,
+                        cut: y,
                         widow_cut: widow.then_some(above),
                     });
                     above = y;
@@ -707,13 +713,22 @@ fn cell_layout<'m>(
                         out.lines.push(CellLine {
                             offset: y,
                             height: layout.height,
+                            cut: y,
                             widow_cut: None,
                         });
                     } else {
                         for part in &layout.cells {
                             let top = y + part.top;
+                            let first = part.layout.lines.first().map_or(0.0, |l| l.offset);
                             out.lines
-                                .extend(part.layout.lines.iter().map(|line| line.shifted(top)));
+                                .extend(part.layout.lines.iter().map(|line| CellLine {
+                                    cut: if line.offset <= first + EPSILON {
+                                        y
+                                    } else {
+                                        line.cut + top
+                                    },
+                                    ..line.shifted(top)
+                                }));
                         }
                     }
                     out.drawn.push(Drawn {

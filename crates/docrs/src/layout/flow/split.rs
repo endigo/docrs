@@ -74,21 +74,22 @@ impl<'a, 'm> Rest<'a, 'm> {
     }
 
     fn places_a_line(&self, cut: Option<usize>) -> bool {
-        !self.done && cut.map_or(self.line < self.part.layout.lines.len(), |k| k > self.line)
+        let lines = &self.part.layout.lines;
+        !self.done
+            && cut.map_or(self.line < lines.len(), |k| {
+                k > self.line && lines[k].cut > lines[self.line].cut + EPSILON
+            })
     }
 
-    /// The cut after the next line.
+    /// The first cut below the next line.
     fn forced(&self) -> Option<usize> {
         let lines = &self.part.layout.lines;
-        let from = lines.get(self.line).filter(|_| !self.done)?.offset;
-        let cut = self.line + lines[self.line..].partition_point(|l| l.offset <= from + EPSILON);
-        (cut < lines.len()).then_some(cut)
+        let from = lines.get(self.line).filter(|_| !self.done)?.cut;
+        (self.line + 1..lines.len()).find(|&k| lines[k].cut > from + EPSILON)
     }
 
     fn end(&self, cut: Option<usize>) -> f64 {
-        cut.map_or(self.part.layout.content, |k| {
-            self.part.layout.lines[k].offset
-        })
+        cut.map_or(self.part.layout.content, |k| self.part.layout.lines[k].cut)
     }
 
     /// The content left from `start`, the cell's margins added.

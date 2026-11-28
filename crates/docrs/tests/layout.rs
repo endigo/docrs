@@ -1119,6 +1119,48 @@ fn a_nested_table_splits_with_the_cell_holding_it() {
 }
 
 #[test]
+fn a_nested_row_whose_line_moves_has_no_part_on_the_page_before() {
+    // 80 bordered one-line rows nested in one cell: each row's 0.5-point
+    // top border sits above its line, so a cut before a row's line falls
+    // just below the row's top.
+    let borders: String = ["top", "bottom", "insideH"]
+        .iter()
+        .map(|side| format!("<w:{side} w:val=\"single\" w:sz=\"4\"/>"))
+        .collect();
+    let rows: String = (1..=80)
+        .map(|i| {
+            format!(
+                "<w:tr><w:tc>{}</w:tc></w:tr>",
+                para(&format!("Nested {i}"), "")
+            )
+        })
+        .collect();
+    let body = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"9360\"/></w:tblGrid><w:tr><w:tc><w:tbl><w:tblPr><w:tblBorders>{borders}</w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w=\"4400\"/></w:tblGrid>{rows}</w:tbl>{}</w:tc></w:tr></w:tbl>{}",
+        para("", ""),
+        para("", "")
+    );
+    let doc = Document::open_bytes(&styled_package(&body, ""), &Limits::default()).unwrap();
+    let records = records_of(&doc);
+    let nested: Vec<&RowRecord> = row_parts(&records)
+        .filter(|row| (row.width - 220.0).abs() < 0.01)
+        .collect();
+    assert_eq!(nested.len(), 80);
+    for part in nested {
+        let line = page_of(&records, &format!("Nested {}", part.row + 1));
+        assert_eq!(
+            (part.page, part.first, part.last),
+            (line, true, true),
+            "{part:?}"
+        );
+        assert!(
+            part.y >= 72.0 && part.y + part.height <= 720.0 + 0.01,
+            "{part:?}"
+        );
+    }
+}
+
+#[test]
 fn cell_side_margins_come_from_table_normal() {
     let table = format!(
         "<w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}",
