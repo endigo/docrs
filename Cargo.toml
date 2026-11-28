@@ -51,9 +51,12 @@ unsafe_code = "forbid"
 all = { level = "warn", priority = -1 }
 
 # The npm package's build (crates/docrs-wasm/build.sh). LTO needs the
-# crate to be a cdylib only.
+# crate to be a cdylib only. opt-level "s" keeps the wasm with the PDF
+# engine under the 3.9 MB budget (3.12 MB, against 4.09 MB at 3) at about
+# +9 ms on a warm 50-page fromHtml (38 ms against 29); see the CHANGELOG.
 [profile.wasm]
 inherits = "release"
+opt-level = "s"
 lto = "fat"
 codegen-units = 1
 

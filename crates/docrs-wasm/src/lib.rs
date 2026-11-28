@@ -10,13 +10,16 @@
 //! images are passed in, and the time comes from JavaScript's clock.
 
 mod fonts;
+mod pdf;
 
 use std::collections::BTreeMap;
 
 use docrs::clock::Timestamp;
 use docrs::markdown::{self, InputFormat, MarkdownOptions, Placement, Role, StylePolicy};
+use docrs::pdf::PdfLimits;
 use docrs::replace::ReplaceAllOptions;
 use docrs::{Document, Error, Limits, Tolerance};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use wasm_bindgen::prelude::*;
@@ -24,6 +27,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(test)]
 use fonts::FontOptions;
 use fonts::{FontLimits, LoadedFonts};
+use pdf::{Pdf, PdfChoice};
 
 /// Options of [`from_markdown`], camelCase in JavaScript. Every field is
 /// optional; the defaults match the CLI's.
@@ -89,7 +93,11 @@ pub struct Options {
     /// blank one). A value is text within one paragraph: no line breaks,
     /// tabs or other control characters, and no `{{` or `}}`.
     pub fields: BTreeMap<String, String>,
-    /// Fonts to measure with, from the registry id JavaScript passes as
+    /// Also draw the converted document as a PDF (experimental).
+    pub pdf: Option<PdfChoice>,
+    /// Return the `.docx` too (default true); `false` needs `pdf`.
+    pub docx: Option<bool>,
+    /// Fonts to measure and draw with, from the registry id JavaScript passes as
     /// `fonts` (see [`options_from`]).
     #[serde(skip)]
     pub fonts: LoadedFonts,
@@ -104,6 +112,7 @@ struct InputLimits {
     /// Text the merge fields add, every occurrence counted, in bytes.
     fields: u64,
     fonts: FontLimits,
+    pdf: PdfLimits,
 }
 
 fn limits_of(options: &Options) -> Result<(Limits, InputLimits), Error> {
@@ -119,6 +128,7 @@ fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
                 input: u64::MAX,
                 fields: u64::MAX,
                 fonts: FontLimits::DEFAULT,
+                pdf: PdfLimits::default(),
             },
         )),
         Some("serverless") => Ok((
@@ -131,6 +141,7 @@ fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
                 input: 12 << 20,
                 fields: 384 << 10,
                 fonts: FontLimits::SERVERLESS,
+                pdf: PdfLimits::serverless(),
             },
         )),
         Some(other) => Err(Error::invalid_argument(
@@ -192,8 +203,9 @@ pub fn timestamp_from_millis(millis: f64) -> Result<Timestamp, Error> {
 /// A finished conversion.
 #[derive(Debug)]
 pub struct Converted {
-    /// The `.docx` package.
-    pub docx: Vec<u8>,
+    /// The `.docx` package, unless `docx: false`.
+    pub docx: Option<Vec<u8>>,
+    pub pdf: Option<Pdf>,
     /// The conversion report (the CLI's `markdown` object).
     pub report: serde_json::Value,
     /// What was set aside to read the reference document.
@@ -262,22 +274,24 @@ fn markdown_options(
     })
 }
 
-/// Convert `source` (Markdown, editor HTML or TipTap JSON, by `format`) with `options`
-/// (see [`Options`]); `now` stamps any document property the conversion
-/// has to create. Atomic: a refusal returns the error and produces
-/// nothing.
-///
-/// Takes the options by value: the template and image bytes are moved, not
-/// copied, and each input is released once it is no longer needed, so a
-/// conversion holds as few copies of large inputs as it can (WebAssembly
-/// memory never shrinks, so the peak is what an instance keeps).
-pub fn convert(
+/// A converted document, before it is written.
+pub struct Built {
+    pub document: Document,
+    pub report: markdown::MarkdownReport,
+    /// What `fields` filled in (the report's `fields`).
+    pub fields: Option<serde_json::Value>,
+    pub reference_set_aside: Vec<String>,
+}
+
+/// Convert `source` into the reference document of `options`, filling its
+/// fields; takes the template, images and fonts out of `options`.
+pub fn build(
     source: &str,
     format: InputFormat,
-    mut options: Options,
+    options: &mut Options,
     now: Timestamp,
-) -> Result<Converted, Error> {
-    let (limits, input) = limits_of(&options)?;
+) -> Result<Built, Error> {
+    let (limits, input) = limits_of(options)?;
     check_sizes(
         &limits,
         &input,
@@ -287,8 +301,8 @@ pub fn convert(
     )?;
     options.fonts.check(&input.fonts)?;
     check_fields(&options.fields)?;
-    let fonts = std::mem::take(&mut options.fonts).set;
-    let mut markdown_options = markdown_options(&options, format, now)?;
+    let fonts = &options.fonts.set;
+    let mut markdown_options = markdown_options(options, format, now)?;
     markdown_options.images = std::mem::take(&mut options.images)
         .into_iter()
         .map(|(path, bytes)| (path, bytes.into_vec()))
@@ -304,7 +318,7 @@ pub fn convert(
         document.acknowledge_protection()?;
     }
     let mut report =
-        markdown::insert_source_with(&mut document, source, format, &markdown_options, &fonts)?;
+        markdown::insert_source_with(&mut document, source, format, &markdown_options, fonts)?;
     drop(markdown_options);
     let fields = fill_fields(&mut document, &options.fields, input.fields)?;
     let filled = fields
@@ -313,7 +327,7 @@ pub fn convert(
         .unwrap_or(0);
     if let (true, Some(toc)) = (filled > 0, report.toc.as_mut()) {
         let refresh =
-            docrs::layout::refresh_toc_page_numbers_if_settled_with(&mut document, true, &fonts)?;
+            docrs::layout::refresh_toc_page_numbers_if_settled_with(&mut document, true, fonts)?;
         match refresh {
             Some(refresh) => {
                 toc.pages = refresh.layout.pages;
@@ -326,16 +340,66 @@ pub fn convert(
     if options.redact {
         report.redact();
     }
-    let (docx, _) = document.patch_bytes()?;
-    drop(document);
-    let mut report = report.to_json();
+    Ok(Built {
+        document,
+        report,
+        fields,
+        reference_set_aside,
+    })
+}
+
+/// Convert `source` (Markdown, editor HTML or TipTap JSON, by `format`) with `options`
+/// (see [`Options`]); `now` stamps any document property the conversion
+/// has to create. Atomic: a refusal returns the error and produces
+/// nothing.
+///
+/// Takes the options by value: the template and image bytes are moved, not
+/// copied, and each input is released once it is no longer needed, so a
+/// conversion holds as few copies of large inputs as it can (WebAssembly
+/// memory never shrinks, so the peak is what an instance keeps).
+pub fn convert(
+    source: &str,
+    format: InputFormat,
+    mut options: Options,
+    now: Timestamp,
+) -> Result<Converted, Error> {
+    let pdf = options.pdf.as_ref().and_then(PdfChoice::settings).cloned();
+    let docx = options.docx.unwrap_or(true);
+    if !docx && pdf.is_none() {
+        return Err(Error::invalid_argument(
+            "invalid_options",
+            "docx: false needs pdf",
+        ));
+    }
+    let pdf_limits = limits_of(&options)?.1.pdf;
+    let built = build(source, format, &mut options, now)?;
+    let pdf = pdf
+        .map(|settings| {
+            pdf::render(
+                &built.document,
+                &settings,
+                options.strict,
+                &options.fonts.set,
+                pdf_limits,
+                options.redact,
+            )
+        })
+        .transpose()?;
+    let docx = if docx {
+        Some(built.document.patch_bytes()?.0)
+    } else {
+        None
+    };
+    drop(built.document);
+    let mut report = built.report.to_json();
     if let Some(object) = report.as_object_mut() {
-        object.insert("fields".into(), fields.unwrap_or_default());
+        object.insert("fields".into(), built.fields.unwrap_or_default());
     }
     Ok(Converted {
         docx,
+        pdf,
         report,
-        reference_set_aside,
+        reference_set_aside: built.reference_set_aside,
     })
 }
 
@@ -555,9 +619,154 @@ export interface FromMarkdownOptions {
   redact?: boolean;
   /** `{{Name}}` (or `{{{Name}}}`) merge fields to fill once converted, by name (spaces inside the braces allowed), in the body, headers, footers and text boxes. Fields not named here are left; `""` blanks one. A value is text within one paragraph: a line break, tab or other control character, `{{` or `}}` is refused. */
   fields?: Record<string, string>;
-  /** Fonts to measure the contents page numbers with, in the families and styles the template embeds no font for (experimental). */
+  /** Fonts to measure the contents page numbers with, and to draw a PDF in, for the families and styles the template embeds no font for (experimental). */
   fonts?: FontSet;
 }
+
+/** Options of a conversion that also draws a PDF (experimental). */
+export interface PdfConversionOptions extends FromMarkdownOptions {
+  /** Also draw the converted document as a PDF: `true`, or the PDF's options. The result adds `pdf` and `pdfReport`. */
+  pdf: boolean | PdfOptions;
+  /** Return the .docx too (default true); `false` needs `pdf`. */
+  docx?: boolean;
+}
+
+/** Caps of one PDF; each lowers the `limits` profile's and never raises it. */
+export interface PdfLimits {
+  maxPages?: number;
+  maxOutputBytes?: number;
+  /** Decoded pixels of one picture. */
+  maxImagePixels?: number;
+  /** Decoded pixels of all the pictures together. */
+  maxDocumentPixels?: number;
+}
+
+/** How to draw a PDF (experimental). */
+export interface PdfOptions extends PdfLimits {
+  /** Refuse with `pdf_not_faithful` when the PDF would leave anything out or change it (default: the conversion's `strict`). */
+  strict?: boolean;
+}
+
+/** Options of `toPdf`. */
+export interface ToPdfOptions extends PdfLimits {
+  /** Refuse with `pdf_not_faithful` when the PDF would leave anything out or change it. */
+  strict?: boolean;
+  /** Fonts for the families and styles the document embeds no font for. */
+  fonts?: FontSet;
+  limits?: "default" | "serverless";
+  strictPackage?: boolean;
+  redact?: boolean;
+}
+
+/** Where a construct a PDF leaves out or changes is. */
+export interface PdfLocation {
+  /** The part (`word/document.xml`, `word/header1.xml`, ...), or with `redact` its kind (`body`, `header`, ...). */
+  story: string;
+  /** The story's paragraph it is in or after, from 1. */
+  ordinal: number;
+  page: number | null;
+}
+
+/** One kind of construct a PDF leaves out or changes. */
+export interface PdfWarning {
+  code: string;
+  subject: string;
+  message: string;
+  /** The first ten. */
+  locations: PdfLocation[];
+  count: number;
+}
+
+/** What a PDF leaves out or changes. */
+export interface PdfReport {
+  schema_version: 1;
+  warnings: PdfWarning[];
+  pages: number;
+}
+
+/** A PDF and its report. */
+export interface PdfOutput {
+  pdf: Uint8Array;
+  pdfReport: PdfReport;
+}
+
+/** A conversion with `pdf` and `docx: false`: the PDF only. */
+export interface FromMarkdownPdfResult extends PdfOutput {
+  report: MarkdownReport;
+  referenceSetAside: string[];
+}
+
+export interface ToPdfResult extends PdfOutput {
+  referenceSetAside: string[];
+}
+
+/** A family and style a PDF draws that the document embeds no font for: what `fonts` must hold. */
+export interface UsedFont {
+  family: string;
+  bold: boolean;
+  italic: boolean;
+}
+
+/** A source to convert, with the options of its conversion (no `fonts`, `pdf` or `docx`). */
+export type UsedFontsSource = Omit<FromMarkdownOptions, "fonts"> &
+  ({ html: string } | { markdown: string } | { json: object | string });
+
+/** Options of `usedFonts` for a .docx. */
+export interface UsedFontsOptions {
+  limits?: "default" | "serverless";
+  strictPackage?: boolean;
+  redact?: boolean;
+}
+
+type WithPdf = { pdf: true | PdfOptions };
+
+/** Convert Markdown into a .docx styled by a reference document, and with `pdf` draw it as a PDF too. */
+export function fromMarkdown(markdown: string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
+export function fromMarkdown(markdown: string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
+export function fromMarkdown(markdown: string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+export function fromMarkdown(markdown: string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromMarkdown(markdown: string, options?: FromMarkdownOptions): FromMarkdownResult;
+
+/** Convert editor HTML (TipTap's `editor.getHTML()` and similar) like `fromMarkdown`; pictures get no captions unless `captions: true`. */
+export function fromHtml(html: string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
+export function fromHtml(html: string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
+export function fromHtml(html: string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+export function fromHtml(html: string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromHtml(html: string, options?: FromMarkdownOptions): FromMarkdownResult;
+
+/** Convert a TipTap document (`editor.getJSON()`, as the object or as JSON text) like `fromMarkdown`; pictures get no captions unless `captions: true`. */
+export function fromJson(document: object | string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
+export function fromJson(document: object | string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
+export function fromJson(document: object | string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+export function fromJson(document: object | string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+export function fromJson(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult;
+
+/** @deprecated Use `fromJson`. */
+export function fromTiptap(document: object | string, options: FromMarkdownOptions & WithPdf & { docx: false }): FromMarkdownPdfResult;
+/** @deprecated Use `fromJson`. */
+export function fromTiptap(document: object | string, options: FromMarkdownOptions & WithPdf & { docx?: true }): FromMarkdownResult & PdfOutput;
+/** @deprecated Use `fromJson`. */
+export function fromTiptap(document: object | string, options: FromMarkdownOptions & { pdf: false; docx?: true }): FromMarkdownResult;
+/** @deprecated Use `fromJson`. */
+export function fromTiptap(document: object | string, options: PdfConversionOptions): FromMarkdownResult | (FromMarkdownResult & PdfOutput) | FromMarkdownPdfResult;
+/** @deprecated Use `fromJson`. */
+export function fromTiptap(document: object | string, options?: FromMarkdownOptions): FromMarkdownResult;
+
+/**
+ * Draw a .docx as a PDF, as `docrs pdf` does (experimental). A family and style with no font
+ * program, in the document or `fonts`, refuses with `pdf_font_program_missing`; `details.missing_fonts`
+ * lists each one.
+ */
+export function toPdf(docx: Uint8Array, options?: ToPdfOptions): ToPdfResult;
+
+/**
+ * The families and styles a PDF of a .docx, or of a source converted with its options, draws with no
+ * font the document embeds (experimental): the faces to fetch and pass as `fonts`. For now it
+ * draws the PDF without fonts and reads its refusal: it costs a full conversion and layout, and
+ * throws `pdf_not_yet_drawn` wherever `toPdf` would, until it reads the document without drawing (#64).
+ */
+export function usedFonts(docx: Uint8Array, options?: UsedFontsOptions): UsedFont[];
+export function usedFonts(source: UsedFontsSource): UsedFont[];
 
 declare const fontSetBrand: unique symbol;
 
@@ -799,6 +1008,11 @@ export interface DocumentCliError extends Error {
   refusal: boolean;
   /** Set for `code: "resource_limit"`: the budget, its value and what was seen. */
   limit: { limit: string; allowed: number; observed: number } | null;
+  /** What caused a refusal: the warnings behind `pdf_not_faithful` or `pdf_not_yet_drawn`, the faces `pdf_font_program_missing` lacks. */
+  details: {
+    warnings: { code: string; count: number; description: string }[];
+    missing_fonts?: { family: string; bold: boolean; italic: boolean }[];
+  } | null;
 }
 "#;
 
@@ -817,25 +1031,27 @@ fn js_error_with(error: &Error, redact: bool) -> JsValue {
     };
     let json = error.to_json();
     let fields = &json["error"];
-    for key in ["code", "reason", "refusal", "limit"] {
+    for key in ["code", "reason", "refusal", "limit", "details"] {
         let _ = js_sys::Reflect::set(&js, &JsValue::from_str(key), &to_js(&fields[key]));
     }
     js.into()
 }
 
-/// Option names, as JavaScript writes them (the fields of [`Options`] in
-/// camelCase, read off its serialization once).
-fn option_names() -> &'static [String] {
-    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-    NAMES.get_or_init(|| {
-        let fields = serde_json::to_value(Options::default()).expect("Options serialize");
-        fields
-            .as_object()
-            .expect("Options serialize as an object")
-            .keys()
-            .cloned()
-            .collect()
-    })
+/// Option names, as JavaScript writes them (the fields of `T` in
+/// camelCase, read off its serialization).
+fn names_of<T: Serialize + Default>() -> Vec<String> {
+    let fields = serde_json::to_value(T::default()).expect("options serialize");
+    fields
+        .as_object()
+        .expect("options serialize as an object")
+        .keys()
+        .cloned()
+        .collect()
+}
+
+#[cfg(test)]
+fn option_names() -> Vec<String> {
+    names_of::<Options>()
 }
 
 fn to_js(value: &serde_json::Value) -> JsValue {
@@ -938,10 +1154,14 @@ fn bytes_from(value: &JsValue, what: &str) -> Result<Vec<u8>, JsValue> {
         })
 }
 
-fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
+/// The options `value` gives, and the font set its `fonts` names.
+fn options_from<T: DeserializeOwned + Serialize + Default>(
+    value: Option<js_sys::Object>,
+) -> Result<(T, Option<LoadedFonts>), JsValue> {
     let Some(value) = value else {
-        return Ok(Options::default());
+        return Ok((T::default(), None));
     };
+    let names = names_of::<T>();
     // Option names and types are the caller's code, not input data, but a
     // value echoed in a type error could be; honour `redact` early.
     let redact = redact_of(&value);
@@ -952,7 +1172,7 @@ fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
     for key in js_sys::Object::keys(&value).iter() {
         let name = key.as_string().unwrap_or_default();
         // `fonts` is a registry id, which serde does not read.
-        if name != "fonts" && !option_names().contains(&name) {
+        if name != "fonts" && !names.contains(&name) {
             return Err(js_error(&Error::invalid_argument(
                 "invalid_options",
                 format!("unknown option {name:?}"),
@@ -970,16 +1190,35 @@ fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
         _ => None,
     };
     let _ = js_sys::Reflect::delete_property(&given, &fonts_key);
-    let options: Options = serde_wasm_bindgen::from_value(given.into()).map_err(|err| {
+    let options = serde_wasm_bindgen::from_value(given.into()).map_err(|err| {
         js_error_with(
             &Error::invalid_argument("invalid_options", format!("options: {err}")),
             redact,
         )
     })?;
+    Ok((options, fonts))
+}
+
+/// The conversion options `value` gives, with their font set.
+fn conversion_options(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
+    let (options, fonts): (Options, _) = options_from(value)?;
     Ok(Options {
         fonts: fonts.unwrap_or_default(),
         ..options
     })
+}
+
+/// The options of `inspectReference` and `markdownStyles`: a conversion's,
+/// refusing `pdf` and `docx`, which neither draws nor writes.
+fn reference_options(value: Option<js_sys::Object>, name: &str) -> Result<Options, JsValue> {
+    let options = conversion_options(value)?;
+    if options.pdf.is_some() || options.docx.is_some() {
+        return Err(js_error_with(
+            &Error::invalid_argument("invalid_options", format!("{name} takes no pdf or docx")),
+            options.redact,
+        ));
+    }
+    Ok(options)
 }
 
 /// The fields of `options` not set to `undefined` or `null`, which count as
@@ -1006,15 +1245,17 @@ fn converted_to_js(converted: Converted) -> JsValue {
     let set = |key: &str, value: &JsValue| {
         let _ = js_sys::Reflect::set(&result, &JsValue::from_str(key), value);
     };
-    set(
-        "docx",
-        &js_sys::Uint8Array::from(converted.docx.as_slice()).into(),
-    );
+    if let Some(docx) = converted.docx {
+        set("docx", &js_sys::Uint8Array::from(docx.as_slice()).into());
+    }
     set("report", &to_js(&converted.report));
     set(
         "referenceSetAside",
         &to_js(&serde_json::json!(converted.reference_set_aside)),
     );
+    if let Some(pdf) = converted.pdf {
+        pdf::pdf_to_js(pdf, &result);
+    }
     result.into()
 }
 
@@ -1024,7 +1265,7 @@ fn run(
     options: Option<js_sys::Object>,
 ) -> Result<JsValue, JsValue> {
     check_js_sizes(Some(&source), None, options.as_ref())?;
-    let options = options_from(options)?;
+    let options = conversion_options(options)?;
     let redact = options.redact;
     let now = timestamp_from_millis(options.now.unwrap_or_else(js_sys::Date::now))
         .map_err(|err| js_error_with(&err, redact))?;
@@ -1035,12 +1276,10 @@ fn run(
 }
 
 /// Convert Markdown into a `.docx` styled by a reference document.
-#[wasm_bindgen(js_name = fromMarkdown, unchecked_return_type = "FromMarkdownResult")]
+#[wasm_bindgen(js_name = fromMarkdown, skip_typescript)]
 pub fn from_markdown(
-    #[wasm_bindgen(unchecked_param_type = "string")] markdown: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
-        js_sys::Object,
-    >,
+    markdown: JsValue,
+    options: Option<js_sys::Object>,
 ) -> Result<JsValue, JsValue> {
     run(markdown, InputFormat::Markdown, options)
 }
@@ -1048,26 +1287,16 @@ pub fn from_markdown(
 /// Convert editor HTML (TipTap's `editor.getHTML()` and similar) into a
 /// `.docx` styled by a reference document. Same options and result as
 /// `fromMarkdown`; pictures get no captions unless `captions: true`.
-#[wasm_bindgen(js_name = fromHtml, unchecked_return_type = "FromMarkdownResult")]
-pub fn from_html(
-    #[wasm_bindgen(unchecked_param_type = "string")] html: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
-        js_sys::Object,
-    >,
-) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(js_name = fromHtml, skip_typescript)]
+pub fn from_html(html: JsValue, options: Option<js_sys::Object>) -> Result<JsValue, JsValue> {
     run(html, InputFormat::Html, options)
 }
 
 /// Convert a TipTap document (`editor.getJSON()`, as the object or as JSON
 /// text) into a `.docx` styled by a reference document. Same options and
 /// result as `fromMarkdown`; pictures get no captions unless `captions: true`.
-#[wasm_bindgen(js_name = fromJson, unchecked_return_type = "FromMarkdownResult")]
-pub fn from_json(
-    #[wasm_bindgen(unchecked_param_type = "object | string")] document: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
-        js_sys::Object,
-    >,
-) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(js_name = fromJson, skip_typescript)]
+pub fn from_json(document: JsValue, options: Option<js_sys::Object>) -> Result<JsValue, JsValue> {
     let source = if document.is_string() {
         document
     } else if document.is_object() {
@@ -1093,13 +1322,8 @@ pub fn from_json(
 /// `fromJson` under the name it had in 0.3.0.
 ///
 /// @deprecated Use `fromJson`.
-#[wasm_bindgen(js_name = fromTiptap, unchecked_return_type = "FromMarkdownResult")]
-pub fn from_tiptap(
-    #[wasm_bindgen(unchecked_param_type = "object | string")] document: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
-        js_sys::Object,
-    >,
-) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(js_name = fromTiptap, skip_typescript)]
+pub fn from_tiptap(document: JsValue, options: Option<js_sys::Object>) -> Result<JsValue, JsValue> {
     from_json(document, options)
 }
 
@@ -1116,7 +1340,7 @@ pub fn inspect_reference(
     >,
 ) -> Result<JsValue, JsValue> {
     check_js_sizes(None, Some(&reference), options.as_ref())?;
-    let options = options_from(options)?;
+    let options = reference_options(options, "inspectReference")?;
     let reference = bytes_from(&reference, "reference")?;
     inspect(&reference, &options)
         .map(|value| to_js(&value))
@@ -1140,7 +1364,7 @@ pub fn markdown_styles(
     let reference = Some(reference).filter(|r| !r.is_undefined() && !r.is_null());
     check_js_sizes(None, reference.as_ref(), options.as_ref())?;
     let redact = options.as_ref().is_some_and(redact_of);
-    let mut options = options_from(options)?;
+    let mut options = reference_options(options, "markdownStyles")?;
     if let Some(styles) = styles {
         let styles: BTreeMap<String, String> = serde_wasm_bindgen::from_value(styles.into())
             .map_err(|err| {
@@ -1229,7 +1453,7 @@ mod tests {
         .unwrap();
         assert_eq!(converted.report["counts"]["images"], 1);
         assert_eq!(converted.report["warnings"], serde_json::json!([]));
-        let document = reopen(&converted.docx);
+        let document = reopen(converted.docx.as_deref().unwrap());
         let core = String::from_utf8(docrs::xml::serialize(
             document.package().xml("docProps/core.xml").unwrap(),
         ))
@@ -1265,7 +1489,7 @@ mod tests {
             converted.report["fields"],
             serde_json::json!({ "filled": 3, "left": ["Other"], "refused": [] })
         );
-        let document = reopen(&converted.docx);
+        let document = reopen(converted.docx.as_deref().unwrap());
         let text: Vec<String> = docrs::story::iter_blocks(&document, docrs::story::View::Current)
             .unwrap()
             .into_iter()
@@ -1310,7 +1534,7 @@ mod tests {
             )
             .unwrap();
             let pages = converted.report["toc"]["pages"].as_u64().unwrap();
-            let document = reopen(&converted.docx);
+            let document = reopen(converted.docx.as_deref().unwrap());
             let xml = String::from_utf8(docrs::xml::serialize(
                 document.package().xml("word/document.xml").unwrap(),
             ))
@@ -1351,7 +1575,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(converted.report["toc"]["entries"], 1);
-        let document = reopen(&converted.docx);
+        let document = reopen(converted.docx.as_deref().unwrap());
         let xml = String::from_utf8(docrs::xml::serialize(
             document.package().xml("word/document.xml").unwrap(),
         ))
@@ -1380,11 +1604,14 @@ mod tests {
             options,
             Timestamp::from_unix(0),
         )?;
-        let text = docrs::story::iter_blocks(&reopen(&converted.docx), docrs::story::View::Current)
-            .unwrap()
-            .into_iter()
-            .map(|block| block.text)
-            .collect();
+        let text = docrs::story::iter_blocks(
+            &reopen(converted.docx.as_deref().unwrap()),
+            docrs::story::View::Current,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|block| block.text)
+        .collect();
         Ok((converted.report["fields"].clone(), text))
     }
 
@@ -1631,10 +1858,29 @@ mod tests {
             member_names(interface_body("RoleStyle"))
         );
 
-        let error = timestamp_from_millis(-1.0).unwrap_err().to_json();
-        assert!(
-            member_names(interface_body("DocumentCliError")).is_subset(&json_keys(&error["error"]))
+        let converted = convert(
+            "# One\n\nCafe\u{301}\n",
+            InputFormat::Markdown,
+            pdf::tests::options(Some(PdfChoice::Wanted(true))),
+            Timestamp::from_unix(0),
+        )
+        .unwrap();
+        let report = &converted.pdf.unwrap().report;
+        assert_eq!(json_keys(report), member_names(interface_body("PdfReport")));
+        let warning = &report["warnings"][0];
+        assert_eq!(
+            json_keys(warning),
+            member_names(interface_body("PdfWarning"))
         );
+        assert_eq!(
+            json_keys(&warning["locations"][0]),
+            member_names(interface_body("PdfLocation"))
+        );
+
+        let error = timestamp_from_millis(-1.0).unwrap_err().to_json();
+        let mut keys = json_keys(&error["error"]);
+        keys.insert("details".into());
+        assert!(member_names(interface_body("DocumentCliError")).is_subset(&keys));
     }
 
     #[test]
@@ -1699,7 +1945,7 @@ mod tests {
         )
         .unwrap();
         let body = String::from_utf8(docrs::xml::serialize(
-            reopen(&converted.docx)
+            reopen(converted.docx.as_deref().unwrap())
                 .package()
                 .xml("word/document.xml")
                 .unwrap(),
@@ -1864,8 +2110,8 @@ mod tests {
             let with = convert_with(loaded.clone(), client);
             assert_eq!(with.report["toc"]["missing_fonts"], serde_json::json!([]));
             assert_ne!(
-                contents_numbers(&without.docx),
-                contents_numbers(&with.docx)
+                contents_numbers(without.docx.as_deref().unwrap()),
+                contents_numbers(with.docx.as_deref().unwrap())
             );
         }
     }

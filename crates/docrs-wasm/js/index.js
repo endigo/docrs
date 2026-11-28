@@ -22,6 +22,8 @@ const glue = vm.compileFunction(
 // this, the next call runs on a fresh one. Measured in Node 26: conversions
 // with a 16 MiB font set stay under 50 MiB; the largest the serverless
 // budgets allow (384 KiB of table HTML, 12 MiB of pictures) leave 142 MiB.
+// PDFs: 130 pages of editor HTML (the serverless source budget) with a
+// 24-face set leave 40 MiB; 770 pages under the default budgets, 119 MiB.
 const HIGH_WATER = 128 << 20;
 
 const GLUE = [
@@ -36,6 +38,8 @@ const GLUE = [
   "referenceDocument",
   "registerFonts",
   "start",
+  "toPdf",
+  "usedFonts",
   "version",
 ];
 
@@ -132,13 +136,13 @@ function guarded(name) {
   return call;
 }
 
-// `name` with its options (argument `at`) refusing `fonts`, which only
-// conversions take.
-function fontless(name, at) {
+// `name` with its options (each argument of `at`) refusing `fonts`, which
+// only conversions and `toPdf` take.
+function fontless(name, ...at) {
   const inner = guarded(name);
   const call = (...args) => {
-    const fonts = args[at]?.fonts;
-    if (fonts !== undefined && fonts !== null) throw invalid("invalid_options", `${name} takes no fonts`);
+    const fonts = at.map((i) => args[i]?.fonts).find((fonts) => fonts !== undefined && fonts !== null);
+    if (fonts !== undefined) throw invalid("invalid_options", `${name} takes no fonts`);
     return inner(...args);
   };
   Object.defineProperty(call, "name", { value: name });
@@ -146,7 +150,7 @@ function fontless(name, at) {
 }
 
 function docrsError(message, fields) {
-  return Object.assign(new Error(message), { refusal: false, limit: null, ...fields });
+  return Object.assign(new Error(message), { refusal: false, limit: null, details: null, ...fields });
 }
 
 const invalid = (reason, message) => docrsError(message, { code: "invalid_argument", reason });
@@ -550,6 +554,8 @@ exports.loadFonts = loadFonts;
 exports.markdownStyles = fontless("markdownStyles", 2);
 exports.referenceDocument = guarded("referenceDocument");
 exports.start = guarded("start");
+exports.toPdf = converting("toPdf");
+exports.usedFonts = fontless("usedFonts", 0, 1);
 exports.version = guarded("version");
 
 // For tests and diagnostics; not part of the documented interface.

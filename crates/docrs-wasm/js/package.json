@@ -1,6 +1,6 @@
 {
   "name": "docrs-wasm",
-  "description": "Markdown or editor HTML to Word (.docx) with a reference document: styles, lists, tables, headers and footers come from your template. WebAssembly, no native dependencies.",
+  "description": "Markdown or editor HTML to Word (.docx) with a reference document: styles, lists, tables, headers and footers come from your template; PDF output is experimental. WebAssembly, no native dependencies.",
   "license": "MIT",
   "author": "endigo",
   "repository": {

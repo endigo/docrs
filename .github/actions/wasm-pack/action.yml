@@ -19,6 +19,10 @@ runs:
         cargo install wasm-bindgen-cli --locked --version "$v"
     - shell: bash
       run: crates/docrs-wasm/build.sh --pack
+    # The tests check the package's PDF with qpdf, and fail without it on CI.
+    - name: Install qpdf
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y qpdf
     # The tests run on the package as npm installs it from the tarball, and
     # compile a TypeScript consumer against its typings.
     - shell: bash
