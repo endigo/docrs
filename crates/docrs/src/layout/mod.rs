@@ -818,6 +818,7 @@ pub fn records_with(
     settled.paginate(&mut LineDump {
         model: &settled.model,
         page: 0,
+        marks: HashMap::new(),
         each,
     })
 }
@@ -825,6 +826,7 @@ pub fn records_with(
 struct LineDump<'m, F> {
     model: &'m model::Model,
     page: u32,
+    marks: HashMap<model::NoteId, String>,
     each: F,
 }
 
@@ -833,6 +835,8 @@ fn story_name(story: StoryId) -> String {
         StoryId::Body => "body".to_string(),
         StoryId::Header(n) => format!("header{n}"),
         StoryId::Footer(n) => format!("footer{n}"),
+        StoryId::Footnotes => "footnotes".to_string(),
+        StoryId::Endnotes => "endnotes".to_string(),
     }
 }
 
@@ -842,18 +846,23 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
         Ok(())
     }
 
+    fn note(&mut self, note: model::NoteId, mark: &str) -> Result<()> {
+        self.marks.insert(note, mark.to_string());
+        Ok(())
+    }
+
     fn line(&mut self, at: flow::Point, para: &model::Para, line: &flow::Line) -> Result<()> {
         let pieces = para
             .pieces
             .get(line.pieces.start as usize..line.pieces.end as usize)
             .unwrap_or_default();
         let (origins, label_origins) = line.origins(para);
-        let runs = by_look(pieces, &origins, at.x);
+        let runs = by_look(pieces, &origins, at.x, &self.marks);
         let label = para
             .label
             .as_ref()
             .filter(|_| line.label.is_some())
-            .and_then(|label| by_look(&label.pieces, &label_origins, at.x).pop());
+            .and_then(|label| by_look(&label.pieces, &label_origins, at.x, &self.marks).pop());
         let mut leaders = line.leaders(para, self.model, at.x).into_iter().peekable();
         let leaders = line
             .tabs
@@ -934,24 +943,40 @@ impl<F: FnMut(Record) -> Result<()>> flow::Sink for LineDump<'_, F> {
 
 /// `pieces` by look, their characters at `origins` from `left`; a tab is
 /// `\t`.
-fn by_look(pieces: &[model::Piece], origins: &[f64], left: f64) -> Vec<RunRecord> {
+/// A line's text by look, each character at its origin; a note's mark is
+/// its digits spread over the mark's width.
+fn by_look(
+    pieces: &[model::Piece],
+    origins: &[f64],
+    left: f64,
+    marks: &HashMap<model::NoteId, String>,
+) -> Vec<RunRecord> {
     let mut runs: Vec<RunRecord> = Vec::new();
     for (piece, origin) in pieces.iter().zip(origins) {
-        let (ch, look) = match piece {
-            model::Piece::Char { ch, look, .. } => (*ch, *look),
-            model::Piece::Tab { look, .. } => ('\t', *look),
-            _ => continue,
-        };
-        match runs.last_mut() {
+        let mut push = |ch: char, look: u32, x: f64| match runs.last_mut() {
             Some(run) if run.look == look => {
                 run.text.push(ch);
-                run.origins.push(left + origin);
+                run.origins.push(x);
             }
             _ => runs.push(RunRecord {
                 text: ch.to_string(),
                 look,
-                origins: vec![left + origin],
+                origins: vec![x],
             }),
+        };
+        match piece {
+            model::Piece::Char { ch, look, .. } => push(*ch, *look, left + origin),
+            model::Piece::Tab { look, .. } => push('\t', *look, left + origin),
+            model::Piece::NoteRef {
+                note, width, look, ..
+            } => {
+                let mark = marks.get(note).map_or("", String::as_str);
+                let step = width / mark.chars().count().max(1) as f64;
+                for (i, ch) in mark.chars().enumerate() {
+                    push(ch, *look, left + origin + step * i as f64);
+                }
+            }
+            _ => {}
         }
     }
     runs

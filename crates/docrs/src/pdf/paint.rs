@@ -302,8 +302,8 @@ impl<'m, 't> Painter<'m, 't> {
         }
         let visible = pieces.iter().rposition(|piece| match piece {
             Piece::Char { ch, .. } => *ch != ' ',
-            Piece::Tab { .. } | Piece::Object { .. } => true,
-            Piece::LineBreak { .. } | Piece::PageBreak => false,
+            Piece::Tab { .. } | Piece::Object { .. } | Piece::NoteRef { .. } => true,
+            Piece::LineBreak { .. } | Piece::PageBreak | Piece::Separator { .. } => false,
         });
         let mut spans = Vec::new();
         for (at, (piece, x)) in pieces.iter().zip(origins).enumerate() {

@@ -17,6 +17,7 @@ mod look;
 #[cfg(feature = "pdf")]
 mod marks;
 mod math;
+mod notes;
 mod numbering;
 mod props;
 mod styles;
@@ -48,6 +49,7 @@ pub(crate) use marks::any_border;
 pub(crate) use math::MathScripts;
 #[cfg(feature = "pdf")]
 pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
+pub use notes::{NoteCounter, NoteId, NoteKind, NoteSettings, Notes};
 pub(crate) use props::on_off;
 use props::twips;
 #[cfg(feature = "pdf")]
@@ -80,6 +82,8 @@ pub enum StoryId {
     Body,
     Header(u32),
     Footer(u32),
+    Footnotes,
+    Endnotes,
 }
 
 /// Paragraph alignment (`w:jc`). Right-to-left paragraphs are not read.
@@ -242,6 +246,20 @@ pub enum Piece {
         look: u32,
     },
     PageBreak,
+    /// A note's reference, or its mark in its own text.
+    NoteRef {
+        note: NoteId,
+        width: f64,
+        metric: u32,
+        look: u32,
+    },
+    /// The rule above the notes (`w:separator`), or above a note continued
+    /// from the page before (`w:continuationSeparator`).
+    Separator {
+        #[allow(dead_code, reason = "the PDF painter reads it")]
+        continuation: bool,
+        metric: u32,
+    },
     Object {
         width: f64,
         height: f64,
@@ -419,6 +437,7 @@ pub struct Section {
     pub number_format: NumberFormat,
     /// Starts on the same page (`continuous`).
     pub continuous: bool,
+    pub notes: NoteSettings,
 }
 
 /// A face a run asks for, and the face that measures it.
@@ -455,6 +474,7 @@ pub struct Model {
     /// Before Word 2013 (compatibility mode under 15, or none), a paragraph
     /// `pageBreakBefore` moves to a new page keeps some space before.
     pub page_break_keeps_space: bool,
+    pub notes: Notes,
 }
 
 pub(super) struct Builder<'a> {
@@ -475,6 +495,7 @@ pub(super) struct Builder<'a> {
     link: Option<u32>,
     sections_seen: usize,
     story: StoryId,
+    notes: notes::NoteState<'a>,
     depth: usize,
     properties: Properties,
     warnings: Vec<LayoutWarning>,
@@ -493,6 +514,16 @@ fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
 
 pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<Model> {
     let tree = txn.tree(main)?;
+    let body = w_child(tree, tree.root(), "body");
+    let sects = body.map_or_else(Vec::new, |body| section_properties(tree, body));
+    let note_settings = NoteSettings::document(part(txn, main, rt::SETTINGS));
+    let mut section_notes: Vec<NoteSettings> = sects
+        .iter()
+        .map(|sect| note_settings.section(tree, *sect))
+        .collect();
+    if section_notes.is_empty() {
+        section_notes.push(note_settings);
+    }
     let settings = part(txn, main, rt::SETTINGS);
     let compat = |name: &str| {
         settings.is_some_and(|s| {
@@ -520,6 +551,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         link: None,
         sections_seen: 0,
         story: StoryId::Body,
+        notes: notes::NoteState::read(txn, main, section_notes.clone()),
         depth: 0,
         properties: super::fields::properties(txn),
         warnings: Vec::new(),
@@ -534,14 +566,12 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         .unwrap_or(36.0);
     let even_and_odd = settings
         .is_some_and(|s| w_child(s, s.root(), "evenAndOddHeaders").is_some_and(|e| on_off(s, e)));
-    let body = w_child(tree, tree.root(), "body");
-    let sects = body.map_or_else(Vec::new, |body| section_properties(tree, body));
     let rels = txn.resolved_relationships(main)?;
     let mut sections = Vec::new();
     let mut stories: Vec<Story> = Vec::new();
     let mut by_part: HashMap<&str, usize> = HashMap::new();
     let (mut headers, mut footers) = (Slots::default(), Slots::default());
-    for sect in &sects {
+    for (sect, notes) in sects.iter().zip(&section_notes) {
         for StoryRef {
             kind,
             which,
@@ -601,6 +631,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             number_format: NumberFormat::of_section(numbering.and_then(|n| w_attr(tree, n, "fmt"))),
             continuous: w_child(tree, *sect, "type").and_then(|t| w_attr(tree, t, "val"))
                 == Some("continuous"),
+            notes: notes.clone(),
         });
     }
     if sections.is_empty() {
@@ -612,6 +643,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             page_start: None,
             number_format: NumberFormat::Arabic,
             continuous: false,
+            notes: section_notes[0].clone(),
         });
     }
     builder.story = StoryId::Body;
@@ -620,6 +652,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
     if let Some(body) = body {
         builder.blocks(tree, body, None, &mut blocks);
     }
+    let notes = builder.note_stories();
     Ok(Model {
         sections,
         blocks,
@@ -634,6 +667,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         page_break_keeps_space: settings
             .and_then(crate::wml::compatibility_mode)
             .is_none_or(|mode| mode < 15),
+        notes,
     })
 }
 

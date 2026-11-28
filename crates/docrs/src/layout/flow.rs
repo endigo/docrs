@@ -9,6 +9,7 @@
 //! widow/orphan control; table rows are as tall as their tallest cell and
 //! split across pages between lines.
 
+mod notes;
 mod split;
 
 use std::ops::Range;
@@ -16,7 +17,8 @@ use std::ops::Range;
 use super::fields::Values;
 use super::furniture::{Furniture, PageAt, Pages};
 use super::model::{
-    Align, Block, Leader, LineSpacing, Metric, Model, Para, Piece, Row, TabKind, TabStop, Table,
+    Align, Block, Leader, LineSpacing, Metric, Model, NoteId, Para, Piece, Row, TabKind, TabStop,
+    Table,
 };
 use crate::xml::NodeId;
 use crate::{Error, Result};
@@ -176,7 +178,9 @@ fn advance(
 
 fn width(piece: &Piece) -> f64 {
     match piece {
-        Piece::Char { width, .. } | Piece::Object { width, .. } => *width,
+        Piece::Char { width, .. } | Piece::Object { width, .. } | Piece::NoteRef { width, .. } => {
+            *width
+        }
         _ => 0.0,
     }
 }
@@ -333,7 +337,9 @@ fn segment_width(pieces: &[Piece], decimal: bool) -> f64 {
     for piece in pieces {
         match piece {
             Piece::Char { ch: '.', .. } if decimal => break,
-            Piece::Char { width: w, .. } | Piece::Object { width: w, .. } => width += w,
+            Piece::Char { width: w, .. }
+            | Piece::Object { width: w, .. }
+            | Piece::NoteRef { width: w, .. } => width += w,
             _ => break,
         }
     }
@@ -667,6 +673,8 @@ pub(super) fn lines(para: &Para, metrics: &[Metric], width: f64, default_tab: f6
             Piece::Char {
                 ch, width, metric, ..
             } => b.char(index, ch, width, metric),
+            Piece::NoteRef { width, metric, .. } => b.char(index, '0', width, metric),
+            Piece::Separator { metric, .. } => b.char(index, '0', 0.0, metric),
             Piece::Object { width, height } => {
                 b.object(index, width, height);
                 index + 1
@@ -1116,6 +1124,18 @@ pub(crate) trait Sink {
     fn placed(&mut self, _placed: Placed) -> Result<()> {
         Ok(())
     }
+
+    /// A note's mark (empty for a custom mark), once its reference is
+    /// placed: before the line holding it.
+    fn note(&mut self, _note: NoteId, _mark: &str) -> Result<()> {
+        Ok(())
+    }
+
+    /// A note holding a table that goes on to the next page, which Word
+    /// would not do; it is laid out all the same.
+    fn note_unplaced(&mut self, _note: NoteId) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Sink for Vec<Placed> {
@@ -1176,6 +1196,7 @@ struct Flow<'m, 's, S: Sink> {
     last: Option<(u32, f64)>,
     work: u64,
     budget: u64,
+    notes: notes::Notes<'m>,
 }
 
 impl<'m, S: Sink> Flow<'m, '_, S> {
@@ -1233,7 +1254,19 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         Ok(())
     }
 
+    /// Close the page with its notes and open the next one with room for
+    /// the body.
     fn new_page(&mut self) -> Result<()> {
+        loop {
+            self.finish_notes()?;
+            self.turn_page()?;
+            if !self.open_notes()? {
+                return Ok(());
+            }
+        }
+    }
+
+    fn turn_page(&mut self) -> Result<()> {
         self.page += 1;
         self.at_top = true;
         self.previous = None;
@@ -1246,6 +1279,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 
     fn emit(&mut self, placed: Placed) -> Result<()> {
         self.last = Some((placed.page, placed.y));
+        if self.notes.in_endnotes {
+            return Ok(());
+        }
         self.sink.placed(placed)
     }
 
@@ -1340,6 +1376,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
     /// Start section `next` after the current paragraph.
     fn next_section(&mut self, next: usize) -> Result<()> {
         self.section = next.min(self.model.sections.len() - 1);
+        self.section_notes();
         if self.model.sections[self.section].continuous {
             return Ok(());
         }
@@ -1391,8 +1428,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         while index < lines.len() {
             let mut fit = 0;
             let mut y = self.y;
+            let mut area = self.notes.area.clone();
             for line in &lines[index..] {
-                if y + line.fit > self.bottom + EPSILON {
+                if !self.admit_line(&mut area, para, line, y + line.fit)? {
                     break;
                 }
                 y += line.height;
@@ -1436,6 +1474,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             }
             let left = self.column_left();
             for line in &lines[index..index + fit] {
+                let refs = self.refs(para, line);
+                self.reserve(&refs, self.y + line.fit)?;
                 self.line(Point { x: left, y: self.y }, para, line)?;
                 self.y += line.height;
             }
@@ -1479,7 +1519,8 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
             let layout = self.row_layout(row)?;
             let headers = (row_index >= headers && headers > 0)
                 .then_some((header_layouts.as_slice(), header_height));
-            if self.y + layout.height > self.bottom + EPSILON {
+            let refs = notes::row_refs(&layout, |_, _| true);
+            if !self.admit(&mut self.notes.area.clone(), &refs, self.y + layout.height)? {
                 let splittable = !row.cant_split && !row.header && layout.height > 0.0;
                 if splittable && self.split_row(table, row_index, &layout, headers)? {
                     continue;
@@ -1490,13 +1531,18 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                         self.repeat_headers(table, headers)?;
                     }
                     if splittable
-                        && self.y + layout.height > self.bottom + EPSILON
+                        && !self.admit(
+                            &mut self.notes.area.clone(),
+                            &refs,
+                            self.y + layout.height,
+                        )?
                         && self.split_row(table, row_index, &layout, headers)?
                     {
                         continue;
                     }
                 }
             }
+            self.reserve(&refs, self.y + layout.height)?;
             for para in &layout.paras {
                 self.place(*para)?;
             }
@@ -1518,6 +1564,27 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         self.at_top = false;
         self.at_start = false;
         self.at_section_start = false;
+    }
+
+    fn place_blocks(&mut self, blocks: &'m [Block]) -> Result<()> {
+        let mut chain_until = 0;
+        for (index, block) in blocks.iter().enumerate() {
+            match block {
+                Block::Para(para) => {
+                    if para.keep_next && index >= chain_until {
+                        self.keep_chain(blocks, index)?;
+                        chain_until = index
+                            + blocks[index..]
+                                .iter()
+                                .take_while(|b| matches!(b, Block::Para(p) if p.keep_next))
+                                .count();
+                    }
+                    self.place_para(para)?;
+                }
+                Block::Table(table) => self.place_table(table)?,
+            }
+        }
+        Ok(())
     }
 
     /// Before a keep-with-next chain: break the page when the chain and
@@ -1589,25 +1656,13 @@ fn paginate_within<S: Sink>(
         last: None,
         work: 0,
         budget,
+        notes: notes::Notes::new(model),
     };
     flow.open_page()?;
-    let mut chain_until = 0;
-    for (index, block) in model.blocks.iter().enumerate() {
-        match block {
-            Block::Para(para) => {
-                if para.keep_next && index >= chain_until {
-                    flow.keep_chain(&model.blocks, index)?;
-                    chain_until = index
-                        + model.blocks[index..]
-                            .iter()
-                            .take_while(|b| matches!(b, Block::Para(p) if p.keep_next))
-                            .count();
-                }
-                flow.place_para(para)?;
-            }
-            Block::Table(table) => flow.place_table(table)?,
-        }
-    }
+    flow.open_notes()?;
+    flow.place_blocks(&model.blocks)?;
+    flow.endnotes()?;
+    flow.finish_document()?;
     Ok(flow.furniture.finish())
 }
 
@@ -1615,7 +1670,7 @@ fn paginate_within<S: Sink>(
 mod tests {
     use super::*;
     use crate::layout::fields::NumberFormat;
-    use crate::layout::model::{Label, Page, Section, Slots};
+    use crate::layout::model::{Label, NoteSettings, Notes, Page, Section, Slots};
 
     fn spaced(style: &str, before: f64, after: f64, contextual: bool) -> Para {
         Para {
@@ -1733,6 +1788,7 @@ mod tests {
                 page_start: None,
                 number_format: NumberFormat::Arabic,
                 continuous: false,
+                notes: NoteSettings::default(),
             }],
             blocks,
             stories: Vec::new(),
@@ -1744,6 +1800,7 @@ mod tests {
             default_tab: 36.0,
             warnings: Vec::new(),
             page_break_keeps_space: true,
+            notes: Notes::default(),
         }
     }
 

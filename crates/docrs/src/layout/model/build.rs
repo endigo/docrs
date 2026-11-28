@@ -641,7 +641,27 @@ impl Builder<'_> {
                         look: pen.look,
                     });
                 }
-                "noBreakHyphen" | "sym" | "footnoteReference" | "endnoteReference" => {
+                "footnoteReference" | "endnoteReference" | "footnoteRef" | "endnoteRef" => {
+                    let Some((note, mark)) = self.note_mark(tree, child) else {
+                        continue;
+                    };
+                    let pen = self.pen(&mut pen, &rpr, link);
+                    let m = &pen.measurer;
+                    para.pieces.push(Piece::NoteRef {
+                        note,
+                        width: mark.chars().map(|c| m.width(c)).sum(),
+                        metric: m.metric,
+                        look: pen.look,
+                    });
+                }
+                name @ ("separator" | "continuationSeparator") => {
+                    let pen = self.pen(&mut pen, &rpr, link);
+                    para.pieces.push(Piece::Separator {
+                        continuation: name == "continuationSeparator",
+                        metric: pen.measurer.metric,
+                    });
+                }
+                "noBreakHyphen" | "sym" => {
                     let pen = self.pen(&mut pen, &rpr, link);
                     let m = &pen.measurer;
                     let ch = if tree.local_name(child) == Some("sym") {
