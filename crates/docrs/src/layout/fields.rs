@@ -505,7 +505,16 @@ fn show_para(para: &mut Para, context: &Context<'_>) {
             .collect();
         let added = pieces.len() as u32;
         para.pieces.splice(start as usize..end as usize, pieces);
-        shift += i64::from(added) - i64::from(end - start);
+        let moved = i64::from(added) - i64::from(end - start);
+        for equation in para
+            .equations
+            .iter_mut()
+            .filter(|e| e.pieces.start >= end as usize)
+        {
+            let by = |at: usize| (at as i64 + moved) as usize;
+            equation.pieces = by(equation.pieces.start)..by(equation.pieces.end);
+        }
+        shift += moved;
         span.pieces = start..start + added;
         done = i64::from(start + added);
     }

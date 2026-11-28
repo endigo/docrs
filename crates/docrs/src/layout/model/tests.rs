@@ -375,3 +375,34 @@ fn scripts_are_set_as_cambria_math_sets_them_whatever_font_draws_them() {
         "a supplied Cambria Math without a MATH table takes Word's copy's"
     );
 }
+
+#[test]
+fn an_equation_after_a_page_field_keeps_its_pieces_when_the_field_is_shown() {
+    use crate::layout::fields::{Context, Number, NumberFormat, Values, show};
+    let field = r#"<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>"#;
+    let mut model = model(&format!("<w:p>{field}{SQUARE}</w:p>"), "");
+    let values = Values {
+        pages: None,
+        section_pages: Vec::new(),
+        bookmarks: Default::default(),
+        paragraphs: Default::default(),
+    };
+    let page = Number {
+        shown: 1000,
+        format: NumberFormat::Arabic,
+        section: 0,
+    };
+    show(
+        &mut model.blocks,
+        &Context {
+            values: &values,
+            page: Some(page),
+        },
+    );
+    let para = paras(&model.blocks)[0];
+    let equation = &para.equations[0];
+    let drawn: String = text(para).chars().skip(equation.pieces.start).collect();
+    assert_eq!(text(para), "1000x2 ");
+    assert_eq!(equation.pieces.end, para.pieces.len());
+    assert_eq!(drawn, "x2 ");
+}
