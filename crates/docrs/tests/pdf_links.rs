@@ -16,7 +16,7 @@ use docrs::layout::{FontSet, Link};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{
     Info, LinkId, Navigation, PdfOptions, PdfReport, PdfWarning, Rect, linked_document_for_tests,
-    paint_for_tests, preflight, render,
+    paint_for_tests, preflight, render, render_unchecked_for_tests,
 };
 use docrs::{Document, ErrorKind, Limits, Tolerance};
 use reader::{Dict, Pdf, Value, decode_text};
@@ -1642,4 +1642,57 @@ fn the_outline_and_destinations_run_across_sections() {
     );
     let annots = annots(&pdf);
     assert_eq!(annots[0].goes, Goes::At(1, 69.84, 720.0));
+}
+
+/// A bookmark after the body's last paragraph is in the document, so the
+/// preflight finds it, but no line holds it: only navigation finds the
+/// link dropped, after drawing, and `strict` still refuses.
+#[test]
+fn a_link_only_navigation_drops_is_reported_and_refused_by_strict() {
+    let body = para("", &anchor_link("Late", "To the end"))
+        + r#"<w:bookmarkStart w:id="0" w:name="Late"/><w:bookmarkEnd w:id="0"/>"#;
+    let document = raw(&body);
+    let found = preflight(&document).unwrap();
+    assert!(
+        found
+            .warnings
+            .iter()
+            .all(|w| w.code != "pdf_link_target_missing")
+    );
+    let (bytes, report) = render(&document, &options()).unwrap();
+    assert!(annots(&Pdf::parse(&bytes).unwrap()).is_empty());
+    assert_eq!(codes(&report.warnings), [("pdf_link_target_missing", 1)]);
+    let mut strict = options();
+    strict.strict = true;
+    let refused = render(&document, &strict).map(|_| ()).unwrap_err();
+    assert_eq!(refused.reason(), "pdf_not_faithful");
+}
+
+/// A repeated header row draws its link on every page; navigation counts
+/// a missing target once, as the preflight does.
+#[test]
+fn a_repeated_header_row_s_link_is_counted_once() {
+    let cell = |content: &str| format!("<w:tc>{}</w:tc>", para("", content));
+    let header = format!(
+        r#"<w:tr><w:trPr><w:tblHeader/></w:trPr>{}</w:tr>"#,
+        cell(&anchor_link("nowhere", "Header link"))
+    );
+    let rows: String = (1..=80)
+        .map(|n| format!("<w:tr>{}</w:tr>", cell(&run(&format!("Row {n}")))))
+        .collect();
+    let table =
+        format!(r#"<w:tbl><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>{header}{rows}</w:tbl>"#);
+    let document = raw(&(table + &para("", &run("After"))));
+    let (bytes, drawn) = render_unchecked_for_tests(&document, &options()).unwrap();
+    assert!(Pdf::parse(&bytes).unwrap().pages().unwrap().len() > 1);
+    let found = preflight(&document).unwrap();
+    for report in [found, drawn] {
+        let missing: Vec<_> = report
+            .warnings
+            .iter()
+            .filter(|w| w.code == "pdf_link_target_missing")
+            .map(|w| w.count)
+            .collect();
+        assert_eq!(missing, [1]);
+    }
 }

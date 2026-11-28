@@ -15,7 +15,7 @@ use docrs::clock::Timestamp;
 use docrs::layout::fonts::FontKind;
 use docrs::layout::{FontBook, FontSet};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
-use docrs::pdf::{PdfOptions, layout_for_tests, paint_for_tests, render};
+use docrs::pdf::{PdfOptions, layout_for_tests, paint_for_tests, preflight, render};
 use docrs::txn::Txn;
 use docrs::{Document, Limits, Tolerance};
 use reader::{Pdf, Value, tokenize_content};
@@ -1625,6 +1625,26 @@ fn strict_never_accepts_a_field_drawn_other_than_as_computed() {
             ),
             Drawn("Alpha1"),
         ),
+        (
+            "contents of a plain number before a page reference",
+            probe(
+                &(contents(&["Alpha\t99"], "PAGEREF here")
+                    + r#"<w:p><w:bookmarkStart w:id="0" w:name="here"/><w:bookmarkEnd w:id="0"/></w:p>"#),
+                "",
+                "",
+            ),
+            Warned("Alpha991", "pdf_field_cached", "TOC"),
+        ),
+        (
+            "contents of numbered headings",
+            probe(
+                &(contents(&["1 Alpha\t"], "PAGEREF here")
+                    + r#"<w:p><w:bookmarkStart w:id="0" w:name="here"/><w:bookmarkEnd w:id="0"/></w:p>"#),
+                "",
+                "",
+            ),
+            Drawn("1 Alpha1"),
+        ),
     ];
     let mut options = PdfOptions::default();
     options.fonts = fonts();
@@ -1654,6 +1674,45 @@ fn strict_never_accepts_a_field_drawn_other_than_as_computed() {
         };
         assert!(lines.iter().any(|l| l == line), "{name}: {lines:?}");
     }
+}
+
+/// The preflight reports the chapter numbers that layout leaves out of a
+/// page number, as the render does.
+#[test]
+fn the_preflight_reports_chapter_numbers_the_render_leaves_out() {
+    let chapters = r#"<w:pgNumType w:chapStyle="1" w:chapSep="hyphen"/>"#;
+    let approximated = |document: &Document| {
+        let report = preflight(document).unwrap();
+        report
+            .warnings
+            .iter()
+            .filter(|w| w.code == "pdf_field_format_approximated")
+            .map(|w| (w.subject, w.locations[0].story.clone()))
+            .collect::<Vec<_>>()
+    };
+    let footed = probe("", &serif_field("PAGE \\* Arabic", "1-1"), chapters);
+    assert_eq!(
+        approximated(&footed),
+        [("page number", "word/footer1.xml".to_string())]
+    );
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    let (_, report) = render(&footed, &options).unwrap();
+    let rendered: Vec<_> = report
+        .warnings
+        .iter()
+        .map(|w| (w.code, w.subject))
+        .collect();
+    assert_eq!(rendered, [("pdf_field_format_approximated", "page number")]);
+    let counted = probe("", &serif_field("NUMPAGES", "1"), chapters);
+    assert_eq!(approximated(&counted), []);
+    let locked = serif_field("PAGE", "1-1").replace(
+        r#"w:fldCharType="begin""#,
+        r#"w:fldCharType="begin" w:fldLock="1""#,
+    );
+    assert_eq!(approximated(&probe("", &locked, chapters)), []);
+    let plain = probe("", &serif_field("PAGE", "1"), "");
+    assert_eq!(approximated(&plain), []);
 }
 
 /// A page number, and a page reference to a bookmark, in a paragraph that

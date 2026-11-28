@@ -341,9 +341,13 @@ fn body() -> String {
 }
 
 fn fixture() -> Vec<u8> {
+    package(&body())
+}
+
+/// A Letter document of `body`, in Times New Roman 12 pt.
+fn package(body: &str) -> Vec<u8> {
     let document = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body>{}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>",
-        body()
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"{W}\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>"
     );
     let styles = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:styles xmlns:w=\"{W}\"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\"/><w:sz w:val=\"24\"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after=\"120\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style></w:styles>"
@@ -372,6 +376,32 @@ fn the_committed_fixture_is_the_one_these_tests_build() {
         std::fs::read(&path).unwrap() == fixture(),
         "rerun with DOCRS_UPDATE_SNAPSHOTS=1"
     );
+}
+
+/// The page's uncompressed content stream.
+fn content(bytes: &[u8]) -> Vec<u8> {
+    let pdf = Pdf::parse(bytes).unwrap();
+    let page = pdf.pages().unwrap()[0];
+    pdf.stream_data(pdf.get(page, "Contents")).unwrap()
+}
+
+#[test]
+fn paragraph_fills_count_towards_the_content_cap() {
+    let shade = "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FFF2CC\"/>";
+    let page = |ppr: &str| open_bytes(&package(&para(ppr, "A short line.").repeat(12)));
+    let (plain, shaded) = (page(""), page(shade));
+    let text = content(&pdf_of(&plain)).len() as u64;
+    assert!(content(&pdf_of(&shaded)).len() as u64 > text + 16);
+    let mut options = PdfOptions::default();
+    options.fonts = fonts();
+    // The content cap is 16 times the output cap: just above the text alone.
+    options.limits.max_output_bytes = text / 16 + 1;
+    let limit = |document: &Document| {
+        let err = render(document, &options).unwrap_err();
+        err.limit_exceeded().map(|limit| limit.limit)
+    };
+    assert_ne!(limit(&plain), Some("max_pdf_content_bytes"));
+    assert_eq!(limit(&shaded), Some("max_pdf_content_bytes"));
 }
 
 fn fixture_shapes() -> Vec<Vec<Shape>> {
