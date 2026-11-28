@@ -58,6 +58,18 @@ const SAMPLE_CHARS: usize = 60;
 
 /// What a PDF of `document` would leave out or change. Reads only.
 pub fn preflight(document: &Document) -> Result<PdfReport> {
+    scan(document).map(|(report, _)| report)
+}
+
+/// [`preflight`], with the steps its scan took: nodes visited and
+/// relationships read (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn preflight_steps(document: &Document) -> Result<(PdfReport, u64)> {
+    scan(document)
+}
+
+fn scan(document: &Document) -> Result<(PdfReport, u64)> {
     let txn = Txn::new(document);
     let main = document.package().main_part_name();
     let tree = txn.tree(main)?;
@@ -87,7 +99,8 @@ pub fn preflight(document: &Document) -> Result<PdfReport> {
     if setting("autoHyphenation") {
         scan.note_at(LAYOUT, "automatic hyphenation", false, None);
     }
-    Ok(scan.finish())
+    let steps = scan.steps;
+    Ok((scan.finish(), steps))
 }
 
 fn related<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Result<Option<&'t XmlTree>> {
@@ -170,6 +183,8 @@ struct Scan<'s, 'd> {
     tables: Vec<TableScan>,
     fields: Vec<Field>,
     entries: Vec<Entry>,
+    /// Nodes visited and relationships read, for the linear-time test.
+    steps: u64,
 }
 
 impl<'s, 'd> Scan<'s, 'd> {
@@ -186,6 +201,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             tables: Vec::new(),
             fields: Vec::new(),
             entries: Vec::new(),
+            steps: 0,
         }
     }
 
@@ -223,6 +239,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             .into_iter()
             .map(|rel| (rel.id.clone(), rel))
             .collect();
+        self.steps += self.rels.len() as u64;
         self.ordinal = 0;
         self.in_paragraph.clear();
         self.para_rpr = RPr::default();
@@ -245,6 +262,7 @@ impl<'s, 'd> Scan<'s, 'd> {
 
     /// Note what `node` is; true when its children still need a look.
     fn visit(&mut self, tree: &XmlTree, node: NodeId) -> Result<bool> {
+        self.steps += 1;
         let Some(local) = tree.local_name(node) else {
             return Ok(false);
         };

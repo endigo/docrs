@@ -14,6 +14,8 @@ mod preflight;
 mod writer;
 
 pub use preflight::preflight;
+#[cfg(feature = "test-support")]
+pub use preflight::preflight_steps;
 
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
