@@ -467,29 +467,31 @@ pub(crate) mod tests {
         assert!(to_pdf(docx, roomy).unwrap().pdf.report["pages"].as_u64() > Some(1));
     }
 
-    /// The `docrs` command as the tree is now: `cargo build -p docrs-cli`
-    /// (nothing to do when `cargo test --workspace` built it), in this test's
-    /// profile, and the executable Cargo reports for it, never an older one
-    /// left in the target directory.
+    /// The `docrs` command `cargo test --workspace` builds in this test's
+    /// profile directory: the nearest directory above the test binary that
+    /// holds it (`target/debug/deps/..` before Cargo's build-dir layout,
+    /// `target/debug/build/docrs-wasm/<hash>/../../..` since). The search
+    /// stops below the target directory, the one Cargo tags with
+    /// `CACHEDIR.TAG`, so a `docrs` elsewhere on the disk is never taken.
+    /// Under `cargo test -p docrs-wasm` the binary may be older than the
+    /// tree: build docrs-cli first.
     fn cli() -> PathBuf {
         let exe = std::env::current_exe().unwrap();
-        let release = exe.ancestors().any(|dir| dir.ends_with("release"));
-        let mut cargo = std::process::Command::new(env!("CARGO"));
-        cargo
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .args(["build", "--quiet", "-p", "docrs-cli", "--bin", "docrs"])
-            .arg("--message-format=json")
-            .args(release.then_some("--release"))
-            .stderr(std::process::Stdio::inherit());
-        let out = cargo.output().expect("run cargo");
-        assert!(out.status.success(), "cargo build -p docrs-cli failed");
-        String::from_utf8(out.stdout)
-            .unwrap()
-            .lines()
-            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-            .filter(|message| message["target"]["name"] == "docrs")
-            .find_map(|message| message["executable"].as_str().map(PathBuf::from))
-            .expect("cargo named no docrs executable")
+        let name = format!("docrs{}", std::env::consts::EXE_SUFFIX);
+        for dir in exe.ancestors().skip(1) {
+            if dir.join("CACHEDIR.TAG").is_file() {
+                break;
+            }
+            let cli = dir.join(&name);
+            if cli.is_file() {
+                return cli;
+            }
+        }
+        panic!(
+            "no {name} in the target directory above {}: build docrs-cli first \
+             (cargo build -p docrs-cli)",
+            exe.display()
+        )
     }
 
     #[test]
