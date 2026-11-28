@@ -87,6 +87,16 @@ pub fn preflight(document: &Document) -> Result<PdfReport> {
     Ok(scan.finish())
 }
 
+/// [`preflight`], with the work it took: children listed and relationships
+/// read (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn preflight_work_for_tests(document: &Document) -> Result<(PdfReport, u64)> {
+    let before = crate::xml::tree::work();
+    let report = preflight(document)?;
+    Ok((report, crate::xml::tree::work() - before))
+}
+
 fn related<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Result<Option<&'t XmlTree>> {
     match txn.part_related_by(main, rel)? {
         Some(part) => Ok(Some(txn.tree(&part)?)),

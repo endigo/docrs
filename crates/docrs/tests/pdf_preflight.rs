@@ -3,7 +3,7 @@
 mod support;
 
 use docrs::markdown::{MarkdownOptions, insert_markdown};
-use docrs::pdf::{NOT_YET_DRAWN, PdfReport, WARNING_CODES, preflight};
+use docrs::pdf::{NOT_YET_DRAWN, PdfReport, WARNING_CODES, preflight, preflight_work_for_tests};
 use docrs::{Document, Limits, RefusalKind};
 use support::{ROOT_RELS, RawMember, build_zip, png_150dpi, snapshot};
 
@@ -733,35 +733,32 @@ fn the_converters_own_styles_are_reported() {
 
 #[test]
 fn many_pictures_and_links_scan_in_linear_time() {
-    let pictures: String = (0..8_000)
-        .map(|_| para(&graphic(PICTURE_URI, &picture("rId1"))))
-        .collect();
-    let document = docx(
-        &pictures,
-        &[image_part("word/media/image1.png", "image/png")],
-        &[],
-    );
-    let started = std::time::Instant::now();
-    let found = report(&document);
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(1),
-        "{:?}",
-        started.elapsed()
-    );
-    assert_eq!(subjects(&found, NOT_YET_DRAWN), [("image", 8_000)]);
-
-    // 8x the links: linear work grows about 8x, quadratic about 64x.
-    let small = links_scan_time(12_500);
-    let large = links_scan_time(100_000);
-    assert!(
-        large < small * 24,
-        "{small:?} then {large:?} ({:.1}x)",
-        large.as_secs_f64() / small.as_secs_f64()
-    );
+    // 8x the objects: linear work grows 8x plus a constant, quadratic 64x.
+    for (small, large) in [
+        (pictures(1_000), pictures(8_000)),
+        (links(1_000), links(8_000)),
+    ] {
+        let (small_work, large_work) = (work(&small), work(&large));
+        assert!(
+            large_work <= 8 * small_work,
+            "{}: {small_work} then {large_work} units of work",
+            small.0
+        );
+    }
 }
 
-/// The fastest of three scans of `count` links.
-fn links_scan_time(count: usize) -> std::time::Duration {
+/// A document of `count` objects, with the subject it reports them under.
+type Objects = (&'static str, usize, Document);
+
+fn pictures(count: usize) -> Objects {
+    let body: String = (0..count)
+        .map(|_| para(&graphic(PICTURE_URI, &picture("rId1"))))
+        .collect();
+    let parts = [image_part("word/media/image1.png", "image/png")];
+    ("image", count, docx(&body, &parts, &[]))
+}
+
+fn links(count: usize) -> Objects {
     let ids: Vec<String> = (0..count).map(|i| format!("rIdL{i}")).collect();
     let links: Vec<(&str, &str)> = ids
         .iter()
@@ -772,17 +769,15 @@ fn links_scan_time(count: usize) -> std::time::Duration {
             .map(|id| format!(r#"<w:hyperlink r:id="{id}"></w:hyperlink>"#))
             .collect::<String>(),
     );
-    let document = docx(&body, &[], &links);
-    (0..3)
-        .map(|_| {
-            let started = std::time::Instant::now();
-            let found = report(&document);
-            let elapsed = started.elapsed();
-            assert_eq!(subjects(&found, NOT_YET_DRAWN), [("link", count)]);
-            elapsed
-        })
-        .min()
-        .unwrap()
+    ("link", count, docx(&body, &[], &links))
+}
+
+/// The children listed and relationships read to scan `objects`, checking
+/// the scan reports them all.
+fn work((subject, count, document): &Objects) -> u64 {
+    let (found, work) = preflight_work_for_tests(document).unwrap();
+    assert_eq!(subjects(&found, NOT_YET_DRAWN), [(*subject, *count)]);
+    work
 }
 
 #[test]

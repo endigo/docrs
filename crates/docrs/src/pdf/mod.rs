@@ -15,6 +15,8 @@ mod preflight;
 mod writer;
 
 pub use preflight::preflight;
+#[cfg(feature = "test-support")]
+pub use preflight::preflight_work_for_tests;
 
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
