@@ -32,12 +32,14 @@ struct Field {
 
 /// A run's size and drawn baseline shift under `w:vertAlign`.
 fn script(size: f64, vert: Option<VertAlign>) -> (f64, f64) {
+    // Word draws 0.65 of the size, to the nearest half point (halves round up).
+    let small = (size * 13.0 / 10.0).round() / 2.0;
     match vert.unwrap_or_default() {
         VertAlign::Baseline => (size, 0.0),
         // Word for Mac's shifts at 11 pt, approximate at other sizes (it rises
-        // 0.35 to 0.415 em); its rule, like the size's, is still open.
-        VertAlign::Superscript => (size * 2.0 / 3.0, size * 0.41),
-        VertAlign::Subscript => (size * 2.0 / 3.0, -size * 0.087),
+        // 0.35 to 0.415 em); its rule is still open.
+        VertAlign::Superscript => (small, size * 0.41),
+        VertAlign::Subscript => (small, -size * 0.087),
     }
 }
 
@@ -675,5 +677,39 @@ impl Measurer {
             return 0.0;
         }
         face(left).kern(left, right) * self.size * self.scale
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VertAlign, script};
+
+    fn size(size: f64, vert: VertAlign) -> f64 {
+        script(size, Some(vert)).0
+    }
+
+    #[test]
+    fn a_script_is_0_65_of_the_size_to_the_nearest_half_point_as_word_measured() {
+        let measured = [
+            (8.0, 5.0),
+            (10.0, 6.5),
+            (11.0, 7.0),
+            (12.0, 8.0),
+            (24.0, 15.5),
+            (72.0, 47.0),
+        ];
+        for (plain, small) in measured {
+            assert_eq!(size(plain, VertAlign::Superscript), small, "{plain} pt");
+            assert_eq!(size(plain, VertAlign::Subscript), small, "{plain} pt");
+        }
+    }
+
+    #[test]
+    fn a_script_already_on_a_half_point_stays_and_an_exact_half_rounds_up() {
+        assert_eq!(size(10.0, VertAlign::Superscript), 6.5);
+        assert_eq!(size(30.0, VertAlign::Superscript), 19.5);
+        assert_eq!(size(5.0, VertAlign::Subscript), 3.5);
+        assert_eq!(size(15.0, VertAlign::Subscript), 10.0);
+        assert_eq!(size(11.0, VertAlign::Baseline), 11.0);
     }
 }
