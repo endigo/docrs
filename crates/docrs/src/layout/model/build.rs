@@ -4,7 +4,7 @@ use super::props::{FontRef, RPr, length, number, read_rpr};
 use super::table::TableCtx;
 use super::{Block, Builder, Label, LineRule, LineSpacing, Metric, Para, Piece};
 use crate::fields::fieldcode;
-use crate::layout::fonts::FontKind;
+use crate::layout::fonts::{Face, FontKind};
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
 use crate::wml::{R, W, w_attr, w_child};
 use crate::xml::{NodeData, NodeId, XmlTree};
@@ -30,14 +30,16 @@ struct Field {
     link: Option<u32>,
 }
 
-/// A run's size and drawn baseline shift under `w:vertAlign`.
-fn script(size: f64, vert: Option<VertAlign>) -> (f64, f64) {
+/// A run's size and drawn baseline shift under `w:vertAlign` in `face`.
+fn script(size: f64, vert: Option<VertAlign>, face: &Face) -> (f64, f64) {
+    // Word draws the face's OS/2 script size, to the nearest half point (halves up).
+    let small = |superscript| (face.script_size(superscript) * size * 2.0).round() / 2.0;
     match vert.unwrap_or_default() {
         VertAlign::Baseline => (size, 0.0),
         // Word for Mac's shifts at 11 pt, approximate at other sizes (it rises
-        // 0.35 to 0.415 em); its rule, like the size's, is still open.
-        VertAlign::Superscript => (size * 2.0 / 3.0, size * 0.41),
-        VertAlign::Subscript => (size * 2.0 / 3.0, -size * 0.087),
+        // 0.35 to 0.415 em); its rule is still open.
+        VertAlign::Superscript => (small(true), size * 0.41),
+        VertAlign::Subscript => (small(false), -size * 0.087),
     }
 }
 
@@ -61,7 +63,7 @@ impl Builder<'_> {
     }
 
     fn look(&mut self, rpr: &RPr, measurer: &Measurer, link: Option<u32>) -> u32 {
-        let (_, shift) = script(rpr.size.unwrap_or(10.0), rpr.vert);
+        let (_, shift) = script(rpr.size.unwrap_or(10.0), rpr.vert, &measurer.ascii);
         let on = |toggle: Option<bool>| toggle.unwrap_or(false);
         let look = Appearance {
             metric: measurer.metric,
@@ -210,7 +212,6 @@ impl Builder<'_> {
 
     fn measurer(&mut self, rpr: &RPr) -> Measurer {
         let size = rpr.size.unwrap_or(10.0);
-        let (small, _) = script(size, rpr.vert);
         let bold = rpr.bold.unwrap_or(false);
         let italic = rpr.italic.unwrap_or(false);
         let ascii = self.font_name(&rpr.ascii);
@@ -233,6 +234,7 @@ impl Builder<'_> {
             self.fonts.face(&hansi, bold, italic, hansi_kind)
         };
         let metric = self.metric(face.line_height() * size, face.ascent() * size);
+        let (small, _) = script(size, rpr.vert, &face);
         Measurer {
             ascii: face,
             hansi: face_hansi,
