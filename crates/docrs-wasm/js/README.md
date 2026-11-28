@@ -104,6 +104,53 @@ panicked is left to the garbage collector with everything the call had
 allocated; V8 frees it at its next full collection. Errors docrs reports
 (an `Error` with a `code`) leave the instance in place.
 
+## Fonts (experimental)
+
+Contents page numbers are worked out by measuring the template's fonts: a
+font it embeds, else the package's own metrics for common fonts, else a
+substitute (listed in `report.toc.missing_fonts`). Load the font files your users upload once,
+and pass the set to every conversion so the contents page numbers are
+measured with them:
+
+```js
+const { loadFonts, loadFontManifest, fromHtml } = require("docrs-wasm");
+
+const brand = loadFonts([interVariable, interBoldItalic], { limits: "serverless" });
+brand.faces; // [{ family: "Inter", bold: false, italic: false, variable: true, ... }, ...]
+const { docx, report } = fromHtml(html, { reference, toc: true, fonts: brand, limits: "serverless" });
+brand.free(); // when the tenant's fonts change
+```
+
+`loadFonts` reads TTF, OTF, TTC and OTC files, variable fonts included (the
+default instance is measured). One file it cannot read refuses them all,
+with the file's index in `error.file`. The set keeps its own copy of the
+bytes and outlives the module's instance: after a panic, or after the
+package replaces an instance whose memory grew past 128 MiB, it is loaded
+again into the next one when a call first uses it. `free()` releases it;
+using it afterwards throws `pdf_font_handle_disposed`. A set that is never
+freed is released once garbage collected, at best. Sets are never shared
+or looked up by family: each conversion uses exactly the set it is given.
+
+Budgets, by `limits` (checked on the sizes before anything is copied, and
+again by every call against its own `limits`, so a set loaded under the
+default budgets is refused by a `serverless` call it exceeds):
+
+| | default | serverless |
+| -- | -- | -- |
+| one file / the set | 32 / 64 MiB | 8 / 16 MiB |
+| faces in a set | 64 | 24 |
+| sets alive in one instance | 64 | 8 |
+
+`loadFontManifest(entries, options?)` builds a set from entries `{ id,
+family, bold?, italic?, url | data }`. A `url` must be https (a redirect
+away from https is refused too). Each file and all of them together are
+capped by the budgets above and by `maxBytes`; `timeoutMs` (default 30,000)
+bounds the fetches together and `signal` aborts them. A fetched file is
+cached by `id`, never by URL (up to 64 MiB, least recently used first): give
+each uploaded font its own id, and a new id when its file changes. Every
+entry is fetched; errors name the entry's `id`, `family` and style. Pass
+`fetch` to use your own.
+
 ## Next.js
 
 Use it from a Route Handler or Server Action on the Node.js runtime and keep

@@ -9,6 +9,8 @@
 //! CLI's JSON. Nothing touches a file system: the reference document and
 //! images are passed in, and the time comes from JavaScript's clock.
 
+mod fonts;
+
 use std::collections::BTreeMap;
 
 use docrs::clock::Timestamp;
@@ -18,6 +20,10 @@ use docrs::{Document, Error, Limits, Tolerance};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use wasm_bindgen::prelude::*;
+
+#[cfg(test)]
+use fonts::FontOptions;
+use fonts::{FontLimits, LoadedFonts};
 
 /// Options of [`from_markdown`], camelCase in JavaScript. Every field is
 /// optional; the defaults match the CLI's.
@@ -83,6 +89,10 @@ pub struct Options {
     /// blank one). A value is text within one paragraph: no line breaks,
     /// tabs or other control characters, and no `{{` or `}}`.
     pub fields: BTreeMap<String, String>,
+    /// Fonts to measure with, from the registry id JavaScript passes as
+    /// `fonts` (see [`options_from`]).
+    #[serde(skip)]
+    pub fonts: LoadedFonts,
 }
 
 /// Budgets on what the caller passes in, beyond the package budgets.
@@ -93,6 +103,7 @@ struct InputLimits {
     input: u64,
     /// Text the merge fields add, every occurrence counted, in bytes.
     fields: u64,
+    fonts: FontLimits,
 }
 
 fn limits_of(options: &Options) -> Result<(Limits, InputLimits), Error> {
@@ -107,6 +118,7 @@ fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
                 source: u64::MAX,
                 input: u64::MAX,
                 fields: u64::MAX,
+                fonts: FontLimits::DEFAULT,
             },
         )),
         Some("serverless") => Ok((
@@ -118,6 +130,7 @@ fn profile(name: Option<&str>) -> Result<(Limits, InputLimits), Error> {
                 source: 384 << 10,
                 input: 12 << 20,
                 fields: 384 << 10,
+                fonts: FontLimits::SERVERLESS,
             },
         )),
         Some(other) => Err(Error::invalid_argument(
@@ -272,7 +285,9 @@ pub fn convert(
         options.reference.as_ref().map_or(0, |b| b.len() as u64),
         options.images.values().map(|b| b.len() as u64).sum(),
     )?;
+    options.fonts.check(&input.fonts)?;
     check_fields(&options.fields)?;
+    let fonts = std::mem::take(&mut options.fonts).set;
     let mut markdown_options = markdown_options(&options, format, now)?;
     markdown_options.images = std::mem::take(&mut options.images)
         .into_iter()
@@ -288,7 +303,8 @@ pub fn convert(
     if options.acknowledge_protection {
         document.acknowledge_protection()?;
     }
-    let mut report = markdown::insert_source(&mut document, source, format, &markdown_options)?;
+    let mut report =
+        markdown::insert_source_with(&mut document, source, format, &markdown_options, &fonts)?;
     drop(markdown_options);
     let fields = fill_fields(&mut document, &options.fields, input.fields)?;
     let filled = fields
@@ -296,7 +312,9 @@ pub fn convert(
         .and_then(|fields| fields["filled"].as_u64())
         .unwrap_or(0);
     if let (true, Some(toc)) = (filled > 0, report.toc.as_mut()) {
-        match docrs::layout::refresh_toc_page_numbers_if_settled(&mut document, true)? {
+        let refresh =
+            docrs::layout::refresh_toc_page_numbers_if_settled_with(&mut document, true, &fonts)?;
+        match refresh {
             Some(refresh) => {
                 toc.pages = refresh.layout.pages;
                 toc.missing_fonts = refresh.layout.missing_fonts;
@@ -537,7 +555,72 @@ export interface FromMarkdownOptions {
   redact?: boolean;
   /** `{{Name}}` (or `{{{Name}}}`) merge fields to fill once converted, by name (spaces inside the braces allowed), in the body, headers, footers and text boxes. Fields not named here are left; `""` blanks one. A value is text within one paragraph: a line break, tab or other control character, `{{` or `}}` is refused. */
   fields?: Record<string, string>;
+  /** Fonts to measure the contents page numbers with, in the families and styles the template embeds no font for (experimental). */
+  fonts?: FontSet;
 }
+
+declare const fontSetBrand: unique symbol;
+
+/**
+ * Font files loaded once by `loadFonts` or `loadFontManifest` and passed to
+ * conversions as `fonts` (experimental). It survives the package replacing
+ * its WebAssembly instance; `free()` releases it for good, and using it
+ * afterwards throws `pdf_font_handle_disposed`.
+ */
+export interface FontSet {
+  readonly [fontSetBrand]: true;
+  /** Every face, named as a document names it, in the order loaded. */
+  readonly faces: readonly FontFace[];
+  free(): void;
+}
+
+export interface FontFace {
+  family: string;
+  bold: boolean;
+  italic: boolean;
+  /** Has variation axes; layout measures its default instance. */
+  variable: boolean;
+  /** CFF outlines (an OpenType `.otf`). */
+  cff: boolean;
+  embeddable: boolean;
+  subsettable: boolean;
+}
+
+/** Options of `loadFonts`. */
+export interface FontOptions {
+  /** Budgets the set is loaded under; every call checks it against its own `limits` too. */
+  limits?: "default" | "serverless";
+  /** Family a document names to a family of this set to measure it with. */
+  aliases?: Record<string, string>;
+}
+
+/** One font file of a manifest: its bytes, or an https URL to fetch them from. */
+export type FontManifestEntry = {
+  /** Caches the fetched file: entries with the same id share one file, whatever their URLs. */
+  id: string;
+  family: string;
+  bold?: boolean;
+  italic?: boolean;
+} & ({ url: string; data?: undefined } | { data: Uint8Array; url?: undefined });
+
+export interface FontManifestOptions extends FontOptions {
+  /** Default: `globalThis.fetch`. */
+  fetch?: (url: string, init: { signal: AbortSignal }) => Promise<Response>;
+  signal?: AbortSignal;
+  /** For all the fetches together (default 30000). */
+  timeoutMs?: number;
+  /** For the files together and each one, below the `limits` budgets. */
+  maxBytes?: number;
+}
+
+/** Load font files as one set; one file that cannot be read refuses them all (experimental). */
+export function loadFonts(files: Uint8Array[], options?: FontOptions): FontSet;
+
+/**
+ * Fetch (https only) or take every entry's file and load them as one set
+ * (experimental). Errors name the entry's `id`, `family` and style.
+ */
+export function loadFontManifest(entries: FontManifestEntry[], options?: FontManifestOptions): Promise<FontSet>;
 
 /** What a conversion will take from a reference document (`inspectReference`). */
 export interface ReferenceInspection {
@@ -739,7 +822,8 @@ fn js_length(value: &JsValue) -> u64 {
 
 /// Check the budgets of the `limits` option against the sizes of the source
 /// and of the `reference` and `images` options as JavaScript holds them,
-/// before any of them is copied into WebAssembly memory. A string's UTF-8
+/// before any of them is copied into WebAssembly memory, and the `fonts`
+/// set by the sizes it was loaded with. A string's UTF-8
 /// size is at least its UTF-16 length, so the source check never refuses
 /// what fits; the exact size is checked again after the copy.
 fn check_js_sizes(
@@ -784,7 +868,14 @@ fn check_js_sizes(
         reference,
         images,
     )
-    .map_err(refuse)
+    .map_err(refuse)?;
+    match get("fonts") {
+        Some(id) => fonts::id_of(&id)
+            .and_then(fonts::registered)
+            .and_then(|fonts| fonts.check(&input.fonts))
+            .map_err(refuse),
+        None => Ok(()),
+    }
 }
 
 /// The source text, after its size was checked.
@@ -822,25 +913,55 @@ fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
     // `undefined` or `null` counts as not set, as JavaScript callers
     // forwarding optional values expect.
     let given = js_sys::Object::new();
+    let mut fonts = None;
     for key in js_sys::Object::keys(&value).iter() {
         let name = key.as_string().unwrap_or_default();
+        let field = js_sys::Reflect::get(&value, &key).unwrap_or(JsValue::UNDEFINED);
+        // A registry id, which serde does not read: `fonts` is not a field
+        // JavaScript could set on `Options` itself.
+        if name == "fonts" {
+            if !field.is_undefined() && !field.is_null() {
+                fonts = Some(
+                    fonts::id_of(&field)
+                        .and_then(fonts::registered)
+                        .map_err(|err| js_error_with(&err, redact))?,
+                );
+            }
+            continue;
+        }
         if !option_names().contains(&name) {
             return Err(js_error(&Error::invalid_argument(
                 "invalid_options",
                 format!("unknown option {name:?}"),
             )));
         }
-        let field = js_sys::Reflect::get(&value, &key).unwrap_or(JsValue::UNDEFINED);
         if !field.is_undefined() && !field.is_null() {
             let _ = js_sys::Reflect::set(&given, &key, &field);
         }
     }
-    serde_wasm_bindgen::from_value(given.into()).map_err(|err| {
+    let options: Options = serde_wasm_bindgen::from_value(given.into()).map_err(|err| {
         js_error_with(
             &Error::invalid_argument("invalid_options", format!("options: {err}")),
             redact,
         )
+    })?;
+    Ok(Options {
+        fonts: fonts.unwrap_or_default(),
+        ..options
     })
+}
+
+/// The fields of `options` not set to `undefined` or `null`, which count as
+/// not set.
+fn set_fields(options: &js_sys::Object) -> js_sys::Object {
+    let given = js_sys::Object::new();
+    for key in js_sys::Object::keys(options).iter() {
+        let field = js_sys::Reflect::get(options, &key).unwrap_or(JsValue::UNDEFINED);
+        if !field.is_undefined() && !field.is_null() {
+            let _ = js_sys::Reflect::set(&given, &key, &field);
+        }
+    }
+    given
 }
 
 fn redact_of(options: &js_sys::Object) -> bool {
@@ -1641,6 +1762,66 @@ mod tests {
         assert_eq!(
             styles_of(None, &bad).unwrap_err().code(),
             "invalid_argument"
+        );
+    }
+
+    /// The page numbers the contents shows, in order.
+    fn contents_numbers(docx: &[u8]) -> Vec<String> {
+        let document = reopen(docx);
+        let xml = String::from_utf8(docrs::xml::serialize(
+            document.package().xml("word/document.xml").unwrap(),
+        ))
+        .unwrap();
+        xml.split(" PAGEREF ")
+            .skip(1)
+            .map(|rest| {
+                let number = &rest[rest.find("<w:t>").unwrap() + 5..];
+                number[..number.find('<').unwrap()].to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn supplied_fonts_measure_the_contents_numbers() {
+        let paragraph = "Inter sets wider than the substitute Word uses when the font is \
+                         missing, so each of these paragraphs wraps onto more lines and the \
+                         later headings move to later pages.\n\n";
+        let markdown: String = (1..=8)
+            .map(|i| format!("# Section {i}\n\n{}", paragraph.repeat(6)))
+            .collect();
+        let reference = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/pdf/references/inter.docx"),
+        )
+        .unwrap();
+        let convert_with = |fonts: LoadedFonts| {
+            let options = Options {
+                reference: Some(ByteBuf::from(reference.clone())),
+                toc: Some(true),
+                fonts,
+                ..Options::default()
+            };
+            convert(
+                &markdown,
+                InputFormat::Markdown,
+                options,
+                Timestamp::from_unix(0),
+            )
+            .unwrap()
+        };
+        let without = convert_with(LoadedFonts::default());
+        assert_eq!(
+            without.report["toc"]["missing_fonts"],
+            serde_json::json!(["Inter"])
+        );
+        let inter = fonts::tests::font("inter/Inter[opsz,wght].ttf");
+        let sizes = [inter.len() as u64];
+        let loaded = fonts::load([inter].into_iter(), &sizes, &FontOptions::default()).unwrap();
+        let with = convert_with(loaded);
+        assert_eq!(with.report["toc"]["missing_fonts"], serde_json::json!([]));
+        assert_ne!(
+            contents_numbers(&without.docx),
+            contents_numbers(&with.docx)
         );
     }
 
