@@ -636,19 +636,17 @@ fn a_converted_document_is_only_not_yet_drawn() {
         "{codes:?}"
     );
     let subjects: Vec<_> = report.warnings.iter().map(|w| w.subject).collect();
-    for subject in ["table", "footnote"] {
-        assert!(subjects.contains(&subject), "{subject}: {subjects:?}");
-    }
-    for drawn in ["text", "list", "link"] {
+    assert!(subjects.contains(&"footnote"), "{subjects:?}");
+    for drawn in ["text", "list", "link", "table", "border", "shading"] {
         assert!(!subjects.contains(&drawn), "{drawn}: {subjects:?}");
     }
-    let table = report
+    let footnote = report
         .warnings
         .iter()
-        .find(|w| w.subject == "table")
+        .find(|w| w.subject == "footnote")
         .unwrap();
     assert!(
-        table
+        footnote
             .locations
             .iter()
             .all(|l| l.page.is_none() && l.ordinal >= 1)
@@ -828,7 +826,7 @@ fn styled(body: &str) -> Document {
         r#"<w:style w:type="paragraph" w:styleId="Fancy"><w:basedOn w:val="Base"/><w:pPr><w:pageBreakBefore/><w:numPr><w:numId w:val="1"/></w:numPr><w:shd w:val="clear" w:fill="EEEEEE"/><w:framePr w:dropCap="drop" w:lines="3"/><w:bidi/></w:pPr></w:style>"#,
         r#"<w:style w:type="paragraph" w:styleId="Plain"><w:basedOn w:val="Base"/><w:pPr><w:pBdr><w:top w:val="none"/></w:pBdr></w:pPr></w:style>"#,
         r#"<w:style w:type="character" w:styleId="Mark"><w:rPr><w:rtl/><w:highlight w:val="yellow"/></w:rPr></w:style>"#,
-        r#"<w:style w:type="table" w:styleId="Grid"><w:tblPr><w:tblpPr w:tblpY="100"/><w:tblBorders><w:top w:val="single" w:sz="4"/></w:tblBorders></w:tblPr></w:style>"#,
+        r#"<w:style w:type="table" w:styleId="Grid"><w:tblPr><w:tblpPr w:tblpY="100"/><w:tblBorders><w:top w:val="wave" w:sz="4"/></w:tblBorders></w:tblPr></w:style>"#,
         r#"<w:style w:type="table" w:styleId="Shaded"><w:basedOn w:val="Grid"/><w:tblStylePr w:type="firstRow"><w:tcPr><w:shd w:val="clear" w:fill="DDDDDD"/></w:tcPr></w:tblStylePr></w:style>"#,
     );
     let numbering = concat!(
@@ -863,12 +861,15 @@ fn constructs_set_through_styles_are_reported() {
         + "</w:tc></w:tr></w:tbl>";
     let report = report(&styled(&body));
     let not_drawn = subjects(&report, NOT_YET_DRAWN);
-    for expected in [("border", 1), ("shading", 1), ("table", 1)] {
-        assert!(not_drawn.contains(&expected), "{expected:?}: {not_drawn:?}");
+    for drawn in ["border", "shading", "table"] {
+        assert!(
+            not_drawn.iter().all(|(subject, _)| *subject != drawn),
+            "{drawn}: {not_drawn:?}"
+        );
     }
     assert_eq!(
         subjects(&report, "pdf_decoration_approximated"),
-        [("paragraph border", 1)]
+        [("paragraph border", 1), ("table border", 1)]
     );
     assert_eq!(
         subjects(&report, "pdf_layout_feature_ignored"),
@@ -881,25 +882,14 @@ fn constructs_set_through_styles_are_reported() {
 }
 
 #[test]
-fn the_converters_own_styles_are_reported() {
+fn the_converters_own_styles_are_drawn() {
     let convert = |markdown: &str| {
         let mut document = Document::new();
         insert_markdown(&mut document, markdown, &MarkdownOptions::default()).unwrap();
         report(&document)
     };
-    let has = |report: &PdfReport, subject: &str| {
-        report
-            .warnings
-            .iter()
-            .any(|w| w.code == NOT_YET_DRAWN && w.subject == subject)
-    };
-    let table = convert("| A | B |\n| - | - |\n| 1 | 2 |\n");
-    assert!(
-        has(&table, "border"),
-        "{:?}",
-        subjects(&table, NOT_YET_DRAWN)
-    );
     for drawn in [
+        "| A | B |\n| - | - |\n| 1 | 2 |\n",
         "```\nlet x = 1;\n```\n",
         "Above\n\n---\n\nBelow\n",
         "> Quoted\n",
@@ -1230,10 +1220,11 @@ fn row_shading_vml_links_and_computed_hyperlinks_are_checked() {
         ))
         + &para(&complex(" HYPERLINK ", &nested));
     let found = report(&docx(&body, &[], &[]));
+    // Word draws no fill from a row exception's shading, nor does the PDF.
     assert!(
-        subjects(&found, NOT_YET_DRAWN).contains(&("shading", 1)),
+        found.warnings.iter().all(|w| w.subject != "shading"),
         "{:?}",
-        subjects(&found, NOT_YET_DRAWN)
+        found.warnings
     );
     assert!(
         !subjects(&found, NOT_YET_DRAWN)

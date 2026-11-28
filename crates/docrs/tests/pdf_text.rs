@@ -150,6 +150,7 @@ fn every_glyph_is_where_layout_placed_it() {
         }
     };
     docx(fixtures().join("layout/geometry"));
+    docx(fixtures().join("layout/tables"));
     docx(fixtures().join("markdown/templates"));
     docx(fixtures().join("markdown/templates/v2"));
     docx(fixtures().join("../../examples/markdown"));
@@ -331,9 +332,9 @@ fn strict_refuses_any_warning_and_not_yet_drawn_always_refuses() {
         render(&arabic, &options).unwrap_err().reason(),
         "pdf_glyph_missing"
     );
-    let table = markdown("| A | B |\n| - | - |\n| 1 | 2 |\n");
+    let note = markdown("Cited.[^1]\n\n[^1]: The note.\n");
     assert_eq!(
-        render(&table, &options).unwrap_err().reason(),
+        render(&note, &options).unwrap_err().reason(),
         "pdf_not_yet_drawn"
     );
     let (_, report) = render(&memo(), &options).unwrap();
