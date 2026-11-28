@@ -145,6 +145,11 @@ impl<'m> Notes<'m> {
 }
 
 impl Area {
+    /// No footnote is drawn on the page.
+    pub(super) fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
     /// The note going on to the next page.
     pub(super) fn going_on(&self) -> Option<NoteId> {
         self.carry.first().map(|part| part.note)
