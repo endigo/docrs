@@ -24,7 +24,7 @@ pub use font::{SampleLine, Style};
 pub use meta::Info;
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
-pub use nav::{Navigation, Rect};
+pub use nav::{LinkId, Navigation, Rect};
 
 use serde::Serialize;
 use writer::{Dict, Object, Writer, count, name};
@@ -352,7 +352,9 @@ fn write_document(
         slots.push((writer.alloc()?, writer.alloc()?));
     }
     let page_refs: Vec<_> = slots.iter().map(|&(page, _)| page).collect();
-    let nav = navigation.write(&mut writer, &page_refs)?;
+    let heights = pages.iter().map(|((_, height), _)| *height);
+    let placed: Vec<_> = page_refs.iter().copied().zip(heights).collect();
+    let nav = navigation.write(&mut writer, &placed)?;
     for ((((width, height), content), (page, contents)), annots) in
         pages.iter().zip(slots).zip(nav.annots)
     {

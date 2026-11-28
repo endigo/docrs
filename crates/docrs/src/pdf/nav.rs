@@ -2,10 +2,11 @@
 //! painted, written with the pages.
 //!
 //! Internal links go to named destinations, so a link may name a bookmark
-//! that a later page sets. Only `http`, `https`, `mailto` and `tel` URIs
+//! that a later page sets. `_top` is built in: the top of page 1's text
+//! area, as in Word's PDF. Only `http`, `https`, `mailto` and `tel` URIs
 //! are written; no Launch, JavaScript or file action ever is.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::writer::{Dict, Object, Ref, Writer, count, name, text};
 use super::{PdfWarning, Tally};
@@ -17,7 +18,7 @@ pub(super) const LINK_SCHEMES: &[&str] = &["http", "https", "mailto", "tel"];
 const SCHEME_SKIPPED: &str = "pdf_link_scheme_skipped";
 const TARGET_MISSING: &str = "pdf_link_target_missing";
 
-/// Rects of one link on one line closer than this, in points, are one rect.
+/// Parts of one link on one line closer than this, in points, are one rect.
 const ADJACENT: f64 = 0.5;
 /// Entries per leaf of the `/Dests` name tree.
 const NAME_TREE_LEAF: usize = 64;
@@ -31,11 +32,14 @@ pub struct Rect {
     pub top: f64,
 }
 
+/// One occurrence of a hyperlink, numbered by the painter: every part of it,
+/// on every line, has the same id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LinkId(pub usize);
+
 impl Rect {
-    fn continued_by(&self, next: &Rect) -> bool {
-        let same_line = next.bottom < self.top && self.bottom < next.top;
-        let touching = next.left <= self.right + ADJACENT && self.left <= next.right + ADJACENT;
-        same_line && touching
+    fn touches(&self, next: &Rect) -> bool {
+        next.left <= self.right + ADJACENT && self.left <= next.right + ADJACENT
     }
 
     fn union(&self, other: &Rect) -> Rect {
@@ -48,10 +52,23 @@ impl Rect {
     }
 }
 
+/// Word's PDF destinations start this far left of the text, in points.
+const DEST_INDENT: f64 = 2.16;
+/// The anchor of Word's "Top of the Document" link, which needs no bookmark.
+const DOCUMENT_START: &str = "_top";
+
 /// A point to go to: a page (from 0) and a height on it.
 #[derive(Debug, Clone, Copy)]
 struct Place {
     page: usize,
+    top: f64,
+}
+
+/// Where a bookmark or `_top` goes: `left` is where the text starts.
+#[derive(Debug, Clone, Copy)]
+struct Spot {
+    page: usize,
+    left: f64,
     top: f64,
 }
 
@@ -64,15 +81,18 @@ enum Target {
 
 #[derive(Debug)]
 struct Annotation {
+    id: LinkId,
     page: usize,
+    line: usize,
     rect: Rect,
     target: Target,
 }
 
 #[derive(Debug)]
 struct Destination {
-    name: String,
-    place: Place,
+    /// [`dest_key`] of the first name.
+    key: String,
+    spot: Spot,
 }
 
 #[derive(Debug)]
@@ -89,6 +109,10 @@ pub struct Navigation {
     /// By [`bookmark_key`].
     destinations: BTreeMap<String, Destination>,
     headings: Vec<Heading>,
+    /// Page 1's text area, for `_top`.
+    start: Option<Spot>,
+    /// Links already counted in a warning.
+    warned: BTreeSet<LinkId>,
     tally: Tally,
 }
 
@@ -102,30 +126,43 @@ pub(super) struct Written {
 }
 
 impl Navigation {
-    /// Part of a link on one line of `page`. A part that continues the
-    /// previous one on the same line extends its rectangle.
-    pub fn link(&mut self, page: usize, rect: Rect, target: &Link) {
-        let Some(target) = self.target(target) else {
+    /// Part `rect` of link `id` on `line` (the painter's line index) of
+    /// `page`. A part touching the previous part of the same link on the
+    /// same line extends its rectangle.
+    pub fn link(&mut self, id: LinkId, page: usize, line: usize, rect: Rect, target: &Link) {
+        let Some(target) = self.target(id, target) else {
             return;
         };
         let continued = self.links.last_mut().filter(|last| {
-            last.page == page && last.target == target && last.rect.continued_by(&rect)
+            (last.id, last.page, last.line) == (id, page, line) && last.rect.touches(&rect)
         });
         match continued {
             Some(last) => last.rect = last.rect.union(&rect),
-            None => self.links.push(Annotation { page, rect, target }),
+            None => self.links.push(Annotation {
+                id,
+                page,
+                line,
+                rect,
+                target,
+            }),
         }
     }
 
-    /// A bookmark at height `top` of `page`; the first of a name, in any
-    /// case, wins.
-    pub fn destination(&mut self, name: &str, page: usize, top: f64) {
+    /// A bookmark on the line of `page` whose text starts at `left` and
+    /// whose top is `top`; the first of a name, in any case, wins.
+    pub fn destination(&mut self, name: &str, page: usize, left: f64, top: f64) {
         self.destinations
             .entry(bookmark_key(name))
             .or_insert_with(|| Destination {
-                name: name.to_string(),
-                place: Place { page, top },
+                key: dest_key(name),
+                spot: Spot { page, left, top },
             });
+    }
+
+    /// The left and top of page 1's text area, where `_top` goes. Without
+    /// it, `_top` goes to the top of page 1.
+    pub fn text_area(&mut self, left: f64, top: f64) {
+        self.start = Some(Spot { page: 0, left, top });
     }
 
     /// A heading of outline `level` (1 is the top). A blank title has no
@@ -141,7 +178,7 @@ impl Navigation {
         }
     }
 
-    fn target(&mut self, link: &Link) -> Option<Target> {
+    fn target(&mut self, id: LinkId, link: &Link) -> Option<Target> {
         match link {
             Link::Anchor(anchor) => Some(Target::Anchor(anchor.clone())),
             Link::Uri(uri) => {
@@ -152,7 +189,7 @@ impl Navigation {
                     }
                     scheme => {
                         let sample = scheme.map_or_else(|| "relative".into(), |s| format!("{s}:"));
-                        self.tally.note(SCHEME_SKIPPED, "link", None, Some(sample));
+                        self.warn(id, SCHEME_SKIPPED, sample);
                         None
                     }
                 }
@@ -160,11 +197,18 @@ impl Navigation {
         }
     }
 
+    /// Counts each link once.
+    fn warn(&mut self, id: LinkId, code: &'static str, sample: String) {
+        if self.warned.insert(id) {
+            self.tally.note(code, "link", None, Some(sample));
+        }
+    }
+
     /// Writes the annotations, the `/Dests` name tree and the outline for
-    /// `pages`. A link to a bookmark no page sets is dropped.
-    pub(super) fn write(mut self, writer: &mut Writer, pages: &[Ref]) -> Result<Written> {
+    /// `pages`, each `(page, height)`.
+    pub(super) fn write(mut self, writer: &mut Writer, pages: &[(Ref, f64)]) -> Result<Written> {
         let page_ref = |page: usize| {
-            pages.get(page).copied().ok_or_else(|| {
+            pages.get(page).map(|&(at, _)| at).ok_or_else(|| {
                 Error::internal(
                     "pdf_nav_page",
                     format!("navigation names page {page} of {}", pages.len()),
@@ -173,20 +217,24 @@ impl Navigation {
         };
         let mut annots = vec![Vec::new(); pages.len()];
         for link in std::mem::take(&mut self.links) {
+            let page = page_ref(link.page)?;
             let action = match &link.target {
                 Target::Uri(uri) => Dict::new().with("S", name("URI")).with("URI", text(uri)),
-                Target::Anchor(anchor) => match self.destinations.get(&bookmark_key(anchor)) {
-                    Some(dest) => Dict::new()
-                        .with("S", name("GoTo"))
-                        .with("D", byte_string(&dest.name)),
-                    None => {
-                        let sample = Some(anchor.clone());
-                        self.tally.note(TARGET_MISSING, "link", None, sample);
+                Target::Anchor(anchor) => {
+                    let goes = if is_document_start(anchor) {
+                        match self.start {
+                            Some(spot) => spot_destination(page_ref(0)?, spot),
+                            None => destination(page_ref(0)?, pages[0].1),
+                        }
+                    } else if let Some(dest) = self.destinations.get(&bookmark_key(anchor)) {
+                        text(&dest.key)
+                    } else {
+                        self.warn(link.id, TARGET_MISSING, anchor.clone());
                         continue;
-                    }
-                },
+                    };
+                    Dict::new().with("S", name("GoTo")).with("D", goes)
+                }
             };
-            let page = page_ref(link.page)?;
             let at = writer.alloc()?;
             writer.dict(
                 at,
@@ -224,16 +272,16 @@ impl Navigation {
         page_ref: &impl Fn(usize) -> Result<Ref>,
     ) -> Result<Ref> {
         let mut sorted: Vec<&Destination> = self.destinations.values().collect();
-        sorted.sort_by(|a, b| a.name.cmp(&b.name));
+        sorted.sort_by(|a, b| a.key.cmp(&b.key));
         let mut entries = Vec::with_capacity(sorted.len());
         for dest in sorted {
-            let place = destination(page_ref(dest.place.page)?, dest.place.top);
-            entries.push((dest.name.as_str(), place));
+            let place = spot_destination(page_ref(dest.spot.page)?, dest.spot);
+            entries.push((dest.key.as_str(), place));
         }
         let names = |entries: &[(&str, Object)]| -> Vec<Object> {
             entries
                 .iter()
-                .flat_map(|(key, dest)| [byte_string(key), dest.clone()])
+                .flat_map(|(key, dest)| [text(key), dest.clone()])
                 .collect()
         };
         let root = writer.alloc()?;
@@ -244,7 +292,7 @@ impl Navigation {
         let mut kids = Vec::new();
         for leaf in entries.chunks(NAME_TREE_LEAF) {
             let at = writer.alloc()?;
-            let limits = vec![byte_string(leaf[0].0), byte_string(leaf[leaf.len() - 1].0)];
+            let limits = vec![text(leaf[0].0), text(leaf[leaf.len() - 1].0)];
             writer.dict(
                 at,
                 Dict::new()
@@ -373,14 +421,36 @@ fn outline_title(title: &str) -> String {
         .join(" ")
 }
 
-/// A destination name as a byte string: its UTF-8, literal when ASCII, so
-/// the name tree's byte order is the order of the names.
-fn byte_string(value: &str) -> Object {
-    if value.bytes().all(|byte| matches!(byte, b' '..=b'~')) {
-        text(value)
-    } else {
-        Object::Bytes(value.as_bytes().to_vec())
+/// A destination's name in the PDF: the bookmark name with `%`, controls
+/// and non-ASCII bytes percent-encoded. Readers order name tree keys
+/// differently once they are not ASCII (qpdf decodes them as text).
+fn dest_key(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if matches!(byte, b' '..=b'~') && byte != b'%' {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
     }
+    out
+}
+
+/// Whether `anchor` is Word's built-in "Top of the Document".
+pub(super) fn is_document_start(anchor: &str) -> bool {
+    bookmark_key(anchor) == DOCUMENT_START
+}
+
+/// `[page /XYZ x top 0]`, as Word writes a bookmark's destination.
+fn spot_destination(page: Ref, spot: Spot) -> Object {
+    vec![
+        page.into(),
+        name("XYZ"),
+        (spot.left - DEST_INDENT).into(),
+        spot.top.into(),
+        0.into(),
+    ]
+    .into()
 }
 
 fn destination(page: Ref, top: f64) -> Object {

@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::nav::{LINK_SCHEMES, bookmark_key, scheme};
+use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
 use super::{NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
     Formatting, Frame, Link, ParaFormat, RPr, StoryRef, TableCtx, any_border, field_link,
@@ -688,7 +688,7 @@ impl<'s, 'd> Scan<'s, 'd> {
 
     fn finish(mut self) -> PdfReport {
         for (anchor, location) in std::mem::take(&mut self.anchors) {
-            if !self.bookmarks.contains(&bookmark_key(&anchor)) {
+            if !is_document_start(&anchor) && !self.bookmarks.contains(&bookmark_key(&anchor)) {
                 self.tally
                     .note(LINK_TARGET, "link", Some(location), Some(anchor));
             }

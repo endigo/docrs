@@ -402,6 +402,8 @@ fn cases() -> Vec<Case> {
                         + &run("<w:t>gone</w:t>")
                         + r#"</w:hyperlink><w:hyperlink w:anchor="INTRO">"#
                         + &run("<w:t>intro</w:t>")
+                        + r#"</w:hyperlink><w:hyperlink w:anchor="_top" w:history="1">"#
+                        + &run("<w:t>top</w:t>")
                         + "</w:hyperlink>"),
                 ) + &para(
                     &(run(r#"<w:fldChar w:fldCharType="begin"/>"#)
