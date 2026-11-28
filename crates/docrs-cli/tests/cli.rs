@@ -1204,6 +1204,55 @@ fn pdf_falls_back_and_references_fonts_by_name_when_asked() {
 }
 
 #[test]
+fn a_declared_fallback_leaves_words_layout_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let docx = dir.path().join("memo.docx");
+    let output = bin()
+        .arg("from-markdown")
+        .arg(repo("tests/fixtures/pdf/sources/memo.md"))
+        .arg("--reference")
+        .arg(repo("tests/fixtures/pdf/references/arial.docx"))
+        .arg("--out")
+        .arg(&docx)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let lines = |args: &[&str]| {
+        let output = bin()
+            .args(["layout", "--lines"])
+            .arg(&docx)
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let inter = repo(INTER_DIR);
+    let inter = inter.to_str().unwrap();
+    let word = lines(&[]);
+    assert_eq!(word.matches("\"page\":").count(), 47);
+    assert_eq!(
+        lines(&["--font-dir", inter, "--fallback", "sans=Inter"]),
+        word
+    );
+    let pdf = lines(&["--font-dir", inter, "--fallback", "sans=Inter", "--pdf"]);
+    assert_ne!(pdf, word, "the PDF measures Arial's text in Inter");
+    let output = bin()
+        .args(["--json", "layout", "--lines"])
+        .arg(&docx)
+        .args(["--fallback", "sans=Inter"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = &json_of(&output)["error"];
+    assert_eq!(error["reason"], "fallback_not_supplied");
+    assert!(
+        error["message"].as_str().unwrap().contains("Inter"),
+        "{error}"
+    );
+}
+
+#[test]
 fn pdf_refuses_to_write_over_its_input() {
     let dir = tempfile::tempdir().unwrap();
     let docx = inter_memo(dir.path());

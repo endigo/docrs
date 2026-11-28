@@ -477,7 +477,12 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
             );
             Ok(0)
         }
-        Command::Layout { file, fonts, lines } => {
+        Command::Layout {
+            file,
+            fonts,
+            lines,
+            pdf,
+        } => {
             let (document, _) = open_reference(Some(file), limits, false)?;
             let fonts = fonts::load(fonts)?;
             let txn = docrs::txn::Txn::new(&document);
@@ -495,10 +500,18 @@ pub fn run(command: &Command, limits: &Limits, json_mode: bool) -> Result<u8> {
                         Error::io("write_failed", format!("writing a line: {err}"), err)
                     })
                 };
-                let result = docrs::layout::records_with(
+                let target = if *pdf {
+                    docrs::layout::LayoutTarget::Pdf {
+                        allow_unembedded: false,
+                    }
+                } else {
+                    docrs::layout::LayoutTarget::Word
+                };
+                let result = docrs::layout::records_for(
                     &txn,
                     &main,
                     &fonts.set,
+                    target,
                     |looks, links| {
                         let looks: Vec<_> = looks.iter().map(|l| look_json(l, round)).collect();
                         let links: Vec<_> = links.iter().map(link_json).collect();

@@ -76,14 +76,27 @@ pub fn load(args: &FontArgs) -> Result<Loaded> {
             }
         }
     }
-    for fallback in &args.fallbacks {
-        let (kind, family) = fallback_of(fallback)?;
-        builder.fallback(kind, family);
+    let fallbacks = args
+        .fallbacks
+        .iter()
+        .map(|arg| fallback_of(arg))
+        .collect::<Result<Vec<_>>>()?;
+    for (kind, family) in &fallbacks {
+        builder.fallback(*kind, family);
     }
     if args.metric_aliases {
         builder.metric_aliases();
     }
     loaded.set = builder.build();
+    if let Some((_, family)) = fallbacks
+        .iter()
+        .find(|(_, family)| !loaded.set.provides(family))
+    {
+        return Err(Error::invalid_argument(
+            "fallback_not_supplied",
+            format!("--fallback names {family}, which no --font or --font-dir file provides"),
+        ));
+    }
     Ok(loaded)
 }
 

@@ -274,6 +274,12 @@ enum Command {
         /// Experimental.
         #[arg(long)]
         lines: bool,
+        /// With --lines, lay out as `docrs pdf` does: --fallback applies,
+        /// and a font whose licence forbids embedding is passed over.
+        /// Without it, the layout is Word's: a family Word has keeps its
+        /// metrics.
+        #[arg(long, requires = "lines")]
+        pdf: bool,
     },
     /// What a conversion will take from a reference document: role styles,
     /// lifted branding, the section kept, headers and footers, cover page,
@@ -355,9 +361,10 @@ struct FontArgs {
     /// skipped and listed in `fonts_skipped`.
     #[arg(long = "font-dir", value_name = "DIR")]
     font_dirs: Vec<std::path::PathBuf>,
-    /// Lay out and draw a family of KIND (serif, sans or mono) that no font
-    /// provides in FAMILY, one of the fonts given, and draw in it what a
-    /// font lacks (repeatable). A PDF reports it.
+    /// For a PDF, lay out and draw a family of KIND (serif, sans or mono)
+    /// that no font provides in FAMILY, one of the fonts given, and draw in
+    /// it what a font lacks (repeatable); the PDF reports it. A .docx's
+    /// contents page numbers ignore it.
     #[arg(long = "fallback", value_name = "KIND=FAMILY")]
     fallbacks: Vec<String>,
     /// Lay out Arial, Times New Roman and Courier New in the Liberation
