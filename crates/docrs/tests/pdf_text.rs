@@ -5,19 +5,21 @@
 #[path = "support/pdf.rs"]
 mod reader;
 mod support;
+#[allow(dead_code)]
+#[path = "support/glyphs.rs"]
+mod text;
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use docrs::clock::Timestamp;
-use docrs::layout::{FontSet, LineRecord, RunRecord};
+use docrs::layout::FontSet;
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{PdfOptions, paint_for_tests, render};
 use docrs::txn::Txn;
 use docrs::{Document, Limits, Tolerance};
-use reader::{Dict, Pdf, Value, tokenize_content};
+use reader::{Pdf, Value, tokenize_content};
 use support::{RawMember, build_zip};
+use text::{Glyph, assert_same_places, expected, glyphs, page_fonts, qpdf_check, records};
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
@@ -69,249 +71,11 @@ fn pdf_of(document: &Document) -> Vec<u8> {
     render(document, &options).unwrap().0
 }
 
-/// One glyph as the reader sees it: its text through `ToUnicode`, and its
-/// origin in points from the page's top-left corner.
-#[derive(Debug, Clone, PartialEq)]
-struct Glyph {
-    text: String,
-    x: f64,
-    y: f64,
-}
-
-/// A font as the reader uses it: `ToUnicode` and `/W`.
-struct Font {
-    texts: BTreeMap<u16, String>,
-    widths: BTreeMap<u16, f64>,
-}
-
-/// Every glyph each page draws, following `Tm`, `Tf`, `Tz` and `TJ`.
-fn glyphs(pdf: &Pdf) -> Vec<Vec<Glyph>> {
-    let heights: Vec<f64> = pdf.media_boxes().unwrap().iter().map(|b| b[3]).collect();
-    pdf.pages()
-        .unwrap()
-        .into_iter()
-        .zip(heights)
-        .map(|(page, height)| {
-            let fonts = page_fonts(pdf, page);
-            let content = pdf.stream_data(pdf.get(page, "Contents")).unwrap();
-            let mut out = Vec::new();
-            let (mut font, mut size, mut scale) = (None, 0.0, 1.0);
-            let (mut origin, mut pen) = ((0.0, 0.0), 0.0);
-            for op in tokenize_content(&content).unwrap() {
-                let number = |at: usize| op.operands[at].number().unwrap();
-                match op.operator.as_str() {
-                    "Tf" => {
-                        let Value::Name(name) = &op.operands[0] else {
-                            panic!("Tf without a name");
-                        };
-                        font = Some(&fonts[name]);
-                        size = number(1);
-                    }
-                    "Tz" => scale = number(0) / 100.0,
-                    "Tm" => {
-                        assert_eq!((number(0), number(1)), (1.0, 0.0));
-                        origin = (number(4), number(5));
-                        pen = 0.0;
-                    }
-                    "TJ" => {
-                        let Value::Array(items) = &op.operands[0] else {
-                            panic!("TJ without an array");
-                        };
-                        let font: &Font = font.unwrap();
-                        for item in items {
-                            match item {
-                                Value::Str(bytes) => {
-                                    for code in bytes.chunks(2) {
-                                        let cid = u16::from_be_bytes([code[0], code[1]]);
-                                        out.push(Glyph {
-                                            text: font.texts[&cid].clone(),
-                                            x: origin.0 + pen,
-                                            y: height - origin.1,
-                                        });
-                                        pen += font.widths[&cid] / 1000.0 * size * scale;
-                                    }
-                                }
-                                other => pen -= other.number().unwrap() / 1000.0 * size * scale,
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            out
-        })
-        .collect()
-}
-
-fn page_fonts(pdf: &Pdf, page: &Dict) -> BTreeMap<String, Font> {
-    let resources = pdf.page_attr(page, "Resources").unwrap();
-    let fonts = pdf.get(pdf.resolve(resources).dict().unwrap(), "Font");
-    pdf.resolve(fonts)
-        .dict()
-        .unwrap()
-        .iter()
-        .map(|(name, font)| {
-            let font = pdf.resolve(font).dict().unwrap();
-            (
-                name.clone(),
-                Font {
-                    texts: to_unicode(pdf, font),
-                    widths: widths(pdf, font),
-                },
-            )
-        })
-        .collect()
-}
-
-fn to_unicode(pdf: &Pdf, font: &Dict) -> BTreeMap<u16, String> {
-    let cmap = String::from_utf8(pdf.stream_data(pdf.get(font, "ToUnicode")).unwrap()).unwrap();
-    let hex = |token: &str| -> Vec<u8> {
-        let digits = token.trim_matches(['<', '>']);
-        (0..digits.len())
-            .step_by(2)
-            .map(|at| u8::from_str_radix(&digits[at..at + 2], 16).unwrap())
-            .collect()
-    };
-    let mut out = BTreeMap::new();
-    for block in cmap.split("beginbfchar").skip(1) {
-        let block = block.split("endbfchar").next().unwrap();
-        for entry in block.lines().filter(|l| !l.trim().is_empty()) {
-            let (cid, text) = entry.split_once(' ').unwrap();
-            let cid = u16::from_be_bytes(hex(cid).try_into().unwrap());
-            let units: Vec<u16> = hex(text)
-                .chunks(2)
-                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-                .collect();
-            out.insert(cid, String::from_utf16(&units).unwrap());
-        }
-    }
-    out
-}
-
-/// `/W` of a `Type0` font's descendant: `c [w1 w2 …]` runs.
-fn widths(pdf: &Pdf, font: &Dict) -> BTreeMap<u16, f64> {
-    let Value::Array(descendants) = pdf.get(font, "DescendantFonts") else {
-        panic!("no DescendantFonts");
-    };
-    let cid_font = pdf.resolve(&descendants[0]).dict().unwrap();
-    let Value::Array(w) = pdf.resolve(pdf.get(cid_font, "W")) else {
-        panic!("no /W");
-    };
-    let mut out = BTreeMap::new();
-    for pair in w.chunks(2) {
-        let first = pair[0].number().unwrap() as u16;
-        let Value::Array(run) = &pair[1] else {
-            panic!("only c [w …] runs are written");
-        };
-        for (at, width) in run.iter().enumerate() {
-            out.insert(first + at as u16, width.number().unwrap());
-        }
-    }
-    out
-}
-
-/// Every line layout records for `document`'s body, and each look's rise.
-fn records(document: &Document, fonts: &FontSet) -> (Vec<LineRecord>, Vec<f64>) {
-    let txn = Txn::new(document);
-    let main = document.package().main_part_name().to_string();
-    let (mut out, mut rises) = (Vec::new(), Vec::new());
-    docrs::layout::records_with(
-        &txn,
-        &main,
-        fonts,
-        |looks, _| {
-            rises = looks.iter().map(|look| look.rise).collect();
-            Ok(())
-        },
-        |record| {
-            if let docrs::layout::Record::Line(line) = record {
-                out.push(line);
-            }
-            Ok(())
-        },
-    )
-    .unwrap();
-    (out, rises)
-}
-
-/// The glyphs each page should draw, as layout records them: each line's
-/// label, then its characters, each tab replaced by its leader, on its
-/// baseline raised by the run's rise.
-fn expected((records, rises): &(Vec<LineRecord>, Vec<f64>)) -> Vec<Vec<Glyph>> {
-    let pages = records.iter().map(|line| line.page).max().unwrap_or(0) as usize;
-    let mut out = vec![Vec::new(); pages];
-    for line in records {
-        let page = &mut out[line.page as usize - 1];
-        let mut leaders = line.leaders.iter();
-        let mut push = |run: &RunRecord, ch: char, x: f64| {
-            page.push(Glyph {
-                text: ch.to_string(),
-                x,
-                y: line.baseline - rises[run.look as usize],
-            })
-        };
-        for run in line.label.iter().chain(&line.runs) {
-            for (ch, x) in run.text.chars().zip(&run.origins) {
-                if ch != '\t' {
-                    push(run, ch, *x);
-                } else if let Some(Some(leader)) = leaders.next() {
-                    for (ch, x) in leader.text.chars().zip(&leader.origins) {
-                        push(leader, ch, *x);
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
 fn page_texts(pages: &[Vec<Glyph>]) -> Vec<String> {
     pages
         .iter()
         .map(|glyphs| glyphs.iter().map(|g| g.text.as_str()).collect())
         .collect()
-}
-
-fn assert_same_places(name: &str, drawn: &[Vec<Glyph>], expected: &[Vec<Glyph>]) {
-    assert_eq!(drawn.len(), expected.len(), "{name}: pages");
-    for (page, (drawn, expected)) in drawn.iter().zip(expected).enumerate() {
-        assert_eq!(drawn.len(), expected.len(), "{name} page {}", page + 1);
-        for (glyph, want) in drawn.iter().zip(expected) {
-            let close = (glyph.x - want.x).abs() < 0.001 && (glyph.y - want.y).abs() < 0.001;
-            assert!(
-                glyph.text == want.text && close,
-                "{name} page {}: drew {glyph:?}, layout placed {want:?}",
-                page + 1
-            );
-        }
-    }
-}
-
-fn qpdf_check(name: &str, bytes: &[u8]) {
-    let found = Command::new("qpdf")
-        .arg("--version")
-        .output()
-        .is_ok_and(|out| out.status.success());
-    if !found {
-        let required = std::env::var_os("CI").is_some() && !cfg!(windows);
-        assert!(!required, "qpdf must be installed in CI");
-        eprintln!("SKIPPED: qpdf is not installed; `brew install qpdf` to run this check");
-        return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join(name);
-    std::fs::write(&path, bytes).unwrap();
-    let out = Command::new("qpdf")
-        .arg("--check")
-        .arg(&path)
-        .output()
-        .unwrap();
-    let report = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{name}: {report}");
-    assert!(
-        report.contains("No syntax or stream encoding errors found"),
-        "{name}: {report}"
-    );
 }
 
 fn memo() -> Document {

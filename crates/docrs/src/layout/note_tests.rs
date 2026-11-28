@@ -412,7 +412,9 @@ impl Sink for Unplaced {
 
 fn paginate_into<S: Sink>(doc: &Document, sink: &mut S) -> Result<()> {
     let txn = Txn::new(doc);
-    settle(&txn, doc.package().main_part_name(), &FontSet::default())?.paginate(sink)
+    settle(&txn, doc.package().main_part_name(), &FontSet::default())?
+        .0
+        .paginate(sink)
 }
 
 #[test]

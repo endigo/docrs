@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::fields::{Context, FieldSpan, LayoutWarning, NumberFormat, Properties, Values};
-use super::fonts::{Face, FontBook, FontKind};
+use super::fonts::{Face, FaceSource, FontBook, FontKind};
 use super::variation::Style;
 use crate::Result;
 use crate::authoring::SectionStart;
@@ -495,6 +495,11 @@ pub struct RunFace {
     pub bold: bool,
     pub italic: bool,
     pub face: Arc<Face>,
+    /// How Word substitutes the family asked for.
+    pub kind: FontKind,
+    pub source: FaceSource,
+    /// The family has this style in Word's fonts, but `face` is another.
+    pub style_missing: bool,
 }
 
 pub struct Model {
@@ -530,7 +535,10 @@ pub(super) struct Builder<'a> {
     /// Each look and its index.
     looks: HashMap<Appearance, u32>,
     faces: Vec<RunFace>,
-    face_index: HashMap<(String, Style), u32>,
+    /// By the family asked for, the style, and the measuring face.
+    face_index: HashMap<(String, Style, usize), u32>,
+    /// A look's measurer and look in a face that draws what its own lacks.
+    glyph_pens: HashMap<(u32, usize), (build::Measurer, u32)>,
     links: Vec<Link>,
     link_index: HashMap<Link, u32>,
     /// The story part's hyperlink relationships: id to target.
@@ -591,6 +599,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
         looks: HashMap::new(),
         faces: Vec::new(),
         face_index: HashMap::new(),
+        glyph_pens: HashMap::new(),
         links: Vec::new(),
         link_index: HashMap::new(),
         hyperlinks: HashMap::new(),

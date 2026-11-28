@@ -1,5 +1,6 @@
-//! The `ToUnicode` CMap: each CID to the text it was drawn for.
+//! The `ToUnicode` CMap: each code to the text it was drawn for.
 
+#[cfg(test)]
 use super::Cid;
 use crate::pdf::writer::write_hex;
 
@@ -12,20 +13,25 @@ begincmap\n\
 /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
 /CMapName /Adobe-Identity-UCS def\n\
 /CMapType 2 def\n\
-1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n";
+1 begincodespacerange\n";
 
 const TAIL: &str = "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
 
-/// Entries in CID order; empty texts are left out. Text is UTF-16BE, so a
-/// supplementary character is a surrogate pair and a cluster maps to all
-/// of its characters.
-pub(super) fn cmap<'a>(entries: impl Iterator<Item = (Cid, &'a str)>) -> Vec<u8> {
-    let entries: Vec<(Cid, &str)> = entries.filter(|(_, text)| !text.is_empty()).collect();
+/// Entries in code order, each code `bytes` long (1 or 2); empty texts
+/// are left out. Text is UTF-16BE, so a supplementary character is a
+/// surrogate pair and a cluster maps to all of its characters.
+pub(super) fn cmap<'a>(entries: impl Iterator<Item = (u16, &'a str)>, bytes: usize) -> Vec<u8> {
+    let entries: Vec<(u16, &str)> = entries.filter(|(_, text)| !text.is_empty()).collect();
+    let code = |out: &mut Vec<u8>, value: u16| write_hex(out, &value.to_be_bytes()[2 - bytes..]);
     let mut out = HEAD.as_bytes().to_vec();
+    code(&mut out, 0);
+    out.push(b' ');
+    code(&mut out, u16::MAX);
+    out.extend_from_slice(b"\nendcodespacerange\n");
     for block in entries.chunks(BLOCK) {
         out.extend_from_slice(format!("{} beginbfchar\n", block.len()).as_bytes());
         for (cid, text) in block {
-            write_hex(&mut out, &cid.to_be_bytes());
+            code(&mut out, *cid);
             out.push(b' ');
             write_hex(&mut out, &utf16(text));
             out.push(b'\n');
@@ -63,7 +69,10 @@ mod tests {
 
     #[test]
     fn surrogate_pairs_and_clusters() {
-        let map = cmap([(1, "A"), (2, ""), (3, "\u{1F130}"), (4, "fi")].into_iter());
+        let map = cmap(
+            [(1, "A"), (2, ""), (3, "\u{1F130}"), (4, "fi")].into_iter(),
+            2,
+        );
         let map = String::from_utf8(map).unwrap();
         assert!(map.contains(
             "3 beginbfchar\n<0001> <0041>\n<0003> <D83CDD30>\n<0004> <00660069>\nendbfchar\n"
@@ -76,7 +85,7 @@ mod tests {
         assert_eq!(utf16(&"a".repeat(300)).len(), 512);
         let pairs = format!("a{}", "\u{1F130}".repeat(200));
         assert_eq!(utf16(&pairs).len(), 2 + 4 * 127);
-        let map = String::from_utf8(cmap([(1, "x".repeat(1000).as_str())].into_iter())).unwrap();
+        let map = String::from_utf8(cmap([(1, "x".repeat(1000).as_str())].into_iter(), 2)).unwrap();
         let target = map.lines().find(|line| line.starts_with("<0001>")).unwrap();
         assert_eq!(target.len(), "<0001> <>".len() + 1024);
     }
@@ -91,10 +100,18 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(cid, text)| (cid as Cid + 1, text.as_str())),
+            2,
         );
         let map = String::from_utf8(map).unwrap();
         let blocks: Vec<&str> = map.matches(" beginbfchar").collect();
         assert_eq!(blocks.len(), 3);
         assert!(map.contains("100 beginbfchar") && map.contains("50 beginbfchar"));
+    }
+
+    #[test]
+    fn one_byte_codes_have_a_one_byte_codespace() {
+        let map = String::from_utf8(cmap([(1, "\u{2022}")].into_iter(), 1)).unwrap();
+        assert!(map.contains("begincodespacerange\n<00> <FF>\nendcodespacerange"));
+        assert!(map.contains("<01> <2022>"));
     }
 }

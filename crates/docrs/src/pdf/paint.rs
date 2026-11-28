@@ -1,19 +1,20 @@
 //! The painter: a layout sink that draws each line where layout placed it,
 //! every glyph at the x layout measured, in the face that measured it.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::chain::{Chain, Draw};
 use super::decorate::{self, Span};
-use super::font::{Cid, FaceRef, FontResources};
+use super::font::{FaceRef, FontResources, PdfFont};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
 use crate::layout::flow::{Line, PageStart, ParaBox, Point, Sink};
 use crate::layout::fonts::{Face, FontFile};
 use crate::layout::mark_characters;
-use crate::layout::model::{Appearance, Block, Model, NoteId, Para, Piece, Rgb, TabKind};
+use crate::layout::model::{Appearance, Model, NoteId, Para, Piece, Rgb, TabKind};
 use crate::txn::Txn;
-use crate::{Error, ErrorDetails, MissingFont, Result};
+use crate::{Error, Result};
 
 /// Word for Mac's synthesized styles (measured): a bold face drawn from a
 /// regular one is stroked size / 32.3 wide and scaled to 0.98 of its height
@@ -28,13 +29,14 @@ pub(super) struct Page {
     pub contents: Ref,
 }
 
-pub(super) struct Painter<'m, 't> {
+pub(super) struct Painter<'m, 't, 'c, 'b> {
     model: &'m Model,
     txn: &'t Txn<'t>,
+    chain: &'c mut Chain<'b>,
     pub writer: Writer,
     pub fonts: FontResources,
-    /// The resource of each of `model.faces`, once drawn with.
-    faces: Vec<Option<FaceRef>>,
+    /// The resource of each face drawn with, by address.
+    faces: HashMap<usize, FaceRef>,
     /// Font programs read from the document's parts, by face file.
     programs: HashMap<usize, Arc<[u8]>>,
     pub pages: Vec<Page>,
@@ -69,9 +71,9 @@ const PAGE_START: TextState = TextState {
     stroke: None,
 };
 
-/// One glyph to draw: its CID and the x layout gives its origin.
+/// One glyph to draw: its code and the x layout gives its origin.
 struct Glyph {
-    cid: Cid,
+    code: u16,
     x: f64,
     /// Its advance in the embedded font, in thousandths of an em.
     advance: f64,
@@ -83,6 +85,8 @@ struct Mark {
     ch: char,
     look: u32,
     x: f64,
+    /// In the paragraph's list label.
+    label: bool,
 }
 
 /// Content streams compress well; uncompressed, they may be this many times
@@ -92,28 +96,30 @@ const MAX_CONTENT_RATIO: u64 = 16;
 /// Word for Mac strokes a bar tab 0.24 pt wide, its left edge at the stop.
 const BAR_WIDTH: f64 = 0.24;
 
-/// Glyphs of one face and look, drawn with one `TJ`.
+/// Glyphs of one font and look, drawn with one `TJ`.
 struct Run<'a> {
-    face: FaceRef,
+    font: PdfFont,
     look: &'a Appearance,
     size: f64,
     synthetic: (bool, bool),
     glyphs: Vec<Glyph>,
 }
 
-impl<'m, 't> Painter<'m, 't> {
+impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
     pub(super) fn new(
         model: &'m Model,
         txn: &'t Txn<'t>,
+        chain: &'c mut Chain<'b>,
         limits: &PdfLimits,
         stand_in: Option<Arc<Face>>,
     ) -> Result<Self> {
         Ok(Painter {
             model,
             txn,
+            chain,
             writer: Writer::new(limits.max_output_bytes)?,
             fonts: FontResources::default(),
-            faces: vec![None; model.faces.len()],
+            faces: HashMap::new(),
             programs: HashMap::new(),
             pages: Vec::new(),
             page: None,
@@ -141,7 +147,7 @@ impl<'m, 't> Painter<'m, 't> {
         Ok(())
     }
 
-    /// The face that draws `model.faces[index]`.
+    /// The face whose metrics decorate `model.faces[index]`.
     fn drawing(&self, index: u32) -> &Arc<Face> {
         let face = &self.model.faces[index as usize].face;
         match &self.stand_in {
@@ -150,11 +156,11 @@ impl<'m, 't> Painter<'m, 't> {
         }
     }
 
-    fn face(&mut self, index: u32) -> Result<FaceRef> {
-        if let Some(Some(face)) = self.faces.get(index as usize) {
-            return Ok(*face);
+    fn face(&mut self, face: &Arc<Face>) -> Result<FaceRef> {
+        let key = Arc::as_ptr(face) as usize;
+        if let Some(known) = self.faces.get(&key) {
+            return Ok(*known);
         }
-        let face = self.drawing(index).clone();
         let file = face.file().ok_or_else(|| {
             Error::internal(
                 "pdf_font_unchecked",
@@ -163,8 +169,64 @@ impl<'m, 't> Painter<'m, 't> {
         })?;
         let data = self.program(file, &face.family)?;
         let resource = self.fonts.add_face(data, file.index(), face.instance())?;
-        self.faces[index as usize] = Some(resource);
+        self.faces.insert(key, resource);
         Ok(resource)
+    }
+
+    /// The font, code and advance (in thousandths of an em) that draw `ch`
+    /// in `look`, and whether its bold and italic are synthesized.
+    fn glyph(
+        &mut self,
+        look: &Appearance,
+        ch: char,
+        label: bool,
+    ) -> Result<(PdfFont, u16, f64, (bool, bool))> {
+        let drawn = self
+            .chain
+            .drawn(self.model, look, ch, label)
+            .ok_or_else(|| {
+                Error::internal(
+                    "pdf_font_unchecked",
+                    "an undrawable character reached the painter",
+                )
+            })?;
+        let (face, shown) = match drawn.draw {
+            Draw::Face(face, shown) => (face, shown),
+            Draw::StandIn => {
+                let stand_in = self.stand_in.clone().ok_or_else(|| {
+                    Error::internal("pdf_font_unchecked", "no stand-in to draw with")
+                })?;
+                let shown = look.caps.apply(ch, look.size).0;
+                let shown = if stand_in.glyph(shown).is_some() {
+                    shown
+                } else {
+                    ' '
+                };
+                (stand_in, shown)
+            }
+            Draw::Shape(shape) => {
+                let (code, advance) = self.fonts.use_shape(shape, &drawn.text)?;
+                return Ok((PdfFont::Shapes, u16::from(code), advance, (false, false)));
+            }
+            Draw::Named(code) => {
+                let run = &self.model.faces[look.face(ch) as usize];
+                let at = self
+                    .fonts
+                    .named(&run.family, run.bold, run.italic, &run.face);
+                let advance = self.fonts.named_width(at, code);
+                return Ok((PdfFont::Named(at), u16::from(code), advance, (false, false)));
+            }
+        };
+        let font = self.face(&face)?;
+        let glyph = face.glyph(shown).unwrap_or(0);
+        let cid = self.fonts.use_glyph(font, glyph, &drawn.text)?;
+        let synthetic = (look.bold && !face.bold, look.italic && !face.italic);
+        Ok((
+            PdfFont::Embedded(font),
+            cid,
+            face.advance(shown) * 1000.0,
+            synthetic,
+        ))
     }
 
     /// The bytes of `file`; a font the document embeds is read once.
@@ -195,41 +257,18 @@ impl<'m, 't> Painter<'m, 't> {
         let mut runs: Vec<Run<'m>> = Vec::new();
         let mut open = false;
         for mark in marks {
-            let Some(Mark { ch, look, x }) = *mark else {
+            let Some(Mark { ch, look, x, label }) = *mark else {
                 open = false;
                 continue;
             };
             let look = &model.looks[look as usize];
-            let index = look.face(ch);
-            let drawing = self.drawing(index).clone();
-            let (mut drawn, size) = look.caps.apply(ch, look.size);
-            if self.stand_in.is_some() && drawing.glyph(drawn).is_none() {
-                drawn = ' ';
-            }
-            let glyph = match drawing.glyph(drawn) {
-                Some(glyph) => glyph,
-                None => {
-                    return Err(Error::unsupported(
-                        "pdf_glyph_missing",
-                        format!(
-                            "{} has no glyph for U+{:04X}; per-glyph fallback is not drawn yet",
-                            drawing.family, drawn as u32
-                        ),
-                    ));
-                }
-            };
-            let face = self.face(index)?;
-            let cid = self.fonts.use_glyph(face, glyph, &ch.to_string())?;
-            let synthetic = (look.bold && !drawing.bold, look.italic && !drawing.italic);
-            let glyph = Glyph {
-                cid,
-                x,
-                advance: drawing.advance(drawn) * 1000.0,
-            };
+            let (font, code, advance, synthetic) = self.glyph(look, ch, label)?;
+            let size = look.caps.apply(ch, look.size).1;
+            let glyph = Glyph { code, x, advance };
             match runs.last_mut() {
                 Some(run)
                     if open
-                        && run.face == face
+                        && run.font == font
                         && std::ptr::eq(run.look, look)
                         && run.size == size
                         && run.synthetic == synthetic =>
@@ -237,7 +276,7 @@ impl<'m, 't> Painter<'m, 't> {
                     run.glyphs.push(glyph);
                 }
                 _ => runs.push(Run {
-                    face,
+                    font,
                     look,
                     size,
                     synthetic,
@@ -392,7 +431,7 @@ impl<'m, 't> Painter<'m, 't> {
             out.extend_from_slice(b" w\n");
         }
         out.extend_from_slice(b"BT ");
-        write_name(out, &run.face.resource_name())?;
+        write_name(out, &run.font.resource_name())?;
         out.push(b' ');
         write_number(out, run.size)?;
         out.extend_from_slice(b" Tf ");
@@ -426,7 +465,12 @@ impl<'m, 't> Painter<'m, 't> {
             out.push(b' ');
         }
         out.extend_from_slice(b"Tm ");
-        tj(out, &run.glyphs, run.size * state.scale)?;
+        tj(
+            out,
+            &run.glyphs,
+            run.size * state.scale,
+            run.font.code_bytes(),
+        )?;
         out.extend_from_slice(b" TJ ET\n");
         self.state = state;
         Ok(())
@@ -441,7 +485,7 @@ const MIN_SHIFT: f64 = 0.01;
 /// pen moves by the advance `/W` gives it, and a number moves it on to
 /// the next glyph's x. The pen is followed as a reader computes it, from
 /// the numbers as written, so no rounding accumulates.
-fn tj(out: &mut Vec<u8>, glyphs: &[Glyph], em: f64) -> Result<()> {
+fn tj(out: &mut Vec<u8>, glyphs: &[Glyph], em: f64, bytes: usize) -> Result<()> {
     out.push(b'[');
     let mut pen = glyphs.first().map_or(0.0, |glyph| glyph.x);
     let mut codes = Vec::new();
@@ -453,7 +497,7 @@ fn tj(out: &mut Vec<u8>, glyphs: &[Glyph], em: f64) -> Result<()> {
             write_number(out, shift)?;
             pen -= shift * em / 1000.0;
         }
-        codes.extend_from_slice(&glyph.cid.to_be_bytes());
+        codes.extend_from_slice(&glyph.code.to_be_bytes()[2 - bytes..]);
         pen += round(glyph.advance) * em / 1000.0;
     }
     write_hex(out, &codes);
@@ -466,7 +510,7 @@ fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
-impl Sink for Painter<'_, '_> {
+impl Sink for Painter<'_, '_, '_, '_> {
     fn page(&mut self, page: &PageStart) -> Result<()> {
         self.close_page()?;
         let observed = self.pages.len() as u64 + 1;
@@ -536,11 +580,12 @@ fn marks(
 ) -> Vec<Option<Mark>> {
     let (origins, label_origins) = line.origins(para);
     let mut leaders = line.leaders(para, model, left).into_iter().peekable();
-    let char_mark = |piece: &Piece, x: f64| match piece {
+    let char_mark = |piece: &Piece, x: f64, label: bool| match piece {
         Piece::Char { ch, look, .. } => Some(Mark {
             ch: *ch,
             look: *look,
             x: left + x,
+            label,
         }),
         _ => None,
     };
@@ -551,7 +596,7 @@ fn marks(
                 .pieces
                 .iter()
                 .zip(&label_origins)
-                .map(|(p, x)| char_mark(p, *x)),
+                .map(|(p, x)| char_mark(p, *x, true)),
         );
         out.push(None);
     }
@@ -566,12 +611,16 @@ fn marks(
                 note, width, look, ..
             } => {
                 let mark = note_marks.get(note).map_or("", String::as_str);
-                out.extend(
-                    mark_characters(mark, *width, left + x)
-                        .map(|(ch, x)| Some(Mark { ch, look: *look, x })),
-                );
+                out.extend(mark_characters(mark, *width, left + x).map(|(ch, x)| {
+                    Some(Mark {
+                        ch,
+                        look: *look,
+                        x,
+                        label: false,
+                    })
+                }));
             }
-            _ => out.push(char_mark(piece, *x)),
+            _ => out.push(char_mark(piece, *x, false)),
         }
         let piece = first + at as u32;
         let Some(leader) = leaders.next_if(|leader| leader.piece == piece) else {
@@ -582,87 +631,10 @@ fn marks(
                 ch: leader.ch,
                 look: leader.look,
                 x: *x,
+                label: false,
             })
         }));
         out.push(None);
     }
     out
-}
-
-/// Refuses a model with characters whose face has no font program, naming
-/// every family and style that lacks one.
-pub(super) fn check_programs(model: &Model) -> Result<()> {
-    let mut missing = BTreeSet::new();
-    let mut visit = |pieces: &[Piece], leaders: &[char]| {
-        for piece in pieces {
-            let (chars, look) = match piece {
-                Piece::Char { ch, look, .. } => (std::slice::from_ref(ch), look),
-                // A mark's digits are in the reference run's ASCII face.
-                Piece::NoteRef { look, .. } => (&['0'][..], look),
-                Piece::Tab { look, .. } => (leaders, look),
-                _ => continue,
-            };
-            for ch in chars {
-                let face = &model.faces[model.looks[*look as usize].face(*ch) as usize];
-                if face.face.file().is_none() {
-                    missing.insert((face.family.clone(), face.bold, face.italic));
-                }
-            }
-        }
-    };
-    each_para(&model.blocks, &mut |para| {
-        if let Some(label) = &para.label {
-            visit(&label.pieces, &[]);
-        }
-        let leaders: Vec<char> = para.tabs.iter().filter_map(|t| t.leader.char()).collect();
-        visit(&para.pieces, &leaders);
-    });
-    if missing.is_empty() {
-        return Ok(());
-    }
-    let names: Vec<String> = missing
-        .iter()
-        .map(|(family, bold, italic)| format!("{family} {}", style_name(*bold, *italic)))
-        .collect();
-    let details = ErrorDetails {
-        missing_fonts: missing
-            .into_iter()
-            .map(|(family, bold, italic)| MissingFont {
-                family,
-                bold,
-                italic,
-            })
-            .collect(),
-        ..ErrorDetails::default()
-    };
-    Err(Error::unsupported(
-        "pdf_font_program_missing",
-        format!(
-            "no font program for {}; supply the font files",
-            names.join(", ")
-        ),
-    )
-    .with_details(details))
-}
-
-fn each_para(blocks: &[Block], visit: &mut impl FnMut(&Para)) {
-    for block in blocks {
-        match block {
-            Block::Para(para) => visit(para),
-            Block::Table(table) => {
-                for cell in table.rows.iter().flat_map(|row| &row.cells) {
-                    each_para(&cell.blocks, visit);
-                }
-            }
-        }
-    }
-}
-
-fn style_name(bold: bool, italic: bool) -> &'static str {
-    match (bold, italic) {
-        (false, false) => "Regular",
-        (true, false) => "Bold",
-        (false, true) => "Italic",
-        (true, true) => "Bold Italic",
-    }
 }

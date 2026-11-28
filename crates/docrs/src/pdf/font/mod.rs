@@ -1,12 +1,16 @@
-//! Embedded fonts: each face a document draws with becomes a `Type0` font
-//! with `Identity-H`, holding a subset of the glyphs it drew and a
-//! `ToUnicode` CMap so the text extracts as it was written.
+//! Fonts: each face a document draws with becomes a `Type0` font with
+//! `Identity-H`, holding a subset of the glyphs it drew and a `ToUnicode`
+//! CMap so the text extracts as it was written. The built-in symbol font
+//! is a `Type3` font, and a face drawn without its program a simple
+//! `TrueType` font referenced by name.
 
 mod face;
 mod program;
 #[cfg(any(test, feature = "test-support"))]
 mod sample;
+mod shapes;
 mod to_unicode;
+mod unembedded;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -24,6 +28,10 @@ use crate::{Error, Result};
 pub use self::sample::SampleLine;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use self::sample::{glyphs_by_cmap, text_document};
+pub(crate) use self::shapes::Shape;
+use self::shapes::Shapes;
+use self::unembedded::Unembedded;
+pub(crate) use self::unembedded::code as win_ansi;
 pub use crate::layout::variation::Style;
 
 /// A character code in an embedded font's content stream (two bytes, `Identity-H`).
@@ -40,6 +48,35 @@ impl FaceRef {
     }
 }
 
+/// A font a run is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PdfFont {
+    Embedded(FaceRef),
+    /// The built-in symbol font.
+    Shapes,
+    /// Referenced by name, at its index among them.
+    Named(usize),
+}
+
+impl PdfFont {
+    /// Its name in a page's `/Font` resources.
+    pub(crate) fn resource_name(self) -> String {
+        match self {
+            PdfFont::Embedded(face) => face.resource_name(),
+            PdfFont::Shapes => "S1".to_string(),
+            PdfFont::Named(at) => format!("N{}", at + 1),
+        }
+    }
+
+    /// Bytes per character code.
+    pub(crate) fn code_bytes(self) -> usize {
+        match self {
+            PdfFont::Embedded(_) => 2,
+            PdfFont::Shapes | PdfFont::Named(_) => 1,
+        }
+    }
+}
+
 /// The fonts of one document, by font file, face and variation instance.
 #[derive(Default)]
 pub(crate) struct FontResources {
@@ -50,6 +87,8 @@ pub(crate) struct FontResources {
     infos: HashMap<(usize, u32), Arc<FaceInfo>>,
     refs: HashMap<InstanceKey, FaceRef>,
     faces: Vec<Resource>,
+    shapes: Shapes,
+    named: Vec<Unembedded>,
 }
 
 /// File, face index, and each axis value away from the default (as bits).
@@ -190,17 +229,53 @@ impl FontResources {
         Ok(cid)
     }
 
-    /// Writes every face's font objects, returning each resource name with
-    /// its `Type0` font.
-    pub(crate) fn finish(self, writer: &mut Writer) -> Result<Vec<(String, Ref)>> {
-        self.faces
+    /// The code that draws `shape` with the built-in font and extracts as
+    /// `text`, and its width in thousandths of an em.
+    pub(crate) fn use_shape(&mut self, shape: Shape, text: &str) -> Result<(u8, f64)> {
+        Ok((self.shapes.code(shape, text)?, shape.width()))
+    }
+
+    /// The index of `family` in a style, referenced by name and measured
+    /// by `face` ([`PdfFont::Named`]).
+    pub(crate) fn named(
+        &mut self,
+        family: &str,
+        bold: bool,
+        italic: bool,
+        face: &Arc<Face>,
+    ) -> usize {
+        if let Some(at) = self
+            .named
             .iter()
-            .enumerate()
-            .map(|(index, face)| {
-                let data = &self.files[face.file].data;
-                Ok((FaceRef(index).resource_name(), face.write(data, writer)?))
-            })
-            .collect()
+            .position(|font| font.is(family, bold, italic))
+        {
+            return at;
+        }
+        self.named
+            .push(Unembedded::new(family, bold, italic, face.clone()));
+        self.named.len() - 1
+    }
+
+    /// The width `code` is drawn with in a font referenced by name.
+    pub(crate) fn named_width(&self, font: usize, code: u8) -> f64 {
+        self.named[font].width(code)
+    }
+
+    /// Writes every font's objects, returning each resource name with its
+    /// font.
+    pub(crate) fn finish(self, writer: &mut Writer) -> Result<Vec<(String, Ref)>> {
+        let mut out = Vec::new();
+        for (index, face) in self.faces.iter().enumerate() {
+            let data = &self.files[face.file].data;
+            out.push((FaceRef(index).resource_name(), face.write(data, writer)?));
+        }
+        if !self.shapes.is_empty() {
+            out.push((PdfFont::Shapes.resource_name(), self.shapes.write(writer)?));
+        }
+        for (at, font) in self.named.iter().enumerate() {
+            out.push((PdfFont::Named(at).resource_name(), font.write(writer)?));
+        }
+        Ok(out)
     }
 }
 
@@ -255,7 +330,7 @@ impl Resource {
             .glyphs
             .iter()
             .map(|(cid, (_, text))| (*cid, text.as_str()));
-        writer.stream(to_unicode, Dict::new(), &to_unicode::cmap(texts))?;
+        writer.stream(to_unicode, Dict::new(), &to_unicode::cmap(texts, 2))?;
         // ISO 32000-1 9.7.6.1: a Type0 font over a CIDFontType0 font is
         // named after it and its CMap.
         let type0_name = if cff {

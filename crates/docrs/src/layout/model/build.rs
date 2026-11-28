@@ -10,7 +10,7 @@ use super::{
 };
 use crate::fields::fieldcode;
 use crate::layout::fields::{FieldKind, FieldSpan, LayoutWarning, instruction};
-use crate::layout::fonts::{Face, FontKind};
+use crate::layout::fonts::{Face, FaceSource, FontKind, Resolved};
 use crate::layout::variation::Style;
 use crate::units::{EMU_PER_PT, EMU_PER_PX, PT_PER_INCH, TWIPS_PER_PT};
 use crate::wml::{M, R, W, w_attr, w_child};
@@ -279,8 +279,15 @@ impl Builder<'_> {
         }
     }
 
+    /// Not in the font table: Word substitutes as for a roman font.
+    fn kind(&self, name: &str) -> FontKind {
+        self.kinds
+            .get(&name.to_lowercase())
+            .copied()
+            .unwrap_or(FontKind::Serif)
+    }
+
     pub(super) fn measurer(&mut self, rpr: &RPr) -> Measurer {
-        let size = rpr.size.unwrap_or(DEFAULT_SIZE);
         let bold = rpr.bold.unwrap_or(false);
         let italic = rpr.italic.unwrap_or(false);
         let ascii = self.font_name(&rpr.ascii);
@@ -288,34 +295,35 @@ impl Builder<'_> {
             .hansi
             .as_ref()
             .map_or_else(|| ascii.clone(), |f| self.font_name(&Some(f.clone())));
-        // Not in the font table: Word substitutes as for a roman font.
-        let kind = |name: &str| {
-            self.kinds
-                .get(&name.to_lowercase())
-                .copied()
-                .unwrap_or(FontKind::Serif)
-        };
-        let (ascii_kind, hansi_kind) = (kind(&ascii), kind(&hansi));
         let style = Style::of(bold, italic);
-        let face = self.fonts.face(&ascii, bold, italic, ascii_kind);
+        let face = self.fonts.resolve(&ascii, style, self.kind(&ascii));
         let face_hansi = if hansi.eq_ignore_ascii_case(&ascii) {
             face.clone()
         } else {
-            self.fonts.face(&hansi, bold, italic, hansi_kind)
+            self.fonts.resolve(&hansi, style, self.kind(&hansi))
         };
-        let metric = self.metric(face.line_height() * size, face.ascent() * size);
-        let (small, _) = script(size, rpr.vert, &face);
+        self.measurer_of(rpr, style, [(ascii, face), (hansi, face_hansi)])
+    }
+
+    /// The measurer of `rpr` with its `w:ascii` and `w:hAnsi` families
+    /// (as asked for) resolved to `faces`.
+    fn measurer_of(&mut self, rpr: &RPr, style: Style, faces: [(String, Resolved); 2]) -> Measurer {
+        let size = rpr.size.unwrap_or(DEFAULT_SIZE);
+        let [(ascii, face), (hansi, face_hansi)] = faces;
+        let (small, _) = script(size, rpr.vert, &face.face);
+        let metric = self.metric(face.face.line_height() * size, face.face.ascent() * size);
         let faces = [
             self.run_face(ascii, style, &face),
             self.run_face(hansi, style, &face_hansi),
         ];
         Measurer {
-            ascii: face,
-            hansi: face_hansi,
+            ascii: face.face,
+            hansi: face_hansi.face,
             faces,
+            style,
             size: small,
             caps: Caps::of(rpr.caps.unwrap_or(false), rpr.small_caps.unwrap_or(false)),
-            bold,
+            bold: style.weight >= 600,
             spacing: rpr.spacing.unwrap_or(0.0),
             scale: rpr.scale.unwrap_or(100.0) / 100.0,
             kern: rpr.kern.is_some_and(|from| from > 0.0 && size >= from),
@@ -323,8 +331,8 @@ impl Builder<'_> {
         }
     }
 
-    fn run_face(&mut self, family: String, style: Style, face: &Arc<Face>) -> u32 {
-        let key = (family, style);
+    fn run_face(&mut self, family: String, style: Style, face: &Resolved) -> u32 {
+        let key = (family, style, Arc::as_ptr(&face.face) as usize);
         if let Some(index) = self.face_index.get(&key) {
             return *index;
         }
@@ -333,10 +341,59 @@ impl Builder<'_> {
             family: key.0.clone(),
             bold: style.weight >= 600,
             italic: style.italic,
-            face: face.clone(),
+            face: face.face.clone(),
+            kind: self.kind(&key.0),
+            source: face.source,
+            style_missing: face.style_missing,
         });
         self.face_index.insert(key, index);
         index
+    }
+
+    /// The piece of `ch` in `pen`'s look, else, when its face has a font
+    /// program without the glyph, in the first face of the chain that has
+    /// one: that face measures it and its ascent and descent join the line.
+    fn char_piece(&mut self, rpr: &RPr, pen: &Pen, ch: char) -> Piece {
+        let (measurer, look) = match self.glyph_pen(rpr, pen, ch) {
+            Some((measurer, look)) => (measurer, look),
+            None => (pen.measurer.clone(), pen.look),
+        };
+        Piece::Char {
+            ch,
+            width: measurer.width(ch),
+            metric: measurer.metric,
+            look,
+        }
+    }
+
+    fn glyph_pen(&mut self, rpr: &RPr, pen: &Pen, ch: char) -> Option<(Measurer, u32)> {
+        let m = &pen.measurer;
+        let drawn = m.caps.apply(ch, m.size).0;
+        let face = m.face(ch);
+        if face.file().is_none() || face.glyph(drawn).is_some() {
+            return None;
+        }
+        let requested = self.faces[m.faces[usize::from(!is_ascii_slot(ch))] as usize]
+            .family
+            .clone();
+        let kind = self.kind(&requested);
+        let face = self
+            .fonts
+            .glyph_fallback(&requested, m.style, kind, drawn)?;
+        let key = (pen.look, Arc::as_ptr(&face) as usize);
+        if let Some(known) = self.glyph_pens.get(&key) {
+            return Some(known.clone());
+        }
+        let resolved = Resolved {
+            face,
+            source: FaceSource::Glyph,
+            style_missing: false,
+        };
+        let faces = [(requested.clone(), resolved.clone()), (requested, resolved)];
+        let measurer = self.measurer_of(rpr, m.style, faces);
+        let look = self.look(rpr, &measurer, pen.link);
+        self.glyph_pens.insert(key, (measurer.clone(), look));
+        Some((measurer, look))
     }
 
     fn paragraph(&mut self, tree: &XmlTree, p: NodeId, table: Option<&TableCtx>) -> Para {
@@ -398,16 +455,16 @@ impl Builder<'_> {
                 let mut label_rpr = mark_rpr.clone();
                 label_rpr.merge(&level_rpr);
                 let measurer = self.measurer(&label_rpr);
-                let look = self.look(&label_rpr, &measurer, None);
+                let pen = Pen {
+                    look: self.look(&label_rpr, &measurer, None),
+                    measurer,
+                    link: None,
+                };
                 let pieces: Vec<Piece> = text
                     .chars()
-                    .map(|ch| Piece::Char {
-                        ch,
-                        width: measurer.width(ch),
-                        metric: measurer.metric,
-                        look,
-                    })
+                    .map(|ch| self.char_piece(&label_rpr, &pen, ch))
                     .collect();
+                let measurer = pen.measurer;
                 let width = pieces
                     .iter()
                     .map(|piece| match piece {
@@ -590,12 +647,11 @@ impl Builder<'_> {
                 _ if in_instruction => {}
                 "t" => {
                     let pen = self.pen(&mut pen, &rpr, link);
-                    let m = &pen.measurer;
                     for node in tree.children(child) {
                         if let NodeData::Text(text) = tree.data(*node) {
                             for ch in text.chars() {
                                 if let Some(left) = previous {
-                                    let kern = m.kern(left, ch);
+                                    let kern = pen.measurer.kern(left, ch);
                                     if let (true, Some(Piece::Char { width, .. })) =
                                         (kern != 0.0, para.pieces.last_mut())
                                     {
@@ -603,12 +659,8 @@ impl Builder<'_> {
                                     }
                                 }
                                 previous = Some(ch);
-                                para.pieces.push(Piece::Char {
-                                    ch,
-                                    width: m.width(ch),
-                                    metric: m.metric,
-                                    look: pen.look,
-                                });
+                                let piece = self.char_piece(&rpr, pen, ch);
+                                para.pieces.push(piece);
                             }
                         }
                     }
@@ -661,22 +713,26 @@ impl Builder<'_> {
                         metric: pen.measurer.metric,
                     });
                 }
-                "noBreakHyphen" | "sym" => {
+                "sym" => {
+                    let Some(ch) = sym_char(tree, child) else {
+                        continue;
+                    };
+                    let mut sym_rpr = rpr.clone();
+                    if let Some(font) = w_attr(tree, child, "font") {
+                        sym_rpr.ascii = Some(FontRef::Name(font.to_string()));
+                        sym_rpr.hansi = sym_rpr.ascii.clone();
+                    }
+                    let mut sym_pen = None;
+                    let pen = self.pen(&mut sym_pen, &sym_rpr, link);
+                    let piece = self.char_piece(&sym_rpr, pen, ch);
+                    para.pieces.push(piece);
+                }
+                "noBreakHyphen" => {
                     let pen = self.pen(&mut pen, &rpr, link);
                     let m = &pen.measurer;
-                    let ch = if tree.local_name(child) == Some("sym") {
-                        '0'
-                    } else {
-                        '\u{2011}'
-                    };
-                    let width = if ch == '\u{2011}' {
-                        m.width('-')
-                    } else {
-                        m.width(ch)
-                    };
                     para.pieces.push(Piece::Char {
-                        ch,
-                        width,
+                        ch: '\u{2011}',
+                        width: m.width('-'),
                         metric: m.metric,
                         look: pen.look,
                     });
@@ -727,6 +783,12 @@ impl Builder<'_> {
             }
         }
     }
+}
+
+/// `w:sym`'s character: `w:char`, in hex (U+F020-F0FF for a symbol font).
+fn sym_char(tree: &XmlTree, sym: NodeId) -> Option<char> {
+    let code = u32::from_str_radix(w_attr(tree, sym, "char")?, 16).ok()?;
+    char::from_u32(code)
 }
 
 /// A HYPERLINK field's target: its URI (with `\l`'s bookmark as the
@@ -801,6 +863,7 @@ pub(crate) struct Measurer {
     hansi: Arc<Face>,
     /// Into `Model.faces`, for `ascii` and `hansi`.
     faces: [u32; 2],
+    style: Style,
     pub(super) size: f64,
     caps: Caps,
     /// The run is bold: a face that is not is drawn emboldened.

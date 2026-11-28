@@ -162,6 +162,32 @@ impl Fvar {
     }
 }
 
+/// The name id of the `STAT` label Word for Mac appends to a variable
+/// font's family: that of the default `opsz`, unless it is elidable
+/// (measured: "Fraunces 9pt", "Literata 12pt", but "Inter").
+pub(crate) fn optical_label(fvar: &Fvar, stat: &[u8]) -> Option<u16> {
+    let default = fvar.axes.iter().find(|axis| &axis.tag == b"opsz")?.default;
+    let field = |at| be16(stat, at).map(usize::from);
+    let (axis_size, axis_count, values) = (field(4)?, field(6)?, field(12)?);
+    let axes_at = be32(stat, 8)? as usize;
+    let offsets_at = be32(stat, 14)? as usize;
+    let axis = (0..axis_count).find(|index| {
+        stat.get(axes_at + index * axis_size..)
+            .is_some_and(|record| record.starts_with(b"opsz"))
+    })?;
+    // Formats 1 to 3 hold the value (format 2: its nominal value) at 8.
+    let (flags, name) = (0..values).find_map(|index| {
+        let at = offsets_at.checked_add(field(offsets_at + 2 * index)?)?;
+        let on_axis = matches!(field(at)?, 1..=3) && field(at + 2)? == axis;
+        (on_axis && fixed(stat, at + 8)? == default)
+            .then_some((field(at + 4)?, be16(stat, at + 6)?))
+    })?;
+    (flags & ELIDABLE == 0).then_some(name)
+}
+
+/// `STAT` axis value flag: the label is left out of a full name.
+const ELIDABLE: usize = 0x0002;
+
 fn fixed(table: &[u8], at: usize) -> Option<f32> {
     be32(table, at).map(|v| v as i32 as f32 / 65536.0)
 }
@@ -250,6 +276,36 @@ mod tests {
             fraunces.variation(Style::of(true, false)),
             [(*b"wght", 700.0)]
         );
+    }
+
+    /// A `STAT` with one `opsz` design axis and one axis value record.
+    fn stat(record: &[u16]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for field in [1_u16, 1, 8, 1, 0, 20, 1, 0, 28, 2] {
+            out.extend(field.to_be_bytes());
+        }
+        out.extend(b"opsz");
+        out.extend([0, 0, 0, 0, 0, 2]);
+        for field in record {
+            out.extend(field.to_be_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn word_names_a_variable_font_by_its_default_optical_size() {
+        let fraunces = Fvar::read(&fvar(&[(*b"opsz", 9, 9, 144), (*b"wght", 100, 900, 900)]));
+        let range = |flags: u16, nominal: u16| stat(&[2, 0, flags, 300, nominal, 0, 9, 0, 20, 0]);
+        assert_eq!(optical_label(&fraunces, &range(0, 9)), Some(300));
+        assert_eq!(optical_label(&fraunces, &range(ELIDABLE as u16, 9)), None);
+        assert_eq!(optical_label(&fraunces, &range(0, 12)), None);
+        let value = stat(&[1, 0, 0, 301, 9, 0]);
+        assert_eq!(optical_label(&fraunces, &value), Some(301));
+        let other_axis = stat(&[1, 1, 0, 301, 9, 0]);
+        assert_eq!(optical_label(&fraunces, &other_axis), None);
+        let weight_only = Fvar::read(&fvar(&[(*b"wght", 100, 400, 900)]));
+        assert_eq!(optical_label(&weight_only, &value), None);
+        assert_eq!(optical_label(&fraunces, &value[..30]), None);
     }
 
     #[test]

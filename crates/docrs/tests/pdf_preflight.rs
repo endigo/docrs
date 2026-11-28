@@ -533,13 +533,25 @@ fn every_code_has_a_fixture() {
     let covered: Vec<&str> = cases().iter().map(|c| c.code).collect();
     for (code, description) in WARNING_CODES {
         assert!(
-            covered.contains(code) || IMAGE_CODES.contains(code),
+            covered.contains(code) || IMAGE_CODES.contains(code) || DRAWING_CODES.contains(code),
             "{code} has no fixture"
         );
         assert!(!description.is_empty());
     }
-    assert_eq!(covered.len() + IMAGE_CODES.len(), WARNING_CODES.len());
+    assert_eq!(
+        covered.len() + IMAGE_CODES.len() + DRAWING_CODES.len(),
+        WARNING_CODES.len()
+    );
 }
+
+/// Codes the font chain reports while drawing, tested in `pdf_fonts.rs`.
+const DRAWING_CODES: &[&str] = &[
+    "pdf_font_substituted",
+    "pdf_glyph_missing",
+    "pdf_symbol_substituted",
+    "pdf_font_embedding_restricted",
+    "pdf_font_not_embedded",
+];
 
 #[test]
 fn text_box_and_link_scheme_messages_quote_the_input() {
@@ -977,12 +989,7 @@ fn what_the_painter_does_not_draw_yet_stays_refused() {
     ));
     assert_eq!(
         subjects(&report, NOT_YET_DRAWN),
-        [
-            ("symbol", 1),
-            ("soft hyphen", 2),
-            ("section break", 1),
-            ("header", 1),
-        ]
+        [("soft hyphen", 2), ("section break", 1), ("header", 1),]
     );
 }
 

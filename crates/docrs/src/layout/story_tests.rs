@@ -122,7 +122,7 @@ impl Doc<'_> {
     }
 
     pub(super) fn settle(&self) -> Result<Settled> {
-        self.with(|txn, main| settle(txn, main, &FontSet::default()))
+        self.with(|txn, main| settle(txn, main, &FontSet::default()).map(|(settled, _)| settled))
     }
 
     /// Each line: page, story, top, text.
