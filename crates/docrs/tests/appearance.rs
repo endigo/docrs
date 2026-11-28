@@ -572,6 +572,19 @@ fn caps_spacing_scale_and_shading_are_kept() {
     assert_eq!(look(&runs, "rgb-red").shade, None);
 }
 
+/// Word 16.115.2's script size, from 60 raised letters' width over the plain ones'.
+fn word_script_size(size: f64) -> f64 {
+    match size as u32 {
+        8 => 5.0,
+        10 => 6.5,
+        11 => 7.0,
+        12 => 8.0,
+        24 => 15.5,
+        72 => 47.0,
+        _ => unreachable!("{size} pt was not measured"),
+    }
+}
+
 #[test]
 fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
     let runs = runs(&script_fixture());
@@ -596,20 +609,20 @@ fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
                 .filter(|r| r.0 == letters)
                 .map(|r| r.1.size)
                 .collect();
-            let small = size * 2.0 / 3.0;
+            let small = word_script_size(size);
             assert_eq!(sizes, [size, small, small], "{heading}");
         }
     }
 }
 
 #[test]
-fn super_and_subscript_are_two_thirds_the_size_and_shifted() {
+fn super_and_subscript_are_word_s_script_size_and_shifted() {
     let runs = runs(&fixture());
     let plain = look(&runs, "E=mc");
     let sup = &runs[runs.iter().position(|r| r.0 == "E=mc").unwrap() + 1].1;
     let sub = &runs[runs.iter().position(|r| r.0 == " H").unwrap() + 1].1;
     assert_eq!((plain.size, plain.rise), (11.0, 0.0));
-    assert_eq!(sup.size, 11.0 * 2.0 / 3.0);
+    assert_eq!((sup.size, sub.size), (7.0, 7.0));
     assert!(sup.rise > 0.0 && sub.rise < 0.0, "{sup:?} {sub:?}");
     assert_eq!(sup.metric, plain.metric, "line height is the full size's");
     assert_eq!(look(&runs, "raised").rise, 3.0);
