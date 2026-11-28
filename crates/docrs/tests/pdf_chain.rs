@@ -14,16 +14,20 @@ use std::path::PathBuf;
 
 use docrs::anchor::BlockTarget;
 use docrs::clock::Timestamp;
-use docrs::layout::{FontKind, FontSet, FontSetBuilder};
+use docrs::layout::{FontKind, FontSet, FontSetBuilder, LayoutTarget};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{PdfOptions, PdfReport, render, used_fonts};
 use docrs::{Document, Limits, Tolerance};
 use reader::{Pdf, Value};
 use text::{
-    Glyph, SYMBOLS, assert_same_positions, expected, glyphs, page_fonts, qpdf_check, records,
+    Glyph, assert_same_positions, built_in, expected, glyphs, page_fonts, qpdf_check, records_for,
 };
 
 const INTER: &str = "inter/Inter[opsz,wght].ttf";
+const WORD: LayoutTarget = LayoutTarget::Word;
+const PDF: LayoutTarget = LayoutTarget::Pdf {
+    allow_unembedded: false,
+};
 const SERIF: &str = "liberation/LiberationSerif-Regular.ttf";
 const SANS: &str = "liberation/LiberationSans-Regular.ttf";
 const SOURCE_SANS: &str = "source-sans/SourceSans3-Regular.otf";
@@ -84,7 +88,11 @@ fn pdf(document: &Document, options: &PdfOptions) -> (Vec<u8>, PdfReport, Vec<Gl
     let (bytes, report) = render(document, options).unwrap();
     qpdf_check("chain.pdf", &bytes);
     let drawn = glyphs(&Pdf::parse(&bytes).unwrap());
-    assert_same_positions("pdf", &drawn, &expected(&records(document, &options.fonts)));
+    let target = LayoutTarget::Pdf {
+        allow_unembedded: options.allow_unembedded,
+    };
+    let laid_out = records_for(document, &options.fonts, target);
+    assert_same_positions("pdf", &drawn, &expected(&laid_out));
     (bytes, report, drawn.concat())
 }
 
@@ -107,9 +115,9 @@ fn sources(report: &PdfReport) -> Vec<(String, Option<String>, &'static str)> {
         .collect()
 }
 
-/// Each line's text and character origins.
-fn breaks(document: &Document, fonts: &FontSet) -> Vec<(String, Vec<f64>)> {
-    records(document, fonts)
+/// Each line's text and character origins, laid out for `target`.
+fn breaks(document: &Document, fonts: &FontSet, target: LayoutTarget) -> Vec<(String, Vec<f64>)> {
+    records_for(document, fonts, target)
         .0
         .into_iter()
         .map(|line| {
@@ -146,8 +154,8 @@ fn a_metric_alias_breaks_lines_as_words_font_does() {
         b.metric_aliases();
     });
     assert_eq!(
-        breaks(&document, &aliased),
-        breaks(&document, &FontSet::default())
+        breaks(&document, &aliased, PDF),
+        breaks(&document, &FontSet::default(), WORD)
     );
     let (_, report, _) = pdf(&document, &options(&aliased));
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
@@ -174,10 +182,13 @@ fn a_declared_fallback_draws_a_missing_family_and_says_so() {
     let fallback = set(vec![font(INTER)], |b| {
         b.fallback(FontKind::Sans, "Inter");
     });
-    assert_ne!(
-        breaks(&document, &fallback),
-        breaks(&document, &FontSet::default())
+    let words = breaks(&document, &FontSet::default(), WORD);
+    assert_eq!(
+        breaks(&document, &fallback, WORD),
+        words,
+        "Word's pages keep Calibri's metrics"
     );
+    assert_ne!(breaks(&document, &fallback, PDF), words);
     let (_, report, _) = pdf(&document, &options(&fallback));
     assert_eq!(codes(&report), [("pdf_font_substituted", 26)]);
     let message = &report.warnings[0].message;
@@ -251,7 +262,7 @@ fn a_character_its_face_lacks_is_measured_and_drawn_by_the_next_face() {
     let fallback = set(vec![font(SERIF), font(INTER)], |b| {
         b.fallback(FontKind::Sans, "Inter");
     });
-    let (lines, _) = records(&document, &fallback);
+    let (lines, _) = records_for(&document, &fallback, PDF);
     let (plain, checked) = (&lines[0], &lines[1]);
     let face = |path: &str| docrs::layout::Face::parse_file(&font(path)).remove(0);
     let (serif, sans) = (face(SERIF), face(INTER));
@@ -298,7 +309,7 @@ fn serif_paragraph() -> Document {
 }
 
 #[test]
-fn a_font_whose_licence_forbids_embedding_measures_and_the_next_face_draws() {
+fn a_font_whose_licence_forbids_embedding_is_missing_for_a_pdf() {
     let document = serif_paragraph();
     for fs_type in [0x0002, 0x0200] {
         let restricted = with_fs_type(&font(SERIF), fs_type);
@@ -309,16 +320,26 @@ fn a_font_whose_licence_forbids_embedding_measures_and_the_next_face_draws() {
         let fallback = set(vec![restricted, font(INTER)], |b| {
             b.fallback(FontKind::Serif, "Inter");
         });
+        let serif = fonts(&[SERIF]);
         assert_eq!(
-            breaks(&document, &fallback),
-            breaks(&document, &fonts(&[SERIF]))
+            breaks(&document, &fallback, WORD),
+            breaks(&document, &serif, WORD),
+            "Word's pages measure with the font itself"
+        );
+        assert_ne!(
+            breaks(&document, &fallback, PDF),
+            breaks(&document, &serif, PDF),
+            "the face that draws measures"
         );
         let (bytes, report, drawn) = pdf(&document, &options(&fallback));
         assert_eq!(
             codes(&report),
-            [("pdf_font_embedding_restricted", drawn.len())],
+            [("pdf_font_substituted", drawn.len())],
             "{fs_type:#06x}"
         );
+        let message = &report.warnings[0].message;
+        let named = "Liberation Serif Regular (its licence forbids embedding; drawn in Inter)";
+        assert!(message.contains(named), "{message}");
         assert!(!String::from_utf8_lossy(&bytes).contains("LiberationSerif"));
     }
 }
@@ -338,6 +359,26 @@ fn allow_unembedded_references_a_font_by_name_with_layouts_widths() {
     assert_eq!(named.subtype, "TrueType");
     assert!(String::from_utf8_lossy(&bytes).contains("/BaseFont /LiberationSerif"));
     assert!(!String::from_utf8_lossy(&bytes).contains("/FontFile"));
+    let font = pdf
+        .resolve(
+            pdf.get(
+                pdf.resolve(pdf.page_attr(page, "Resources").unwrap())
+                    .dict()
+                    .unwrap(),
+                "Font",
+            ),
+        )
+        .dict()
+        .unwrap();
+    let font = pdf.resolve(&font[&drawn[0].font]).dict().unwrap();
+    let descriptor = pdf.get(font, "FontDescriptor").dict().unwrap();
+    let number = |key: &str| pdf.get(descriptor, key).number().unwrap();
+    let Value::Array(bbox) = pdf.get(descriptor, "FontBBox") else {
+        panic!("no FontBBox");
+    };
+    // Liberation Serif's own head bbox and hhea ascent, in thousandths.
+    assert!(bbox[0].number().unwrap() < 0.0, "{bbox:?}");
+    assert_eq!((number("Ascent"), number("ItalicAngle")), (891.0, 0.0));
     let missing = html(&para("Calibri", "Calibri by name"));
     let (_, report, _) = self::pdf(&missing, &options);
     assert!(sources(&report).contains(&("Calibri".into(), Some("Calibri".into()), "not_embedded")));
@@ -418,7 +459,7 @@ fn bulleted_and_task_lists_draw_their_symbols_with_no_warning_under_strict() {
     assert!(report.warnings.is_empty());
     let symbols: Vec<&str> = drawn
         .iter()
-        .filter(|g| g.font == SYMBOLS)
+        .filter(|g| built_in(&g.font))
         .map(|g| g.text.as_str())
         .collect();
     assert_eq!(
@@ -492,7 +533,7 @@ fn other_symbols_warn_and_extract_as_what_they_stand_for() {
     assert!(message.contains("U+F051 in Wingdings") && message.contains("U+0070 in Symbol"));
     let texts: Vec<(&str, bool)> = drawn
         .iter()
-        .map(|g| (g.text.as_str(), g.font == SYMBOLS))
+        .map(|g| (g.text.as_str(), built_in(&g.font)))
         .collect();
     assert_eq!(
         texts,
@@ -512,4 +553,22 @@ fn other_symbols_warn_and_extract_as_what_they_stand_for() {
         render(&document, &strict).unwrap_err().reason(),
         "pdf_not_faithful"
     );
+}
+
+#[test]
+fn more_than_255_distinct_symbols_start_another_built_in_font() {
+    let symbols: String = (0x21..=0x7E)
+        .chain(0xF021..=0xF0FF)
+        .filter_map(char::from_u32)
+        .filter(|ch| !"&<>".contains(*ch))
+        .take(300)
+        .collect();
+    assert_eq!(symbols.chars().count(), 300);
+    let document = runs(&[("Wingdings 3", &format!("<w:t>{symbols}</w:t>"))]);
+    let (_, report, drawn) = pdf(&document, &options(&FontSet::default()));
+    assert_eq!(codes(&report), [("pdf_symbol_substituted", 300)]);
+    let fonts: BTreeSet<&str> = drawn.iter().map(|g| g.font.as_str()).collect();
+    assert_eq!(fonts, BTreeSet::from(["S1", "S2"]));
+    let texts: String = drawn.iter().map(|g| g.text.as_str()).collect();
+    assert_eq!(texts, symbols);
 }

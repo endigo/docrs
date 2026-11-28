@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use super::face::FaceInfo;
+use super::{ITALIC, NONSYMBOLIC, descriptor};
 use crate::Result;
 use crate::layout::fonts::Face;
 use crate::pdf::writer::{Dict, Object, Ref, Writer, name};
@@ -14,6 +16,8 @@ pub(crate) struct Unembedded {
     bold: bool,
     italic: bool,
     face: Arc<Face>,
+    /// The face's program, when it has one, for its descriptor.
+    info: Option<FaceInfo>,
 }
 
 /// `WinAnsiEncoding` codes 0x80-0x9F (ISO 32000-1 Annex D); 0: none.
@@ -49,12 +53,19 @@ const FIRST: u8 = 0x20;
 const LAST: u8 = 0xFF;
 
 impl Unembedded {
-    pub(crate) fn new(family: &str, bold: bool, italic: bool, face: Arc<Face>) -> Self {
+    pub(crate) fn new(
+        family: &str,
+        bold: bool,
+        italic: bool,
+        face: Arc<Face>,
+        info: Option<FaceInfo>,
+    ) -> Self {
         Unembedded {
             family: family.to_string(),
             bold,
             italic,
             face,
+            info,
         }
     }
 
@@ -79,31 +90,37 @@ impl Unembedded {
         }
     }
 
-    pub(crate) fn write(&self, writer: &mut Writer) -> Result<Ref> {
-        let base_font = self.base_font();
+    /// The face's own descriptor values, else estimates from its metrics.
+    fn descriptor(&self, base_font: &str) -> Dict {
+        let flags = if self.italic {
+            NONSYMBOLIC | ITALIC
+        } else {
+            NONSYMBOLIC
+        };
+        if let Some(info) = &self.info {
+            return descriptor(info, &info.instance(None), base_font, flags);
+        }
         let scale = |value: f64| (value * 1000.0).round();
         let (ascent, descent) = (scale(self.face.ascent()), -scale(self.face.descent()));
-        let mut flags = NONSYMBOLIC;
-        if self.italic {
-            flags |= ITALIC;
-        }
+        Dict::new()
+            .with("Type", name("FontDescriptor"))
+            .with("FontName", name(base_font))
+            .with("Flags", flags)
+            .with(
+                "FontBBox",
+                [0.0, descent, 1000.0, ascent].map(Object::from).to_vec(),
+            )
+            .with("ItalicAngle", if self.italic { -12.0 } else { 0.0 })
+            .with("Ascent", ascent)
+            .with("Descent", descent)
+            .with("CapHeight", (ascent * 0.7).round())
+            .with("StemV", if self.bold { 140_i64 } else { 80 })
+    }
+
+    pub(crate) fn write(&self, writer: &mut Writer) -> Result<Ref> {
+        let base_font = self.base_font();
         let descriptor = writer.alloc()?;
-        writer.dict(
-            descriptor,
-            Dict::new()
-                .with("Type", name("FontDescriptor"))
-                .with("FontName", name(&base_font))
-                .with("Flags", flags)
-                .with(
-                    "FontBBox",
-                    [0.0, descent, 1000.0, ascent].map(Object::from).to_vec(),
-                )
-                .with("ItalicAngle", if self.italic { -12.0 } else { 0.0 })
-                .with("Ascent", ascent)
-                .with("Descent", descent)
-                .with("CapHeight", (ascent * 0.7).round())
-                .with("StemV", if self.bold { 140_i64 } else { 80 }),
-        )?;
+        writer.dict(descriptor, self.descriptor(&base_font))?;
         let widths: Vec<Object> = (FIRST..=LAST).map(|code| self.width(code).into()).collect();
         let font = writer.alloc()?;
         writer.dict(
@@ -121,10 +138,6 @@ impl Unembedded {
         Ok(font)
     }
 }
-
-/// Font descriptor flags (ISO 32000-1 Table 123).
-const NONSYMBOLIC: u32 = 1 << 5;
-const ITALIC: u32 = 1 << 6;
 
 #[cfg(test)]
 mod tests {

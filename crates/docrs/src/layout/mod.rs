@@ -39,7 +39,9 @@ pub(crate) use flow::TEST_LAYOUT_WORK;
 pub fn set_test_layout_work(budget: Option<u64>) {
     flow::TEST_LAYOUT_WORK.set(budget);
 }
-pub use fonts::{Face, FontBook, FontFile, FontInfo, FontKind, FontSet, FontSetBuilder};
+pub use fonts::{
+    Face, FontBook, FontFile, FontInfo, FontKind, FontSet, FontSetBuilder, LayoutTarget,
+};
 #[doc(hidden)]
 pub use model::{
     Appearance, Border, BorderStyle, Caps, Colour, Link, Rgb, Strike, Underline, UnderlineStyle,
@@ -164,11 +166,12 @@ pub(crate) fn model_of(
     txn: &Txn<'_>,
     main: &str,
     fonts: &FontSet,
+    target: LayoutTarget,
 ) -> Result<(model::Model, FontBook, Vec<String>, Vec<String>)> {
     let (embedded, unread) = embedded_fonts(txn, main)?;
     let mut embedded_names: Vec<String> = embedded.iter().map(|f| f.family.clone()).collect();
     embedded_names.dedup();
-    let mut book = FontBook::with_fonts(embedded, fonts);
+    let mut book = FontBook::with_fonts(embedded, fonts).with_target(target);
     let model = model::build(txn, main, &mut book)?;
     Ok((model, book, embedded_names, unread))
 }
@@ -185,7 +188,7 @@ pub fn layout(txn: &Txn<'_>, main: &str, extra: Vec<Face>) -> Result<Layout> {
 /// Headers and footers show their page's number; other page fields show
 /// their stored result.
 pub fn layout_with(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<Layout> {
-    let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
+    let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts, LayoutTarget::Word)?;
     let values = Values::default();
     show_body(&mut model, &values);
     let mut placed = Vec::new();
@@ -265,8 +268,13 @@ impl Settled {
 /// broke it. Refuses with `pdf_layout_not_converged` when the values
 /// repeat an earlier pass's or after 8 passes. Also gives the fonts it
 /// measured with.
-pub(crate) fn settle(txn: &Txn<'_>, main: &str, fonts: &FontSet) -> Result<(Settled, FontBook)> {
-    let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts)?;
+pub(crate) fn settle(
+    txn: &Txn<'_>,
+    main: &str,
+    fonts: &FontSet,
+    target: LayoutTarget,
+) -> Result<(Settled, FontBook)> {
+    let (mut model, book, embedded_names, unread) = model_of(txn, main, fonts, target)?;
     let feeds_back = fields::feeds_back(&model);
     let page_fields = fields::page_field_nodes(&model.blocks);
     let mut values = Values::default();
@@ -373,7 +381,7 @@ pub(crate) fn write_page_numbers(
     blank_unplaced: bool,
     fonts: &FontSet,
 ) -> Result<(usize, Layout)> {
-    let (settled, _) = settle(txn, main, fonts)?;
+    let (settled, _) = settle(txn, main, fonts, LayoutTarget::Word)?;
     let tree = txn.tree_mut(main)?;
     let mut changed = 0;
     for (t, bookmark) in numbers {
@@ -849,7 +857,20 @@ pub fn records_with(
     looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
     each: impl FnMut(Record) -> Result<()>,
 ) -> Result<()> {
-    let (settled, _) = settle(txn, main, fonts)?;
+    records_for(txn, main, fonts, LayoutTarget::Word, looks, each)
+}
+
+/// [`records_with`], laid out for `target`. Experimental.
+#[doc(hidden)]
+pub fn records_for(
+    txn: &Txn<'_>,
+    main: &str,
+    fonts: &FontSet,
+    target: LayoutTarget,
+    looks: impl FnOnce(&[Appearance], &[Link]) -> Result<()>,
+    each: impl FnMut(Record) -> Result<()>,
+) -> Result<()> {
+    let (settled, _) = settle(txn, main, fonts, target)?;
     looks(&settled.model.looks, &settled.model.links)?;
     settled.paginate(&mut LineDump {
         model: &settled.model,

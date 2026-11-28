@@ -549,7 +549,6 @@ const DRAWING_CODES: &[&str] = &[
     "pdf_font_substituted",
     "pdf_glyph_missing",
     "pdf_symbol_substituted",
-    "pdf_font_embedding_restricted",
     "pdf_font_not_embedded",
 ];
 

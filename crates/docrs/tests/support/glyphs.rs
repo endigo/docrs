@@ -6,13 +6,15 @@ use std::collections::BTreeMap;
 use std::process::Command;
 
 use docrs::Document;
-use docrs::layout::{FontSet, LineRecord, RunRecord};
+use docrs::layout::{FontSet, LayoutTarget, LineRecord, RunRecord};
 use docrs::txn::Txn;
 
 use crate::reader::{Dict, Pdf, Value, tokenize_content};
 
-/// The resource name of the built-in symbol font.
-pub const SYMBOLS: &str = "S1";
+/// Whether a resource name is one of the built-in symbol fonts.
+pub fn built_in(font: &str) -> bool {
+    font.starts_with('S')
+}
 
 /// One glyph as the reader sees it: its text, its origin in points from
 /// the page's top-left corner, and the resource name of its font.
@@ -204,13 +206,23 @@ fn simple_widths(pdf: &Pdf, font: &Dict) -> BTreeMap<u16, f64> {
 
 /// Every line layout records for `document`'s body, and each look's rise.
 pub fn records(document: &Document, fonts: &FontSet) -> (Vec<LineRecord>, Vec<f64>) {
+    records_for(document, fonts, LayoutTarget::Word)
+}
+
+/// [`records`], laid out for `target`.
+pub fn records_for(
+    document: &Document,
+    fonts: &FontSet,
+    target: LayoutTarget,
+) -> (Vec<LineRecord>, Vec<f64>) {
     let txn = Txn::new(document);
     let main = document.package().main_part_name().to_string();
     let (mut out, mut rises) = (Vec::new(), Vec::new());
-    docrs::layout::records_with(
+    docrs::layout::records_for(
         &txn,
         &main,
         fonts,
+        target,
         |looks, _| {
             rises = looks.iter().map(|look| look.rise).collect();
             Ok(())
@@ -264,7 +276,7 @@ pub fn assert_same_places(name: &str, drawn: &[Vec<Glyph>], expected: &[Vec<Glyp
     assert_same_positions(name, drawn, expected);
     for (glyph, want) in drawn.iter().flatten().zip(expected.iter().flatten()) {
         assert!(
-            glyph.text == want.text || glyph.font == SYMBOLS,
+            glyph.text == want.text || built_in(&glyph.font),
             "{name}: drew {glyph:?}, layout placed {want:?}"
         );
     }

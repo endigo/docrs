@@ -180,15 +180,6 @@ impl<'b> Chain<'b> {
             let warning = self.own_face(run, drawn);
             return Some(self.face(face.clone(), drawn, ch.to_string(), warning));
         }
-        if !substitute && face.file().is_some() && !face.embeddable() {
-            self.restricted.insert(run.family.clone());
-            if let Some(next) = self.next_face(run, drawn) {
-                let item = format!("{} (drawn in {})", run.family, next.family);
-                let warning = self.warn("pdf_font_embedding_restricted", "font", item);
-                self.used(run, &next.family, "restricted_fallback", &next);
-                return Some(self.face(next, drawn, ch.to_string(), Some(warning)));
-            }
-        }
         if let Some(symbol) = self.symbol(run, drawn, ch, label) {
             return Some(symbol);
         }
@@ -219,6 +210,9 @@ impl<'b> Chain<'b> {
                 .insert(format!("U+{:04X} ({})", drawn as u32, run.family));
             return None;
         }
+        if run.restricted {
+            self.restricted.insert(run.family.clone());
+        }
         self.missing
             .insert((run.family.clone(), run.bold, run.italic));
         None
@@ -236,14 +230,21 @@ impl<'b> Chain<'b> {
     fn own_face(&mut self, run: &RunFace, drawn: char) -> Option<usize> {
         let face = &run.face;
         let style = style_name(run.bold, run.italic);
+        let licence = if run.restricted {
+            "its licence forbids embedding; "
+        } else {
+            ""
+        };
         let substituted = || {
-            let item = format!("{} {style} (drawn in {})", run.family, face.family);
+            let item = format!("{} {style} ({licence}drawn in {})", run.family, face.family);
             Some(("pdf_font_substituted", "font", item))
         };
         let (source, warning) = match run.source {
             FaceSource::Document => ("document", None),
             FaceSource::Supplied => ("supplied", None),
-            FaceSource::Alias { tested } => ("alias", substituted().filter(|_| !tested)),
+            FaceSource::Alias { tested } => {
+                ("alias", substituted().filter(|_| !tested || run.restricted))
+            }
             FaceSource::Fallback => ("fallback", substituted()),
             FaceSource::Glyph => {
                 let item = format!(
@@ -262,14 +263,6 @@ impl<'b> Chain<'b> {
         });
         self.used(run, &face.family, source, face);
         warning.map(|(code, subject, item)| self.warn(code, subject, item))
-    }
-
-    /// A face after the run's that draws `drawn` (its licence forbids
-    /// embedding the run's own).
-    fn next_face(&mut self, run: &RunFace, drawn: char) -> Option<Arc<Face>> {
-        let style = Style::of(run.bold, run.italic);
-        self.book
-            .glyph_fallback(&run.family, style, run.kind, drawn)
     }
 
     /// A character of a symbol font drawn without its program, or a bullet

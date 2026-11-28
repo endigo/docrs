@@ -3,8 +3,8 @@
 //! draw them, and a box for any other symbol nothing else draws.
 
 use super::to_unicode;
+use crate::Result;
 use crate::pdf::writer::{Dict, Object, Ref, Writer, name, write_number};
-use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Shape {
@@ -182,15 +182,20 @@ impl Path {
     }
 }
 
-/// The codes drawn with the built-in font: each shape and the text it
-/// extracts as gets one, from 1.
+/// The codes drawn with the built-in fonts: each shape and the text it
+/// extracts as gets one, from 1, and every 255 codes start a font of their
+/// own.
 #[derive(Default)]
 pub(crate) struct Shapes {
     codes: Vec<(Shape, String)>,
 }
 
+/// One-byte codes from 1.
+const CODES_PER_FONT: usize = 255;
+
 impl Shapes {
-    pub(crate) fn code(&mut self, shape: Shape, text: &str) -> Result<u8> {
+    /// The font (from 0) and code that draw `shape` and extract as `text`.
+    pub(crate) fn code(&mut self, shape: Shape, text: &str) -> (usize, u8) {
         let at = match self
             .codes
             .iter()
@@ -202,21 +207,23 @@ impl Shapes {
                 self.codes.len() - 1
             }
         };
-        u8::try_from(at + 1).map_err(|_| {
-            Error::invalid_argument(
-                "pdf_font_too_many_glyphs",
-                "the document draws more than 255 distinct symbols with the built-in font",
-            )
-        })
+        (at / CODES_PER_FONT, (at % CODES_PER_FONT + 1) as u8)
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.codes.is_empty()
+    /// How many fonts the codes take.
+    pub(crate) fn fonts(&self) -> usize {
+        self.codes.len().div_ceil(CODES_PER_FONT)
     }
 
-    pub(crate) fn write(&self, writer: &mut Writer) -> Result<Ref> {
+    /// Writes font `font`.
+    pub(crate) fn write(&self, font: usize, writer: &mut Writer) -> Result<Ref> {
+        let codes = self
+            .codes
+            .chunks(CODES_PER_FONT)
+            .nth(font)
+            .unwrap_or_default();
         let mut shapes: Vec<Shape> = Vec::new();
-        for (shape, _) in &self.codes {
+        for (shape, _) in codes {
             if !shapes.contains(shape) {
                 shapes.push(*shape);
             }
@@ -237,15 +244,13 @@ impl Shapes {
             }
         }
         let mut differences = vec![Object::from(1_i64)];
-        differences.extend(self.codes.iter().map(|(shape, _)| name(shape.name())));
-        let widths: Vec<Object> = self
-            .codes
+        differences.extend(codes.iter().map(|(shape, _)| name(shape.name())));
+        let widths: Vec<Object> = codes
             .iter()
             .map(|(shape, _)| shape.width().into())
             .collect();
         let to_unicode = writer.alloc()?;
-        let texts = self
-            .codes
+        let texts = codes
             .iter()
             .enumerate()
             .map(|(at, (_, text))| (at as u16 + 1, text.as_str()));
@@ -271,7 +276,7 @@ impl Shapes {
                         .with("Differences", differences),
                 )
                 .with("FirstChar", 1_i64)
-                .with("LastChar", self.codes.len() as i64)
+                .with("LastChar", codes.len() as i64)
                 .with("Widths", widths)
                 .with("ToUnicode", to_unicode)
                 .with("Resources", Dict::new()),

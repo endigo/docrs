@@ -1189,6 +1189,12 @@ impl FontSet {
         &self.0.infos
     }
 
+    /// Whether a face answers to `name` (family, full, PostScript or Word's
+    /// name), ignoring case.
+    pub fn provides(&self, name: &str) -> bool {
+        self.0.index.contains_key(&name.trim().to_lowercase())
+    }
+
     /// A set of already measured faces, found by family only.
     pub(crate) fn from_faces(faces: Vec<Face>) -> FontSet {
         let infos = faces
@@ -1274,7 +1280,8 @@ impl FontSetBuilder {
     /// PDF drawn through them breaks lines as Word does: Arial to
     /// Liberation Sans, Times New Roman and Times to Liberation Serif,
     /// Courier New to Liberation Mono. Off by default; aliases already set
-    /// are kept.
+    /// are kept. One exception: Word's Arial and Times New Roman draw
+    /// U+2010 HYPHEN wider than the Liberation fonts do.
     pub fn metric_aliases(&mut self) -> &mut Self {
         for (family, to) in METRIC_ALIASES {
             self.aliases.entry(family.to_string()).or_insert(Alias {
@@ -1285,11 +1292,13 @@ impl FontSetBuilder {
         self
     }
 
-    /// Lays out and draws in `family`'s faces from this set a family of
-    /// `kind` that neither the document nor this set provides (nor an
-    /// alias), and draws in it a character the run's face lacks. A PDF
-    /// drawn through it reports it (`pdf_font_substituted`). Symbol fonts
-    /// never fall back: their characters stand for others.
+    /// For a PDF ([`LayoutTarget::Pdf`]), lays out and draws in `family`'s
+    /// faces from this set a family of `kind` that neither the document
+    /// nor this set provides (nor an alias), and draws in it a character
+    /// the run's face lacks; the PDF reports it (`pdf_font_substituted`).
+    /// Word's layout ignores it, so a .docx's contents page numbers keep
+    /// the metrics of the fonts Word has. Symbol fonts never fall back:
+    /// their characters stand for others.
     pub fn fallback(&mut self, kind: FontKind, family: &str) -> &mut Self {
         self.fallbacks[kind as usize] = Some(family.trim().to_lowercase());
         self
@@ -1322,14 +1331,30 @@ fn supported(named: Named) -> Parsed<Named> {
     }
 }
 
+/// What a layout measures for. Experimental.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum LayoutTarget {
+    /// Word's pages (the contents page numbers of a .docx): a family Word
+    /// has keeps the bundled table's metrics, and declared fallbacks are
+    /// ignored.
+    #[default]
+    Word,
+    /// A PDF, which draws with the faces that measure it: declared
+    /// fallbacks apply, and a face whose licence forbids embedding counts
+    /// as missing unless it is referenced by name (`allow_unembedded`).
+    Pdf { allow_unembedded: bool },
+}
+
 /// Faces by family for one layout: the document's embedded fonts first,
-/// then the caller's [`FontSet`] (the family's own faces, an alias, the
-/// declared fallback for its kind), then the bundled table.
+/// then the caller's [`FontSet`] (the family's own faces, an alias, and
+/// for a PDF the declared fallback for its kind), then the bundled table.
 #[derive(Default)]
 pub struct FontBook {
     own: Vec<Arc<Face>>,
     own_index: HashMap<String, [Option<usize>; 4]>,
     fonts: FontSet,
+    target: LayoutTarget,
     /// Lower-cased family and kind → how its faces were found.
     cache: HashMap<(String, FontKind), Option<(Found, Slots)>>,
     /// Families that had to be substituted, as the document names them.
@@ -1427,6 +1452,9 @@ pub(crate) struct Resolved {
     /// Drawn in another style of the family, though Word's fonts have this
     /// one (the bundled table).
     pub style_missing: bool,
+    /// The family's own face was passed over: its licence forbids
+    /// embedding it in a PDF.
+    pub restricted: bool,
 }
 
 /// Names Word resolves to another font.
@@ -1471,18 +1499,71 @@ impl FontBook {
         }
     }
 
+    /// This book laying out for `target`.
+    pub(crate) fn with_target(self, target: LayoutTarget) -> FontBook {
+        FontBook { target, ..self }
+    }
+
     /// The faces of `key` itself: the document's, with the styles it lacks
     /// filled from the supplied ones.
     fn direct(&self, key: &str) -> Option<Slots> {
-        let own = tagged(Source::Own, self.own_index.get(canonical(key)));
+        let own = self.drawable(self.own_slots(key));
         match (own, self.supplied(key)) {
             (Some(own), Some(supplied)) => Some(std::array::from_fn(|at| own[at].or(supplied[at]))),
             (own, supplied) => own.or(supplied),
         }
     }
 
-    fn supplied(&self, key: &str) -> Option<Slots> {
+    fn own_slots(&self, key: &str) -> Option<Slots> {
+        tagged(Source::Own, self.own_index.get(canonical(key)))
+    }
+
+    fn supplied_slots(&self, key: &str) -> Option<Slots> {
         tagged(Source::Fonts, self.fonts.0.index.get(canonical(key)))
+    }
+
+    fn supplied(&self, key: &str) -> Option<Slots> {
+        self.drawable(self.supplied_slots(key))
+    }
+
+    /// For a PDF that embeds every font, `slots` without the faces whose
+    /// licence forbids it; `None` when none is left.
+    fn drawable(&self, slots: Option<Slots>) -> Option<Slots> {
+        let mut slots = slots?;
+        if self.target
+            == (LayoutTarget::Pdf {
+                allow_unembedded: false,
+            })
+        {
+            for slot in &mut slots {
+                if slot.is_some_and(|(from, at)| self.forbids_embedding(from, at)) {
+                    *slot = None;
+                }
+            }
+        }
+        slots.iter().any(Option::is_some).then_some(slots)
+    }
+
+    fn forbids_embedding(&self, from: Source, at: usize) -> bool {
+        let face = self.face_at(from, at);
+        face.file().is_some() && !face.embeddable()
+    }
+
+    /// `key` has a face of its own that [`FontBook::drawable`] passes over.
+    fn restricted(&self, key: &str) -> bool {
+        let passed_over = |slots: Option<Slots>| {
+            slots.is_some_and(|slots| {
+                slots
+                    .iter()
+                    .flatten()
+                    .any(|(from, at)| self.forbids_embedding(*from, *at))
+            })
+        };
+        self.target
+            == (LayoutTarget::Pdf {
+                allow_unembedded: false,
+            })
+            && (passed_over(self.own_slots(key)) || passed_over(self.supplied_slots(key)))
     }
 
     /// An alias's faces: supplied ones, else (an alias the caller set) the
@@ -1499,9 +1580,10 @@ impl FontBook {
         ))
     }
 
-    /// The declared fallbacks, `kind`'s first; none for a symbol font.
+    /// For a PDF, the declared fallbacks, `kind`'s first; none for a
+    /// symbol font.
     fn fallbacks(&self, key: &str, kind: FontKind) -> Vec<Slots> {
-        if symbol_font(key) {
+        if self.target == LayoutTarget::Word || symbol_font(key) {
             return Vec::new();
         }
         let declared = &self.fonts.0.fallbacks;
@@ -1518,12 +1600,13 @@ impl FontBook {
             return *found;
         }
         let declared = self.fonts.0.fallbacks[kind as usize].as_deref();
+        let for_pdf = self.target != LayoutTarget::Word;
         let found = self
             .direct(&key)
             .map(|slots| (Found::Direct, slots))
             .or_else(|| self.alias(&key))
             .or_else(|| {
-                let fallback = declared.filter(|_| !symbol_font(&key))?;
+                let fallback = declared.filter(|_| for_pdf && !symbol_font(&key))?;
                 Some((Found::Fallback, self.supplied(fallback)?))
             })
             .or_else(|| builtin_slots(&key).map(|slots| (Found::Builtin, slots)));
@@ -1585,6 +1668,7 @@ impl FontBook {
             face,
             source,
             style_missing,
+            restricted: self.restricted(&key),
         }
     }
 
@@ -2563,7 +2647,14 @@ mod font_set {
         let mut builder = FontSet::builder();
         builder.add(font("Regular", vec![])).unwrap();
         let fonts = builder.fallback(FontKind::Sans, "brand ").build();
-        let mut book = FontBook::with_fonts(Vec::new(), &fonts);
+        let mut word = FontBook::with_fonts(Vec::new(), &fonts);
+        let calibri = resolve(&mut word, "Calibri", false, FontKind::Sans);
+        assert_eq!(
+            (calibri.face.family.as_str(), calibri.source),
+            ("Calibri", FaceSource::Measured),
+            "Word's pages keep Word's metrics"
+        );
+        let mut book = FontBook::with_fonts(Vec::new(), &fonts).with_target(PDF);
         let calibri = resolve(&mut book, "Calibri", false, FontKind::Sans);
         assert_eq!(
             (calibri.face.family.as_str(), calibri.source),
@@ -2584,6 +2675,44 @@ mod font_set {
         let nowhere = resolve(&mut book, "No Such Font", false, FontKind::Serif);
         assert_eq!(nowhere.source, FaceSource::Substitute);
         assert_eq!(book.missing, ["No Such Font"]);
+    }
+
+    const PDF: LayoutTarget = LayoutTarget::Pdf {
+        allow_unembedded: false,
+    };
+
+    #[test]
+    fn a_face_whose_licence_forbids_embedding_is_passed_over_for_a_pdf() {
+        let restricted = font("Regular", vec![os2(4, 0x0002)]);
+        let fonts = {
+            let mut builder = FontSet::builder();
+            builder.add(restricted).unwrap();
+            builder
+                .add(family_font("Other", "Regular", vec![]))
+                .unwrap();
+            builder.fallback(FontKind::Sans, "Other").build()
+        };
+        let mut word = FontBook::with_fonts(Vec::new(), &fonts);
+        let brand = resolve(&mut word, "Brand", false, FontKind::Sans);
+        assert_eq!(
+            (brand.face.family.as_str(), brand.restricted),
+            ("Brand", false)
+        );
+        let mut pdf = FontBook::with_fonts(Vec::new(), &fonts).with_target(PDF);
+        let brand = resolve(&mut pdf, "Brand", false, FontKind::Sans);
+        assert_eq!(
+            (brand.face.family.as_str(), brand.source, brand.restricted),
+            ("Other", FaceSource::Fallback, true)
+        );
+        let unembedded = LayoutTarget::Pdf {
+            allow_unembedded: true,
+        };
+        let mut named = FontBook::with_fonts(Vec::new(), &fonts).with_target(unembedded);
+        let brand = resolve(&mut named, "Brand", false, FontKind::Sans);
+        assert_eq!(
+            (brand.face.family.as_str(), brand.source),
+            ("Brand", FaceSource::Supplied)
+        );
     }
 
     #[test]

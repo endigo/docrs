@@ -205,14 +205,19 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
                 (stand_in, shown)
             }
             Draw::Shape(shape) => {
-                let (code, advance) = self.fonts.use_shape(shape, &drawn.text)?;
-                return Ok((PdfFont::Shapes, u16::from(code), advance, (false, false)));
+                let (font, code, advance) = self.fonts.use_shape(shape, &drawn.text);
+                return Ok((font, u16::from(code), advance, (false, false)));
             }
             Draw::Named(code) => {
                 let run = &self.model.faces[look.face(ch) as usize];
+                let program = match run.face.file() {
+                    Some(file) => Some((self.program(file, &run.face.family)?, file.index())),
+                    None => None,
+                };
+                let program = program.as_ref().map(|(data, index)| (&data[..], *index));
                 let at = self
                     .fonts
-                    .named(&run.family, run.bold, run.italic, &run.face);
+                    .named(&run.family, run.bold, run.italic, &run.face, program)?;
                 let advance = self.fonts.named_width(at, code);
                 return Ok((PdfFont::Named(at), u16::from(code), advance, (false, false)));
             }

@@ -46,7 +46,7 @@ use writer::{Dict, Object, Ref, Writer, count, name};
 use crate::coreprops::core_properties;
 use crate::layout::fonts::{FaceSource, bundled};
 use crate::layout::model::Piece;
-use crate::layout::{Face, FontSet, model_of, settle};
+use crate::layout::{Face, FontSet, LayoutTarget, model_of, settle};
 use crate::txn::Txn;
 use crate::{Document, Error, ErrorDetails, Limits, Result, WarningCount};
 
@@ -152,10 +152,6 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
     (
         "pdf_symbol_substituted",
         "a symbol was drawn as the character it stands for in another font, or as a box",
-    ),
-    (
-        "pdf_font_embedding_restricted",
-        "a font whose licence forbids embedding measured the text, and a later font drew it",
     ),
     (
         "pdf_font_not_embedded",
@@ -318,8 +314,7 @@ pub struct PdfFontUse {
     pub selected_family: Option<String>,
     /// `document` (a font it embeds), `supplied`, `alias`, `fallback`,
     /// `glyph_fallback` (characters the face lacks), `symbols` (the
-    /// built-in symbol font), `symbol_fallback`, `restricted_fallback` (the
-    /// licence forbids embedding the family's face) or `not_embedded`.
+    /// built-in symbol font), `symbol_fallback` or `not_embedded`.
     pub source: &'static str,
     /// Bold or italic drawn from another style.
     pub synthesized: bool,
@@ -384,7 +379,10 @@ fn paint(
 ) -> Result<(Vec<u8>, u32)> {
     let txn = Txn::new(document);
     let main = document.package().main_part_name();
-    let (settled, mut book) = settle(&txn, main, &options.fonts)?;
+    let target = LayoutTarget::Pdf {
+        allow_unembedded: options.allow_unembedded,
+    };
+    let (settled, mut book) = settle(&txn, main, &options.fonts, target)?;
     let model = settled.model();
     let mut chain = chain::Chain::new(&mut book, options.allow_unembedded, stand_in.is_some());
     chain.check(model)?;
@@ -439,7 +437,7 @@ fn info(document: &Document) -> Result<meta::Info> {
 pub fn used_fonts(document: &Document) -> Result<Vec<UsedFont>> {
     let txn = Txn::new(document);
     let main = document.package().main_part_name();
-    let (model, ..) = model_of(&txn, main, &FontSet::default())?;
+    let (model, ..) = model_of(&txn, main, &FontSet::default(), LayoutTarget::Word)?;
     let mut used: Vec<UsedFont> = Vec::new();
     chain::each_para(&model.blocks, &mut |para| {
         let label = para.label.iter().flat_map(|label| &label.pieces);

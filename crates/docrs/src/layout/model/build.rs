@@ -342,9 +342,9 @@ impl Builder<'_> {
             bold: style.weight >= 600,
             italic: style.italic,
             face: face.face.clone(),
-            kind: self.kind(&key.0),
             source: face.source,
             style_missing: face.style_missing,
+            restricted: face.restricted,
         });
         self.face_index.insert(key, index);
         index
@@ -388,6 +388,7 @@ impl Builder<'_> {
             face,
             source: FaceSource::Glyph,
             style_missing: false,
+            restricted: false,
         };
         let faces = [(requested.clone(), resolved.clone()), (requested, resolved)];
         let measurer = self.measurer_of(rpr, m.style, faces);

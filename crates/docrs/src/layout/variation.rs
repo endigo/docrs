@@ -167,20 +167,22 @@ impl Fvar {
 /// (measured: "Fraunces 9pt", "Literata 12pt", but "Inter").
 pub(crate) fn optical_label(fvar: &Fvar, stat: &[u8]) -> Option<u16> {
     let default = fvar.axes.iter().find(|axis| &axis.tag == b"opsz")?.default;
-    let field = |at| be16(stat, at).map(usize::from);
-    let (axis_size, axis_count, values) = (field(4)?, field(6)?, field(12)?);
+    let field = |at: usize, by: usize| be16(stat, at.checked_add(by)?).map(usize::from);
+    let (axis_size, axis_count, values) = (field(4, 0)?, field(6, 0)?, field(12, 0)?);
     let axes_at = be32(stat, 8)? as usize;
     let offsets_at = be32(stat, 14)? as usize;
     let axis = (0..axis_count).find(|index| {
-        stat.get(axes_at + index * axis_size..)
-            .is_some_and(|record| record.starts_with(b"opsz"))
+        let record = index
+            .checked_mul(axis_size)
+            .and_then(|by| axes_at.checked_add(by));
+        record.is_some_and(|at| stat.get(at..).is_some_and(|r| r.starts_with(b"opsz")))
     })?;
     // Formats 1 to 3 hold the value (format 2: its nominal value) at 8.
     let (flags, name) = (0..values).find_map(|index| {
-        let at = offsets_at.checked_add(field(offsets_at + 2 * index)?)?;
-        let on_axis = matches!(field(at)?, 1..=3) && field(at + 2)? == axis;
-        (on_axis && fixed(stat, at + 8)? == default)
-            .then_some((field(at + 4)?, be16(stat, at + 6)?))
+        let at = offsets_at.checked_add(field(offsets_at, 2 * index)?)?;
+        let on_axis = matches!(field(at, 0)?, 1..=3) && field(at, 2)? == axis;
+        let value = fixed(stat, at.checked_add(8)?)?;
+        (on_axis && value == default).then_some((field(at, 4)?, field(at, 6)? as u16))
     })?;
     (flags & ELIDABLE == 0).then_some(name)
 }

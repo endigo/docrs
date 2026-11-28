@@ -495,11 +495,12 @@ pub struct RunFace {
     pub bold: bool,
     pub italic: bool,
     pub face: Arc<Face>,
-    /// How Word substitutes the family asked for.
-    pub kind: FontKind,
     pub source: FaceSource,
     /// The family has this style in Word's fonts, but `face` is another.
     pub style_missing: bool,
+    /// The family's own face was passed over: its licence forbids
+    /// embedding it in a PDF.
+    pub restricted: bool,
 }
 
 pub struct Model {
