@@ -180,6 +180,16 @@ fn choice_is_supported(tree: &XmlTree, choice: NodeId) -> bool {
 
 /// lxml `element.text = value`: replace the character data before the first
 /// child node (creating or removing the text node as needed).
+/// The settings part's `w:compatSetting compatibilityMode`, when it has one.
+pub(crate) fn compatibility_mode(settings: &XmlTree) -> Option<i64> {
+    w_child(settings, settings.root(), "compat")
+        .into_iter()
+        .flat_map(|compat| w_children(settings, compat, "compatSetting"))
+        .find(|s| w_attr(settings, *s, "name") == Some("compatibilityMode"))
+        .and_then(|s| w_attr(settings, s, "val"))
+        .and_then(|v| v.parse().ok())
+}
+
 pub(crate) fn set_leading_text(tree: &mut XmlTree, id: NodeId, value: &str) -> crate::Result<()> {
     let leading: Vec<NodeId> = tree
         .children(id)

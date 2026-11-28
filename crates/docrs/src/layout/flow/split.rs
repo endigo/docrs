@@ -188,7 +188,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     })
                     .collect(),
             };
-            let left = self.column_left();
+            let left = self.column_left() + table.left;
             self.row(Point { x: left, y: self.y }, table, row_index, &slice)?;
             for (rest, cut) in rests.iter_mut().zip(&cuts) {
                 if rest.done {

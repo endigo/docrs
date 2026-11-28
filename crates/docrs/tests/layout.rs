@@ -1160,30 +1160,68 @@ fn a_nested_row_whose_line_moves_has_no_part_on_the_page_before() {
     }
 }
 
-#[test]
-fn cell_side_margins_come_from_table_normal() {
-    let table = format!(
-        "<w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}",
+/// Where a one-cell table's row and text start, with `styles` and the
+/// table's own style `own`, in compatibility mode `mode` (no settings part
+/// when `None`).
+fn table_x(styles: &str, own: &str, mode: Option<u32>) -> (f64, f64) {
+    let tbl_pr = if own.is_empty() {
+        String::new()
+    } else {
+        format!("<w:tblPr><w:tblStyle w:val=\"{own}\"/></w:tblPr>")
+    };
+    let body = format!(
+        "<w:tbl>{tbl_pr}<w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}<w:sectPr>{SECT_PR}</w:sectPr>",
         para("Cell", ""),
         para("", "")
     );
-    let normal = "<w:style w:type=\"table\" w:default=\"1\" w:styleId=\"TableNormal\"><w:tblPr><w:tblCellMar><w:left w:w=\"108\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>";
-    let named = "<w:style w:type=\"table\" w:styleId=\"Plain\"><w:tblPr/></w:style>";
-    let x = |body: &str, styles: &str| {
-        let doc = Document::open_bytes(&styled_package(body, styles), &Limits::default()).unwrap();
-        text_lines(&records_of(&doc))
-            .find(|l| l.text == "Cell")
-            .unwrap()
-            .x
+    let settings = mode.map(|mode| {
+        format!("<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"{mode}\"/></w:compat>")
+    });
+    let doc = Document::open_bytes(
+        &package_with(&body, styles, settings.as_deref()),
+        &Limits::default(),
+    )
+    .unwrap();
+    let records = records_of(&doc);
+    let row = row_parts(&records).next().unwrap().x;
+    let text = text_lines(&records).find(|l| l.text == "Cell").unwrap().x;
+    (round(row), round(text))
+}
+
+fn round(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
+#[test]
+fn cell_side_margins_and_the_table_edge_follow_word() {
+    // Word for Mac 16.115 (cell edge, text x): the text x includes the
+    // first glyph's side bearing, about 0.25 to 0.5 points.
+    let style = |id: &str, extra: &str| {
+        format!("<w:style w:type=\"table\" {extra} w:styleId=\"{id}\"><w:name w:val=\"{id}\"/>")
     };
-    let styled = table.replace(
-        "<w:tblGrid>",
-        "<w:tblPr><w:tblStyle w:val=\"Plain\"/></w:tblPr><w:tblGrid>",
+    let margins = "<w:tblPr><w:tblCellMar><w:left w:w=\"108\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>";
+    let bare_normal = format!("{}</w:style>", style("TableNormal", "w:default=\"1\""));
+    let normal = format!("{}{margins}", style("TableNormal", "w:default=\"1\""));
+    let plain = format!("{}<w:tblPr/></w:style>", style("Plain", ""));
+    let plain_based = format!(
+        "{}<w:basedOn w:val=\"TableNormal\"/><w:tblPr/></w:style>",
+        style("PlainBased", "")
     );
-    assert_eq!(x(&table, ""), 72.0);
-    assert_eq!(x(&table, normal), 77.4);
-    // A style that sets no margins takes Table Normal's.
-    assert_eq!(x(&styled, &format!("{normal}{named}")), 77.4);
+    let styles = format!("{normal}{plain}{plain_based}");
+    // No default table style: no margins (72.0, 72.48).
+    assert_eq!(table_x("", "", None), (72.0, 72.0));
+    // A default table style without margins: Word's 5.4, and before Word
+    // 2013 the table moves left by them (67.0, 72.0).
+    assert_eq!(table_x(&bare_normal, "", None), (66.6, 72.0));
+    // A style of the table's own not based on Table Normal: none (72.0, 72.24).
+    assert_eq!(table_x(&styles, "Plain", None), (72.0, 72.0));
+    // One based on it inherits its 5.4 (67.0, 72.0).
+    assert_eq!(table_x(&styles, "PlainBased", None), (66.6, 72.0));
+    // Table Normal's 108 twips: no settings and mode 14 move the table
+    // left (67.0, 72.0); mode 15 keeps its edge at the margin (72.0, 77.76).
+    assert_eq!(table_x(&normal, "", None), (66.6, 72.0));
+    assert_eq!(table_x(&normal, "", Some(14)), (66.6, 72.0));
+    assert_eq!(table_x(&normal, "", Some(15)), (72.0, 77.4));
 }
 
 /// A one-row table: a cell of `tall` paragraphs with exactly 800-point

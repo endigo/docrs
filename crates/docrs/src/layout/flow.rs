@@ -733,14 +733,14 @@ fn cell_layout<'m>(
                     }
                     out.drawn.push(Drawn {
                         offset: y,
-                        x: 0.0,
+                        x: table.left,
                         item: Item::Row(table, row_index, RowSlice::whole(&layout)),
                     });
                     for part in layout.cells {
                         out.drawn
                             .extend(part.layout.drawn.into_iter().map(|drawn| Drawn {
                                 offset: drawn.offset + part.top + y,
-                                x: drawn.x + part.x,
+                                x: drawn.x + part.x + table.left,
                                 item: drawn.item,
                             }));
                     }
@@ -1095,7 +1095,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
         y: f64,
         repeat: bool,
     ) -> Result<()> {
-        let left = self.column_left();
+        let left = self.column_left() + table.left;
         let paper = if table.rows[row].header || table.rows[row].cant_split {
             self.model.sections[self.section()].page.height
         } else {

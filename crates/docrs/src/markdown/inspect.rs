@@ -18,7 +18,7 @@ use super::{MarkdownOptions, MarkdownReport, Placement};
 use crate::authoring::section_properties;
 use crate::package::rels::rt;
 use crate::txn::Txn;
-use crate::wml::{W, w_attr, w_child, w_children};
+use crate::wml::{W, w_attr, w_child};
 use crate::xml::{NodeId, XmlTree};
 use crate::{Document, Result};
 
@@ -169,17 +169,13 @@ pub fn inspect(document: &Document, options: &MarkdownOptions) -> Result<Value> 
     if let Some(settings) = txn.part_related_by(&main, rt::SETTINGS)? {
         let settings = txn.tree(&settings)?;
         even_and_odd = w_child(settings, settings.root(), "evenAndOddHeaders").is_some();
-        let mode = w_child(settings, settings.root(), "compat")
-            .into_iter()
-            .flat_map(|compat| w_children(settings, compat, "compatSetting"))
-            .find(|s| w_attr(settings, *s, "name") == Some("compatibilityMode"))
-            .and_then(|s| w_attr(settings, s, "val"))
-            .and_then(|v| v.parse::<i64>().ok());
-        let mode = mode.unwrap_or(if w_child(settings, settings.root(), "compat").is_some() {
-            12
-        } else {
-            15
-        });
+        let mode = crate::wml::compatibility_mode(settings).unwrap_or(
+            if w_child(settings, settings.root(), "compat").is_some() {
+                12
+            } else {
+                15
+            },
+        );
         if mode < 15 {
             problem(
                 "old_compatibility_mode",
