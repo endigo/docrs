@@ -1,0 +1,1 @@
+docrs: unsupported_structure (pdf_not_yet_drawn): the PDF engine does not draw image yet

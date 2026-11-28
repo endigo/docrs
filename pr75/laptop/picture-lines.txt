@@ -1,0 +1,26 @@
+Baseline of each line after a picture, docrs less Word (pt), same page only
+
+conversion                               before    after  lines
+banded-table-style                        -6.25    -0.12      6
+builtin-table-style-only                -237.02  -231.95      5
+compat-word2003-legacy                  -233.25  -231.23      5
+compat-word2007                         -235.89  -231.23      5
+cover-page-sections                     -237.02  -231.95      5
+direct-formatted-table                   -53.13   -52.22      6
+direct-run-formatting                   -256.66  -254.73      4
+landscape-a4                            -251.92  -250.95      2
+letterhead-header-footer                  -6.15    -0.13      6
+list-paragraph-bullets                   -63.27   -62.20      5
+localised-style-ids-de                  -237.02  -231.95      5
+multi-section-portrait-then-landscape     -4.15    -0.24      6
+normal-only                               -7.68    -0.30      6
+numbered-headings                        -88.71   -85.68      5
+outline-level-headings                    -6.25    -0.14      6
+paragraph-style                          -10.74    +0.12      6
+reference                               -239.20  -233.33      5
+rtl-arabic                              -233.20  -231.18      5
+sans-teal                                -59.61   -58.66      6
+serif-navy                               -63.90   -62.96      5
+us-letter                                 -6.04    -0.24      6
+
+worst over 110 lines: before 256.66, after 254.73; mean |d| before 76.80, after 75.01
