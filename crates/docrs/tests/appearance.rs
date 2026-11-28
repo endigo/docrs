@@ -1,7 +1,7 @@
 //! Run appearance in the layout model, read through `layout::line_records`:
 //! every property through the style chain and direct formatting. The
-//! fixture `tests/fixtures/pdf/appearance.docx` is `fixture()`, written
-//! with `DOCRS_UPDATE_SNAPSHOTS=1`.
+//! fixtures `tests/fixtures/pdf/appearance.docx` and `superscript.docx` are
+//! `fixture()` and `script_fixture()`, written with `DOCRS_UPDATE_SNAPSHOTS=1`.
 
 mod support;
 
@@ -73,8 +73,22 @@ fn theme() -> String {
     ]
     .concat();
     let font = "<a:latin typeface=\"Arial\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/>";
+    let format = format_scheme();
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"{A}\" name=\"Office Theme\"><a:themeElements><a:clrScheme name=\"Office\">{scheme}</a:clrScheme><a:fontScheme name=\"Office\"><a:majorFont>{font}</a:majorFont><a:minorFont>{font}</a:minorFont></a:fontScheme><a:fmtScheme name=\"Office\"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"{A}\" name=\"Office Theme\"><a:themeElements><a:clrScheme name=\"Office\">{scheme}</a:clrScheme><a:fontScheme name=\"Office\"><a:majorFont>{font}</a:majorFont><a:minorFont>{font}</a:minorFont></a:fontScheme>{format}</a:themeElements></a:theme>"
+    )
+}
+
+/// Word refuses a theme whose four style lists have fewer than three entries.
+fn format_scheme() -> String {
+    let fill = "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>";
+    let fills = fill.repeat(3);
+    let lines = ["9525", "25400", "38100"]
+        .map(|w| format!("<a:ln w=\"{w}\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">{fill}<a:prstDash val=\"solid\"/></a:ln>"))
+        .concat();
+    let effects = "<a:effectStyle><a:effectLst/></a:effectStyle>".repeat(3);
+    format!(
+        "<a:fmtScheme name=\"Office\"><a:fillStyleLst>{fills}</a:fillStyleLst><a:lnStyleLst>{lines}</a:lnStyleLst><a:effectStyleLst>{effects}</a:effectStyleLst><a:bgFillStyleLst>{fills}</a:bgFillStyleLst></a:fmtScheme>"
     )
 }
 
@@ -273,6 +287,9 @@ fn body() -> String {
             &[
                 run("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FFFF00\"/>", "fill "),
                 run("<w:shd w:val=\"pct50\" w:color=\"000000\" w:fill=\"FFFFFF\"/>", "pct50 "),
+                ["pct10", "pct62", "pct75", "pct87"]
+                    .map(|pct| run(&format!("<w:shd w:val=\"{pct}\" w:color=\"000000\" w:fill=\"FFFFFF\"/>"), &format!("{pct} ")))
+                    .concat(),
                 run(
                     "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"4472C4\" w:themeFill=\"accent1\"/>",
                     "theme-fill",
@@ -309,6 +326,56 @@ fn body() -> String {
 
 fn fixture() -> Vec<u8> {
     package(&body(), &styles())
+}
+
+const SCRIPT_FONTS: [&str; 4] = ["Arial", "Times New Roman", "Georgia", "Courier New"];
+const SCRIPT_SIZES: [u32; 6] = [8, 10, 11, 12, 24, 72];
+/// The marker paragraph's runs, with their properties.
+const SCRIPT_RUNS: [(&str, &str); 8] = [
+    ("", "x"),
+    ("<w:vertAlign w:val=\"superscript\"/>", "sup"),
+    ("", " x"),
+    ("<w:vertAlign w:val=\"subscript\"/>", "sub"),
+    ("", " x"),
+    ("<w:position w:val=\"6\"/>", "up3"),
+    ("", " x"),
+    ("<w:position w:val=\"-6\"/>", "down3"),
+];
+
+/// The letters of the long runs at `size`: 60, fewer above 12 pt so that
+/// each fits on one line.
+fn script_letters(size: u32) -> String {
+    let count = 60 * 12 / size.max(12);
+    ('a'..='z').cycle().take(count as usize).collect()
+}
+
+/// For each font and size: a heading in the default font, the
+/// `SCRIPT_RUNS`, then the same letters plain, as superscript and as
+/// subscript, each in a paragraph of its own.
+fn script_fixture() -> Vec<u8> {
+    let group = |font: &str, size: u32| {
+        let rpr = |extra: &str| {
+            format!(
+                "<w:rFonts w:ascii=\"{font}\" w:hAnsi=\"{font}\" w:cs=\"{font}\"/><w:sz w:val=\"{}\"/>{extra}",
+                size * 2
+            )
+        };
+        let heading = para("", &run("", &format!("{font} {size} pt")));
+        let markers: String = SCRIPT_RUNS
+            .iter()
+            .map(|(extra, text)| run(&rpr(extra), text))
+            .collect();
+        let letters = script_letters(size);
+        let long = ["", SCRIPT_RUNS[1].0, SCRIPT_RUNS[3].0]
+            .map(|extra| para("", &run(&rpr(extra), &letters)))
+            .concat();
+        heading + &para("", &markers) + &long
+    };
+    let body: String = SCRIPT_FONTS
+        .iter()
+        .flat_map(|font| SCRIPT_SIZES.map(|size| group(font, size)))
+        .collect();
+    package(&body, "")
 }
 
 /// Each run's text with its look and link.
@@ -383,6 +450,51 @@ fn the_committed_fixture_is_the_one_these_tests_build() {
     );
 }
 
+/// The number of elements directly inside the first `<a:{list}>`.
+fn entries(xml: &str, list: &str) -> usize {
+    let open = format!("<a:{list}>");
+    let start = xml.find(&open).unwrap() + open.len();
+    let inner = &xml[start..xml[start..].find(&format!("</a:{list}>")).unwrap() + start];
+    let mut depth = 0;
+    let mut count = 0;
+    for tag in inner.split('<').skip(1) {
+        if tag.starts_with('/') {
+            depth -= 1;
+        } else {
+            count += usize::from(depth == 0);
+            if !tag.split('>').next().unwrap().ends_with('/') {
+                depth += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn the_committed_script_fixture_is_the_one_these_tests_build() {
+    let path = repo_root().join("tests/fixtures/pdf/superscript.docx");
+    if std::env::var_os("DOCRS_UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, script_fixture()).unwrap();
+    }
+    assert!(
+        std::fs::read(&path).unwrap() == script_fixture(),
+        "rerun with DOCRS_UPDATE_SNAPSHOTS=1"
+    );
+}
+
+#[test]
+fn the_theme_has_three_entries_in_each_format_list() {
+    let theme = part_xml(&open_bytes(&fixture()), "word/theme/theme1.xml");
+    for list in [
+        "fillStyleLst",
+        "lnStyleLst",
+        "effectStyleLst",
+        "bgFillStyleLst",
+    ] {
+        assert_eq!(entries(&theme, list), 3, "{list}");
+    }
+}
+
 #[test]
 fn colours_resolve_through_the_theme_with_tint_and_shade() {
     let runs = runs(&fixture());
@@ -447,9 +559,47 @@ fn caps_spacing_scale_and_shading_are_kept() {
     assert_eq!(look(&runs, "spaced").spacing, 2.0);
     assert_eq!(look(&runs, "scaled").scale, 1.5);
     assert_eq!(look(&runs, "fill").shade, Some(rgb("FFFF00")));
-    assert_eq!(look(&runs, "pct50").shade, Some(rgb("808080")));
+    for (pct, want) in [
+        ("pct10", "E5E5E5"),
+        ("pct50", "7F7F7F"),
+        ("pct62", "606060"),
+        ("pct75", "404040"),
+        ("pct87", "202020"),
+    ] {
+        assert_eq!(look(&runs, pct).shade, Some(rgb(want)), "{pct}");
+    }
     assert_eq!(look(&runs, "theme-fill").shade, Some(rgb("4472C4")));
     assert_eq!(look(&runs, "rgb-red").shade, None);
+}
+
+#[test]
+fn super_and_subscript_shift_by_a_share_of_the_size_in_every_font() {
+    let runs = runs(&script_fixture());
+    for font in SCRIPT_FONTS {
+        for size in SCRIPT_SIZES {
+            let heading = format!("{font} {size} pt");
+            let at = runs.iter().position(|r| r.0 == heading).unwrap() + 1;
+            let end = runs[at..]
+                .iter()
+                .position(|r| r.0.ends_with(" pt"))
+                .map_or(runs.len(), |n| at + n);
+            let group = &runs[at..end];
+            let marker = |text: &str| look(group, text);
+            let size = f64::from(size);
+            assert_eq!(marker("sup").rise, size * 0.41, "{heading} sup");
+            assert_eq!(marker("sub").rise, -size * 0.087, "{heading} sub");
+            assert_eq!(marker("up3").rise, 3.0, "{heading} up3");
+            assert_eq!(marker("down3").rise, -3.0, "{heading} down3");
+            let letters = script_letters(size as u32);
+            let sizes: Vec<f64> = group
+                .iter()
+                .filter(|r| r.0 == letters)
+                .map(|r| r.1.size)
+                .collect();
+            let small = size * 2.0 / 3.0;
+            assert_eq!(sizes, [size, small, small], "{heading}");
+        }
+    }
 }
 
 #[test]

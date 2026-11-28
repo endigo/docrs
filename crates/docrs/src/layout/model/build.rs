@@ -30,9 +30,16 @@ struct Field {
     link: Option<u32>,
 }
 
-/// Superscript and subscript baseline shifts, as fractions of the font size.
-const SUPERSCRIPT_RISE: f64 = 1.0 / 3.0;
-const SUBSCRIPT_DROP: f64 = 0.08;
+/// A run's size and drawn baseline shift under `w:vertAlign`.
+fn script(size: f64, vert: Option<VertAlign>) -> (f64, f64) {
+    match vert.unwrap_or_default() {
+        VertAlign::Baseline => (size, 0.0),
+        // Word for Mac's shifts at 11 pt, approximate at other sizes (it rises
+        // 0.35 to 0.415 em); its rule, like the size's, is still open.
+        VertAlign::Superscript => (size * 2.0 / 3.0, size * 0.41),
+        VertAlign::Subscript => (size * 2.0 / 3.0, -size * 0.087),
+    }
+}
 
 /// A run's measurer and its look for the link it is in.
 struct Pen {
@@ -54,12 +61,7 @@ impl Builder<'_> {
     }
 
     fn look(&mut self, rpr: &RPr, measurer: &Measurer, link: Option<u32>) -> u32 {
-        let font_size = rpr.size.unwrap_or(10.0);
-        let shift = match rpr.vert.unwrap_or_default() {
-            VertAlign::Baseline => 0.0,
-            VertAlign::Superscript => font_size * SUPERSCRIPT_RISE,
-            VertAlign::Subscript => -font_size * SUBSCRIPT_DROP,
-        };
+        let (_, shift) = script(rpr.size.unwrap_or(10.0), rpr.vert);
         let on = |toggle: Option<bool>| toggle.unwrap_or(false);
         let look = Appearance {
             metric: measurer.metric,
@@ -208,14 +210,7 @@ impl Builder<'_> {
 
     fn measurer(&mut self, rpr: &RPr) -> Measurer {
         let size = rpr.size.unwrap_or(10.0);
-        let small = if matches!(
-            rpr.vert,
-            Some(VertAlign::Superscript | VertAlign::Subscript)
-        ) {
-            size * 2.0 / 3.0
-        } else {
-            size
-        };
+        let (small, _) = script(size, rpr.vert);
         let bold = rpr.bold.unwrap_or(false);
         let italic = rpr.italic.unwrap_or(false);
         let ascii = self.font_name(&rpr.ascii);
