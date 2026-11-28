@@ -41,6 +41,8 @@ pub(super) struct Line {
     pub pieces: Range<u32>,
     /// From the line top.
     pub baseline: f64,
+    /// The largest descent of the line's fonts.
+    pub below: f64,
     pub start: f64,
     /// From `start` to the end of the last piece that is not a space.
     pub width: f64,
@@ -75,7 +77,7 @@ fn metric(metrics: &[Metric], metric: u32) -> Metric {
 /// The text extent of a line. Word for Mac stacks the largest ascent on
 /// the largest descent of the fonts on the line, the line gap counting
 /// above the text; multiple line spacing adds each font's share of extra
-/// height above it (`extra`: the multiple less one).
+/// height (`extra`: the multiple less one), which [`baseline`] puts below.
 #[derive(Clone, Copy, Default)]
 struct Extent {
     above: f64,
@@ -113,9 +115,14 @@ impl Extent {
         self.above.max(label) + self.below
     }
 
+    /// The largest ascent, the label's included.
+    fn top_ascent(self) -> f64 {
+        self.ascent.max(self.label.unwrap_or(0.0))
+    }
+
     /// The height without multiple line spacing's extra.
     fn single_height(self) -> f64 {
-        self.ascent.max(self.label.unwrap_or(0.0)) + self.below
+        self.top_ascent() + self.below
     }
 }
 
@@ -126,6 +133,23 @@ fn line_height(para: &Para, text: f64, object: f64) -> f64 {
         LineSpacing::Exact(points) => points,
         LineSpacing::Multiple(_) => text.max(object),
         LineSpacing::AtLeast(points) => text.max(points).max(object),
+    }
+}
+
+/// From the line top (Word for Mac 16.115, the ascent including the line
+/// gap): a multiple of 1 or more puts its extra below the descent,
+/// at-least spacing above the ascent, and an exact line or a multiple
+/// below 1 has its baseline at 0.8 of its height. A multiple line's object
+/// taller than that sits on the baseline, which is never below the line's
+/// height less its descent (a line of a list label only).
+fn baseline(para: &Para, height: f64, heights: &Heights, object: f64) -> f64 {
+    let above = height - heights.below;
+    let on_object = object - heights.below;
+    match para.line {
+        LineSpacing::Multiple(multiple) if multiple < 1.0 => (0.8 * height).max(on_object),
+        LineSpacing::Multiple(_) => above.min(heights.ascent.max(on_object)),
+        LineSpacing::Exact(points) => 0.8 * points,
+        LineSpacing::AtLeast(_) => above,
     }
 }
 
@@ -179,6 +203,7 @@ enum Ending {
 struct Heights {
     text: f64,
     single: f64,
+    ascent: f64,
     below: f64,
 }
 
@@ -297,18 +322,21 @@ impl Breaker<'_> {
             Heights {
                 text: height,
                 single: text.single_height(),
+                ascent: text.top_ascent(),
                 below,
             }
         } else if paragraph_end {
             Heights {
                 text: height.max(self.mark),
                 single: text.single_height().max(self.mark_single),
+                ascent: text.top_ascent().max(self.mark_single - self.mark_below),
                 below: text.below.max(self.mark_below),
             }
         } else {
             Heights {
                 text: self.mark,
                 single: self.mark_single,
+                ascent: self.mark_single - self.mark_below,
                 below: self.mark_below,
             }
         }
@@ -336,7 +364,8 @@ impl Breaker<'_> {
             fit: line_height(para, heights.single, open.object),
             page_break: ending == Ending::PageBreak,
             pieces: open.first_piece as u32..next_piece as u32,
-            baseline: height - heights.below,
+            baseline: baseline(para, height, &heights, open.object),
+            below: heights.below,
             start: open.start + offset,
             width: end.content - open.start,
             slack,
@@ -983,8 +1012,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
 
     /// Draw a slice of `table`'s row `row` with its top at `y`, and the
     /// cell items `top` gives a top within the slice. Word cuts a header or
-    /// can't-split row that runs off the paper: lines whose baseline is past
-    /// its edge are not drawn.
+    /// can't-split row that runs off the paper: lines whose height less
+    /// descent is past its edge are not drawn (measured at single spacing,
+    /// where that is the baseline).
     fn draw_slice(
         &mut self,
         (table, row): (&'m Table, usize),
@@ -1014,7 +1044,9 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     y: y + top,
                 };
                 match &drawn.item {
-                    Item::Line(para, line) if at.y + line.baseline <= paper + EPSILON => {
+                    Item::Line(para, line)
+                        if at.y + line.height - line.below <= paper + EPSILON =>
+                    {
                         self.line(at, para, line)?
                     }
                     Item::Row(table, row, height) if at.y < paper => {
@@ -1654,6 +1686,64 @@ mod tests {
             ]
         );
         assert!(lines.iter().all(|l| l.baseline == 8.0 && l.tabs.is_empty()));
+    }
+
+    #[test]
+    fn each_line_rule_places_its_baseline() {
+        let mut p = para(2, 10.0);
+        let baseline = |p: &Para| {
+            let line = lines(p, &METRICS, 100.0, 36.0).remove(0);
+            (line.height, line.baseline)
+        };
+        p.line = LineSpacing::Multiple(1.5);
+        assert_eq!(baseline(&p), (15.0, 8.0));
+        p.line = LineSpacing::Multiple(0.8);
+        assert_eq!(baseline(&p), (8.0, 6.4));
+        p.line = LineSpacing::AtLeast(20.0);
+        assert_eq!(baseline(&p), (20.0, 18.0));
+        p.line = LineSpacing::Exact(5.0);
+        assert_eq!(baseline(&p), (5.0, 4.0));
+    }
+
+    #[test]
+    fn a_multiple_line_takes_the_largest_ascent_of_its_fonts_label_and_objects() {
+        // A: ascent 8, descent 2; B: ascent 10, descent 6; C: ascent 12.
+        let metrics = [(10.0, 8.0), (16.0, 10.0), (14.0, 12.0)]
+            .map(|(height, ascent)| Metric { height, ascent });
+        let char = |metric| Piece::Char {
+            ch: 'x',
+            width: 1.0,
+            metric,
+            look: 0,
+        };
+        let line = |p: &Para| {
+            let line = lines(p, &metrics, 100.0, 36.0).remove(0);
+            (line.height, line.baseline, line.below)
+        };
+        let mut p = Para {
+            pieces: vec![char(0), char(1)],
+            line: LineSpacing::Multiple(1.5),
+            ..Para::default()
+        };
+        // Mixed fonts: B's 10 + 8 extra above, B's descent 6.
+        assert_eq!(line(&p), (24.0, 10.0, 6.0));
+        // A label's ascent with A's extra: 12 + 5 above A's descent 2.
+        p.pieces = vec![char(0)];
+        p.label = Some(crate::layout::model::Label {
+            width: 5.0,
+            look: 0,
+            space: 0.0,
+            tab: false,
+            metric: 2,
+        });
+        assert_eq!(line(&p), (19.0, 12.0, 2.0));
+        // An object taller than the text sits on the baseline.
+        p.label = None;
+        p.pieces.push(Piece::Object {
+            width: 5.0,
+            height: 30.0,
+        });
+        assert_eq!(line(&p), (30.0, 28.0, 2.0));
     }
 
     #[test]
