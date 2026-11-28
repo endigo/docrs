@@ -228,6 +228,16 @@ pub enum Link {
     Anchor(String),
 }
 
+impl Link {
+    /// A link to `uri`: `#name` is the bookmark `name`, as Word reads it.
+    pub(crate) fn to(uri: &str) -> Link {
+        match uri.trim().strip_prefix('#') {
+            Some(bookmark) => Link::Anchor(bookmark.to_string()),
+            None => Link::Uri(uri.to_string()),
+        }
+    }
+}
+
 /// A paragraph or cell border line. Experimental.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]

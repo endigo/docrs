@@ -7,7 +7,7 @@ use super::look::{EDGE_SIDES, Edge, VAlign, read_edge};
 use super::props::{side, twips};
 use super::styles::{TableStyle, band_size};
 use super::{Builder, Cell, Row, Table, TableAlign};
-use crate::wml::{w_attr, w_child, w_children};
+use crate::wml::{W, w_attr, w_child, w_children};
 use crate::xml::{NodeId, XmlTree};
 
 /// Word's table grid holds at most 63 columns.
@@ -371,13 +371,38 @@ impl TableReader {
     }
 }
 
+/// The children of `tbl` before each row, and after the last.
+fn between_rows(tree: &XmlTree, tbl: NodeId) -> Vec<Vec<NodeId>> {
+    let mut out = vec![Vec::new()];
+    for child in tree.child_elements(tbl) {
+        if tree.is(child, W, "tr") {
+            out.push(Vec::new());
+        } else if let Some(gap) = out.last_mut() {
+            gap.push(child);
+        }
+    }
+    out
+}
+
 impl Builder<'_> {
     pub(super) fn table(&mut self, tree: &XmlTree, tbl: NodeId) -> Table {
         let mut reader = TableReader::new(self, tree, tbl);
+        let between = between_rows(tree, tbl);
         let (mut rows, grid_rows): (Vec<Row>, Vec<Vec<GridCell>>) = w_children(tree, tbl, "tr")
             .enumerate()
-            .map(|(index, tr)| reader.row(self, tree, tr, index))
+            .map(|(index, tr)| {
+                for &node in &between[index] {
+                    self.loose_bookmarks(tree, node);
+                }
+                for node in tree.child_elements(tr).filter(|&n| !tree.is(n, W, "tc")) {
+                    self.loose_bookmarks(tree, node);
+                }
+                reader.row(self, tree, tr, index)
+            })
             .unzip();
+        for &node in between.last().into_iter().flatten() {
+            self.loose_bookmarks(tree, node);
+        }
         let grid = reader.grid;
         let edges = Edges::resolve(&grid_rows, grid.len());
         border_heights(&mut rows, &edges, grid.len());

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use super::chain::{Chain, Draw};
 use super::decorate::{self, Span};
 use super::font::{FaceRef, FontResources, PdfFont};
+use super::places::{Painted, Places};
 use super::writer::{Ref, Writer, write_hex, write_name, write_number};
 use super::{PdfLimits, check_page};
 use crate::layout::flow::{Line, PageStart, ParaBox, Point, Sink};
@@ -40,6 +41,7 @@ pub(super) struct Painter<'m, 't, 'c, 'b> {
     /// Font programs read from the document's parts, by face file.
     programs: HashMap<usize, Arc<[u8]>>,
     pub pages: Vec<Page>,
+    pub places: Places,
     page: Option<(f64, f64)>,
     /// Drawn first, behind the page's text.
     fills: Vec<u8>,
@@ -111,6 +113,7 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
         txn: &'t Txn<'t>,
         chain: &'c mut Chain<'b>,
         limits: &PdfLimits,
+        places: Places,
         stand_in: Option<Arc<Face>>,
     ) -> Result<Self> {
         Ok(Painter {
@@ -122,6 +125,7 @@ impl<'m, 't, 'c, 'b> Painter<'m, 't, 'c, 'b> {
             faces: HashMap::new(),
             programs: HashMap::new(),
             pages: Vec::new(),
+            places,
             page: None,
             fills: Vec::new(),
             content: Vec::new(),
@@ -529,6 +533,10 @@ impl Sink for Painter<'_, '_, '_, '_> {
         let geometry = &self.model.sections[page.section].page;
         let size = (geometry.width, geometry.height);
         check_page(size.0, size.1)?;
+        if self.pages.is_empty() {
+            self.places
+                .first_page(geometry.left + geometry.gutter, size.1 - geometry.top);
+        }
         self.page = Some(size);
         self.state = PAGE_START;
         Ok(())
@@ -562,6 +570,14 @@ impl Sink for Painter<'_, '_, '_, '_> {
         }
         decorate::decorations(&mut self.content, &spans, height - baseline, para.shade)?;
         self.bars(at, para, line)?;
+        let painted = Painted {
+            page: self.pages.len(),
+            height,
+            at,
+            para,
+            line,
+        };
+        self.places.line(self.model, &painted);
         self.check_drawn()
     }
 

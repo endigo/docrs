@@ -16,7 +16,7 @@ The PDF fixtures in `tests/fixtures/pdf` lay out and later draw with it. Install
 ## Liberation Serif, Sans and Mono
 
 - `liberation/LiberationSerif-Regular.ttf`: Liberation Serif 2.1.5 (`Version 2.1.5`), a static TrueType font with a `kern` table. `crates/docrs/tests/pdf_fonts.rs` embeds it, and `tests/fixtures/pdf/font-line.pdf` is drawn with it.
-- `liberation/LiberationSans-Regular.ttf` and `liberation/LiberationMono-Regular.ttf`: Liberation Sans and Mono 2.1.5, from the same release. `metric_aliases_match_words_fonts` (`crates/docrs/src/layout/fonts.rs`) compares the three with Arial, Times New Roman and Courier New in the bundled table, and `crates/docrs/tests/pdf_chain.rs` draws through them.
+- `liberation/LiberationSans-Regular.ttf` and `liberation/LiberationMono-Regular.ttf`: Liberation Sans and Mono 2.1.5, from the same release. `metric_aliases_match_words_fonts` (`crates/docrs/src/layout/fonts.rs`) compares the three with Arial, Times New Roman and Courier New in the bundled table, and `crates/docrs/tests/pdf_chain.rs` draws through them. `crates/docrs/tests/pdf_links.rs` draws `tests/fixtures/pdf/word-links.docx` (Arial) through Liberation Sans, aliased, to compare with Word's PDF.
 - `liberation/LICENSE`: its licence, the SIL Open Font License 1.1.
 - Source: https://github.com/liberationfonts/liberation-fonts, release 2.1.5, `liberation-fonts-ttf-2.1.5.tar.gz` (SHA-256 `7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0`). The files are unmodified.
 

@@ -55,7 +55,11 @@ const APPROXIMATED: &str = "pdf_decoration_approximated";
 const RTL: &str = "right-to-left text";
 
 /// Subjects the painter draws; each painter PR adds its own.
-const DRAWN: &[&str] = &["text", "tab", "line break", "page break", "list"];
+const DRAWN: &[&str] = &["text", "tab", "line break", "page break", "list", TEXT_LINK];
+
+/// A hyperlink on text, and a click on a picture or shape.
+const TEXT_LINK: &str = "link";
+const OBJECT_LINK: &str = "picture link";
 
 /// What a PDF of `document` would leave out or change. Reads only.
 pub fn preflight(document: &Document) -> Result<PdfReport> {
@@ -584,34 +588,35 @@ impl<'s, 'd> Scan<'s, 'd> {
             .and_then(|id| self.rels.get(id))
             .map(|rel| rel.target.clone());
         match target {
-            Some(target) => self.link(&target),
+            Some(target) => self.link(&target, TEXT_LINK),
             None => {
                 if let Some(anchor) = w_attr(tree, node, "anchor") {
-                    self.anchor(anchor);
+                    self.anchor(anchor, TEXT_LINK);
                 }
             }
         }
     }
 
-    /// A link target: a bookmark, an allowed scheme, or skipped.
-    fn link(&mut self, target: &str) {
-        let target = target.trim();
-        if target.starts_with('#') {
-            return self.note(NOT_YET_DRAWN, "link");
-        }
-        match scheme(target) {
+    /// A link target on `subject`: a bookmark, an allowed scheme, or
+    /// skipped.
+    fn link(&mut self, target: &str, subject: &'static str) {
+        let target = match Link::to(target) {
+            Link::Anchor(anchor) => return self.anchor(&anchor, subject),
+            Link::Uri(uri) => uri,
+        };
+        match scheme(target.trim()) {
             Some(scheme) if LINK_SCHEMES.contains(&scheme.as_str()) => {
-                self.note(NOT_YET_DRAWN, "link")
+                self.note(NOT_YET_DRAWN, subject)
             }
             scheme => {
                 let sample = scheme.map_or_else(|| "relative".to_string(), |s| format!("{s}:"));
-                self.note_with(LINK, "link", sample);
+                self.note_with(LINK, TEXT_LINK, sample);
             }
         }
     }
 
-    fn anchor(&mut self, anchor: &str) {
-        self.note(NOT_YET_DRAWN, "link");
+    fn anchor(&mut self, anchor: &str, subject: &'static str) {
+        self.note(NOT_YET_DRAWN, subject);
         let location = self.location();
         self.anchors.push((anchor.to_string(), location));
     }
@@ -661,10 +666,9 @@ impl<'s, 'd> Scan<'s, 'd> {
             "TOC" => self.note(FIELD, "TOC"),
             "PAGEREF" => self.note(FIELD, "PAGEREF"),
             "HYPERLINK" => {
-                self.note(NOT_YET_DRAWN, "field");
                 match field_link(instruction) {
-                    Some(Link::Uri(target)) => self.link(&target),
-                    Some(Link::Anchor(anchor)) => self.anchor(&anchor),
+                    Some(Link::Uri(target)) => self.link(&target, TEXT_LINK),
+                    Some(Link::Anchor(anchor)) => self.anchor(&anchor, TEXT_LINK),
                     // The target is a nested field's result, unknown here.
                     _ => self.note_with(LINK, "link", "computed".to_string()),
                 }
@@ -690,7 +694,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             .filter_map(|id| self.rels.get(id).map(|rel| rel.target.clone()))
             .collect();
         for target in clicks {
-            self.link(&target);
+            self.link(&target, OBJECT_LINK);
         }
         let wraps = ["wrapSquare", "wrapTight", "wrapThrough", "wrapTopAndBottom"];
         if wraps
@@ -720,7 +724,7 @@ impl<'s, 'd> Scan<'s, 'd> {
             .filter(|&n| tree.ns_uri(n) == Some(VML))
             .filter_map(|n| tree.attr(n, None, "href"))
         {
-            self.link(href);
+            self.link(href, OBJECT_LINK);
         }
         let find = |name: &str| tree.descendants(node).find(|&n| tree.is(n, VML, name));
         if is_watermark(tree.attr(node, None, "id")) {

@@ -1065,7 +1065,8 @@ fn collect_bookmarks(blocks: &[model::Block], out: &mut HashMap<(StoryId, NodeId
         match block {
             model::Block::Para(para) => {
                 if let (Some(node), false) = (para.node, para.bookmarks.is_empty()) {
-                    out.insert((para.story, node), para.bookmarks.clone());
+                    let names = para.bookmarks.iter().map(|b| b.name.clone()).collect();
+                    out.insert((para.story, node), names);
                 }
             }
             model::Block::Table(table) => {
@@ -1086,7 +1087,7 @@ mod story_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::model::{Block, Para, StoryId};
+    use super::model::{Block, Bookmark, Para, StoryId};
     use super::*;
 
     #[test]
@@ -1098,7 +1099,10 @@ mod tests {
             Block::Para(Para {
                 story,
                 node,
-                bookmarks: vec![name.to_string()],
+                bookmarks: vec![Bookmark {
+                    name: name.to_string(),
+                    piece: 0,
+                }],
                 ..Para::default()
             })
         };
