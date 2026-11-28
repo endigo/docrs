@@ -8,3 +8,4 @@ cover-page	tests/fixtures/pdf/sources/cover.md	tests/fixtures/markdown/templates
 toc-arial	tests/fixtures/pdf/sources/toc.md	tests/fixtures/pdf/references/arial.docx	-	-
 toc-inter	tests/fixtures/pdf/sources/toc.md	tests/fixtures/pdf/references/inter.docx	tests/fixtures/fonts/inter/Inter[opsz,wght].ttf	-
 memo-aptos	tests/fixtures/pdf/sources/memo.md	tests/fixtures/pdf/references/aptos.docx	-	-
+stories-arial	tests/fixtures/pdf/sources/stories.md	tests/fixtures/pdf/references/stories.docx	-	-
