@@ -97,7 +97,7 @@ impl PPr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum FontRef {
     Name(String),
     Theme(bool),

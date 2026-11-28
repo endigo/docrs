@@ -11,10 +11,12 @@
 
 mod build;
 mod colour;
+mod equation;
 mod formatting;
 mod look;
 #[cfg(feature = "pdf")]
 mod marks;
+mod math;
 mod numbering;
 mod props;
 mod styles;
@@ -43,6 +45,9 @@ pub use look::{Appearance, Caps, Link, Strike, Underline, UnderlineStyle};
 use look::{CellBorders, ParaBorders, VAlign};
 #[cfg(feature = "pdf")]
 pub(crate) use marks::any_border;
+pub(crate) use math::MathScripts;
+#[cfg(feature = "pdf")]
+pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
 pub(crate) use props::on_off;
 use props::twips;
 #[cfg(feature = "pdf")]
@@ -270,6 +275,15 @@ impl Label {
     }
 }
 
+/// An equation's pieces and its linear text, which a PDF gives them as
+/// `ActualText` so that the equation copies as `a^2+b^2=c^2`.
+#[derive(Debug, Clone)]
+#[allow(dead_code, reason = "the PDF painter reads them")]
+pub struct Equation {
+    pub pieces: std::ops::Range<usize>,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Para {
     pub story: StoryId,
@@ -301,6 +315,7 @@ pub struct Para {
     pub bookmarks: Vec<String>,
     /// Fields layout computes, in order, none inside another.
     pub fields: Vec<FieldSpan>,
+    pub equations: Vec<Equation>,
     /// Ends a section (`w:sectPr` in its properties): the next section's
     /// index.
     pub section_break: Option<usize>,
@@ -467,6 +482,8 @@ pub(super) struct Builder<'a> {
     /// not nested in another moves left by its first cell's left margin.
     outdent_tables: bool,
     spread_breaks: bool,
+    /// The last display equation of the paragraph being read.
+    display: Option<equation::Display>,
 }
 
 fn part<'t>(txn: &'t Txn<'_>, main: &str, rel: &str) -> Option<&'t XmlTree> {
@@ -510,6 +527,7 @@ pub(super) fn build(txn: &Txn<'_>, main: &str, fonts: &mut FontBook) -> Result<M
             .and_then(crate::wml::compatibility_mode)
             .is_none_or(|mode| mode < 15),
         spread_breaks: !compat("doNotExpandShiftReturn"),
+        display: None,
     };
     let default_tab = settings
         .and_then(|s| w_child(s, s.root(), "defaultTabStop").and_then(|d| twips(s, d, "val")))

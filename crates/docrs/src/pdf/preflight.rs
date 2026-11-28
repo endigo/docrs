@@ -8,8 +8,9 @@ use std::collections::{HashMap, HashSet};
 use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
 use super::{NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
-    Formatting, Frame, Link, ParaFormat, RPr, StoryRef, TableCtx, any_border, field_link,
-    horizontal, on_off, section_properties, shaded, story_references,
+    CAMBRIA_MATH, Formatting, Frame, Link, ParaFormat, RPr, StoryRef, TableCtx, any_border,
+    field_link, horizontal, linear_text, linearize, on_off, section_properties, shaded,
+    story_references,
 };
 use crate::package::rels::{Relationship, base_uri, rt, source_part_name};
 use crate::txn::Txn;
@@ -257,7 +258,9 @@ impl<'s, 'd> Scan<'s, 'd> {
         Ok(match tree.ns_uri(node) {
             Some(W) => self.wordml(tree, node, local),
             Some(M) if local == "oMath" => {
-                self.note(EQUATION, "equation");
+                if !deleted(tree, node) {
+                    self.equation(&linear_text(&linearize(tree, node, CAMBRIA_MATH)));
+                }
                 false
             }
             Some(WP) if matches!(local, "inline" | "anchor") => self.drawing(tree, node),
@@ -478,6 +481,16 @@ impl<'s, 'd> Scan<'s, 'd> {
                 self.note_once(NOT_YET_DRAWN, self.kind);
             }
         }
+        self.scripts(text);
+    }
+
+    /// An equation, quoted as the line of text the PDF shows.
+    fn equation(&mut self, linear: &str) {
+        self.note_with(EQUATION, "equation", linear.to_string());
+        self.scripts(linear);
+    }
+
+    fn scripts(&mut self, text: &str) {
         for ch in text.chars() {
             if ch == '\u{AD}' {
                 self.note_once(NOT_YET_DRAWN, "soft hyphen");
@@ -734,6 +747,12 @@ fn text_of(tree: &XmlTree, node: NodeId) -> String {
             _ => None,
         })
         .collect()
+}
+
+/// Inside a tracked deletion, which the PDF leaves out.
+fn deleted(tree: &XmlTree, node: NodeId) -> bool {
+    std::iter::successors(tree.parent(node), |&n| tree.parent(n))
+        .any(|n| tree.is(n, W, "del") || tree.is(n, W, "moveFrom"))
 }
 
 fn is_watermark(name: Option<&str>) -> bool {
