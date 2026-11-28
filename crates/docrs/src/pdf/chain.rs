@@ -12,7 +12,9 @@ use super::symbols::meaning;
 use super::{PdfFontUse, PdfWarning};
 use crate::layout::NumberFormat;
 use crate::layout::fonts::{Face, FaceSource, FontBook, metric_alias_differs, symbol_font};
-use crate::layout::model::{Appearance, Block, Model, NoteId, NoteKind, Para, Piece, RunFace};
+use crate::layout::model::{
+    Appearance, Block, Model, NoteId, NoteKind, NoteNumbering, Para, Piece, Restart, RunFace,
+};
 use crate::layout::variation::Style;
 use crate::{Error, ErrorDetails, MissingFont, Result};
 
@@ -458,21 +460,48 @@ fn courier_ring(run: &RunFace, drawn: char, label: bool) -> bool {
 const MARK_RUN: u32 = 1000;
 
 /// The characters of every mark of `kind` a section's numbering gives,
-/// from its first number to one past as many as there are notes.
+/// from each number its marks run from to one past as many as there are
+/// notes.
 fn mark_alphabet(model: &Model, kind: NoteKind) -> BTreeSet<char> {
     let count = (model.notes.story(kind).notes.len() as u32).min(MARK_RUN - 1);
+    let numberings = model.sections.iter().map(|s| s.notes.get(kind));
     let mut alphabet = BTreeSet::new();
-    let mut seen = BTreeSet::new();
-    for numbering in model.sections.iter().map(|s| s.notes.get(kind)) {
-        if !seen.insert((numbering.format.as_str(), numbering.start)) {
-            continue;
-        }
-        let last = numbering.start.saturating_add(count);
-        for number in numbering.start..=last {
+    for (numbering, from) in mark_runs(numberings) {
+        for number in from..=from.saturating_add(count) {
             alphabet.extend(numbering.mark(number).chars());
         }
     }
     alphabet
+}
+
+/// Each section's numbering with every number its marks can run from, once
+/// per format: its own start and, unless it restarts each section, the
+/// number the section before ran from, which carries over (onto its first
+/// page, for one that restarts each page).
+fn mark_runs<'a>(
+    numberings: impl Iterator<Item = &'a NoteNumbering>,
+) -> Vec<(&'a NoteNumbering, u32)> {
+    let mut runs = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut carried: Option<u32> = None;
+    for numbering in numberings {
+        let mut run = |from: u32| {
+            if seen.insert((numbering.format.as_str(), from)) {
+                runs.push((numbering, from));
+            }
+        };
+        let from = match (numbering.restart, carried) {
+            (Restart::Continuous, Some(from)) => from,
+            (Restart::Page, Some(from)) => {
+                run(from);
+                numbering.start
+            }
+            _ => numbering.start,
+        };
+        run(from);
+        carried = Some(from);
+    }
+    runs
 }
 
 pub(super) fn each_para(blocks: &[Block], visit: &mut impl FnMut(&Para)) {
@@ -494,5 +523,42 @@ pub(super) fn style_name(bold: bool, italic: bool) -> &'static str {
         (true, false) => "Bold",
         (false, true) => "Italic",
         (true, true) => "Bold Italic",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::model::NotePosition;
+
+    #[test]
+    fn marks_run_from_the_number_continuous_numbering_carries() {
+        let numbering = |format: &str, start: u32, restart: Restart| NoteNumbering {
+            format: format.to_string(),
+            start,
+            restart,
+            position: NotePosition::PageBottom,
+        };
+        let sections = [
+            numbering("decimal", 50, Restart::Continuous),
+            numbering("lowerRoman", 1, Restart::Continuous),
+            numbering("upperLetter", 5, Restart::Section),
+            numbering("decimal", 7, Restart::Page),
+            numbering("decimal", 1, Restart::Continuous),
+        ];
+        let runs: Vec<(&str, u32)> = mark_runs(sections.iter())
+            .into_iter()
+            .map(|(numbering, from)| (numbering.format.as_str(), from))
+            .collect();
+        assert_eq!(
+            runs,
+            [
+                ("decimal", 50),
+                ("lowerRoman", 50),
+                ("upperLetter", 5),
+                ("decimal", 5),
+                ("decimal", 7),
+            ]
+        );
     }
 }

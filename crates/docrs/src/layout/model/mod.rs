@@ -58,9 +58,9 @@ pub(crate) use marks::{approximated, diagonal, patterned};
 pub(crate) use math::MathScripts;
 #[cfg(feature = "pdf")]
 pub(crate) use math::{CAMBRIA_MATH, linear_text, linearize};
-#[cfg(feature = "pdf")]
-pub(crate) use notes::NotePosition;
 pub use notes::{NoteCounter, NoteId, NoteKind, NoteSettings, Notes};
+#[cfg(feature = "pdf")]
+pub(crate) use notes::{NoteNumbering, NotePosition, Restart};
 pub use object::{Anchor, Object, ObjectKind};
 #[cfg(feature = "pdf")]
 pub(crate) use object::{Picture, Place, Position, Relative, is_watermark};
