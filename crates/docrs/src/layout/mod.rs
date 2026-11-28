@@ -257,7 +257,8 @@ pub(crate) struct Settled {
     model: model::Model,
     values: Values,
     pub layout: Layout,
-    #[allow(dead_code, reason = "the PDF report will give them")]
+    /// The layouts it took, for tests of convergence.
+    #[cfg(test)]
     pub passes: usize,
     #[cfg_attr(
         not(feature = "pdf"),
@@ -338,6 +339,7 @@ pub(crate) fn settle(
                 model,
                 values,
                 layout,
+                #[cfg(test)]
                 passes,
                 warnings,
             };
