@@ -1175,6 +1175,10 @@ const METRIC_ALIASES: &[(&str, &str)] = &[
 /// The code points where a metric alias's advance differs from Word's
 /// font: Word's Arial and Times New Roman draw U+2010 HYPHEN wider than
 /// their hyphen-minus; the Liberation fonts do not.
+#[cfg_attr(
+    not(feature = "pdf"),
+    allow(dead_code, reason = "the PDF painter calls it")
+)]
 const METRIC_ALIAS_DIFFERENCES: &[(&str, char)] = &[
     ("arial", '\u{2010}'),
     ("times new roman", '\u{2010}'),
@@ -1183,6 +1187,10 @@ const METRIC_ALIAS_DIFFERENCES: &[(&str, char)] = &[
 
 /// Whether a metric alias of `family` draws `ch` at another advance than
 /// Word's font does, so a PDF drawn through it reports that character.
+#[cfg_attr(
+    not(feature = "pdf"),
+    allow(dead_code, reason = "the PDF painter calls it")
+)]
 pub(crate) fn metric_alias_differs(family: &str, ch: char) -> bool {
     let family = family.trim().to_lowercase();
     METRIC_ALIAS_DIFFERENCES.contains(&(family.as_str(), ch))
