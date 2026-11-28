@@ -16,7 +16,7 @@ use docrs::anchor::BlockTarget;
 use docrs::clock::Timestamp;
 use docrs::layout::{FontKind, FontSet, FontSetBuilder, LayoutTarget};
 use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
-use docrs::pdf::{PdfOptions, PdfReport, render, used_fonts};
+use docrs::pdf::{PdfOptions, PdfReport, render, render_unchecked_for_tests, used_fonts};
 use docrs::{Document, Limits, Tolerance};
 use reader::{Pdf, Value};
 use text::{
@@ -610,4 +610,91 @@ fn more_than_255_distinct_symbols_start_another_built_in_font() {
     assert_eq!(fonts, BTreeSet::from(["S1", "S2"]));
     let texts: String = drawn.iter().map(|g| g.text.as_str()).collect();
     assert_eq!(texts, symbols);
+}
+
+const MAIN: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
+const WML: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml";
+const RELS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/// A run in `family` (the document default, Liberation Serif, when empty).
+fn run(family: &str, rpr: &str, content: &str) -> String {
+    let fonts = if family.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<w:rFonts w:ascii="{family}" w:hAnsi="{family}"/>"#)
+    };
+    format!("<w:r><w:rPr>{fonts}{rpr}</w:rPr>{content}</w:r>")
+}
+
+/// "Plain line" citing footnote 1, whose mark is in `body_mark`; the note's
+/// own mark is in `note_mark` and its text, `text`, in `note_text`.
+fn noted(body_mark: &str, note_mark: &str, note_text: &str, text: &str) -> Document {
+    use support::{ROOT_RELS, RawMember, build_zip};
+    let superscript = r#"<w:vertAlign w:val="superscript"/>"#;
+    let body = format!(
+        r#"<w:document {MAIN}><w:body><w:p>{}{}</w:p><w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#,
+        run("", "", "<w:t>Plain line</w:t>"),
+        run(body_mark, superscript, r#"<w:footnoteReference w:id="1"/>"#),
+    );
+    let notes = format!(
+        r#"<w:footnotes {MAIN}><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote><w:footnote w:id="1"><w:p>{}{}</w:p></w:footnote></w:footnotes>"#,
+        run(note_mark, superscript, "<w:footnoteRef/>"),
+        run(
+            note_text,
+            "",
+            &format!(r#"<w:t xml:space="preserve"> {text}</w:t>"#)
+        ),
+    );
+    let styles = format!(
+        r#"<w:styles {MAIN}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Liberation Serif" w:hAnsi="Liberation Serif"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>"#
+    );
+    let types = format!(
+        r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="{WML}.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="{WML}.styles+xml"/><Override PartName="/word/footnotes.xml" ContentType="{WML}.footnotes+xml"/></Types>"#
+    );
+    let rels = format!(
+        r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="{RELS}/styles" Target="styles.xml"/><Relationship Id="rId2" Type="{RELS}/footnotes" Target="footnotes.xml"/></Relationships>"#
+    );
+    let members = [
+        RawMember::new("[Content_Types].xml", types.as_bytes()),
+        RawMember::new("_rels/.rels", ROOT_RELS.as_bytes()),
+        RawMember::new("word/document.xml", body.as_bytes()),
+        RawMember::new("word/_rels/document.xml.rels", rels.as_bytes()),
+        RawMember::new("word/styles.xml", styles.as_bytes()),
+        RawMember::new("word/footnotes.xml", notes.as_bytes()),
+    ];
+    Document::open_bytes(&build_zip(&members), &Limits::default()).unwrap()
+}
+
+#[test]
+fn the_refusal_names_the_faces_of_notes_and_their_marks() {
+    let document = noted("Body Mark", "Note Mark", "Note Text", "A note.");
+    let error = render_unchecked_for_tests(&document, &options(&fonts(&[SERIF]))).unwrap_err();
+    assert_eq!(error.reason(), "pdf_font_program_missing");
+    for name in [
+        "Body Mark Regular",
+        "Note Mark Regular",
+        "Note Text Regular",
+    ] {
+        assert!(error.message().contains(name), "{}", error.message());
+    }
+    assert!(!error.message().contains("Liberation Serif"));
+}
+
+#[test]
+fn a_note_character_its_face_lacks_is_drawn_by_the_next_face_and_counted() {
+    let document = noted("", "", "", "Checked \u{2713} note.");
+    let without = fonts(&[SERIF, INTER]);
+    let error = render_unchecked_for_tests(&document, &options(&without)).unwrap_err();
+    assert_eq!(error.reason(), "pdf_glyph_missing");
+    let fallback = set(vec![font(SERIF), font(INTER)], |b| {
+        b.fallback(FontKind::Sans, "Inter");
+    });
+    let (bytes, report) = render_unchecked_for_tests(&document, &options(&fallback)).unwrap();
+    qpdf_check("notes.pdf", &bytes);
+    assert_eq!(codes(&report), [("pdf_glyph_missing", 1)]);
+    let drawn = glyphs(&Pdf::parse(&bytes).unwrap()).concat();
+    let check = drawn.iter().find(|g| g.text == "\u{2713}").unwrap();
+    let letter = drawn.iter().find(|g| g.text == "C").unwrap();
+    assert_ne!(check.font, letter.font);
+    assert_eq!(drawn.iter().filter(|g| g.text == "1").count(), 2);
 }

@@ -11,7 +11,7 @@ use super::font::{Shape, win_ansi};
 use super::symbols::meaning;
 use super::{PdfFontUse, PdfWarning};
 use crate::layout::fonts::{Face, FaceSource, FontBook, symbol_font};
-use crate::layout::model::{Appearance, Block, Model, Para, Piece, RunFace};
+use crate::layout::model::{Appearance, Block, Model, NoteId, NoteKind, Para, Piece, RunFace};
 use crate::layout::variation::Style;
 use crate::{Error, ErrorDetails, MissingFont, Result};
 
@@ -56,6 +56,8 @@ pub(super) struct Chain<'b> {
     no_glyph: BTreeSet<String>,
     warnings: Vec<Warning>,
     fonts: Vec<PdfFontUse>,
+    /// By kind of note, every character a mark of that kind can show.
+    mark_alphabets: HashMap<NoteKind, BTreeSet<char>>,
 }
 
 impl<'b> Chain<'b> {
@@ -70,15 +72,24 @@ impl<'b> Chain<'b> {
             no_glyph: BTreeSet::new(),
             warnings: Vec::new(),
             fonts: Vec::new(),
+            mark_alphabets: HashMap::new(),
         }
     }
 
-    /// Decides every character of the body, counting what the report
-    /// states; refuses a family and style without a program, naming every
-    /// one (`pdf_font_program_missing`), and a character nothing draws
-    /// (`pdf_glyph_missing`).
+    /// Decides every character of the body and the notes, marks included,
+    /// counting what the report states; refuses a family and style without
+    /// a program, naming every one (`pdf_font_program_missing`), and a
+    /// character nothing draws (`pdf_glyph_missing`).
     pub(super) fn check(&mut self, model: &Model) -> Result<()> {
-        each_para(&model.blocks, &mut |para| self.count_para(model, para));
+        let mut visit = |para: &Para| self.count_para(model, para);
+        each_para(&model.blocks, &mut visit);
+        for story in [&model.notes.footnotes, &model.notes.endnotes] {
+            for note in &story.notes {
+                each_para(&note.blocks, &mut visit);
+            }
+            each_para(&story.separator, &mut visit);
+            each_para(&story.continuation, &mut visit);
+        }
         self.refusal().map_or(Ok(()), Err)
     }
 
@@ -98,8 +109,35 @@ impl<'b> Chain<'b> {
                         self.count(model, *look, ch, false);
                     }
                 }
+                Piece::NoteRef { note, look, .. } => self.count_mark(model, *note, *look),
                 _ => {}
             }
+        }
+    }
+
+    /// Decides every character a mark of `note`'s kind can show, since
+    /// pagination numbers the marks; counts those of its number in
+    /// document order.
+    fn count_mark(&mut self, model: &Model, note: NoteId, look: u32) {
+        if model.notes.note(note).is_none_or(|n| n.custom) {
+            return;
+        }
+        let alphabet = self
+            .mark_alphabets
+            .entry(note.kind)
+            .or_insert_with(|| mark_alphabet(model, note.kind))
+            .clone();
+        let appearance = &model.looks[look as usize];
+        for ch in alphabet {
+            self.drawn(model, appearance, ch, false);
+        }
+        let Some(section) = model.sections.first() else {
+            return;
+        };
+        let numbering = section.notes.get(note.kind);
+        let mark = numbering.mark(numbering.start.saturating_add(note.index));
+        for ch in mark.chars() {
+            self.count(model, look, ch, false);
         }
     }
 
@@ -388,6 +426,28 @@ pub(super) fn own_shape(run: &RunFace, drawn: char, label: bool) -> Option<Shape
 /// Word's second-level bullet: a label's `o` in Courier New.
 fn courier_ring(run: &RunFace, drawn: char, label: bool) -> bool {
     label && drawn == 'o' && run.family.eq_ignore_ascii_case("courier new")
+}
+
+/// Consecutive numbers that show every character a longer run of a note
+/// format shows (roman numerals reach `m` at 1000).
+const MARK_RUN: u32 = 1000;
+
+/// The characters of every mark of `kind` a section's numbering gives,
+/// from its first number to one past as many as there are notes.
+fn mark_alphabet(model: &Model, kind: NoteKind) -> BTreeSet<char> {
+    let count = (model.notes.story(kind).notes.len() as u32).min(MARK_RUN - 1);
+    let mut alphabet = BTreeSet::new();
+    let mut seen = BTreeSet::new();
+    for numbering in model.sections.iter().map(|s| s.notes.get(kind)) {
+        if !seen.insert((numbering.format.as_str(), numbering.start)) {
+            continue;
+        }
+        let last = numbering.start.saturating_add(count);
+        for number in numbering.start..=last {
+            alphabet.extend(numbering.mark(number).chars());
+        }
+    }
+    alphabet
 }
 
 pub(super) fn each_para(blocks: &[Block], visit: &mut impl FnMut(&Para)) {

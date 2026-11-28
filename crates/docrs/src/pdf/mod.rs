@@ -758,6 +758,18 @@ pub fn paint_for_tests(document: &Document, fonts: &FontSet, stand_in: &[u8]) ->
     paint(document, &options, Some(Arc::new(stand_in)), &mut report).map(|(bytes, _)| bytes)
 }
 
+/// [`render`] without the preflight, for drawing what it still refuses,
+/// for tests only (`test-support` feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn render_unchecked_for_tests(
+    document: &Document,
+    options: &PdfOptions,
+) -> Result<(Vec<u8>, PdfReport)> {
+    let mut report = PdfReport::default();
+    paint(document, options, None, &mut report).map(|(bytes, _)| (bytes, report))
+}
+
 /// [`font::glyphs_by_cmap`] for tests only (`test-support` feature).
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
