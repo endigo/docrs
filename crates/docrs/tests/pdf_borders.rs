@@ -18,6 +18,7 @@ use docrs::markdown::{InputFormat, MarkdownOptions, insert_source_with};
 use docrs::pdf::{PdfOptions, paint_for_tests, render};
 use docrs::txn::Txn;
 use docrs::{Document, Limits, Tolerance};
+use reader::Pdf;
 use shapes::{Shape, coloured, shapes};
 use support::*;
 
