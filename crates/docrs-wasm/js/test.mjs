@@ -507,6 +507,10 @@ test("one bad file refuses the whole set and is named", () => {
     () => lib.fromMarkdown("x", { fonts: { faces: [], free() {} } }),
     (err) => err.code === "invalid_argument" && err.reason === "invalid_options",
   );
+  const fonts = lib.loadFonts([SERIF]);
+  assert.throws(() => lib.inspectReference(INTER_REFERENCE, { fonts }), (err) => /inspectReference takes no fonts/.test(err.message));
+  assert.throws(() => lib.markdownStyles(undefined, undefined, { fonts }), (err) => /markdownStyles takes no fonts/.test(err.message));
+  fonts.free();
 });
 
 test("a font set survives the instance being replaced", () => {
@@ -582,9 +586,20 @@ test("a set loaded under default budgets is checked against each call's", () => 
   many.free();
   const sets = Array.from({ length: 8 }, () => lib.loadFonts([SERIF], { limits: "serverless" }));
   assert.throws(() => lib.loadFonts([SERIF], { limits: "serverless" }), limited("max_font_sets"));
+  // Handles count across instances: a reset frees no room.
+  assert.throws(trapInside, WebAssembly.RuntimeError);
+  assert.throws(() => lib.loadFonts([SERIF], { limits: "serverless" }), limited("max_font_sets"));
+  for (const set of sets) assert.ok(isZip(lib.fromHtml("<p>x</p>", { fonts: set, limits: "serverless" }).docx));
   sets.pop().free();
   sets.push(lib.loadFonts([SERIF], { limits: "serverless" }));
-  for (const set of sets) set.free();
+  assert.throws(trapInside, WebAssembly.RuntimeError);
+  for (const set of sets) assert.ok(isZip(lib.fromHtml("<p>x</p>", { fonts: set, limits: "serverless" }).docx));
+  // Under the default budgets more handles live, and every one still converts after a reset.
+  const more = Array.from({ length: 12 }, () => lib.loadFonts([SERIF]));
+  assert.throws(trapInside, WebAssembly.RuntimeError);
+  for (const set of [...sets, ...more]) assert.ok(isZip(lib.fromHtml("<p>x</p>", { fonts: set }).docx));
+  for (const set of [...sets, ...more]) set.free();
+  assert.throws(() => lib.loadFonts([SERIF], { limits: 1 }), (err) => err.reason === "invalid_options");
 });
 
 // A black PNG `side` pixels square, stored uncompressed.
@@ -623,6 +638,10 @@ test("a large call is followed by a fresh instance, and alternating tenants keep
   assert.notEqual(lib.__wasm, instance, "the instance past the high-water mark was replaced");
   assert.ok(lib.__wasm.memory.buffer.byteLength < 32 << 20);
   // Every hundredth call measures its contents with the tenant's font.
+  const failing = { images, strict: true };
+  const before = lib.__wasm;
+  assert.throws(() => lib.fromMarkdown(`${large}![x](missing.png)\n`, failing), (err) => err.refusal === true);
+  assert.notEqual(lib.__wasm, before, "a refusal past the high-water mark replaces the instance too");
   const small = (i) => {
     const fonts = i % 2 ? inter : serif;
     if (i % 100 !== 99) return lib.fromHtml(`<p>Call ${i}</p>`, { fonts });
@@ -667,12 +686,30 @@ test("a font manifest fetches over https only and names the entry in errors", as
     );
   }
   await assert.rejects(lib.loadFontManifest([entry("m1-bad", "not a url")], { fetch }), (err) => err.reason === "font_url_invalid");
+  let reads = 0;
+  const shifty = { toString: () => (reads++ ? "http://internal.example/a.ttf" : "https://fonts.example/inter.ttf") };
+  await assert.rejects(lib.loadFontManifest([entry("m1-object", shifty)], { fetch }), (err) => err.reason === "font_url_invalid" && err.id === "m1-object");
+  assert.equal(reads, 0);
   assert.equal(asked.length, 1);
-  const redirected = async () => Object.defineProperty(new Response(INTER), "url", { value: "http://fonts.example/inter.ttf" });
-  await assert.rejects(
-    lib.loadFontManifest([entry("m1-redirect", "https://fonts.example/inter.ttf")], { fetch: redirected }),
-    (err) => err.reason === "font_url_not_https",
-  );
+  const inits = [];
+  const redirecting = (to, flag) => async (url, init) => {
+    inits.push(init);
+    const response = new Response(INTER);
+    Object.defineProperty(response, "url", { value: to });
+    if (flag) Object.defineProperty(response, "redirected", { value: true });
+    return response;
+  };
+  for (const fetch of [
+    redirecting("http://fonts.example/inter.ttf"),
+    redirecting("https://169.254.169.254/latest"),
+    redirecting("", true),
+  ]) {
+    await assert.rejects(
+      lib.loadFontManifest([entry("m1-redirect", "https://fonts.example/inter.ttf")], { fetch }),
+      (err) => err.reason === "font_url_redirected" && err.id === "m1-redirect",
+    );
+  }
+  assert.ok(inits.every((init) => init.redirect === "error"));
   await assert.rejects(
     lib.loadFontManifest([entry("m1-404", "https://fonts.example/none.ttf", { italic: true })], { fetch }),
     (err) => err.code === "io" && err.reason === "font_fetch_failed" && /"m1-404" \(Inter, italic\)/.test(err.message),
@@ -699,6 +736,21 @@ test("a font manifest caps each file and the set in bytes", async () => {
     lib.loadFontManifest([entry("m2-declared", "https://fonts.example/inter.ttf")], { fetch: declared.fetch, limits: "serverless" }),
     (err) => limited("max_font_file_bytes")(err) && err.limit.observed === 64 << 20,
   );
+  // A response without a stream (node-fetch 2) is capped by its length.
+  const buffered = (headers) => async () => ({ ok: true, status: 200, headers: new Headers(headers), arrayBuffer: async () => INTER.slice().buffer });
+  await assert.rejects(
+    lib.loadFontManifest([entry("m2-buffered", "https://fonts.example/inter.ttf")], { fetch: buffered({}), maxBytes: 1000 }),
+    (err) => limited("max_font_file_bytes")(err) && err.limit.observed === INTER.length,
+  );
+  await assert.rejects(
+    lib.loadFontManifest([entry("m2-declared-buffered", "https://fonts.example/inter.ttf")], {
+      fetch: buffered({ "content-length": String(INTER.length) }),
+      maxBytes: 1000,
+    }),
+    (err) => limited("max_font_file_bytes")(err),
+  );
+  const whole = await lib.loadFontManifest([entry("m2-whole", "https://fonts.example/inter.ttf")], { fetch: buffered({}) });
+  whole.free();
   await assert.rejects(
     lib.loadFontManifest([entry("m2-a", "https://fonts.example/inter.ttf"), entry("m2-b", "https://fonts.example/serif.ttf")], {
       fetch,
@@ -716,6 +768,13 @@ test("a font manifest times out and honours an AbortSignal", async () => {
     (err) => err.code === "io" && err.reason === "font_fetch_timeout" && err.id === "m3-slow",
   );
   assert.ok(Date.now() - started < 2_000);
+  for (const timeoutMs of [2 ** 31, 1e10, Infinity, 0, -1, NaN]) {
+    await assert.rejects(
+      lib.loadFontManifest([entry("m3-long", "https://fonts.example/inter.ttf")], { fetch: slow.fetch, timeoutMs }),
+      (err) => err.reason === "invalid_options",
+      String(timeoutMs),
+    );
+  }
   const deaf = () => new Promise(() => {});
   await assert.rejects(
     lib.loadFontManifest([entry("m3-deaf", "https://fonts.example/inter.ttf")], { fetch: deaf, timeoutMs: 50 }),
@@ -734,57 +793,123 @@ test("a font manifest times out and honours an AbortSignal", async () => {
   );
 });
 
-test("a font manifest caches files by id, never by URL", async () => {
+test("a font manifest caches files by id in the caller's cache, never by URL", async () => {
   const { fetch, asked } = server({ "https://a.example/inter.ttf": INTER, "https://b.example/inter.ttf": INTER });
+  const cache = lib.createFontCache();
   const one = await lib.loadFontManifest(
     [entry("m4-inter", "https://a.example/inter.ttf"), entry("m4-inter", "https://b.example/inter.ttf")],
-    { fetch },
+    { fetch, cache },
   );
   assert.deepEqual(asked, ["https://a.example/inter.ttf"]);
   assert.equal(one.faces.length, 1);
-  const again = await lib.loadFontManifest([entry("m4-inter", "https://b.example/inter.ttf")], { fetch });
+  const again = await lib.loadFontManifest([entry("m4-inter", "https://b.example/inter.ttf")], { fetch, cache });
   assert.equal(asked.length, 1);
   const two = await lib.loadFontManifest(
     [entry("m4-x", "https://a.example/inter.ttf"), entry("m4-y", "https://a.example/inter.ttf")],
-    { fetch },
+    { fetch, cache },
   );
   assert.deepEqual(asked.slice(1), ["https://a.example/inter.ttf", "https://a.example/inter.ttf"]);
   assert.equal(two.faces.length, 2);
-  for (const set of [one, again, two]) set.free();
+  // Another tenant's cache, or none, shares nothing.
+  const other = await lib.loadFontManifest([entry("m4-inter", "https://b.example/inter.ttf")], { fetch, cache: lib.createFontCache() });
+  const uncached = await lib.loadFontManifest([entry("m4-inter", "https://b.example/inter.ttf")], { fetch });
+  assert.deepEqual(asked.slice(3), ["https://b.example/inter.ttf", "https://b.example/inter.ttf"]);
+  const small = lib.createFontCache({ maxBytes: 1000 });
+  await lib.loadFontManifest([entry("m4-small", "https://a.example/inter.ttf")], { fetch, cache: small });
+  await lib.loadFontManifest([entry("m4-small", "https://a.example/inter.ttf")], { fetch, cache: small });
+  assert.equal(asked.length, 7, "a file over the cache's size is not kept");
+  await assert.rejects(lib.loadFontManifest([], { cache: new Map() }), (err) => err.reason === "invalid_options");
+  assert.throws(() => lib.createFontCache({ maxBytes: -1 }), (err) => err.reason === "invalid_options");
+  for (const set of [one, again, two, other, uncached]) set.free();
 });
 
-test("the typings compile against a consumer", { skip: process.env.DOCRS_TSC ? false : "set DOCRS_TSC to a tsc binary" }, async () => {
+test("a manifest's data is copied, and its file must hold the declared family and style", async () => {
+  const data = Buffer.from(SERIF);
+  const fonts = await lib.loadFontManifest([{ id: "m5-serif", family: "Liberation Serif", data }]);
+  data.fill(0);
+  assert.throws(trapInside, WebAssembly.RuntimeError);
+  assert.ok(isZip(lib.fromHtml("<p>x</p>", { fonts }).docx), "registered again from its own copy");
+  fonts.free();
+  for (const [declared, style] of [[{ family: "Arial" }, "regular"], [{ family: "Liberation Serif", bold: true, italic: true }, "bold italic"]]) {
+    await assert.rejects(
+      lib.loadFontManifest([{ id: "m5-wrong", ...declared, data: SERIF }]),
+      (err) => err.reason === "font_face_mismatch" && err.id === "m5-wrong" && err.style === style && /Liberation Serif/.test(err.message),
+    );
+  }
+  // A variable face covers both weights, not italics.
+  const bold = await lib.loadFontManifest([{ id: "m5-inter-bold", family: "inter", bold: true, data: INTER }]);
+  bold.free();
+  await assert.rejects(
+    lib.loadFontManifest([{ id: "m5-inter-italic", family: "Inter", italic: true, data: INTER }]),
+    (err) => err.reason === "font_face_mismatch",
+  );
+});
+
+// A consumer project around the installed package: `lib` its TypeScript libs.
+async function compile(name, lib, source) {
   const { mkdtempSync, writeFileSync, mkdirSync, symlinkSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { execFileSync } = await import("node:child_process");
-  const dir = mkdtempSync(join(tmpdir(), "docrs-consumer-"));
+  const dir = mkdtempSync(join(tmpdir(), `docrs-${name}-`));
   mkdirSync(join(dir, "node_modules"));
   symlinkSync(pkg, join(dir, "node_modules", "docrs-wasm"), "dir");
   writeFileSync(
     join(dir, "tsconfig.json"),
-    JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "nodenext", moduleResolution: "nodenext", target: "es2022", lib: ["es2022", "dom"], types: [] }, files: ["consumer.ts"] }),
+    JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "nodenext", moduleResolution: "nodenext", target: "es2022", lib, types: [] }, files: ["consumer.ts"] }),
   );
-  writeFileSync(
-    join(dir, "consumer.ts"),
-    `import { fromHtml, fromJson, fromMarkdown, fromTiptap, loadFontManifest, loadFonts, type FontSet, type FromMarkdownResult } from "docrs-wasm";
+  writeFileSync(join(dir, "consumer.ts"), source);
+  try {
+    execFileSync(process.env.DOCRS_TSC, ["-p", dir], { stdio: "pipe" });
+  } catch (err) {
+    assert.fail(`${name}: ${err.stdout}`);
+  }
+}
+
+const tsc = { skip: process.env.DOCRS_TSC ? false : "set DOCRS_TSC to a tsc binary" };
+
+test("the typings compile against a consumer", tsc, () =>
+  compile(
+    "consumer",
+    ["es2022", "dom"],
+    `import { createFontCache, fromHtml, fromJson, fromMarkdown, fromTiptap, inspectReference, loadFontManifest, loadFonts, markdownStyles, type FontSet, type FromMarkdownResult } from "docrs-wasm";
 const fonts: FontSet = loadFonts([new Uint8Array(4)], { limits: "serverless", aliases: { Brand: "Inter" } });
 const family: string = fonts.faces[0].family;
 const plain: FromMarkdownResult = fromMarkdown("# A", { fonts, toc: true });
 fromHtml("<p>x</p>", { fonts });
 fromJson({ type: "doc" }, { fonts });
 fromTiptap("{}", { fonts });
+inspectReference(new Uint8Array(4), { limits: "serverless" });
 // @ts-expect-error a conversion without pdf has no pdf
 plain.pdf;
 // @ts-expect-error only a handle from loadFonts or loadFontManifest
 fromMarkdown("x", { fonts: { faces: [], free() {} } });
+// @ts-expect-error inspectReference takes no fonts
+inspectReference(new Uint8Array(4), { fonts });
+// @ts-expect-error markdownStyles takes no fonts
+markdownStyles(undefined, undefined, { fonts });
 // @ts-expect-error an entry has a url or data
 loadFontManifest([{ id: "a", family: "Inter" }]);
+// @ts-expect-error a cache comes from createFontCache
+loadFontManifest([], { cache: new Map() });
+const cache = createFontCache({ maxBytes: 1 << 20 });
 async function manifest(signal: AbortSignal): Promise<FontSet> {
-  return loadFontManifest([{ id: "a", family: "Inter", bold: true, url: "https://x.example/a.ttf" }, { id: "b", family: "Inter", data: new Uint8Array(4) }], { signal, timeoutMs: 1000, maxBytes: 1 << 20, fetch: (url, init) => fetch(url, init) });
+  return loadFontManifest([{ id: "a", family: "Inter", bold: true, url: "https://x.example/a.ttf" }, { id: "b", family: "Inter", data: new Uint8Array(4) }], { signal, cache, timeoutMs: 1000, maxBytes: 1 << 20, fetch: (url, init) => fetch(url, init) });
 }
+loadFontManifest([], { fetch, signal: AbortSignal.timeout(10) });
 fonts.free();
 void family; void manifest;
 `,
-  );
-  execFileSync(process.env.DOCRS_TSC, ["-p", dir], { stdio: "pipe" });
-});
+  ),
+);
+
+test("the typings need no DOM lib", tsc, () =>
+  compile(
+    "plain",
+    ["es2022"],
+    `import { fromMarkdown, loadFontManifest, loadFonts } from "docrs-wasm";
+const fonts = loadFonts([new Uint8Array(4)]);
+fromMarkdown("# A", { fonts });
+void loadFontManifest([{ id: "b", family: "Inter", data: new Uint8Array(4) }], { timeoutMs: 1000 });
+`,
+  ),
+);

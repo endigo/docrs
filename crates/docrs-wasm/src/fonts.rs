@@ -18,7 +18,7 @@ pub struct FontLimits {
     pub file_bytes: u64,
     pub set_bytes: u64,
     pub faces: u64,
-    /// Sets one instance holds at once.
+    /// Font set handles alive at once (counted by `js/index.js`).
     pub sets: u64,
 }
 
@@ -91,23 +91,23 @@ pub struct FontOptions {
     pub aliases: BTreeMap<String, String>,
 }
 
-/// Build a set from `files`, refusing them all when one cannot be read
-/// (the error names its index).
+/// Build a set from `files` under `limits`, refusing them all when one
+/// cannot be read (the error names its index), and the number of faces
+/// each file gave.
 pub fn load(
     files: impl Iterator<Item = Vec<u8>>,
     sizes: &[u64],
     options: &FontOptions,
-) -> Result<LoadedFonts, (Error, Option<usize>)> {
-    let limits = profile(options.limits.as_deref())
-        .map_err(|err| (err, None))?
-        .1
-        .fonts;
+    limits: &FontLimits,
+) -> Result<(LoadedFonts, Vec<usize>), (Error, Option<usize>)> {
     limits.check_files(sizes).map_err(|err| (err, None))?;
     let mut builder = FontSet::builder();
+    let mut per_file = Vec::with_capacity(sizes.len());
     for (at, file) in files.enumerate() {
-        builder
+        let faces = builder
             .add(file)
             .map_err(|err| (err.context(format!("fonts[{at}]")), Some(at)))?;
+        per_file.push(faces.len());
     }
     for (family, to) in &options.aliases {
         builder.alias(family, to);
@@ -117,8 +117,8 @@ pub fn load(
         largest: sizes.iter().copied().max().unwrap_or(0),
         bytes: sizes.iter().copied().fold(0u64, u64::saturating_add),
     };
-    loaded.check(&limits).map_err(|err| (err, None))?;
-    Ok(loaded)
+    loaded.check(limits).map_err(|err| (err, None))?;
+    Ok((loaded, per_file))
 }
 
 #[derive(Default)]
@@ -131,14 +131,18 @@ thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::default();
 }
 
-fn register(loaded: LoadedFonts, limits: &FontLimits) -> Result<u32, Error> {
+/// Live sets are capped by `js/index.js`, which counts its handles across
+/// instances; here they only need ids that are never reused.
+fn register(loaded: LoadedFonts) -> Result<u32, Error> {
     REGISTRY.with_borrow_mut(|registry| {
-        let live = registry.sets.len() as u64;
-        if live >= limits.sets {
-            return Err(Error::limit("max_font_sets", limits.sets, live + 1));
-        }
-        registry.next = registry.next.wrapping_add(1);
-        let id = registry.next;
+        let id = registry.next.checked_add(1).ok_or_else(|| {
+            Error::limit(
+                "max_font_registrations",
+                u64::from(u32::MAX),
+                u64::from(u32::MAX) + 1,
+            )
+        })?;
+        registry.next = id;
         registry.sets.insert(id, loaded);
         Ok(id)
     })
@@ -210,7 +214,7 @@ fn font_options(options: Option<js_sys::Object>) -> Result<FontOptions, Error> {
 }
 
 /// Register `files` (an array of `Uint8Array`) as one font set: `{ id,
-/// faces }`. Internal to `js/index.js`, which wraps it as `loadFonts`.
+/// faces, perFile }`, `perFile` the number of faces each file gave. Internal to `js/index.js`, which wraps it as `loadFonts`.
 #[wasm_bindgen(js_name = registerFonts, skip_typescript)]
 pub fn register_fonts(files: JsValue, options: Option<js_sys::Object>) -> Result<JsValue, JsValue> {
     let files: Vec<js_sys::Uint8Array> = files
@@ -229,24 +233,34 @@ pub fn register_fonts(files: JsValue, options: Option<js_sys::Object>) -> Result
         .map_err(|err| js_error(&err))?
         .1
         .fonts;
-    let loaded =
-        load(files.iter().map(|file| file.to_vec()), &sizes, &options).map_err(|(err, file)| {
-            let js = js_error(&err);
-            if let Some(file) = file {
-                let _ = js_sys::Reflect::set(&js, &"file".into(), &(file as u32).into());
-            }
-            js
-        })?;
+    let (loaded, per_file) = load(
+        files.iter().map(|file| file.to_vec()),
+        &sizes,
+        &options,
+        &limits,
+    )
+    .map_err(|(err, file)| {
+        let js = js_error(&err);
+        if let Some(file) = file {
+            let _ = js_sys::Reflect::set(&js, &"file".into(), &(file as u32).into());
+        }
+        js
+    })?;
     let faces = faces_to_js(loaded.set.faces());
-    let id = register(loaded, &limits).map_err(|err| js_error(&err))?;
+    let id = register(loaded).map_err(|err| js_error(&err))?;
     let result = js_sys::Object::new();
     let _ = js_sys::Reflect::set(&result, &"id".into(), &id.into());
     let _ = js_sys::Reflect::set(&result, &"faces".into(), &faces);
+    let _ = js_sys::Reflect::set(
+        &result,
+        &"perFile".into(),
+        &to_js(&serde_json::json!(per_file)),
+    );
     Ok(result.into())
 }
 
-/// The font budgets of a `limits` profile, for `loadFontManifest`'s caps
-/// on what it fetches. Internal to `js/index.js`.
+/// The font budgets of a `limits` profile, which `js/index.js` checks
+/// before it copies or fetches anything and to cap its live handles.
 #[wasm_bindgen(js_name = fontLimits, skip_typescript)]
 pub fn font_limits(limits: Option<String>) -> Result<JsValue, JsValue> {
     let limits = profile(limits.as_deref())
@@ -256,6 +270,8 @@ pub fn font_limits(limits: Option<String>) -> Result<JsValue, JsValue> {
     Ok(to_js(&serde_json::json!({
         "fileBytes": limits.file_bytes,
         "setBytes": limits.set_bytes,
+        "faces": limits.faces,
+        "sets": limits.sets,
     })))
 }
 
@@ -283,11 +299,8 @@ pub(crate) mod tests {
         limits: Option<&str>,
     ) -> Result<LoadedFonts, (Error, Option<usize>)> {
         let sizes: Vec<u64> = files.iter().map(|file| file.len() as u64).collect();
-        let options = FontOptions {
-            limits: limits.map(String::from),
-            ..FontOptions::default()
-        };
-        load(files.into_iter(), &sizes, &options)
+        let limits = profile(limits).unwrap().1.fonts;
+        load(files.into_iter(), &sizes, &FontOptions::default(), &limits).map(|(loaded, _)| loaded)
     }
 
     #[test]
@@ -314,32 +327,38 @@ pub(crate) mod tests {
 
     #[test]
     fn sizes_are_refused_before_the_files_are_read() {
-        let sizes = [(8 << 20) + 1];
-        let options = FontOptions {
-            limits: Some("serverless".into()),
-            ..FontOptions::default()
-        };
-        let (err, _) = load(std::iter::empty(), &sizes, &options).unwrap_err();
+        let limits = FontLimits::SERVERLESS;
+        let options = FontOptions::default();
+        let (err, _) = load(std::iter::empty(), &[(8 << 20) + 1], &options, &limits).unwrap_err();
         assert_eq!(err.reason(), "max_font_file_bytes");
-        let (err, _) = load(std::iter::empty(), &[6 << 20; 3], &options).unwrap_err();
+        let (err, _) = load(std::iter::empty(), &[6 << 20; 3], &options, &limits).unwrap_err();
         assert_eq!(err.reason(), "max_font_set_bytes");
     }
 
     #[test]
-    fn the_registry_caps_live_sets_and_frees_by_id() {
-        let limits = FontLimits {
-            sets: 2,
-            ..FontLimits::SERVERLESS
-        };
-        let first = register(LoadedFonts::default(), &limits).unwrap();
-        let second = register(LoadedFonts::default(), &limits).unwrap();
+    fn faces_are_counted_per_file() {
+        let serif = font("liberation/LiberationSerif-Regular.ttf");
+        let inter = font("inter/Inter[opsz,wght].ttf");
+        let sizes = [serif.len() as u64, inter.len() as u64];
+        let (_, per_file) = load(
+            [serif, inter].into_iter(),
+            &sizes,
+            &FontOptions::default(),
+            &FontLimits::DEFAULT,
+        )
+        .unwrap();
+        assert_eq!(per_file, [1, 1]);
+    }
+
+    #[test]
+    fn the_registry_frees_by_id_and_never_reuses_one() {
+        let first = register(LoadedFonts::default()).unwrap();
+        let second = register(LoadedFonts::default()).unwrap();
         assert_ne!(first, second);
-        let err = register(LoadedFonts::default(), &limits).unwrap_err();
-        assert_eq!(err.reason(), "max_font_sets");
         assert!(free_fonts(first));
         assert!(!free_fonts(first));
         assert_eq!(registered(first).unwrap_err().reason(), "font_set_unknown");
         assert!(registered(second).is_ok());
-        assert!(register(LoadedFonts::default(), &limits).is_ok());
+        assert!(register(LoadedFonts::default()).unwrap() > second);
     }
 }

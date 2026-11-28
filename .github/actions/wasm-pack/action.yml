@@ -25,6 +25,6 @@ runs:
       run: |
         consumer="$RUNNER_TEMP/consumer"
         mkdir -p "$consumer"
-        (cd "$consumer" && npm init -y > /dev/null && npm install --no-save "$GITHUB_WORKSPACE"/crates/docrs-wasm/pkg/docrs-wasm-*.tgz typescript@5.9.3)
+        (cd "$consumer" && npm init -y > /dev/null && npm install --ignore-scripts --no-save "$GITHUB_WORKSPACE"/crates/docrs-wasm/pkg/docrs-wasm-*.tgz typescript@5.9.3)
         DOCRS_WASM_PKG="$consumer/node_modules/docrs-wasm" DOCRS_TSC="$consumer/node_modules/.bin/tsc" \
           node --test crates/docrs-wasm/js/test.mjs

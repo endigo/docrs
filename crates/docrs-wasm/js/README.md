@@ -130,26 +130,41 @@ again into the next one when a call first uses it. `free()` releases it;
 using it afterwards throws `pdf_font_handle_disposed`. A set that is never
 freed is released once garbage collected, at best. Sets are never shared
 or looked up by family: each conversion uses exactly the set it is given.
+`inspectReference` and `markdownStyles` take no `fonts`.
 
-Budgets, by `limits` (checked on the sizes before anything is copied, and
-again by every call against its own `limits`, so a set loaded under the
-default budgets is refused by a `serverless` call it exceeds):
+Budgets, by `limits`. Sizes are checked before anything is copied, and
+every call checks the set again against its own `limits`, so a set loaded
+under the default budgets is refused by a `serverless` call it exceeds.
+Live sets are the handles not yet freed or collected, counted across
+instances: a reset frees no room.
 
 | | default | serverless |
 | -- | -- | -- |
 | one file / the set | 32 / 64 MiB | 8 / 16 MiB |
 | faces in a set | 64 | 24 |
-| sets alive in one instance | 64 | 8 |
+| live sets | 64 | 8 |
+| bytes of all live sets | 4 GiB | 128 MiB |
 
 `loadFontManifest(entries, options?)` builds a set from entries `{ id,
-family, bold?, italic?, url | data }`. A `url` must be https (a redirect
-away from https is refused too). Each file and all of them together are
-capped by the budgets above and by `maxBytes`; `timeoutMs` (default 30,000)
-bounds the fetches together and `signal` aborts them. A fetched file is
-cached by `id`, never by URL (up to 64 MiB, least recently used first): give
-each uploaded font its own id, and a new id when its file changes. Every
-entry is fetched; errors name the entry's `id`, `family` and style. Pass
-`fetch` to use your own.
+family, bold?, italic?, url | data }`. Each entry's file must hold its
+`family` in the declared style (`font_face_mismatch` otherwise; a variable
+face covers both weights). `data` is copied. A `url` must be a string and
+https, and is fetched with `redirect: "error"`: a response that was
+redirected anyway is refused. Https alone does not stop a request to a host
+you did not mean, so give only your own storage's URLs (signed URLs, for
+example), never a URL a tenant typed. Each file and all of them together
+are capped by the budgets above and by `maxBytes`, while they stream (a
+response without a stream is read whole and then capped, before anything
+is copied into WebAssembly memory). `timeoutMs` (1 to 2,147,483,647,
+default 30,000) bounds the fetches together and `signal` aborts them.
+Every entry is fetched; errors name the entry's `id`, `family` and style.
+Pass `fetch` to use your own.
+
+Nothing is cached unless you pass a `cache` from `createFontCache({
+maxBytes? })` (64 MiB by default, least recently used dropped first). It
+keeps fetched files by entry `id`, never by URL, so an id must name one
+file: make one cache per tenant, and give each file an id that changes with
+its content (a tenant id and a content hash, for example).
 
 ## Next.js
 

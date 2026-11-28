@@ -594,33 +594,70 @@ export interface FontOptions {
   aliases?: Record<string, string>;
 }
 
-/** One font file of a manifest: its bytes, or an https URL to fetch them from. */
+/** One font file of a manifest: its bytes, or an https URL to fetch them from. The file must hold `family` in the declared style (a variable face covers both weights). */
 export type FontManifestEntry = {
-  /** Caches the fetched file: entries with the same id share one file, whatever their URLs. */
+  /** Names the file in a `FontCache`: unique across tenants, and new when the file changes. */
   id: string;
   family: string;
   bold?: boolean;
   italic?: boolean;
 } & ({ url: string; data?: undefined } | { data: Uint8Array; url?: undefined });
 
+/** What `loadFontManifest` uses of an `AbortSignal` (no DOM types needed). */
+export interface FontAbortSignal {
+  readonly aborted: boolean;
+  readonly reason: unknown;
+  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
+/** What `loadFontManifest` reads of a fetch `Response`. */
+export interface FontResponse {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly url?: string;
+  readonly redirected?: boolean;
+  readonly headers?: { get(name: string): string | null };
+  readonly body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } | null;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+declare const fontCacheBrand: unique symbol;
+
+/** Fetched manifest files by entry id, from `createFontCache` (one per tenant). */
+export interface FontCache {
+  readonly [fontCacheBrand]: true;
+}
+
 export interface FontManifestOptions extends FontOptions {
-  /** Default: `globalThis.fetch`. */
-  fetch?: (url: string, init: { signal: AbortSignal }) => Promise<Response>;
-  signal?: AbortSignal;
-  /** For all the fetches together (default 30000). */
+  /**
+   * Default: `globalThis.fetch`. Called with `redirect: "error"`; a redirect is refused. `signal` is
+   * the manifest's own `AbortSignal` (typed `any` so that the DOM's `fetch` fits without DOM types here).
+   */
+  fetch?(url: string, init: { signal: any; redirect: "error" }): Promise<FontResponse>;
+  signal?: FontAbortSignal;
+  /** For all the fetches together: 1 to 2147483647 (default 30000). */
   timeoutMs?: number;
   /** For the files together and each one, below the `limits` budgets. */
   maxBytes?: number;
+  /** Reuse files fetched before under the same entry id; without one, nothing is cached. */
+  cache?: FontCache;
 }
 
 /** Load font files as one set; one file that cannot be read refuses them all (experimental). */
 export function loadFonts(files: Uint8Array[], options?: FontOptions): FontSet;
 
 /**
- * Fetch (https only) or take every entry's file and load them as one set
- * (experimental). Errors name the entry's `id`, `family` and style.
+ * Fetch (https only, no redirects) or take every entry's file and load them
+ * as one set (experimental). Errors name the entry's `id`, `family` and style.
  */
 export function loadFontManifest(entries: FontManifestEntry[], options?: FontManifestOptions): Promise<FontSet>;
+
+/** A cache of fetched manifest files, at most `maxBytes` (default 64 MiB), least recently used dropped first. */
+export function createFontCache(options?: { maxBytes?: number }): FontCache;
+
+/** Options of `inspectReference` and `markdownStyles`: those of a conversion, without `fonts`. */
+export type ReferenceOptions = Omit<FromMarkdownOptions, "fonts">;
 
 /** What a conversion will take from a reference document (`inspectReference`). */
 export interface ReferenceInspection {
@@ -912,33 +949,27 @@ fn options_from(value: Option<js_sys::Object>) -> Result<Options, JsValue> {
     // option would be ignored silently; refuse it instead. An option set to
     // `undefined` or `null` counts as not set, as JavaScript callers
     // forwarding optional values expect.
-    let given = js_sys::Object::new();
-    let mut fonts = None;
     for key in js_sys::Object::keys(&value).iter() {
         let name = key.as_string().unwrap_or_default();
-        let field = js_sys::Reflect::get(&value, &key).unwrap_or(JsValue::UNDEFINED);
-        // A registry id, which serde does not read: `fonts` is not a field
-        // JavaScript could set on `Options` itself.
-        if name == "fonts" {
-            if !field.is_undefined() && !field.is_null() {
-                fonts = Some(
-                    fonts::id_of(&field)
-                        .and_then(fonts::registered)
-                        .map_err(|err| js_error_with(&err, redact))?,
-                );
-            }
-            continue;
-        }
-        if !option_names().contains(&name) {
+        // `fonts` is a registry id, which serde does not read.
+        if name != "fonts" && !option_names().contains(&name) {
             return Err(js_error(&Error::invalid_argument(
                 "invalid_options",
                 format!("unknown option {name:?}"),
             )));
         }
-        if !field.is_undefined() && !field.is_null() {
-            let _ = js_sys::Reflect::set(&given, &key, &field);
-        }
     }
+    let given = set_fields(&value);
+    let fonts_key = JsValue::from_str("fonts");
+    let fonts = match js_sys::Reflect::get(&given, &fonts_key) {
+        Ok(id) if !id.is_undefined() => Some(
+            fonts::id_of(&id)
+                .and_then(fonts::registered)
+                .map_err(|err| js_error_with(&err, redact))?,
+        ),
+        _ => None,
+    };
+    let _ = js_sys::Reflect::delete_property(&given, &fonts_key);
     let options: Options = serde_wasm_bindgen::from_value(given.into()).map_err(|err| {
         js_error_with(
             &Error::invalid_argument("invalid_options", format!("options: {err}")),
@@ -1080,7 +1111,7 @@ pub fn from_tiptap(
 #[wasm_bindgen(js_name = inspectReference, unchecked_return_type = "ReferenceInspection")]
 pub fn inspect_reference(
     #[wasm_bindgen(unchecked_param_type = "Uint8Array")] reference: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
+    #[wasm_bindgen(unchecked_optional_param_type = "ReferenceOptions")] options: Option<
         js_sys::Object,
     >,
 ) -> Result<JsValue, JsValue> {
@@ -1102,7 +1133,7 @@ pub fn markdown_styles(
     #[wasm_bindgen(unchecked_optional_param_type = "Record<string, string>")] styles: Option<
         js_sys::Object,
     >,
-    #[wasm_bindgen(unchecked_optional_param_type = "FromMarkdownOptions")] options: Option<
+    #[wasm_bindgen(unchecked_optional_param_type = "ReferenceOptions")] options: Option<
         js_sys::Object,
     >,
 ) -> Result<JsValue, JsValue> {
@@ -1816,7 +1847,13 @@ mod tests {
         );
         let inter = fonts::tests::font("inter/Inter[opsz,wght].ttf");
         let sizes = [inter.len() as u64];
-        let loaded = fonts::load([inter].into_iter(), &sizes, &FontOptions::default()).unwrap();
+        let (loaded, _) = fonts::load(
+            [inter].into_iter(),
+            &sizes,
+            &FontOptions::default(),
+            &FontLimits::DEFAULT,
+        )
+        .unwrap();
         let with = convert_with(loaded);
         assert_eq!(with.report["toc"]["missing_fonts"], serde_json::json!([]));
         assert_ne!(
