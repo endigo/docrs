@@ -1029,7 +1029,11 @@ fn two_header_rows_repeat_on_every_page_of_a_200_row_table() {
     let body: Vec<_> = row_parts(&records).filter(|row| row.row >= 2).collect();
     assert_eq!(body.len(), 200);
     assert!(body.iter().all(|row| row.first && row.last && !row.repeat));
-    assert_eq!(page_of(&records, "Row 200"), 7);
+    // Word for Mac 16.115: Row 28 ends 0.4 points above the bottom margin
+    // and Row 29's space after does not fit, so Row 29 moves whole.
+    for (row, page) in [(28, 1), (29, 2), (57, 2), (58, 3), (145, 6), (200, 7)] {
+        assert_eq!(page_of(&records, &format!("Row {row}")), page, "Row {row}");
+    }
     // Repeated headers are drawn, not placed: each paragraph is placed once.
     let doc = Document::open_path(
         repo_root().join("tests/fixtures/layout/geometry/header-rows.docx"),
@@ -1071,11 +1075,10 @@ fn cant_split_rows_move_whole_and_one_taller_than_the_page_is_cut() {
     let tall: Vec<_> = text_lines(&records)
         .filter(|line| line.text.starts_with("Tall "))
         .collect();
-    assert!(
-        tall.iter()
-            .all(|line| line.page == 4 && line.baseline <= 792.0)
-    );
-    assert!(tall.len() > 30 && tall.len() < 60, "{}", tall.len());
+    // Word for Mac 16.115 draws 37 of the 60 lines: line 37's top is
+    // 789.69, above the paper's edge, and its baseline below it.
+    assert!(tall.iter().all(|line| line.page == 4 && line.y < 792.0));
+    assert_eq!(tall.len(), 37);
     let cut = row_parts(&records).find(|part| part.row == 3).unwrap();
     assert!(cut.y + cut.height <= 792.0 + 0.01);
     assert_eq!(page_of(&records, "After the tall row"), 5);
@@ -1107,6 +1110,38 @@ fn a_nested_table_splits_with_the_cell_holding_it() {
     }
     // The nested row's second part starts at the top of the outer cell's.
     assert_eq!((nested[1].y, outer[1].y), (72.0, 72.0));
+    // No style sets cell margins: the text starts at the cell's edge.
+    let x = |text: &str| text_lines(&records).find(|l| l.text == text).unwrap().x;
+    assert_eq!(
+        (x("Inner 8"), x("Side 1"), x("Outer cell")),
+        (72.0, 182.0, 306.0)
+    );
+}
+
+#[test]
+fn cell_side_margins_come_from_table_normal() {
+    let table = format!(
+        "<w:tbl><w:tblGrid><w:gridCol w:w=\"4680\"/></w:tblGrid><w:tr><w:tc>{}</w:tc></w:tr></w:tbl>{}",
+        para("Cell", ""),
+        para("", "")
+    );
+    let normal = "<w:style w:type=\"table\" w:default=\"1\" w:styleId=\"TableNormal\"><w:tblPr><w:tblCellMar><w:left w:w=\"108\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>";
+    let named = "<w:style w:type=\"table\" w:styleId=\"Plain\"><w:tblPr/></w:style>";
+    let x = |body: &str, styles: &str| {
+        let doc = Document::open_bytes(&styled_package(body, styles), &Limits::default()).unwrap();
+        text_lines(&records_of(&doc))
+            .find(|l| l.text == "Cell")
+            .unwrap()
+            .x
+    };
+    let styled = table.replace(
+        "<w:tblGrid>",
+        "<w:tblPr><w:tblStyle w:val=\"Plain\"/></w:tblPr><w:tblGrid>",
+    );
+    assert_eq!(x(&table, ""), 72.0);
+    assert_eq!(x(&table, normal), 77.4);
+    // A style that sets no margins takes Table Normal's.
+    assert_eq!(x(&styled, &format!("{normal}{named}")), 77.4);
 }
 
 /// A one-row table: a cell of `tall` paragraphs with exactly 800-point

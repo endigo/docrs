@@ -116,7 +116,7 @@ impl<'a, 'm> Rest<'a, 'm> {
 impl<'m, S: Sink> Flow<'m, '_, S> {
     /// Split a row between lines, page after page until all of it is
     /// placed; false, with nothing placed, when no line of it fits here
-    /// (or, at the top of a page, when all its lines do).
+    /// or all of them do.
     pub(super) fn split_row(
         &mut self,
         table: &'m Table,
@@ -150,9 +150,6 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                         *cut = rest.forced();
                     }
                 }
-                if first && cuts.iter().all(Option::is_none) {
-                    return Ok(false);
-                }
             } else if !rests
                 .iter()
                 .zip(&cuts)
@@ -161,7 +158,12 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                 return Ok(false);
             }
             let last = cuts.iter().all(Option::is_none);
-            let height = if last && !first {
+            if first && last {
+                // Only its padding is past the page bottom: Word moves the
+                // row whole.
+                return Ok(false);
+            }
+            let height = if last {
                 rests
                     .iter()
                     .zip(&row.cells)
@@ -220,18 +222,13 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     row_end: true,
                 })?;
             }
-            if last && !first {
+            if last {
                 self.y += height;
                 break;
             }
             self.new_page()?;
             if let Some(headers) = headers {
                 self.repeat_headers(table, headers)?;
-            }
-            if last {
-                // Only its padding was past the page bottom: the next row
-                // starts this page.
-                break;
             }
             first = false;
         }

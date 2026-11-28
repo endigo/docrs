@@ -68,6 +68,17 @@ impl Builder<'_> {
         let tbl_pr = w_child(tree, tbl, "tblPr");
         let (style, look_first_row) = self.fmt.table(tree, tbl);
         let (mut table_margins, mut table_borders) = self.fmt.styles.table_look(style.as_deref());
+        let (default_margins, _) = self
+            .fmt
+            .styles
+            .table_look(self.fmt.styles.default_table.as_deref());
+        // Word's 5.4-point side margins come from Table Normal: a document
+        // without a style that sets them has none.
+        for (slot, value) in table_margins.iter_mut().zip(default_margins) {
+            if slot.is_none() {
+                *slot = value;
+            }
+        }
         let style_cell = self.fmt.styles.cell_props(style.as_deref());
         let direct = margins(tree, tbl_pr.and_then(|p| w_child(tree, p, "tblCellMar")));
         for (slot, value) in table_margins.iter_mut().zip(direct) {
@@ -158,12 +169,7 @@ impl Builder<'_> {
                 self.blocks(tree, tc, Some(&ctx), &mut blocks);
                 cells.push(Cell {
                     width,
-                    margins: [
-                        cell_margins[0].unwrap_or(0.0),
-                        cell_margins[1].unwrap_or(0.0),
-                        cell_margins[2].unwrap_or(5.4),
-                        cell_margins[3].unwrap_or(5.4),
-                    ],
+                    margins: cell_margins.map(|margin| margin.unwrap_or(0.0)),
                     blocks,
                     vmerge,
                     fill,

@@ -1098,11 +1098,7 @@ impl<'m, S: Sink> Flow<'m, '_, S> {
                     y: y + part.top + drawn.offset,
                 };
                 match &drawn.item {
-                    Item::Line(para, line)
-                        if at.y + line.height - line.below <= paper + EPSILON =>
-                    {
-                        self.line(at, para, line)?
-                    }
+                    Item::Line(para, line) if at.y < paper => self.line(at, para, line)?,
                     Item::Row(table, row, slice) if at.y < paper => {
                         self.row(at, table, *row, &slice.clone().cut_at(paper - at.y))?
                     }
