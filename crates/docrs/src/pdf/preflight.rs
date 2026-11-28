@@ -3,9 +3,10 @@
 //! formatting their styles give them, sorted into drawn, not drawn yet, and
 //! unsupported in v1.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use super::{MAX_LOCATIONS, NOT_YET_DRAWN, PdfLocation, PdfReport, PdfWarning, description};
+use super::nav::{LINK_SCHEMES, bookmark_key, is_document_start, scheme};
+use super::{NOT_YET_DRAWN, PdfLocation, PdfReport, Tally};
 use crate::layout::model::{
     Formatting, Frame, Link, ParaFormat, RPr, StoryRef, TableCtx, any_border, field_link,
     horizontal, on_off, section_properties, shaded, story_references,
@@ -29,7 +30,6 @@ const CHART_URIS: &[&str] = &[
 const DIAGRAM_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
 /// Word names its watermark shapes with these prefixes.
 const WATERMARK_PREFIXES: &[&str] = &["PowerPlusWaterMarkObject", "WordPictureWatermark"];
-const LINK_SCHEMES: &[&str] = &["http", "https", "mailto", "tel"];
 
 const CHART: &str = "pdf_chart_skipped";
 const SMARTART: &str = "pdf_smartart_skipped";
@@ -46,15 +46,12 @@ const LAYOUT: &str = "pdf_layout_feature_ignored";
 const REVISIONS: &str = "pdf_revisions_flattened";
 const FIELD: &str = "pdf_field_cached";
 const LINK: &str = "pdf_link_scheme_skipped";
+const LINK_TARGET: &str = "pdf_link_target_missing";
 
 const RTL: &str = "right-to-left text";
 
 /// Subjects the painter draws; each painter PR adds its own.
 const DRAWN: &[&str] = &[];
-
-/// Quoted input kept per warning, and its length.
-const MAX_SAMPLES: usize = 5;
-const SAMPLE_CHARS: usize = 60;
 
 /// What a PDF of `document` would leave out or change. Reads only.
 pub fn preflight(document: &Document) -> Result<PdfReport> {
@@ -134,14 +131,6 @@ fn shown_stories(
     Ok(shown)
 }
 
-struct Entry {
-    code: &'static str,
-    subject: &'static str,
-    count: usize,
-    locations: Vec<PdfLocation>,
-    samples: Vec<String>,
-}
-
 /// A complex field: its instruction so far, and whether the instruction
 /// is still open (before `separate`).
 struct Field {
@@ -169,7 +158,11 @@ struct Scan<'s, 'd> {
     para_rpr: RPr,
     tables: Vec<TableScan>,
     fields: Vec<Field>,
-    entries: Vec<Entry>,
+    /// By [`bookmark_key`].
+    bookmarks: HashSet<String>,
+    /// Links to bookmarks, checked once every story is read.
+    anchors: Vec<(String, PdfLocation)>,
+    tally: Tally,
 }
 
 impl<'s, 'd> Scan<'s, 'd> {
@@ -185,7 +178,9 @@ impl<'s, 'd> Scan<'s, 'd> {
             para_rpr: RPr::default(),
             tables: Vec::new(),
             fields: Vec::new(),
-            entries: Vec::new(),
+            bookmarks: HashSet::new(),
+            anchors: Vec::new(),
+            tally: Tally::default(),
         }
     }
 
@@ -331,6 +326,11 @@ impl<'s, 'd> Scan<'s, 'd> {
                 self.note(LAYOUT, "rotated text")
             }
             "hyperlink" => self.hyperlink(tree, node),
+            "bookmarkStart" => {
+                if let Some(name) = w_attr(tree, node, "name") {
+                    self.bookmarks.insert(bookmark_key(name));
+                }
+            }
             "footnoteReference" | "footnoteRef" => self.note(NOT_YET_DRAWN, "footnote"),
             "endnoteReference" | "endnoteRef" => self.note(NOT_YET_DRAWN, "endnote"),
             "fldSimple" => self.field(w_attr(tree, node, "instr").unwrap_or("")),
@@ -472,8 +472,11 @@ impl<'s, 'd> Scan<'s, 'd> {
             .map(|rel| rel.target.clone());
         match target {
             Some(target) => self.link(&target),
-            None if w_attr(tree, node, "anchor").is_some() => self.note(NOT_YET_DRAWN, "link"),
-            None => {}
+            None => {
+                if let Some(anchor) = w_attr(tree, node, "anchor") {
+                    self.anchor(anchor);
+                }
+            }
         }
     }
 
@@ -492,6 +495,12 @@ impl<'s, 'd> Scan<'s, 'd> {
                 self.note_with(LINK, "link", sample);
             }
         }
+    }
+
+    fn anchor(&mut self, anchor: &str) {
+        self.note(NOT_YET_DRAWN, "link");
+        let location = self.location();
+        self.anchors.push((anchor.to_string(), location));
     }
 
     fn field_char(&mut self, kind: Option<&str>) {
@@ -539,7 +548,7 @@ impl<'s, 'd> Scan<'s, 'd> {
                 self.note(NOT_YET_DRAWN, "field");
                 match field_link(instruction) {
                     Some(Link::Uri(target)) => self.link(&target),
-                    Some(Link::Anchor(_)) => self.note(NOT_YET_DRAWN, "link"),
+                    Some(Link::Anchor(anchor)) => self.anchor(&anchor),
                     // The target is a nested field's result, unknown here.
                     _ => self.note_with(LINK, "link", "computed".to_string()),
                 }
@@ -664,34 +673,8 @@ impl<'s, 'd> Scan<'s, 'd> {
         if code == NOT_YET_DRAWN && DRAWN.contains(&subject) {
             return;
         }
-        let index = match self
-            .entries
-            .iter()
-            .position(|e| e.code == code && e.subject == subject)
-        {
-            Some(index) => index,
-            None => {
-                self.entries.push(Entry {
-                    code,
-                    subject,
-                    count: 0,
-                    locations: Vec::new(),
-                    samples: Vec::new(),
-                });
-                self.entries.len() - 1
-            }
-        };
-        if located && self.entries[index].locations.len() < MAX_LOCATIONS {
-            let location = self.location();
-            self.entries[index].locations.push(location);
-        }
-        let entry = &mut self.entries[index];
-        entry.count += 1;
-        if let Some(sample) = sample.filter(|_| entry.samples.len() < MAX_SAMPLES) {
-            entry
-                .samples
-                .push(sample.chars().take(SAMPLE_CHARS).collect());
-        }
+        let location = located.then(|| self.location());
+        self.tally.note(code, subject, location, sample);
     }
 
     fn location(&self) -> PdfLocation {
@@ -703,32 +686,16 @@ impl<'s, 'd> Scan<'s, 'd> {
         }
     }
 
-    fn finish(self) -> PdfReport {
-        let warnings = self
-            .entries
-            .into_iter()
-            .map(|entry| {
-                let mut message = format!(
-                    "{} ({}): {}",
-                    entry.subject,
-                    entry.count,
-                    description(entry.code)
-                );
-                if !entry.samples.is_empty() {
-                    let quoted: Vec<String> =
-                        entry.samples.iter().map(|s| format!("\"{s}\"")).collect();
-                    message.push_str(&format!(" ({})", quoted.join(", ")));
-                }
-                PdfWarning {
-                    code: entry.code,
-                    subject: entry.subject,
-                    message,
-                    locations: entry.locations,
-                    count: entry.count,
-                }
-            })
-            .collect();
-        PdfReport { warnings }
+    fn finish(mut self) -> PdfReport {
+        for (anchor, location) in std::mem::take(&mut self.anchors) {
+            if !is_document_start(&anchor) && !self.bookmarks.contains(&bookmark_key(&anchor)) {
+                self.tally
+                    .note(LINK_TARGET, "link", Some(location), Some(anchor));
+            }
+        }
+        PdfReport {
+            warnings: self.tally.finish(),
+        }
     }
 }
 
@@ -755,15 +722,6 @@ fn columns(tree: &XmlTree, cols: NodeId) -> usize {
         .filter(|&c| tree.is(c, W, "col"))
         .count();
     declared.max(listed)
-}
-
-/// The lower-cased scheme of an absolute URI; `None` for a relative one.
-fn scheme(target: &str) -> Option<String> {
-    let (scheme, _) = target.split_once(':')?;
-    let mut chars = scheme.chars();
-    let valid = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
-    valid.then(|| scheme.to_ascii_lowercase())
 }
 
 fn unsupported_image(content_type: &str, part: &str) -> Option<&'static str> {

@@ -27,6 +27,7 @@ pub(crate) struct Ref(u32);
 /// A direct PDF object.
 #[derive(Debug, Clone)]
 pub(crate) enum Object {
+    Null,
     Bool(bool),
     Int(i64),
     Real(f64),
@@ -371,6 +372,7 @@ impl Write for Bounded {
 
 fn write_object(out: &mut Vec<u8>, object: &Object) -> Result<()> {
     match object {
+        Object::Null => out.extend_from_slice(b"null"),
         Object::Bool(value) => emit(out, format_args!("{value}")),
         Object::Int(value) => emit(out, format_args!("{value}")),
         Object::Real(value) => write_number(out, *value)?,
@@ -585,8 +587,12 @@ mod tests {
             (-3_i32).into(),
             u32::MAX.into(),
             count(7).unwrap(),
+            Object::Null,
         ]);
-        assert_eq!(serialized(array).unwrap(), "[true false -3 4294967295 7]");
+        assert_eq!(
+            serialized(array).unwrap(),
+            "[true false -3 4294967295 7 null]"
+        );
     }
 
     #[test]

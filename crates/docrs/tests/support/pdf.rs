@@ -301,6 +301,81 @@ impl Pdf {
             .collect()
     }
 
+    /// The page (from 0) a reference names.
+    pub fn page_index(&self, page: &Value) -> Result<usize, String> {
+        let Value::Ref(number, _) = page else {
+            return Err(format!("page is not a reference: {page:?}"));
+        };
+        let pages = self.pages()?;
+        let target = self.objects.get(number).and_then(Value::dict);
+        pages
+            .iter()
+            .position(|&dict| Some(dict) == target)
+            .ok_or_else(|| format!("object {number} is not a page"))
+    }
+
+    /// A name tree's entries in order. Keys must ascend across the whole
+    /// tree, and each kid's `/Limits` must hold its first and last key.
+    pub fn name_tree<'a>(&'a self, root: &'a Value) -> Result<Vec<(Vec<u8>, &'a Value)>, String> {
+        let mut out = Vec::new();
+        self.collect_names(root, true, &mut BTreeSet::new(), &mut out)?;
+        if out.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+            return Err("name tree keys are not strictly ascending".into());
+        }
+        Ok(out)
+    }
+
+    fn collect_names<'a>(
+        &'a self,
+        node: &'a Value,
+        is_root: bool,
+        visited: &mut BTreeSet<u32>,
+        out: &mut Vec<(Vec<u8>, &'a Value)>,
+    ) -> Result<(), String> {
+        if let Value::Ref(number, _) = node
+            && !visited.insert(*number)
+        {
+            return Err(format!("name tree visits object {number} twice"));
+        }
+        let dict = self
+            .resolve(node)
+            .dict()
+            .ok_or("name tree node is not a dictionary")?;
+        let before = out.len();
+        if let Value::Array(names) = self.get(dict, "Names") {
+            if names.len() % 2 != 0 {
+                return Err("/Names has an odd length".into());
+            }
+            for pair in names.chunks(2) {
+                let Value::Str(key) = self.resolve(&pair[0]) else {
+                    return Err(format!("name tree key is not a string: {:?}", pair[0]));
+                };
+                out.push((key.clone(), self.resolve(&pair[1])));
+            }
+        }
+        if let Value::Array(kids) = self.get(dict, "Kids") {
+            for kid in kids {
+                self.collect_names(kid, false, visited, out)?;
+            }
+        }
+        match self.get(dict, "Limits") {
+            Value::Null if is_root => {}
+            Value::Array(limits) if !is_root => {
+                let [Value::Str(first), Value::Str(last)] = limits.as_slice() else {
+                    return Err(format!("bad /Limits {limits:?}"));
+                };
+                let keys = &out[before..];
+                if keys.first().map(|k| &k.0) != Some(first)
+                    || keys.last().map(|k| &k.0) != Some(last)
+                {
+                    return Err("/Limits are not the node's first and last keys".into());
+                }
+            }
+            other => return Err(format!("/Limits {other:?} on a root: {is_root}")),
+        }
+        Ok(())
+    }
+
     /// `/Info` with every string value decoded as a text string.
     pub fn info(&self) -> Result<BTreeMap<String, String>, String> {
         let Some(info) = self.get(&self.trailer, "Info").dict() else {

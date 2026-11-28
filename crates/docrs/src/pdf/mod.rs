@@ -10,6 +10,7 @@
 
 mod font;
 mod meta;
+mod nav;
 mod preflight;
 mod writer;
 
@@ -21,6 +22,9 @@ pub use font::{SampleLine, Style};
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use meta::Info;
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use nav::{LinkId, Navigation, Rect};
 
 use serde::Serialize;
 use writer::{Dict, Object, Writer, count, name};
@@ -91,6 +95,10 @@ pub const WARNING_CODES: &[(&str, &str)] = &[
         "pdf_link_scheme_skipped",
         "a link uses a scheme other than http, https, mailto, tel or a bookmark; its text is kept without the link",
     ),
+    (
+        "pdf_link_target_missing",
+        "a link goes to a bookmark the document does not have; its text is kept without the link",
+    ),
 ];
 
 /// The fixed description of `code`.
@@ -140,6 +148,88 @@ pub struct PdfWarning {
 
 /// Locations kept per warning.
 pub const MAX_LOCATIONS: usize = 10;
+
+/// Quoted input kept per warning, and its length.
+const MAX_SAMPLES: usize = 5;
+const SAMPLE_CHARS: usize = 60;
+
+/// Occurrences gathered into one warning per code and subject, in order of
+/// first occurrence.
+#[derive(Debug, Default)]
+struct Tally(Vec<Entry>);
+
+#[derive(Debug)]
+struct Entry {
+    code: &'static str,
+    subject: &'static str,
+    count: usize,
+    locations: Vec<PdfLocation>,
+    samples: Vec<String>,
+}
+
+impl Tally {
+    fn note(
+        &mut self,
+        code: &'static str,
+        subject: &'static str,
+        location: Option<PdfLocation>,
+        sample: Option<String>,
+    ) {
+        let index = match self
+            .0
+            .iter()
+            .position(|e| e.code == code && e.subject == subject)
+        {
+            Some(index) => index,
+            None => {
+                self.0.push(Entry {
+                    code,
+                    subject,
+                    count: 0,
+                    locations: Vec::new(),
+                    samples: Vec::new(),
+                });
+                self.0.len() - 1
+            }
+        };
+        let entry = &mut self.0[index];
+        entry.count += 1;
+        if let Some(location) = location.filter(|_| entry.locations.len() < MAX_LOCATIONS) {
+            entry.locations.push(location);
+        }
+        if let Some(sample) = sample.filter(|_| entry.samples.len() < MAX_SAMPLES) {
+            entry
+                .samples
+                .push(sample.chars().take(SAMPLE_CHARS).collect());
+        }
+    }
+
+    fn finish(self) -> Vec<PdfWarning> {
+        self.0
+            .into_iter()
+            .map(|entry| {
+                let mut message = format!(
+                    "{} ({}): {}",
+                    entry.subject,
+                    entry.count,
+                    description(entry.code)
+                );
+                if !entry.samples.is_empty() {
+                    let quoted: Vec<String> =
+                        entry.samples.iter().map(|s| format!("\"{s}\"")).collect();
+                    message.push_str(&format!(" ({})", quoted.join(", ")));
+                }
+                PdfWarning {
+                    code: entry.code,
+                    subject: entry.subject,
+                    message,
+                    locations: entry.locations,
+                    count: entry.count,
+                }
+            })
+            .collect()
+    }
+}
 
 /// What a PDF of the document would leave out or change.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -234,67 +324,81 @@ const MAX_PAGE_SIDE: f64 = 14_400.0;
 /// A file of empty pages, `(width, height)` in points.
 pub(crate) fn blank_document(
     pages: &[(f64, f64)],
+    navigation: nav::Navigation,
     info: &meta::Info,
     producer: &str,
     limits: &Limits,
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, Vec<PdfWarning>)> {
     check_pages(pages)?;
     let pages: Vec<((f64, f64), Vec<u8>)> = pages.iter().map(|&size| (size, Vec::new())).collect();
     let writer = Writer::new(limits.max_output_bytes)?;
-    write_document(writer, &pages, Dict::new(), info, producer)
+    write_document(writer, &pages, Dict::new(), navigation, info, producer)
 }
 
 /// Writes the pages, each `(size, content stream)`, sharing `resources`,
-/// then the catalog, the `/Info` and the trailer.
+/// with their navigation, then the catalog, the `/Info` and the trailer.
 fn write_document(
     mut writer: Writer,
     pages: &[((f64, f64), Vec<u8>)],
     resources: Dict,
+    navigation: nav::Navigation,
     info: &meta::Info,
     producer: &str,
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, Vec<PdfWarning>)> {
     let catalog = writer.alloc()?;
     let tree = writer.alloc()?;
-    let mut kids = Vec::with_capacity(pages.len());
-    for ((width, height), content) in pages {
-        let page = writer.alloc()?;
-        let contents = writer.alloc()?;
+    let mut slots = Vec::with_capacity(pages.len());
+    for _ in pages {
+        slots.push((writer.alloc()?, writer.alloc()?));
+    }
+    let page_refs: Vec<_> = slots.iter().map(|&(page, _)| page).collect();
+    let heights = pages.iter().map(|((_, height), _)| *height);
+    let placed: Vec<_> = page_refs.iter().copied().zip(heights).collect();
+    let nav = navigation.write(&mut writer, &placed)?;
+    for ((((width, height), content), (page, contents)), annots) in
+        pages.iter().zip(slots).zip(nav.annots)
+    {
         writer.stream(contents, Dict::new(), content)?;
         let media_box: Vec<Object> =
             vec![0.0.into(), 0.0.into(), (*width).into(), (*height).into()];
-        writer.dict(
-            page,
-            Dict::new()
-                .with("Type", name("Page"))
-                .with("Parent", tree)
-                .with("MediaBox", media_box)
-                .with("Contents", contents),
-        )?;
-        kids.push(page.into());
+        let mut dict = Dict::new()
+            .with("Type", name("Page"))
+            .with("Parent", tree)
+            .with("MediaBox", media_box)
+            .with("Contents", contents);
+        if !annots.is_empty() {
+            dict.set("Annots", annots);
+        }
+        writer.dict(page, dict)?;
     }
     writer.dict(
         tree,
         Dict::new()
             .with("Type", name("Pages"))
             .with("Count", count(pages.len())?)
-            .with("Kids", kids)
+            .with(
+                "Kids",
+                page_refs.into_iter().map(Object::from).collect::<Vec<_>>(),
+            )
             .with("Resources", resources),
     )?;
-    writer.dict(
-        catalog,
-        Dict::new()
-            .with("Type", name("Catalog"))
-            .with("Pages", tree),
-    )?;
+    let mut root = Dict::new()
+        .with("Type", name("Catalog"))
+        .with("Pages", tree);
+    for (key, value) in nav.catalog {
+        root.set(key, value);
+    }
+    writer.dict(catalog, root)?;
     let info_ref = writer.alloc()?;
     writer.dict(info_ref, info.dict(producer)?)?;
     let id = meta::file_id(writer.body());
-    writer.finish(
+    let bytes = writer.finish(
         Dict::new()
             .with("Root", catalog)
             .with("Info", info_ref)
             .with("ID", id),
-    )
+    )?;
+    Ok((bytes, nav.warnings))
 }
 
 fn check_pages(pages: &[(f64, f64)]) -> Result<()> {
@@ -328,7 +432,21 @@ pub fn blank_document_for_tests(
     producer: &str,
     limits: &Limits,
 ) -> Result<Vec<u8>> {
-    blank_document(pages, info, producer, limits)
+    blank_document(pages, Navigation::default(), info, producer, limits).map(|(bytes, _)| bytes)
+}
+
+/// [`blank_document`] with navigation, for tests only (`test-support`
+/// feature).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn linked_document_for_tests(
+    pages: &[(f64, f64)],
+    navigation: Navigation,
+    info: &Info,
+    producer: &str,
+    limits: &Limits,
+) -> Result<(Vec<u8>, Vec<PdfWarning>)> {
+    blank_document(pages, navigation, info, producer, limits)
 }
 
 /// [`font::text_document`] for tests only (`test-support` feature).
